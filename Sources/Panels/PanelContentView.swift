@@ -109,6 +109,16 @@ struct PanelContentView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        case .history:
+            if let historyPanel = panel as? HistoryPanel {
+                HistoryPanelView(
+                    panel: historyPanel,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         }
     }
 
@@ -128,6 +138,11 @@ struct PanelContentView: View {
         switch panel.panelType {
         case .markdown, .filePreview, .rightSidebarTool, .project, .extensionBrowser:
             return true
+        case .history:
+            // The pane drop target is a full-panel AppKit overlay. History does
+            // not accept direct file/text drops, and the overlay can break row
+            // hover tracking when History is hosted as a split.
+            return false
         case .terminal, .browser:
             return false
         }

@@ -541,6 +541,7 @@ extension Workspace {
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?
+        var historySnapshot: SessionHistoryPanelSnapshot? = nil
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -674,6 +675,15 @@ extension Workspace {
                 selectedSchemeName: projectPanel.selectedSchemeName,
                 selectedConfigurationName: projectPanel.selectedConfigurationName
             )
+        case .history:
+            guard panel is HistoryPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            projectSnapshot = nil
+            historySnapshot = SessionHistoryPanelSnapshot()
         case .extensionBrowser:
             return nil
         }
@@ -697,7 +707,8 @@ extension Workspace {
             markdown: markdownSnapshot,
             filePreview: filePreviewSnapshot,
             rightSidebarTool: rightSidebarToolSnapshot,
-            project: projectSnapshot
+            project: projectSnapshot,
+            history: historySnapshot
         )
     }
 
@@ -757,17 +768,21 @@ extension Workspace {
         )
     }
 
-    private func consumeCloseHistoryEligibility(tabId: TabID, panelId: UUID?) -> Bool {
+    private func consumeCloseHistoryEligibility(tabId: TabID, panelId: UUID?) -> (isEligible: Bool, operationId: UUID?) {
         let eligibleByTab = closeHistoryEligibleTabIds.remove(tabId) != nil
         let eligibleByPanel = panelId.map { closeHistoryEligiblePanelIds.remove($0) != nil } ?? false
-        return eligibleByTab || eligibleByPanel
+        let operationIdByTab = closeHistoryOperationIdsByTabId.removeValue(forKey: tabId)
+        let operationIdByPanel = panelId.flatMap { closeHistoryOperationIdsByPanelId.removeValue(forKey: $0) }
+        return (eligibleByTab || eligibleByPanel, operationIdByTab ?? operationIdByPanel)
     }
 
     private func clearCloseHistoryEligibility(tabId: TabID, panelId: UUID? = nil) {
         closeHistoryEligibleTabIds.remove(tabId)
+        closeHistoryOperationIdsByTabId.removeValue(forKey: tabId)
         let resolvedPanelId = panelId ?? panelIdFromSurfaceId(tabId)
         if let resolvedPanelId {
             closeHistoryEligiblePanelIds.remove(resolvedPanelId)
+            closeHistoryOperationIdsByPanelId.removeValue(forKey: resolvedPanelId)
         }
     }
 
@@ -775,11 +790,12 @@ extension Workspace {
     private func pushClosedPanelHistoryIfEligible(for tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
         guard !suppressClosedPanelHistory else { return false }
         guard let panelId = panelIdFromSurfaceId(tab.id) else { return false }
-        guard consumeCloseHistoryEligibility(tabId: tab.id, panelId: panelId) else { return false }
+        let eligibility = consumeCloseHistoryEligibility(tabId: tab.id, panelId: panelId)
+        guard eligibility.isEligible else { return false }
         guard let entry = closedPanelHistoryEntry(panelId: panelId, tabId: tab.id, pane: pane) else {
             return false
         }
-        ClosedItemHistoryStore.shared.push(.panel(entry))
+        ClosedItemHistoryStore.shared.push(.panel(entry), operationId: eligibility.operationId)
         return true
     }
 
@@ -1872,6 +1888,13 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: projectPanel.id)
             return projectPanel.id
+        case .history:
+            guard snapshot.history != nil,
+                  let historyPanel = newHistorySurface(inPane: paneId, focus: false) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: historyPanel.id)
+            return historyPanel.id
         case .extensionBrowser:
             return nil
         }
@@ -10710,6 +10733,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let rightSidebarTool = "rightSidebarTool"
         static let project = "project"
         static let extensionBrowser = "extensionBrowser"
+        static let history = "history"
     }
 
     enum PanelShellActivityState: String {
@@ -11311,6 +11335,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var explicitUserCloseTabIds: Set<TabID> = []
     private var closeHistoryEligibleTabIds: Set<TabID> = []
     private var closeHistoryEligiblePanelIds: Set<UUID> = []
+    private var closeHistoryOperationIdsByTabId: [TabID: UUID] = [:]
+    private var closeHistoryOperationIdsByPanelId: [UUID: UUID] = [:]
     private var suppressClosedPanelHistory = false
     private var tabCloseButtonCloseTabIds: Set<TabID> = []
 
@@ -11322,6 +11348,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Bonsplit pane-close does not emit per-tab didClose callbacks.
     private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
     private var pendingPaneCloseHistoryEntries: [UUID: [ClosedPanelHistoryEntry]] = [:]
+    private var pendingPaneCloseOperationIds: [UUID: UUID] = [:]
     private var pendingClosedBrowserRestoreSnapshots: [TabID: ClosedBrowserPanelRestoreSnapshot] = [:]
     private var isApplyingTabSelection = false
     private struct PendingTabSelectionRequest {
@@ -11398,18 +11425,24 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func markCloseHistoryEligible(panelId: UUID) {
+    func markCloseHistoryEligible(panelId: UUID, operationId: UUID? = nil) {
         closeHistoryEligiblePanelIds.insert(panelId)
+        if let operationId {
+            closeHistoryOperationIdsByPanelId[panelId] = operationId
+        }
         if let surfaceId = surfaceIdFromPanelId(panelId) {
             closeHistoryEligibleTabIds.insert(surfaceId)
+            if let operationId {
+                closeHistoryOperationIdsByTabId[surfaceId] = operationId
+            }
         }
     }
 
     @discardableResult
-    func requestCloseTabRecordingHistory(_ tabId: TabID, force: Bool) -> Bool {
+    func requestCloseTabRecordingHistory(_ tabId: TabID, force: Bool, operationId: UUID? = nil) -> Bool {
         let panelId = panelIdFromSurfaceId(tabId)
         if let panelId {
-            markCloseHistoryEligible(panelId: panelId)
+            markCloseHistoryEligible(panelId: panelId, operationId: operationId)
         }
 
         let closed = requestCloseTab(tabId, force: force)
@@ -11694,6 +11727,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.project
         case .extensionBrowser:
             return SurfaceKind.extensionBrowser
+        case .history:
+            return SurfaceKind.history
         }
     }
 
@@ -15457,6 +15492,52 @@ final class Workspace: Identifiable, ObservableObject {
         return toolPanel
     }
 
+    func newHistorySurface(
+        inPane paneId: PaneID,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> HistoryPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let historyPanel = HistoryPanel()
+        panels[historyPanel.id] = historyPanel
+        panelTitles[historyPanel.id] = historyPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: historyPanel.displayTitle,
+            icon: historyPanel.displayIcon,
+            kind: SurfaceKind.history,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: historyPanel.id)
+            panelTitles.removeValue(forKey: historyPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = historyPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(historyPanel.id, paneId: paneId, kind: SurfaceKind.history, origin: "history_tab", focused: shouldFocusNewTab)
+
+        if shouldFocusNewTab {
+            focusPanel(historyPanel.id)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: historyPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return historyPanel
+    }
+
     @discardableResult
     func splitPaneWithFilePreview(
         targetPane paneId: PaneID,
@@ -15533,9 +15614,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Close a panel.
     /// Returns true when a bonsplit tab close request was issued.
-    func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
+    @discardableResult
+    func closePanel(_ panelId: UUID, force: Bool = false, operationId: UUID? = nil) -> Bool {
         if let tabId = surfaceIdFromPanelId(panelId) {
             // Close the tab in bonsplit (this triggers delegate callback)
+            if let operationId {
+                markCloseHistoryEligible(panelId: panelId, operationId: operationId)
+            }
             return requestCloseTab(tabId, force: force)
         }
 
@@ -15560,6 +15645,9 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
 
+        if let operationId, let selectedPanelId = panelIdFromSurfaceId(selected.id) {
+            markCloseHistoryEligible(panelId: selectedPanelId, operationId: operationId)
+        }
         let closed = requestCloseTab(selected.id, force: force)
 #if DEBUG
         cmuxDebugLog(
@@ -15569,6 +15657,78 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         return closed
+    }
+
+    @discardableResult
+    func closePanelForHistoryRedo(_ panelId: UUID, operationId: UUID, force: Bool = false) -> Bool {
+        guard let tabId = surfaceIdFromPanelId(panelId) else {
+            return closePanel(panelId, force: force, operationId: operationId)
+        }
+        guard panels[panelId] != nil else { return false }
+        guard !isPanelPinned(panelId) else {
+            clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
+            NSSound.beep()
+            return false
+        }
+
+        if force {
+            return closePanel(panelId, force: true, operationId: operationId)
+        }
+
+        if CloseTabConfirmationPolicy.shouldConfirm(
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+            source: .shortcut
+        ) {
+            let prompt = closePanelConfirmationPrompt(for: tabId)
+            let confirmationManager = owningTabManager
+                ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+                ?? AppDelegate.shared?.tabManager
+            guard let confirmationManager,
+                  confirmationManager.confirmClose(title: prompt.title, message: prompt.message, acceptCmdD: false) else {
+                clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
+                return false
+            }
+        }
+
+        return closePanel(panelId, force: true, operationId: operationId)
+    }
+
+    func confirmPanelCloseForHistoryRedo(_ panelId: UUID, force: Bool = false) -> Bool {
+        guard let tabId = surfaceIdFromPanelId(panelId) else {
+            return panels[panelId] != nil
+        }
+        guard panels[panelId] != nil else { return false }
+        guard !isPanelPinned(panelId) else {
+            NSSound.beep()
+            return false
+        }
+        guard !force else { return true }
+
+        guard CloseTabConfirmationPolicy.shouldConfirm(
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+            source: .shortcut
+        ) else { return true }
+
+        let prompt = closePanelConfirmationPrompt(for: tabId)
+        let confirmationManager = owningTabManager
+            ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+            ?? AppDelegate.shared?.tabManager
+        guard let confirmationManager else { return false }
+        return confirmationManager.confirmCloseForHistoryRedoPreflight(
+            title: prompt.title,
+            message: prompt.message,
+            acceptCmdD: false
+        )
+    }
+
+    func panelCloseNeedsInteractiveConfirmationForHistoryRedo(_ panelId: UUID) -> Bool {
+        guard surfaceIdFromPanelId(panelId) != nil else { return false }
+        guard panels[panelId] != nil else { return false }
+        guard !isPanelPinned(panelId) else { return false }
+        return CloseTabConfirmationPolicy.shouldConfirm(
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+            source: .shortcut
+        )
     }
 
     func requestCloseTab(_ tabId: TabID, force: Bool) -> Bool {
@@ -18153,8 +18313,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     @MainActor
-    private func confirmClosePanel(for tabId: TabID) async -> Bool {
-        let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
+    private func closePanelConfirmationPrompt(for tabId: TabID) -> (title: String, message: String) {
         let panelName: String? = {
             guard let panelId = panelIdFromSurfaceId(tabId) else { return nil }
             if let custom = panelCustomTitles[panelId], !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -18169,24 +18328,29 @@ extension Workspace: BonsplitDelegate {
             return nil
         }()
 
-        let message: String
-        if let panelName {
-            message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
-        } else {
-            message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
-        }
+        return (
+            String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
+            panelName.map {
+                String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\($0)\".")
+            } ?? String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
+        )
+    }
+
+    @MainActor
+    private func confirmClosePanel(for tabId: TabID) async -> Bool {
+        let prompt = closePanelConfirmationPrompt(for: tabId)
 
         if let confirmCloseHandler = (
             owningTabManager
             ?? AppDelegate.shared?.tabManagerFor(tabId: id)
             ?? AppDelegate.shared?.tabManager
         )?.confirmCloseHandler {
-            return confirmCloseHandler(title, message, false)
+            return confirmCloseHandler(prompt.title, prompt.message, false)
         }
 
         let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
+        alert.messageText = prompt.title
+        alert.informativeText = prompt.message
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
@@ -18966,13 +19130,14 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let closedHistoryEntries = pendingPaneCloseHistoryEntries.removeValue(forKey: paneId.id) ?? []
+        let closeOperationId = pendingPaneCloseOperationIds.removeValue(forKey: paneId.id)
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
         publishCmuxPaneClosed(paneId, closedPanelIds: closedPanelIds, origin: "pane_close")
         if !closedPanelIds.isEmpty {
             if !isDetachingCloseTransaction && !suppressClosedPanelHistory {
                 for entry in closedHistoryEntries {
-                    ClosedItemHistoryStore.shared.push(.panel(entry))
+                    ClosedItemHistoryStore.shared.push(.panel(entry), operationId: closeOperationId)
                 }
             }
 
@@ -19025,6 +19190,7 @@ extension Workspace: BonsplitDelegate {
                ) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+                pendingPaneCloseOperationIds.removeValue(forKey: pane.id)
                 return false
             }
         }
@@ -19032,6 +19198,7 @@ extension Workspace: BonsplitDelegate {
         pendingPaneClosePanelIds[pane.id] = panelIds
         if suppressClosedPanelHistory || isDetachingCloseTransaction {
             pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+            pendingPaneCloseOperationIds.removeValue(forKey: pane.id)
         } else {
             let historyEntries = tabs.compactMap { tab -> ClosedPanelHistoryEntry? in
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { return nil }
@@ -19039,8 +19206,10 @@ extension Workspace: BonsplitDelegate {
             }
             if historyEntries.isEmpty {
                 pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+                pendingPaneCloseOperationIds.removeValue(forKey: pane.id)
             } else {
                 pendingPaneCloseHistoryEntries[pane.id] = historyEntries
+                pendingPaneCloseOperationIds[pane.id] = UUID()
             }
         }
         return true

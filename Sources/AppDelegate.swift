@@ -1078,6 +1078,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didBootstrapInitialMainWindow = false
     private var isTerminatingApp = false
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
+    private var closedWindowHistoryOperationIdsByWindowId: [UUID: UUID] = [:]
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
 #endif
@@ -1226,6 +1227,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Single liveness source of truth for the closed-item history: lets the
+        // store tell which restored items are currently live, so restore-remaining
+        // and undo never duplicate something already open. Not persisted, so it is
+        // empty after launch (the reset-on-launch undo behavior).
+        ClosedItemHistoryStore.shared.isTargetLive = { [weak self] ref in
+            self?.closedItemTargetIsLive(ref) ?? false
+        }
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
@@ -5516,18 +5524,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didFocus
     }
 
-    func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
+    @discardableResult
+    func closeMainWindow(windowId: UUID, recordHistory: Bool = true, operationId: UUID? = nil) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
         if !recordHistory {
             closedWindowHistorySuppressedWindowIds.insert(windowId)
+            closedWindowHistoryOperationIdsByWindowId.removeValue(forKey: windowId)
+        } else if let operationId {
+            closedWindowHistoryOperationIdsByWindowId[windowId] = operationId
         }
         window.performClose(nil)
         return true
     }
 
+    @discardableResult
+    func closeMainWindowForHistoryRedo(windowId: UUID, operationId: UUID, force: Bool = false) -> Bool {
+        guard let window = windowForMainWindowId(windowId) else { return false }
+        if !force {
+            guard confirmCloseMainWindow(window) else { return false }
+        }
+        closedWindowHistoryOperationIdsByWindowId[windowId] = operationId
+        window.performClose(nil)
+        let didClose = tabManagerFor(windowId: windowId) == nil
+        if !didClose {
+            closedWindowHistoryOperationIdsByWindowId.removeValue(forKey: windowId)
+        }
+        return didClose
+    }
+
+    func confirmMainWindowForHistoryRedo(windowId: UUID, force: Bool = false) -> Bool {
+        guard let window = windowForMainWindowId(windowId) else { return false }
+        if !force {
+            guard confirmCloseMainWindow(window) else { return false }
+        }
+        return handleMainTerminalWindowShouldClose()
+    }
+
     func discardMainWindowWithoutClosedHistory(windowId: UUID) {
         guard let window = windowForMainWindowId(windowId) else { return }
         closedWindowHistorySuppressedWindowIds.insert(windowId)
+        closedWindowHistoryOperationIdsByWindowId.removeValue(forKey: windowId)
         window.close()
     }
 
@@ -8139,6 +8175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
             if !shouldClose {
                 self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
+                self?.closedWindowHistoryOperationIdsByWindowId.removeValue(forKey: windowId)
             }
             return shouldClose
         }
@@ -12485,6 +12522,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        if shouldBypassPrintableOptionTextShortcutRouting(event: event, normalizedFlags: normalizedFlags) {
+            return false
+        }
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
         let isPlainEscape = normalizedFlags.isEmpty && event.keyCode == 53
         if !isPlainEscape {
@@ -13570,11 +13610,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .reopenClosedBrowserPanel) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            _ = reopenMostRecentlyClosedItem(preferredTabManager: routedManager)
+            _ = undoLastDestructiveAction(preferredTabManager: routedManager, shouldActivate: true)
             return true
         }
 
         return false
+    }
+
+    private func shouldBypassPrintableOptionTextShortcutRouting(
+        event: NSEvent,
+        normalizedFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard normalizedFlags.contains(.option),
+              !normalizedFlags.contains(.command),
+              !normalizedFlags.contains(.control),
+              let characters = event.characters,
+              !characters.isEmpty,
+              characters.rangeOfCharacter(from: .newlines) == nil,
+              characters.rangeOfCharacter(from: CharacterSet.controlCharacters.inverted) != nil else {
+            return false
+        }
+        return true
     }
 
     func shouldSuppressSplitShortcutForTransientTerminalFocusState(
@@ -15896,6 +15952,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func recordClosedWindowHistoryIfNeeded(for context: MainWindowContext) {
+        let operationId = closedWindowHistoryOperationIdsByWindowId.removeValue(forKey: context.windowId)
         let shouldSuppressClosedWindowHistory = closedWindowHistorySuppressedWindowIds.remove(context.windowId) != nil
         guard !shouldSuppressClosedWindowHistory,
               !isTerminatingApp,
@@ -15914,7 +15971,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             windowId: context.windowId,
             snapshot: snapshot,
             workspaceIds: context.tabManager.sessionSnapshotWorkspaceIds()
-        )))
+        )), operationId: operationId)
     }
 
 #if DEBUG
@@ -15950,23 +16007,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workspaceForMainActor(tabId: tabId)
     }
 
-    func closeMainWindowContainingTabId(_ tabId: UUID, recordHistory: Bool = true) {
+    @discardableResult
+    func closeMainWindowContainingTabId(_ tabId: UUID, recordHistory: Bool = true, operationId: UUID? = nil) -> Bool {
 #if DEBUG
         closeMainWindowContainingTabIdObserverForTesting?(tabId, recordHistory)
 #endif
-        guard let context = contextContainingTabId(tabId) else { return }
+        guard let context = contextContainingTabId(tabId) else { return false }
         let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         if !recordHistory {
             closedWindowHistorySuppressedWindowIds.insert(context.windowId)
+            closedWindowHistoryOperationIdsByWindowId.removeValue(forKey: context.windowId)
+        } else if let operationId {
+            closedWindowHistoryOperationIdsByWindowId[context.windowId] = operationId
         }
         guard let window else {
             if !recordHistory {
                 closedWindowHistorySuppressedWindowIds.remove(context.windowId)
             }
-            return
+            closedWindowHistoryOperationIdsByWindowId.removeValue(forKey: context.windowId)
+            return false
         }
         window.performClose(nil)
+        return true
     }
 
     @discardableResult

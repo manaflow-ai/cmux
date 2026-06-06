@@ -2578,6 +2578,13 @@ struct ContentView: View {
         _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
     }
 
+    func openHistoryPane() {
+        sidebarSelectionState.selection = .tabs
+        if tabManager.openHistoryPaneInSelectedWorkspace() == nil {
+            NSSound.beep()
+        }
+    }
+
     private func openFilePreviewFromSidebar(filePath: String) {
         guard let workspace = tabManager.selectedWorkspace else { return }
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
@@ -5951,6 +5958,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
         case .project:
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
+        case .history:
+            return String(localized: "history.pane.title", defaultValue: "History")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         }
@@ -5970,6 +5979,8 @@ struct ContentView: View {
             return ["tool", "files", "find", "vault", "sidebar"]
         case .project:
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
+        case .history:
+            return ["history", "session", "sessions", "vault", "agent", "transcript"]
         case .extensionBrowser:
             return ["sidebar", "extensions", "extensionkit", "browser"]
         }
@@ -8023,7 +8034,7 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.reopenClosedBrowserTab") {
             if let appDelegate = AppDelegate.shared {
-                _ = appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: tabManager)
+                _ = appDelegate.undoLastDestructiveAction(preferredTabManager: tabManager, shouldActivate: true)
             } else {
                 _ = tabManager.reopenMostRecentlyClosedItem()
             }
@@ -11556,6 +11567,8 @@ struct VerticalTabsSidebar: View {
             return .rightSidebarTool
         case .project:
             return .project
+        case .history:
+            return .unknown
         case .extensionBrowser:
             return .unknown
         }

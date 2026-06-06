@@ -211,6 +211,49 @@ final class SessionIndexStore: ObservableObject {
         currentDirectory = next
     }
 
+    /// Removes a single session from history by moving its transcript file to the
+    /// Trash and dropping it from the in-memory list.
+    ///
+    /// The deletion is recoverable from the Finder Trash until the user empties it,
+    /// and because the file leaves its scanned directory the row does not reappear
+    /// on the next reload. Only sessions where ``SessionEntry/isDeletable`` is true
+    /// are removed; others are rejected with a beep.
+    ///
+    /// - Parameter entry: The session to delete.
+    /// - Returns: `true` when deletion was accepted and scheduled.
+    @discardableResult
+    func delete(_ entry: SessionEntry) -> Bool {
+        guard let url = entry.deletableFileURL else {
+            NSSound.beep()
+            return false
+        }
+        let entryId = entry.id
+        Task { [weak self, url, entryId] in
+            let result = await Task.detached(priority: .userInitiated) {
+                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            }.result
+            switch result {
+            case .success:
+                self?.completeDelete(entryId: entryId)
+            case .failure(let error):
+                if !Task.isCancelled {
+                    sessionIndexLogger.error("Failed to move session transcript to Trash: \(error.localizedDescription, privacy: .public)")
+                    NSSound.beep()
+                }
+            }
+        }
+        return true
+    }
+
+    private func completeDelete(entryId: String) {
+        loadTask?.cancel()
+        loadGeneration &+= 1
+        isLoading = false
+        entries.removeAll { $0.id == entryId }
+        directorySnapshotGeneration += 1
+        invalidateDirectorySnapshots()
+    }
+
     @Published var grouping: SessionGrouping {
         didSet {
             guard grouping != oldValue else { return }
@@ -516,17 +559,21 @@ final class SessionIndexStore: ObservableObject {
     }
 
     private var loadTask: Task<Void, Never>?
+    private var loadGeneration: UInt64 = 0
 
     func reload() {
         loadTask?.cancel()
+        loadGeneration &+= 1
+        let generation = loadGeneration
         isLoading = true
         directorySnapshotGeneration += 1
         invalidateDirectorySnapshots()
         loadTask = Task.detached(priority: .userInitiated) { [weak self] in
             let scanned = await Self.scanAll()
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard let self else { return }
-                if Task.isCancelled { return }
+                guard self.loadGeneration == generation else { return }
                 self.entries = scanned
                 self.isLoading = false
                 self.backfillAgentOrderFromEntries()

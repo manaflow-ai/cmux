@@ -58,6 +58,7 @@ struct SessionIndexView: View {
     @State private var openPopoverSection: SectionKey?
     @State private var previewEntry: SessionEntry?
     let onResume: ((SessionEntry) -> Void)?
+    let onDelete: ((SessionEntry) -> Bool)?
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
 
@@ -178,6 +179,7 @@ struct SessionIndexView: View {
         let store = self.store
         let dragCoordinator = self.dragCoordinator
         let onResumeClosure = onResume
+        let onDeleteClosure = onDelete
         let gapActions = SectionGapActions(
             currentDraggedKey: { dragCoordinator.draggedKey },
             moveSection: { key, before in store.moveSection(key, before: before) },
@@ -231,6 +233,7 @@ struct SessionIndexView: View {
                                 }
                             },
                             onResume: onResumeClosure,
+                            onDelete: onDeleteClosure,
                             search: searchFn,
                             loadSnapshot: loadSnapshotFn
                         )
@@ -333,6 +336,7 @@ struct IndexSectionActions {
     let onPreviewEntry: (SessionEntry) -> Void
     let onDismissPreview: (SessionEntry.ID) -> Void
     let onResume: ((SessionEntry) -> Void)?
+    let onDelete: ((SessionEntry) -> Bool)?
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
 }
@@ -388,7 +392,8 @@ private struct IndexSectionView: View, Equatable {
                                 actions.onDismissPreview(entry.id)
                             }
                         },
-                        onResume: actions.onResume
+                        onResume: actions.onResume,
+                        onDelete: actions.onDelete
                     )
                         .equatable()
                         .id(entry.id)
@@ -422,7 +427,8 @@ private struct IndexSectionView: View, Equatable {
                 section: section,
                 search: actions.search,
                 loadSnapshot: actions.loadSnapshot,
-                onResume: actions.onResume
+                onResume: actions.onResume,
+                onDelete: actions.onDelete
             )
         )
     }
@@ -558,6 +564,7 @@ private struct SessionRow: View, Equatable {
     let isPreviewPresented: Bool
     let onPreviewPresentationChange: (Bool) -> Void
     let onResume: ((SessionEntry) -> Void)?
+    let onDelete: ((SessionEntry) -> Bool)?
     @State private var isHovered: Bool = false
 
     static func == (lhs: SessionRow, rhs: SessionRow) -> Bool {
@@ -608,7 +615,7 @@ private struct SessionRow: View, Equatable {
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: onResume)
+            sessionRowMenuItems(entry: entry, onResume: onResume, onDelete: onDelete)
         }
     }
 
@@ -665,7 +672,11 @@ private struct SessionRow: View, Equatable {
 /// free `@ViewBuilder` so SessionRow and PopoverRow both attach the same set
 /// without duplicating the button list or the action helpers.
 @ViewBuilder
-private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) -> Void)?) -> some View {
+private func sessionRowMenuItems(
+    entry: SessionEntry,
+    onResume: ((SessionEntry) -> Void)?,
+    onDelete: ((SessionEntry) -> Bool)? = nil
+) -> some View {
     if let onResume {
         Button {
             onResume(entry)
@@ -718,6 +729,32 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
             Text(String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request"))
         }
     }
+    if let onDelete, entry.isDeletable {
+        Divider()
+        Button(role: .destructive) {
+            guard confirmSessionTranscriptDelete(entry) else { return }
+            _ = onDelete(entry)
+        } label: {
+            Text(String(localized: "sessionIndex.row.delete", defaultValue: "Delete from History"))
+        }
+    }
+}
+
+@MainActor
+private func confirmSessionTranscriptDelete(_ entry: SessionEntry) -> Bool {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = String(localized: "sessionIndex.deleteConfirm.title", defaultValue: "Delete Session Transcript?")
+    alert.informativeText = String(
+        format: String(
+            localized: "sessionIndex.deleteConfirm.message",
+            defaultValue: "This moves the transcript file for \"%@\" to Trash and removes it from Vault."
+        ),
+        entry.displayTitle
+    )
+    alert.addButton(withTitle: String(localized: "sessionIndex.deleteConfirm.confirm", defaultValue: "Move to Trash"))
+    alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+    return runCmuxModalAlert(alert) == .alertFirstButtonReturn
 }
 
 // MARK: - Session transcript preview
@@ -2118,6 +2155,7 @@ private struct SectionPopoverView: View {
     /// is an in-memory array slice, not repeated store round-trips.
     let loadSnapshot: DirectorySnapshotFn
     let onResume: ((SessionEntry) -> Void)?
+    let onDelete: ((SessionEntry) -> Bool)?
     let onDismiss: () -> Void
 
     @State private var query: String = ""
@@ -2224,7 +2262,15 @@ private struct SectionPopoverView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         ForEach(loaded) { entry in
-                            PopoverRow(entry: entry) {
+                            PopoverRow(entry: entry, onDelete: { deletedEntry in
+                                guard onDelete?(deletedEntry) == true else { return false }
+                                // The popover intentionally doesn't rebuild on store
+                                // changes, so drop the deleted row from local state
+                                // to keep it from lingering as activatable.
+                                loaded.removeAll { $0.id == deletedEntry.id }
+                                fullSnapshot?.removeAll { $0.id == deletedEntry.id }
+                                return true
+                            }) {
                                 onResume?(entry)
                                 onDismiss()
                             }
@@ -2453,6 +2499,7 @@ private struct SectionPopoverView: View {
 
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
+    let onDelete: ((SessionEntry) -> Bool)?
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
@@ -2514,7 +2561,7 @@ private struct PopoverRow: View, Equatable {
         }
         .help(entry.cwdLabel ?? entry.displayTitle)
         .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
+            sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() }, onDelete: onDelete)
         }
     }
 }
@@ -2632,6 +2679,23 @@ struct SectionPopoverHost: NSViewRepresentable {
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
     let onResume: ((SessionEntry) -> Void)?
+    let onDelete: ((SessionEntry) -> Bool)?
+
+    init(
+        isPresented: Binding<Bool>,
+        section: IndexSection,
+        search: @escaping SessionSearchFn,
+        loadSnapshot: @escaping DirectorySnapshotFn,
+        onResume: ((SessionEntry) -> Void)?,
+        onDelete: ((SessionEntry) -> Bool)? = nil
+    ) {
+        _isPresented = isPresented
+        self.section = section
+        self.search = search
+        self.loadSnapshot = loadSnapshot
+        self.onResume = onResume
+        self.onDelete = onDelete
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(isPresented: $isPresented)
@@ -2651,7 +2715,8 @@ struct SectionPopoverHost: NSViewRepresentable {
             section: section,
             search: search,
             loadSnapshot: loadSnapshot,
-            onResume: onResume
+            onResume: onResume,
+            onDelete: onDelete
         )
         if isPresented {
             coordinator.present()
@@ -2690,6 +2755,7 @@ struct SectionPopoverHost: NSViewRepresentable {
         private var currentSearch: SessionSearchFn?
         private var currentLoadSnapshot: DirectorySnapshotFn?
         private var currentOnResume: ((SessionEntry) -> Void)?
+        private var currentOnDelete: ((SessionEntry) -> Bool)?
         private var lastRenderedSection: IndexSection?
         private var lastRenderedPresentationCount: Int?
         /// Bumped on every present(). Used as the SwiftUI view identity so each
@@ -2704,12 +2770,14 @@ struct SectionPopoverHost: NSViewRepresentable {
             section: IndexSection,
             search: @escaping SessionSearchFn,
             loadSnapshot: @escaping DirectorySnapshotFn,
-            onResume: ((SessionEntry) -> Void)?
+            onResume: ((SessionEntry) -> Void)?,
+            onDelete: ((SessionEntry) -> Bool)? = nil
         ) {
             currentSection = section
             currentSearch = search
             currentLoadSnapshot = loadSnapshot
             currentOnResume = onResume
+            currentOnDelete = onDelete
             // When hidden, defer rebuilding the hosting view until `present()`.
             // Rewriting rootView + forcing layout on every parent re-render was
             // the 100% CPU loop behind #3010.
@@ -2729,13 +2797,15 @@ struct SectionPopoverHost: NSViewRepresentable {
                   let loadSnapshot = currentLoadSnapshot else { return }
             debugRefreshContentCallCount += 1
             let onResume = currentOnResume
+            let onDelete = currentOnDelete
             let identity = presentationCount
             hostingController.rootView = AnyView(
                 SectionPopoverView(
                     section: section,
                     search: search,
                     loadSnapshot: loadSnapshot,
-                    onResume: onResume
+                    onResume: onResume,
+                    onDelete: onDelete
                 ) { [weak self] in
                     self?.closeFromContent()
                 }

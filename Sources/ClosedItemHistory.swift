@@ -1,6 +1,5 @@
 import Foundation
-import Combine
-import Bonsplit
+import Observation
 import OSLog
 
 private let closedItemHistoryLogger = Logger(
@@ -8,131 +7,32 @@ private let closedItemHistoryLogger = Logger(
     category: "ClosedItemHistory"
 )
 
-struct ClosedPanelSplitPlacement: Codable {
-    let orientation: SplitOrientation
-    let insertFirst: Bool
-    let anchorPanelId: UUID?
-}
-
-struct ClosedPanelHistoryEntry: Codable {
-    let workspaceId: UUID
-    let paneId: UUID
-    let paneAnchorPanelId: UUID?
-    let restoreInOriginalPane: Bool
-    let tabIndex: Int
-    let snapshot: SessionPanelSnapshot
-    let fallbackSplitPlacement: ClosedPanelSplitPlacement?
-
-    init(
-        workspaceId: UUID,
-        paneId: UUID,
-        paneAnchorPanelId: UUID? = nil,
-        restoreInOriginalPane: Bool = true,
-        tabIndex: Int,
-        snapshot: SessionPanelSnapshot,
-        fallbackSplitPlacement: ClosedPanelSplitPlacement? = nil
-    ) {
-        self.workspaceId = workspaceId
-        self.paneId = paneId
-        self.paneAnchorPanelId = paneAnchorPanelId
-        self.restoreInOriginalPane = restoreInOriginalPane
-        self.tabIndex = tabIndex
-        self.snapshot = snapshot
-        self.fallbackSplitPlacement = fallbackSplitPlacement
-    }
-}
-
-struct ClosedWorkspaceHistoryEntry: Codable {
-    let workspaceId: UUID
-    let windowId: UUID?
-    let workspaceIndex: Int
-    let snapshot: SessionWorkspaceSnapshot
-}
-
-struct ClosedWindowHistoryEntry: Codable {
-    let windowId: UUID?
-    let snapshot: SessionWindowSnapshot
-
-    let workspaceIds: [UUID]
-
-    init(windowId: UUID? = nil, snapshot: SessionWindowSnapshot, workspaceIds: [UUID] = []) {
-        self.windowId = windowId
-        self.snapshot = snapshot
-        self.workspaceIds = workspaceIds
-    }
-}
-
-enum ClosedItemHistoryEntry: Codable {
-    case panel(ClosedPanelHistoryEntry)
-    case workspace(ClosedWorkspaceHistoryEntry)
-    case window(ClosedWindowHistoryEntry)
-}
-
-struct ClosedItemHistoryRecord: Identifiable, Codable {
-    let id: UUID
-    let closedAt: Date
-    var entry: ClosedItemHistoryEntry
-
-    init(id: UUID = UUID(), closedAt: Date = Date(), entry: ClosedItemHistoryEntry) {
-        self.id = id
-        self.closedAt = closedAt
-        self.entry = entry
-    }
-}
-
-struct ClosedItemHistoryMenuItem: Identifiable {
-    let id: UUID
-    let title: String
-    let detail: String
-    let closedAt: Date
-
-    var menuSubtitle: String {
-        let closed = String(
-            format: String(localized: "historyPane.closedAtFormat", defaultValue: "Closed %@"),
-            closedAt.formatted(date: .omitted, time: .shortened)
-        )
-        return String(
-            format: String(localized: "menu.history.menuItemSubtitleFormat", defaultValue: "%1$@, %2$@"),
-            detail,
-            closed
-        )
-    }
-
-    var menuTitle: String {
-        HistoryMenuLineFormatter.titleWithSubtitle(
-            title: title,
-            subtitle: menuSubtitle
-        )
-    }
-}
-
-struct ClosedItemHistoryMenuSnapshot {
-    let items: [ClosedItemHistoryMenuItem]
-    let totalItemCount: Int
-    let isLimited: Bool
-}
-
-enum ClosedWindowRestoreValidation {
-    static func hasUsableRestoredContent(
-        snapshot: SessionWindowSnapshot,
-        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]],
-        hasLivePanels: Bool
-    ) -> Bool {
-        guard hasLivePanels else { return false }
-        guard snapshot.hasRestorablePanels else { return true }
-        return restoredPanelIdsByWorkspaceIndex.contains { !$0.isEmpty }
-    }
-}
-
 @MainActor
-final class ClosedItemHistoryStore: ObservableObject {
+@Observable
+final class ClosedItemHistoryStore {
+    static let defaultCapacity = 200
     static let shared = ClosedItemHistoryStore(
-        capacity: nil,
+        capacity: defaultCapacity,
         fileURL: defaultHistoryFileURL()
     )
 
-    @Published private(set) var revision: UInt64 = 0
-    @Published private var records: [ClosedItemHistoryRecord] = []
+    private(set) var revision: UInt64 = 0
+    /// The most recently reopened item, re-closable via redo. Cleared whenever a
+    /// new close is recorded (any ``push(_:)``) so redo only applies immediately
+    /// after an undo.
+    private(set) var redoTarget: ReopenedItemRef? = nil
+    /// The operation most recently restored (by undo or pane restore), so a redo
+    /// can re-close that whole group. Cleared on any new close.
+    private(set) var lastRestoredOperationId: UUID? = nil
+    private var records: [ClosedItemHistoryRecord] = []
+    /// In-memory map from a restored record's id to the live item it produced.
+    /// Not persisted, so it is empty after relaunch, which is exactly the
+    /// reset-on-launch behavior: nothing is marked restored after a fresh launch.
+    private var restoredRefByRecordId: [UUID: ReopenedItemRef] = [:]
+    /// Injected liveness check (set by AppDelegate at startup): is this restored
+    /// target still a live panel/workspace/window? Single source of truth for
+    /// "already restored", so restore-remaining and undo never duplicate a live item.
+    var isTargetLive: ((ReopenedItemRef) -> Bool)?
     private let capacity: Int?
     private let fileURL: URL?
     private let persistsRecordsSynchronously: Bool
@@ -165,7 +65,11 @@ final class ClosedItemHistoryStore: ObservableObject {
         self.didFinishPersistedRecordsLoad = !loadPersisted || fileURL == nil
         if loadPersisted, let fileURL {
             if loadsPersistedRecordsSynchronously {
-                records = Self.loadRecords(fileURL: fileURL)
+                let persisted = Self.loadRecordSnapshot(fileURL: fileURL)
+                records = persisted.records
+                if let persistedRevision = persisted.revision {
+                    revision = max(revision, persistedRevision)
+                }
                 trimToCapacityIfNeeded()
                 didFinishPersistedRecordsLoad = true
             } else {
@@ -175,18 +79,45 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     var canReopen: Bool {
-        !records.isEmpty
+        records.contains { !isRecordRestored($0.id) }
     }
 
-    func push(_ entry: ClosedItemHistoryEntry) {
-        push(ClosedItemHistoryRecord(entry: entry))
+    func push(_ entry: ClosedItemHistoryEntry, operationId: UUID? = nil) {
+        push(ClosedItemHistoryRecord(operationId: operationId, entry: entry))
     }
 
     func push(_ record: ClosedItemHistoryRecord) {
+        // Recording a new close branches the timeline, so any pending redo
+        // (re-close of the last reopened item / operation) no longer applies.
+        if redoTarget != nil {
+            redoTarget = nil
+        }
+        if lastRestoredOperationId != nil {
+            lastRestoredOperationId = nil
+        }
         records.append(record)
         trimToCapacityIfNeeded()
         revision &+= 1
         persistRecords()
+    }
+
+    /// Records that `ref` was just reopened from history, making it the target
+    /// for a subsequent redo (re-close).
+    func noteReopened(_ ref: ReopenedItemRef) {
+        redoTarget = ref
+        revision &+= 1
+    }
+
+    /// Clears any pending redo target.
+    func clearRedoTarget() {
+        clearRedoTargetAndRestoredOperation()
+    }
+
+    /// Marks the operation most recently restored, so a redo can re-close it.
+    func setLastRestoredOperation(_ operationId: UUID?) {
+        guard lastRestoredOperationId != operationId else { return }
+        lastRestoredOperationId = operationId
+        revision &+= 1
     }
 
     @discardableResult
@@ -204,6 +135,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         let candidates = records.enumerated()
             .filter { _, record in
                 guard !excludedRecordIds.contains(record.id) else { return false }
+                guard !isRecordRestored(record.id) else { return false }
                 guard let cutoff else { return true }
                 return record.closedAt >= cutoff
             }
@@ -219,14 +151,50 @@ final class ClosedItemHistoryStore: ObservableObject {
                 onFailure?(candidate.id)
                 continue
             }
-            if let index = records.firstIndex(where: { $0.id == candidate.id }) {
-                records.remove(at: index)
-                revision &+= 1
-                persistRecords()
-            }
             return true
         }
         return false
+    }
+
+    @discardableResult
+    func restoreFirstRestorableRef(
+        newerThan cutoff: Date? = nil,
+        excluding excludedRecordIds: Set<UUID> = [],
+        onFailure: ((UUID) -> Void)? = nil,
+        using restore: (ClosedItemHistoryRecord) -> ReopenedItemRef?
+    ) -> Bool {
+        let candidates = records.enumerated()
+            .filter { _, record in
+                guard !excludedRecordIds.contains(record.id) else { return false }
+                guard !isRecordRestored(record.id) else { return false }
+                guard let cutoff else { return true }
+                return record.closedAt >= cutoff
+            }
+            .sorted { lhs, rhs in
+                if lhs.element.closedAt != rhs.element.closedAt {
+                    return lhs.element.closedAt > rhs.element.closedAt
+                }
+                return lhs.offset > rhs.offset
+            }
+            .map { _, record in record }
+        for candidate in candidates {
+            guard let ref = restore(candidate) else {
+                onFailure?(candidate.id)
+                continue
+            }
+            markRestored(recordId: candidate.id, ref: ref)
+            setLastRestoredOperation(candidate.operationId)
+            return true
+        }
+        return false
+    }
+
+    /// Returns the record with the given id without mutating the log. Used for
+    /// non-destructive reopen (the History pane and Recently Closed menu): the
+    /// closed-item history is an immutable, append-only log, so reopening an
+    /// entry leaves it in place and a later close simply appends a new entry.
+    func record(id: UUID) -> ClosedItemHistoryRecord? {
+        records.first(where: { $0.id == id })
     }
 
     func removeRecord(id: UUID) -> (record: ClosedItemHistoryRecord, index: Int)? {
@@ -234,6 +202,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             return nil
         }
         let record = records.remove(at: index)
+        pruneRestoredStateForRemovedRecord(record)
         revision &+= 1
         persistRecords()
         return (record, index)
@@ -246,18 +215,24 @@ final class ClosedItemHistoryStore: ObservableObject {
             let overflow = records.count - capacity
             for _ in 0..<overflow {
                 guard let removalIndex = records.firstIndex(where: { $0.id != protectedRecordId }) else {
-                    records.removeFirst()
+                    pruneRestoredStateForRemovedRecord(records.removeFirst())
                     continue
                 }
-                records.remove(at: removalIndex)
+                pruneRestoredStateForRemovedRecord(records.remove(at: removalIndex))
             }
         }
         revision &+= 1
         persistRecords()
     }
 
+    var totalRecordCount: Int {
+        records.count
+    }
+
     func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
-        let allItems = records.reversed().map(Self.menuItem(for:))
+        let allItems = records.reversed()
+            .filter { !isRecordRestored($0.id) }
+            .map(Self.menuItem(for:))
         if let maxItemCount, maxItemCount >= 0, allItems.count > maxItemCount {
             return ClosedItemHistoryMenuSnapshot(
                 items: Array(allItems.prefix(maxItemCount)),
@@ -271,6 +246,132 @@ final class ClosedItemHistoryStore: ObservableObject {
             totalItemCount: allItems.count,
             isLimited: false
         )
+    }
+
+    /// Groups records into operations (newest first) for the History pane. Each
+    /// item carries its current restored/live state.
+    func operationSnapshot() -> [ClosedOperationSnapshot] {
+        var order: [UUID] = []
+        var byOp: [UUID: [ClosedItemHistoryRecord]] = [:]
+        for record in records.reversed() {
+            if byOp[record.operationId] == nil { order.append(record.operationId) }
+            byOp[record.operationId, default: []].append(record)
+        }
+        return order.compactMap { opId -> ClosedOperationSnapshot? in
+            guard let recs = byOp[opId], !recs.isEmpty else { return nil }
+            let orderedRecords = recs.reversed()
+            let items = orderedRecords.map { record -> ClosedItemHistoryMenuItem in
+                var item = Self.menuItem(for: record)
+                item.isRestored = isRecordRestored(record.id)
+                return item
+            }
+            let closedAt = recs.map(\.closedAt).max() ?? recs[0].closedAt
+            return ClosedOperationSnapshot(
+                id: opId,
+                label: Self.operationLabel(for: items),
+                closedAt: closedAt,
+                items: items
+            )
+        }
+    }
+
+    /// Returns the newest operation with at least one item that is not live,
+    /// without evaluating restored state for every record in the full log.
+    func firstUndoableOperation(excluding excludedRecordIds: Set<UUID> = []) -> ClosedOperationSnapshot? {
+        var order: [UUID] = []
+        var byOp: [UUID: [ClosedItemHistoryRecord]] = [:]
+        for record in records.reversed() where !excludedRecordIds.contains(record.id) {
+            if byOp[record.operationId] == nil { order.append(record.operationId) }
+            byOp[record.operationId, default: []].append(record)
+        }
+
+        for opId in order {
+            guard let recs = byOp[opId], !recs.isEmpty else { continue }
+            let orderedRecords = recs.reversed()
+            var hasUnrestoredItem = false
+            let items = orderedRecords.map { record -> ClosedItemHistoryMenuItem in
+                var item = Self.menuItem(for: record)
+                item.isRestored = isRecordRestored(record.id)
+                if !item.isRestored {
+                    hasUnrestoredItem = true
+                }
+                return item
+            }
+            guard hasUnrestoredItem else { continue }
+            let closedAt = recs.map(\.closedAt).max() ?? recs[0].closedAt
+            return ClosedOperationSnapshot(
+                id: opId,
+                label: Self.operationLabel(for: items),
+                closedAt: closedAt,
+                items: items
+            )
+        }
+        return nil
+    }
+
+    /// Whether the given record's restored target is currently live (the single
+    /// source of truth for "already restored").
+    func isRecordRestored(_ recordId: UUID) -> Bool {
+        guard let ref = restoredRefByRecordId[recordId] else { return false }
+        guard let isTargetLive else { return true }
+        if isTargetLive(ref) { return true }
+        guard let index = records.firstIndex(where: { $0.id == recordId }) else {
+            return false
+        }
+        return records.suffix(from: records.index(after: index)).contains {
+            Self.entry($0.entry, matches: ref)
+        }
+    }
+
+    /// Records that `recordId` was restored into the live item `ref`.
+    func markRestored(recordId: UUID, ref: ReopenedItemRef) {
+        restoredRefByRecordId[recordId] = ref
+        revision &+= 1
+    }
+
+    /// The live ref a record was restored into, if still tracked.
+    func restoredRef(for recordId: UUID) -> ReopenedItemRef? {
+        restoredRefByRecordId[recordId]
+    }
+
+    private static func entry(_ entry: ClosedItemHistoryEntry, matches ref: ReopenedItemRef) -> Bool {
+        switch entry {
+        case .panel(let panelEntry):
+            guard case .panel(_, let panelId) = ref else { return false }
+            return panelEntry.snapshot.id == panelId
+        case .workspace(let workspaceEntry):
+            guard case .workspace(let workspaceId) = ref else { return false }
+            return workspaceEntry.workspaceId == workspaceId
+        case .window(let windowEntry):
+            guard case .window(let windowId) = ref else { return false }
+            return windowEntry.windowId == windowId
+        }
+    }
+
+    /// All records belonging to one operation, in close order (oldest first).
+    func recordsForOperation(_ operationId: UUID) -> [ClosedItemHistoryRecord] {
+        records.filter { $0.operationId == operationId }
+    }
+
+    /// The operationId of the most recently closed record, or nil if empty.
+    var mostRecentOperationId: UUID? {
+        records.last?.operationId
+    }
+
+    private static func operationLabel(for items: [ClosedItemHistoryMenuItem]) -> String {
+        guard items.count > 1 else { return items.first?.title ?? "" }
+        let kinds = Set(items.map(\.kind))
+        let format: String
+        if kinds == [.workspace] {
+            format = String(localized: "historyPane.group.workspaces", defaultValue: "%d workspaces")
+        } else if kinds == [.window] {
+            format = String(localized: "historyPane.group.windows", defaultValue: "%d windows")
+        } else if kinds.allSatisfy({ $0 != .workspace && $0 != .window }) {
+            format = String(localized: "historyPane.group.tabs", defaultValue: "%d tabs")
+        } else {
+            format = String(localized: "historyPane.group.items", defaultValue: "%d items")
+        }
+        return String.localizedStringWithFormat(format, items.count)
     }
 
     func remapPanelWorkspaceIds(
@@ -337,18 +438,49 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     func removeAll() {
-        guard !records.isEmpty || !didFinishPersistedRecordsLoad else { return }
+        let hadState = !records.isEmpty
+            || redoTarget != nil
+            || lastRestoredOperationId != nil
+            || !restoredRefByRecordId.isEmpty
+            || !didFinishPersistedRecordsLoad
+        guard hadState else { return }
         if !didFinishPersistedRecordsLoad {
             shouldDiscardPersistedRecordsOnLoad = true
         }
         records.removeAll(keepingCapacity: false)
+        clearRedoTargetAndRestoredOperation(incrementRevision: false)
+        restoredRefByRecordId.removeAll(keepingCapacity: false)
         revision &+= 1
         persistRecords()
     }
 
+    private func clearRedoTargetAndRestoredOperation(incrementRevision: Bool = true) {
+        let hadState = redoTarget != nil || lastRestoredOperationId != nil
+        redoTarget = nil
+        lastRestoredOperationId = nil
+        if hadState, incrementRevision {
+            revision &+= 1
+        }
+    }
+
     private func trimToCapacityIfNeeded() {
         guard let capacity, records.count > capacity else { return }
+        let removed = Array(records.prefix(records.count - capacity))
         records.removeFirst(records.count - capacity)
+        for record in removed {
+            pruneRestoredStateForRemovedRecord(record)
+        }
+    }
+
+    private func pruneRestoredStateForRemovedRecord(_ record: ClosedItemHistoryRecord) {
+        if let ref = restoredRefByRecordId.removeValue(forKey: record.id),
+           redoTarget == ref {
+            redoTarget = nil
+        }
+        if lastRestoredOperationId == record.operationId,
+           !records.contains(where: { $0.operationId == record.operationId }) {
+            lastRestoredOperationId = nil
+        }
     }
 
     private func persistRecords() {
@@ -360,7 +492,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         let recordsSnapshot = records
         let revisionSnapshot = revision
         if persistsRecordsSynchronously {
-            Self.saveRecords(recordsSnapshot, fileURL: fileURL)
+            Self.saveRecords(recordsSnapshot, fileURL: fileURL, revision: revisionSnapshot)
         } else {
             Task {
                 await ClosedItemHistoryPersistenceActor.shared.save(
@@ -378,29 +510,17 @@ final class ClosedItemHistoryStore: ObservableObject {
             finishPersistedRecordsLoad(Self.loadRecords(fileURL: fileURL))
         }
         needsPersistenceAfterPersistedRecordsLoad = false
-        let recordsSnapshot = records
-        let revisionSnapshot = revision
-        if persistsRecordsSynchronously {
-            Self.saveRecords(recordsSnapshot, fileURL: fileURL)
-            return
-        }
-        let semaphore = DispatchSemaphore(value: 0)
-        Task.detached(priority: .userInitiated) {
-            await ClosedItemHistoryPersistenceActor.shared.save(
-                recordsSnapshot,
-                fileURL: fileURL,
-                revision: revisionSnapshot
-            )
-            semaphore.signal()
-        }
-        semaphore.wait()
+        Self.saveRecords(records, fileURL: fileURL, revision: revision)
     }
 
     private func loadPersistedRecordsAsync(from fileURL: URL) {
         Task { @MainActor [weak self] in
-            let loadedRecords = await ClosedItemHistoryPersistenceActor.shared.load(fileURL: fileURL)
+            let persisted = await ClosedItemHistoryPersistenceActor.shared.load(fileURL: fileURL)
             guard let self, !didFinishPersistedRecordsLoad else { return }
-            finishPersistedRecordsLoad(loadedRecords)
+            if let persistedRevision = persisted.revision {
+                revision = max(revision, persistedRevision)
+            }
+            finishPersistedRecordsLoad(persisted.records)
             if needsPersistenceAfterPersistedRecordsLoad {
                 needsPersistenceAfterPersistedRecordsLoad = false
                 persistRecords()
@@ -487,7 +607,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                     anchorPanelId: remapAnchor($0.anchorPanelId)
                 )
             }
-            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
+            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, operationId: record.operationId, entry: .panel(ClosedPanelHistoryEntry(
                 workspaceId: newWorkspaceId,
                 paneId: panelEntry.paneId,
                 paneAnchorPanelId: remapAnchor(panelEntry.paneAnchorPanelId),
@@ -525,7 +645,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                 fallbackSplitPlacement?.anchorPanelId != panelEntry.fallbackSplitPlacement?.anchorPanelId {
                 didUpdate = true
             }
-            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
+            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, operationId: record.operationId, entry: .panel(ClosedPanelHistoryEntry(
                 workspaceId: panelEntry.workspaceId,
                 paneId: panelEntry.paneId,
                 paneAnchorPanelId: paneAnchorPanelId,
@@ -550,7 +670,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                 return record
             }
             didUpdate = true
-            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .workspace(ClosedWorkspaceHistoryEntry(
+            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, operationId: record.operationId, entry: .workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspaceEntry.workspaceId,
                 windowId: newWindowId,
                 workspaceIndex: workspaceEntry.workspaceIndex,
@@ -586,16 +706,34 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     nonisolated fileprivate static func loadRecords(fileURL: URL) -> [ClosedItemHistoryRecord] {
-        guard let data = try? Data(contentsOf: fileURL) else { return [] }
-        let decoder = JSONDecoder()
-        if let snapshot = try? decoder.decode(ClosedItemHistoryPersistenceSnapshot.self, from: data),
-           snapshot.version == ClosedItemHistoryPersistenceSnapshot.currentVersion {
-            return snapshot.records
-        }
-        return (try? decoder.decode([ClosedItemHistoryRecord].self, from: data)) ?? []
+        loadRecordSnapshot(fileURL: fileURL).records
     }
 
-    nonisolated fileprivate static func saveRecords(_ records: [ClosedItemHistoryRecord], fileURL: URL) {
+    nonisolated fileprivate static func loadRecordSnapshot(
+        fileURL: URL
+    ) -> (records: [ClosedItemHistoryRecord], revision: UInt64?) {
+        if let snapshot = loadPersistenceSnapshot(fileURL: fileURL),
+           snapshot.version == ClosedItemHistoryPersistenceSnapshot.currentVersion {
+            return (snapshot.records, snapshot.revision)
+        }
+        guard let data = try? Data(contentsOf: fileURL) else { return ([], nil) }
+        return ((try? JSONDecoder().decode([ClosedItemHistoryRecord].self, from: data)) ?? [], nil)
+    }
+
+    nonisolated fileprivate static func loadPersistedRevision(fileURL: URL) -> UInt64? {
+        loadPersistenceSnapshot(fileURL: fileURL)?.revision
+    }
+
+    nonisolated private static func loadPersistenceSnapshot(fileURL: URL) -> ClosedItemHistoryPersistenceSnapshot? {
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        return try? JSONDecoder().decode(ClosedItemHistoryPersistenceSnapshot.self, from: data)
+    }
+
+    nonisolated fileprivate static func saveRecords(
+        _ records: [ClosedItemHistoryRecord],
+        fileURL: URL,
+        revision: UInt64? = nil
+    ) {
         guard !records.isEmpty else {
             do {
                 try FileManager.default.removeItem(at: fileURL)
@@ -615,7 +753,10 @@ final class ClosedItemHistoryStore: ObservableObject {
                 withIntermediateDirectories: true,
                 attributes: nil
             )
-            let snapshot = ClosedItemHistoryPersistenceSnapshot(records: records)
+            let snapshot = ClosedItemHistoryPersistenceSnapshot(
+                revision: revision,
+                records: records
+            )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
             let data = try encoder.encode(snapshot)
@@ -666,6 +807,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         case .panel(let entry):
             return ClosedItemHistoryMenuItem(
                 id: record.id,
+                kind: ClosedItemKind.forPanel(entry.snapshot.type),
                 title: title(for: entry.snapshot),
                 detail: String(localized: "menu.history.recentlyClosed.kind.tab", defaultValue: "Tab"),
                 closedAt: record.closedAt
@@ -673,6 +815,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         case .workspace(let entry):
             return ClosedItemHistoryMenuItem(
                 id: record.id,
+                kind: .workspace,
                 title: title(for: entry.snapshot),
                 detail: String(localized: "menu.history.recentlyClosed.kind.workspace", defaultValue: "Workspace"),
                 closedAt: record.closedAt
@@ -680,6 +823,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         case .window(let entry):
             return ClosedItemHistoryMenuItem(
                 id: record.id,
+                kind: .window,
                 title: String(localized: "menu.history.recentlyClosed.kind.window", defaultValue: "Window"),
                 detail: windowWorkspaceCountLabel(entry.snapshot.tabManager.workspaces.count),
                 closedAt: record.closedAt
@@ -714,6 +858,8 @@ final class ClosedItemHistoryStore: ObservableObject {
             return String(localized: "menu.history.recentlyClosed.panel.tool", defaultValue: "Tool")
         case .project:
             return String(localized: "menu.history.recentlyClosed.panel.project", defaultValue: "Project")
+        case .history:
+            return String(localized: "history.pane.title", defaultValue: "History")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         }
@@ -762,7 +908,13 @@ private struct ClosedItemHistoryPersistenceSnapshot: Codable {
     static let currentVersion = 1
 
     var version: Int = currentVersion
+    var revision: UInt64?
     var records: [ClosedItemHistoryRecord]
+
+    init(revision: UInt64?, records: [ClosedItemHistoryRecord]) {
+        self.revision = revision
+        self.records = records
+    }
 }
 
 private actor ClosedItemHistoryPersistenceActor {
@@ -770,16 +922,19 @@ private actor ClosedItemHistoryPersistenceActor {
 
     private var latestRevisionByPath: [String: UInt64] = [:]
 
-    func load(fileURL: URL) -> [ClosedItemHistoryRecord] {
-        ClosedItemHistoryStore.loadRecords(fileURL: fileURL)
+    func load(fileURL: URL) -> (records: [ClosedItemHistoryRecord], revision: UInt64?) {
+        ClosedItemHistoryStore.loadRecordSnapshot(fileURL: fileURL)
     }
 
     func save(_ records: [ClosedItemHistoryRecord], fileURL: URL, revision: UInt64) {
         let path = fileURL.standardizedFileURL.path
-        if let latestRevision = latestRevisionByPath[path], revision < latestRevision {
+        let knownRevision = latestRevisionByPath[path]
+        let persistedRevision = ClosedItemHistoryStore.loadPersistedRevision(fileURL: fileURL)
+        let latestRevision = max(knownRevision ?? 0, persistedRevision ?? 0)
+        if revision < latestRevision {
             return
         }
         latestRevisionByPath[path] = revision
-        ClosedItemHistoryStore.saveRecords(records, fileURL: fileURL)
+        ClosedItemHistoryStore.saveRecords(records, fileURL: fileURL, revision: revision)
     }
 }

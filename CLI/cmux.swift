@@ -3801,6 +3801,47 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
+        case "history":
+            try runHistoryNamespace(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
+        case "undo":
+            try validateHistoryGlobalActionArgs(
+                args: commandArgs,
+                windowOverride: windowId,
+                commandLabel: "cmux undo"
+            )
+            var undoParams: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &undoParams, client: client, windowRaw: nil)
+            let undoPayload = try client.sendV2(method: "history.undo", params: undoParams)
+            printV2Payload(
+                undoPayload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: String(localized: "cli.history.result.reopened", defaultValue: "Reopened")
+            )
+
+        case "redo":
+            try validateHistoryGlobalActionArgs(
+                args: commandArgs,
+                windowOverride: windowId,
+                commandLabel: "cmux redo"
+            )
+            var redoParams: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &redoParams, client: client, windowRaw: nil)
+            let redoPayload = try client.sendV2(method: "history.redo", params: redoParams)
+            printV2Payload(
+                redoPayload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: String(localized: "cli.history.result.reclosed", defaultValue: "Re-closed")
+            )
+
         case "list-workspaces":
             Self.warnLegacyVerbDeprecated("list-workspaces", replacement: "cmux workspace list")
             try runWorkspaceListCommand(
@@ -5024,6 +5065,7 @@ struct CMUXCLI {
         "focus-window",
         "get-url",
         "help",
+        "history",
         "hooks",
         "identify",
         "is-webview-focused",
@@ -5069,6 +5111,7 @@ struct CMUXCLI {
         "popup",
         "previous-window",
         "read-screen",
+        "redo",
         "refresh-surfaces",
         "reload-config",
         "remote-daemon-status",
@@ -5117,6 +5160,7 @@ struct CMUXCLI {
         "trigger-flash",
         "unbind-key",
         "uninstall-hooks",
+        "undo",
         "version",
         "vm",
         "vm-pty-attach",
@@ -7072,10 +7116,136 @@ struct CMUXCLI {
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
     }
 
-    /// Top-level `cmux workspace <subcommand>` namespace. Dispatches to the
-    /// same v2 socket methods that legacy verbs use (`new-workspace`,
-    /// `list-workspaces`, etc.) so behavior matches. Legacy verbs keep working
-    /// unchanged for backwards compatibility.
+    private func validateHistoryGlobalActionArgs(
+        args: [String],
+        windowOverride: String?,
+        commandLabel: String
+    ) throws {
+        let (windowOpt, remaining) = parseOption(args, name: "--window")
+        if windowOpt != nil || windowOverride != nil {
+            throw CLIError(message: localizedFormat(
+                "cli.history.error.windowUnsupportedForGlobalAction",
+                defaultValue: "%@ does not support --window because closed-item history undo/redo is global",
+                commandLabel
+            ))
+        }
+        if let unexpected = remaining.first {
+            throw CLIError(message: localizedFormat(
+                "cli.history.error.unexpectedArgument",
+                defaultValue: "%@ does not accept argument '%@'",
+                commandLabel,
+                unexpected
+            ))
+        }
+    }
+
+    /// Top-level `cmux history <subcommand>` namespace. Dispatches to the same
+    /// v2 socket methods that the menu and shortcut paths use.
+    private func runHistoryNamespace(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        guard let sub = commandArgs.first?.lowercased() else {
+            throw CLIError(message: String(localized: "cli.history.error.missingSubcommand", defaultValue: "history requires a subcommand. Try: list, reopen, undo, redo, clear"))
+        }
+        let rest = Array(commandArgs.dropFirst())
+        func historyIdPositional(_ args: [String]) -> String? {
+            var index = 0
+            while index < args.count {
+                let arg = args[index]
+                if arg == "--" {
+                    return args.dropFirst(index + 1).first
+                }
+                if arg == "--window" {
+                    index += 2
+                    continue
+                }
+                if arg.hasPrefix("--window=") {
+                    index += 1
+                    continue
+                }
+                if !arg.hasPrefix("-") {
+                    return arg
+                }
+                index += 1
+            }
+            return nil
+        }
+        switch sub {
+        case "list":
+            var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
+            let payload = try client.sendV2(method: "history.list", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let operations = payload["operations"] as? [[String: Any]] ?? []
+                if operations.isEmpty {
+                    print(String(localized: "cli.history.list.empty", defaultValue: "No closed items"))
+                } else {
+                    for op in operations {
+                        let items = op["items"] as? [[String: Any]] ?? []
+                        func line(_ item: [String: Any], indent: String) -> String {
+                            let restored = (item["restored"] as? Bool) == true
+                                ? String(localized: "cli.history.list.restoredSuffix", defaultValue: "  (restored)")
+                                : ""
+                            return "\(indent)\((item["id"] as? String) ?? "")  [\((item["kind"] as? String) ?? "")]  \((item["title"] as? String) ?? "")\(restored)"
+                        }
+                        if items.count > 1 {
+                            print("\((op["label"] as? String) ?? String(localized: "cli.history.list.groupFallback", defaultValue: "group"))")
+                            for item in items { print(line(item, indent: "    ")) }
+                        } else if let item = items.first {
+                            print(line(item, indent: ""))
+                        }
+                    }
+                }
+            }
+        case "reopen":
+            let (idOpt, remainder) = parseOption(rest, name: "--id")
+            guard let historyId = idOpt ?? historyIdPositional(remainder) else {
+                throw CLIError(message: String(localized: "cli.history.error.reopenRequiresId", defaultValue: "history reopen requires an ID (cmux history reopen <id>). Use 'cmux undo' to reopen the most recent."))
+            }
+            var params: [String: Any] = ["history_id": historyId]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
+            let payload = try client.sendV2(method: "history.reopen", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.reopened", defaultValue: "Reopened"))
+        case "undo":
+            try validateHistoryGlobalActionArgs(
+                args: rest,
+                windowOverride: windowOverride,
+                commandLabel: "cmux history undo"
+            )
+            var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
+            let payload = try client.sendV2(method: "history.undo", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.reopened", defaultValue: "Reopened"))
+        case "redo":
+            try validateHistoryGlobalActionArgs(
+                args: rest,
+                windowOverride: windowOverride,
+                commandLabel: "cmux history redo"
+            )
+            var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
+            let payload = try client.sendV2(method: "history.redo", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.reclosed", defaultValue: "Re-closed"))
+        case "clear":
+            if windowFromArgsOrOverride(rest, windowOverride: windowOverride) != nil {
+                throw CLIError(message: String(localized: "cli.history.error.clearDoesNotSupportWindow", defaultValue: "history clear does not support --window because closed-item history is global"))
+            }
+            guard rest.isEmpty else {
+                throw CLIError(message: String(localized: "cli.history.error.clearUnexpectedArguments", defaultValue: "history clear does not accept arguments"))
+            }
+            let payload = try client.sendV2(method: "history.clear", params: [:])
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.cleared", defaultValue: "Cleared"))
+        default:
+            throw CLIError(message: localizedFormat("cli.history.error.unknownSubcommand", defaultValue: "Unknown history subcommand: %@. Try: list, reopen, undo, redo, clear", sub))
+        }
+    }
+
     private func runWorkspaceNamespace(
         commandArgs: [String],
         client: SocketClient,
@@ -12957,6 +13127,34 @@ struct CMUXCLI {
               Double check with the end user before sending anything. Review the message and attachments for secrets,
               private code, credentials, tokens, and other sensitive information first.
             """
+        case "history":
+            return String(localized: "cli.help.history", defaultValue: """
+            Usage: cmux history <list|reopen|undo|redo|clear> [options]
+
+            Manage closed-item history in the running app.
+
+            Subcommands:
+              list                  Print closed history records, grouped by close operation.
+              reopen <id>           Reopen a specific history record without removing it.
+              undo                  Reopen the most recent closed operation.
+              redo                  Close the most recently reopened operation again.
+              clear                 Remove all closed history records.
+
+            Options:
+              --window <id|ref|n>   Target a specific cmux window.
+            """)
+        case "undo":
+            return String(localized: "cli.help.undo", defaultValue: """
+            Usage: cmux undo [--window <id|ref|n>]
+
+            Reopen the most recent closed operation.
+            """)
+        case "redo":
+            return String(localized: "cli.help.redo", defaultValue: """
+            Usage: cmux redo [--window <id|ref|n>]
+
+            Close the most recently reopened operation again.
+            """)
         case "feed":
             return """
             Usage: cmux feed tui [--opentui|--legacy]

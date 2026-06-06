@@ -1711,6 +1711,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
     var project: SessionProjectPanelSnapshot?
+    var history: SessionHistoryPanelSnapshot? = nil
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {

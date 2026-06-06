@@ -19,6 +19,12 @@ extension ContentView {
                 subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
                 keywords: ["task", "manager", "process", "cpu", "memory", "kill"]
             ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.openHistoryPane",
+                title: constant(String(localized: "command.openHistoryPane.title", defaultValue: "Open History")),
+                subtitle: constant(String(localized: "command.openRightSidebarToolAsPane.subtitle", defaultValue: "Pane")),
+                keywords: ["history", "closed", "reopen", "recently closed", "undo", "tab", "workspace", "window", "pane"]
+            ),
         ]
     }
 
@@ -28,6 +34,9 @@ extension ContentView {
         }
         registry.register(commandId: "palette.openTaskManager") {
             TaskManagerWindowController.shared.show()
+        }
+        registry.register(commandId: "palette.openHistoryPane") {
+            openHistoryPane()
         }
     }
 }

@@ -9,6 +9,16 @@ extension cmuxApp {
             let recentlyFocusedSnapshot = recentlyFocusedMenuSnapshot(manager: historyTabManager)
             let recentlyClosedSnapshot = recentlyClosedMenuSnapshot
 
+            Button {
+                if historyTabManager.openHistoryPaneInSelectedWorkspace() == nil {
+                    NSSound.beep()
+                }
+            } label: {
+                Text(String(localized: "command.openHistoryPane.title", defaultValue: "Open History"))
+            }
+
+            Divider()
+
             splitCommandButton(title: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"), shortcut: menuShortcut(for: .focusHistoryBack)) {
                 historyTabManager.navigateBack()
             }
@@ -29,9 +39,17 @@ extension cmuxApp {
             Divider()
 
             splitCommandButton(title: String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed"), shortcut: menuShortcut(for: .reopenClosedBrowserPanel)) {
-                if AppDelegate.shared?.reopenMostRecentlyClosedItem(preferredTabManager: historyTabManager) != true {
+                if AppDelegate.shared?.undoLastDestructiveAction(preferredTabManager: historyTabManager, shouldActivate: true) != true {
                     NSSound.beep()
                 }
+            }
+
+            Button {
+                if AppDelegate.shared?.redoLastDestructiveAction(preferredTabManager: historyTabManager) != true {
+                    NSSound.beep()
+                }
+            } label: {
+                Text(String(localized: "menu.history.closeReopenedItem", defaultValue: "Close Reopened Item"))
             }
 
             recentlyClosedMenuSection(
@@ -116,8 +134,9 @@ extension cmuxApp {
     }
 
     private var recentlyClosedMenuSnapshot: ClosedItemHistoryMenuSnapshot {
-        let _ = closedItemHistoryStore.revision
-        return closedItemHistoryStore.menuSnapshot(maxItemCount: 10)
+        let store = ClosedItemHistoryStore.shared
+        let _ = store.revision
+        return store.menuSnapshot(maxItemCount: 10)
     }
 
     private func historyMenuSectionTitle(title: String, subtitle: String) -> String {

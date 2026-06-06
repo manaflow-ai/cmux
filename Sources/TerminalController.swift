@@ -197,7 +197,10 @@ class TerminalController {
         "debug.notification.focus",
         "debug.app.activate",
         "debug.right_sidebar.focus",
-        "feed.jump"
+        "feed.jump",
+        "history.reopen",
+        "history.undo",
+        "history.redo"
     ]
 
     enum V2HandleKind: String, CaseIterable {
@@ -1967,6 +1970,16 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceRemoteTerminalSessionEnd(params: params))
         case "session.restore_previous":
             return v2Result(id: id, self.v2SessionRestorePrevious())
+        case "history.list":
+            return v2Result(id: id, self.v2HistoryList(params: params))
+        case "history.reopen":
+            return v2Result(id: id, self.v2HistoryReopen(params: params))
+        case "history.undo":
+            return v2Result(id: id, self.v2HistoryUndo(params: params))
+        case "history.redo":
+            return v2Result(id: id, self.v2HistoryRedo(params: params))
+        case "history.clear":
+            return v2Result(id: id, self.v2HistoryClear(params: params))
 
         // Settings
         case "settings.open":
@@ -2448,6 +2461,11 @@ class TerminalController {
             "workspace.remote.pty_attach_end",
             "workspace.remote.terminal_session_end",
             "session.restore_previous",
+            "history.list",
+            "history.reopen",
+            "history.undo",
+            "history.redo",
+            "history.clear",
             "settings.open",
             "feedback.open",
             "feedback.submit",
@@ -7756,6 +7774,16 @@ class TerminalController {
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
+        if panelType == .history {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "terminal.surfaceSplit.error.historyUnsupported",
+                    defaultValue: "surface.split does not support type=history"
+                ),
+                data: ["type": panelType.rawValue]
+            )
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create split", data: nil)
         v2MainSync {
@@ -8028,6 +8056,11 @@ class TerminalController {
                     url: url,
                     focus: focus,
                     creationPolicy: .automationPreload
+                )?.id
+            } else if panelType == .history {
+                newPanelId = ws.newHistorySurface(
+                    inPane: paneId,
+                    focus: focus
                 )?.id
             } else {
                 newPanelId = ws.newTerminalSurface(
@@ -9388,6 +9421,16 @@ class TerminalController {
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
+        if panelType == .history {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "terminal.paneCreate.error.historyUnsupported",
+                    defaultValue: "pane.create does not support type=history"
+                ),
+                data: ["type": panelType.rawValue]
+            )
+        }
 
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
@@ -10223,6 +10266,185 @@ class TerminalController {
             )
         }
         return .ok(["restored": true])
+    }
+
+    private func v2HistoryList(params: [String: Any]) -> V2CallResult {
+        let resolved = v2HistoryPreferredTabManager(params: params)
+        if let error = resolved.error { return error }
+        var operations: [[String: Any]] = []
+        var totalItems = 0
+        v2MainSync {
+            let ops = ClosedItemHistoryStore.shared.operationSnapshot()
+            operations = ops.map { op in
+                totalItems += op.items.count
+                return [
+                    "id": op.id.uuidString,
+                    "label": op.label,
+                    "closed_at": Int(op.closedAt.timeIntervalSince1970 * 1000),
+                    "fully_restored": op.isFullyRestored,
+                    "items": op.items.map { item in
+                        [
+                            "id": item.id.uuidString,
+                            "kind": item.kind.rawValue,
+                            "title": item.title,
+                            "restored": item.isRestored
+                        ] as [String: Any]
+                    }
+                ] as [String: Any]
+            }
+        }
+        return .ok(["operations": operations, "count": totalItems])
+    }
+
+    private func v2HistoryPreferredTabManager(params: [String: Any]) -> (tabManager: TabManager?, error: V2CallResult?) {
+        guard v2HasNonNullParam(params, "window_id") else {
+            return (v2ResolveTabManager(params: params), nil)
+        }
+        guard let windowId = v2UUID(params, "window_id") else {
+            return (nil, .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "terminal.history.error.invalidWindowId",
+                    defaultValue: "Missing or invalid window_id"
+                ),
+                data: nil
+            ))
+        }
+        guard let tabManager = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) else {
+            return (nil, .err(
+                code: "not_found",
+                message: String(localized: "terminal.history.error.windowNotFound", defaultValue: "Window not found"),
+                data: ["window_id": windowId.uuidString]
+            ))
+        }
+        return (tabManager, nil)
+    }
+
+    private func v2HistoryReopen(params: [String: Any]) -> V2CallResult {
+        guard let historyId = v2UUID(params, "history_id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "terminal.history.error.invalidHistoryId",
+                    defaultValue: "Missing or invalid history_id"
+                ),
+                data: nil
+            )
+        }
+        let resolved = v2HistoryPreferredTabManager(params: params)
+        if let error = resolved.error { return error }
+        var reopened = false
+        v2MainSync {
+            reopened = AppDelegate.shared?.reopenClosedHistoryItem(
+                id: historyId,
+                preferredTabManager: resolved.tabManager,
+                shouldActivate: false
+            ) ?? false
+        }
+        guard reopened else {
+            return .err(
+                code: "not_found",
+                message: String(
+                    localized: "terminal.history.error.entryNotRestorable",
+                    defaultValue: "History entry not found or not restorable"
+                ),
+                data: ["history_id": historyId.uuidString]
+            )
+        }
+        return .ok(["reopened": true, "history_id": historyId.uuidString])
+    }
+
+    private func v2HistoryUndo(params: [String: Any]) -> V2CallResult {
+        guard !v2HasNonNullParam(params, "window_id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "terminal.history.error.undoRedoDoesNotSupportWindowId",
+                    defaultValue: "history undo/redo does not support window_id because closed-item history undo/redo is global"
+                ),
+                data: nil
+            )
+        }
+        let resolved = v2HistoryPreferredTabManager(params: params)
+        if let error = resolved.error { return error }
+        var reopened = false
+        v2MainSync {
+            reopened = AppDelegate.shared?.undoLastDestructiveAction(
+                preferredTabManager: resolved.tabManager,
+                shouldActivate: false
+            ) ?? false
+        }
+        guard reopened else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "terminal.history.error.nothingToReopen", defaultValue: "Nothing to reopen"),
+                data: nil
+            )
+        }
+        return .ok(["reopened": true])
+    }
+
+    private func v2HistoryRedo(params: [String: Any]) -> V2CallResult {
+        guard !v2HasNonNullParam(params, "window_id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "terminal.history.error.undoRedoDoesNotSupportWindowId",
+                    defaultValue: "history undo/redo does not support window_id because closed-item history undo/redo is global"
+                ),
+                data: nil
+            )
+        }
+        let resolved = v2HistoryPreferredTabManager(params: params)
+        if let error = resolved.error { return error }
+        let needsInteractiveConfirmation = v2MainSync {
+            AppDelegate.shared?.historyRedoNeedsInteractiveConfirmation(preferredTabManager: resolved.tabManager) == true
+        }
+        if needsInteractiveConfirmation {
+            return .err(
+                code: "requires_confirmation",
+                message: String(
+                    localized: "terminal.history.error.redoRequiresConfirmation",
+                    defaultValue: "history redo requires an interactive close confirmation"
+                ),
+                data: nil
+            )
+        }
+        var didRedo = false
+        v2MainSync {
+            didRedo = AppDelegate.shared?.redoLastDestructiveAction(
+                preferredTabManager: resolved.tabManager
+            ) ?? false
+        }
+        guard didRedo else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "terminal.history.error.nothingToRedo", defaultValue: "Nothing to redo"),
+                data: nil
+            )
+        }
+        return .ok(["redone": true])
+    }
+
+    private func v2HistoryClear(params: [String: Any]) -> V2CallResult {
+        guard !v2HasNonNullParam(params, "window_id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "terminal.history.error.clearDoesNotSupportWindowId",
+                    defaultValue: "history.clear does not support window_id because closed-item history is global"
+                ),
+                data: nil
+            )
+        }
+        let resolved = v2HistoryPreferredTabManager(params: params)
+        if let error = resolved.error { return error }
+        var count = 0
+        v2MainSync {
+            count = ClosedItemHistoryStore.shared.totalRecordCount
+            AppDelegate.shared?.clearRecentlyClosedHistory(preferredTabManager: resolved.tabManager)
+        }
+        return .ok(["cleared": count])
     }
 
     private func v2SettingsOpen(params: [String: Any]) -> V2CallResult {

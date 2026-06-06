@@ -435,7 +435,13 @@ struct RightSidebarPanelView: View {
                 presentation: .find
             )
         case .sessions:
-            SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
+            SessionIndexView(
+                store: sessionIndexStore,
+                onResume: onResumeSession,
+                onDelete: { [weak sessionIndexStore] entry in
+                    sessionIndexStore?.delete(entry) ?? false
+                }
+            )
                 .onAppear {
                     sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                 }
