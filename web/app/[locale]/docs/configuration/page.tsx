@@ -48,10 +48,15 @@ const sectionOrder = [
   "ui",
   "commands",
   "browser",
+  "markdown",
+  "fileEditor",
   "shortcuts",
 ] as const;
 
-const settingsFileExample = `{
+type ConfigurationTranslation = ReturnType<typeof useTranslations>;
+
+function buildSettingsFileExample(t: ConfigurationTranslation) {
+  return `{
   "$schema": "${schemaUrl}",
   "schemaVersion": 1,
 
@@ -73,7 +78,7 @@ const settingsFileExample = `{
   //   "focusTextBoxOnNewTerminals": false,
   //   "agentHibernation": {
   //     "enabled": false,
-  //     "idleSeconds": 3600,
+  //     "idleSeconds": 5,
   //     "maxLiveTerminals": 12
   //   },
   //   "textBoxMaxLines": 10
@@ -86,6 +91,21 @@ const settingsFileExample = `{
   //   "customSearchEngineURLTemplate": "https://search.example.com/?q={query}",
   //   "openTerminalLinksInCmuxBrowser": true,
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
+  // },
+
+  // "markdown": {
+  //   // ${t("exampleMarkdownFontSize")}
+  //   // ${t("exampleMarkdownFontSizeZoom")}
+  //   "fontSize": 15,
+  //   // ${t("exampleMarkdownFontFamily")}
+  //   "fontFamily": "",
+  //   // ${t("exampleMarkdownMaxWidth")}
+  //   "maxWidth": 980
+  // },
+
+  // "fileEditor": {
+  //   // ${t("exampleFileEditorWordWrap")}
+  //   "wordWrap": false
   // },
 
   // "automation": {
@@ -113,6 +133,7 @@ const settingsFileExample = `{
   //   }
   // },
 }`;
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -332,7 +353,7 @@ working-directory = ~/code`}</CodeBlock>
         <a href={schemaSourceUrl}>{schemaSourceUrl}</a>.
       </p>
       <CodeBlock title="~/.config/cmux/cmux.json" lang="json">
-        {settingsFileExample}
+        {buildSettingsFileExample(t)}
       </CodeBlock>
 
       <DocsHeading level={2} id="schema-reference">Schema reference</DocsHeading>

@@ -1,4 +1,5 @@
 import Combine
+import CmuxFileWatch
 import CmuxSocketControl
 import Foundation
 import os
@@ -62,8 +63,8 @@ final class CmuxSettingsFileStore {
     private let appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment
     private let stateLock = NSLock()
 
-    private var primaryWatcher: ShortcutSettingsFileWatcher?
-    private var fallbackWatchers: [ShortcutSettingsFileWatcher] = []
+    private var watchers: [FileWatcher] = []
+    private var watchTasks: [Task<Void, Never>] = []
     private var defaultsCancellable: AnyCancellable?
     private var socketPasswordObserver: NSObjectProtocol?
 
@@ -105,15 +106,13 @@ final class CmuxSettingsFileStore {
         )
         guard startWatching else { return }
 
-        primaryWatcher = ShortcutSettingsFileWatcher(path: primaryPath, fileManager: fileManager) { [weak self] in
-            DispatchQueue.main.async {
-                self?.reload()
-            }
-        }
-        fallbackWatchers = fallbackPaths.map { fallbackPath in
-            ShortcutSettingsFileWatcher(path: fallbackPath, fileManager: fileManager) { [weak self] in
-                DispatchQueue.main.async {
-                    self?.reload()
+        watchers = ([primaryPath] + fallbackPaths).map { FileWatcher(path: $0) }
+        watchTasks = watchers.map { watcher in
+            let events = watcher.events
+            return Task { @MainActor [weak self] in
+                for await _ in events {
+                    guard let self else { break }
+                    self.reload()
                 }
             }
         }
@@ -125,8 +124,9 @@ final class CmuxSettingsFileStore {
     }
 
     deinit {
-        primaryWatcher?.stop()
-        fallbackWatchers.forEach { $0.stop() }
+        watchTasks.forEach { $0.cancel() }
+        // Dropping the watchers runs each deinit, cancelling its DispatchSources.
+        watchers.removeAll()
         defaultsCancellable?.cancel()
         if let socketPasswordObserver {
             notificationCenter.removeObserver(socketPasswordObserver)
@@ -363,6 +363,12 @@ final class CmuxSettingsFileStore {
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let markdownSection = root["markdown"] as? [String: Any] {
+            parseMarkdownSection(markdownSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
+        if let fileEditorSection = root["fileEditor"] as? [String: Any] {
+            parseFileEditorSection(fileEditorSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
             parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -587,6 +593,54 @@ final class CmuxSettingsFileStore {
             }
         } else if section.keys.contains("textBoxMaxLines") {
             logInvalid("terminal.textBoxMaxLines", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseMarkdownSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        // Accept numeric doubles (e.g. 15 or 15.0) and round to integer points,
+        // matching the integer `markdown.fontSize` catalog/UI representation.
+        if let value = jsonDouble(section["fontSize"]) {
+            if value >= MarkdownFontSizeSettings.minimumPointSize,
+               value <= MarkdownFontSizeSettings.maximumPointSize {
+                snapshot.managedUserDefaults[MarkdownFontSizeSettings.key] = .int(Int(value.rounded()))
+            } else {
+                logInvalid("markdown.fontSize", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("fontSize") {
+            logInvalid("markdown.fontSize", sourcePath: sourcePath)
+        }
+
+        if let value = jsonString(section["fontFamily"]) {
+            snapshot.managedUserDefaults[MarkdownFontFamily.key] = .string(MarkdownFontFamily.normalized(value))
+        } else if section.keys.contains("fontFamily") {
+            logInvalid("markdown.fontFamily", sourcePath: sourcePath)
+        }
+
+        if let value = jsonDouble(section["maxWidth"]) {
+            if value >= MarkdownMaxWidthSettings.minimumCSSPixels,
+               value <= MarkdownMaxWidthSettings.maximumCSSPixels {
+                snapshot.managedUserDefaults[MarkdownMaxWidthSettings.key] = .int(Int(value.rounded()))
+            } else {
+                logInvalid("markdown.maxWidth", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("maxWidth") {
+            logInvalid("markdown.maxWidth", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseFileEditorSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section["wordWrap"]) {
+            snapshot.managedUserDefaults[FilePreviewWordWrapSettings.key] = .bool(value)
+        } else if section.keys.contains("wordWrap") {
+            logInvalid("fileEditor.wordWrap", sourcePath: sourcePath)
         }
     }
 
@@ -828,6 +882,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["suppressSubagentNotifications"]) {
             snapshot.managedUserDefaults[AgentSubagentNotificationSettings.suppressNotificationsKey] = .bool(value)
         }
+        if let value = jsonBool(section["ampIntegration"]) {
+            snapshot.managedUserDefaults[AmpIntegrationSettings.hooksEnabledKey] = .bool(value)
+        }
         if let value = jsonBool(section["cursorIntegration"]) {
             snapshot.managedUserDefaults[CursorIntegrationSettings.hooksEnabledKey] = .bool(value)
         }
@@ -1004,6 +1061,17 @@ final class CmuxSettingsFileStore {
                     allowBareFirstStroke: action.allowsBareFirstStroke
                 )
             }
+            // Object form written by the CmuxSettings package recorder (the
+            // in-app Settings UI): { "first": { key, command, ... }, "second": { ... }? }.
+            // The package serializes StoredShortcut as nested stroke objects, so
+            // a rebinding made in Settings only reaches this store in that shape.
+            // Decode it here so every action resolved through this store — most
+            // visibly the system-wide Carbon hotkeys (globalSearch,
+            // showHideAllWindows) — honors the rebinding instead of silently
+            // dropping it and falling back to the built-in default.
+            if let object = rawValue as? [String: Any] {
+                return parseShortcutObjectForm(object, action: action)
+            }
             return nil
         }()
 
@@ -1011,6 +1079,70 @@ final class CmuxSettingsFileStore {
         // Settings-file parsing runs while the shared store may still be initializing.
         // Avoid the UI recorder's conflict lookup here because it reads the shared store.
         return action.normalizedSettingsFileShortcut(shortcut)
+    }
+
+    /// Decodes the nested-object binding the CmuxSettings package writes
+    /// (`{ "first": { stroke }, "second": { stroke }? }`) into the app-target
+    /// ``StoredShortcut``. An empty primary key is the package's explicit
+    /// "unbound" marker. Returns `nil` when `first` is missing or malformed —
+    /// and, to stay consistent with the string parser, when a present `second`
+    /// stroke is malformed (a chord must not silently degrade to a single
+    /// stroke) or when a bare first stroke is used by an action that requires a
+    /// modifier.
+    private func parseShortcutObjectForm(
+        _ object: [String: Any],
+        action: KeyboardShortcutSettings.Action
+    ) -> StoredShortcut? {
+        guard let firstValue = object["first"],
+              let first = parseShortcutStrokeObject(firstValue) else {
+            return nil
+        }
+        if first.key.isEmpty {
+            return .unbound
+        }
+        // Mirror StoredShortcut.parseConfig(strokes:allowBareFirstStroke:): a
+        // bare first stroke is only valid for actions that opt into it, or for
+        // the space key.
+        guard action.allowsBareFirstStroke || !first.modifierFlags.isEmpty || first.key == "space" else {
+            return nil
+        }
+        let second: ShortcutStroke?
+        if let secondValue = object["second"], !(secondValue is NSNull) {
+            // A present-but-malformed second stroke invalidates the whole
+            // binding rather than silently dropping the chord half.
+            guard let parsedSecond = parseShortcutStrokeObject(secondValue) else {
+                return nil
+            }
+            second = parsedSecond
+        } else {
+            second = nil
+        }
+        return StoredShortcut(first: first, second: second)
+    }
+
+    private func parseShortcutStrokeObject(_ rawValue: Any) -> ShortcutStroke? {
+        if rawValue is NSNull { return nil }
+        guard let dict = rawValue as? [String: Any],
+              let key = jsonString(dict["key"]) else {
+            return nil
+        }
+        // An out-of-range keyCode is a corrupt binding, not a key to silently
+        // wrap into a valid UInt16 (which would re-target a different key).
+        let keyCode: UInt16?
+        if let rawKeyCode = jsonInt(dict["keyCode"]) {
+            guard let value = UInt16(exactly: rawKeyCode) else { return nil }
+            keyCode = value
+        } else {
+            keyCode = nil
+        }
+        return ShortcutStroke(
+            key: key,
+            command: jsonBool(dict["command"]) ?? false,
+            shift: jsonBool(dict["shift"]) ?? false,
+            option: jsonBool(dict["option"]) ?? false,
+            control: jsonBool(dict["control"]) ?? false,
+            keyCode: keyCode
+        )
     }
 
     private func parseNullableHex(
@@ -1809,94 +1941,5 @@ private enum BackupValue: Codable, Equatable {
             try container.encode(Kind.stringDictionary, forKey: .kind)
             try container.encode(value, forKey: .stringDictionaryValue)
         }
-    }
-}
-
-private final class ShortcutSettingsFileWatcher {
-    private let path: String
-    private let fileManager: FileManager
-    private let onChange: () -> Void
-    private let watchQueue = DispatchQueue(label: "com.cmux.shortcut-settings-file-watch")
-
-    private var source: DispatchSourceFileSystemObject?
-
-    init(path: String, fileManager: FileManager = .default, onChange: @escaping () -> Void) {
-        self.path = path
-        self.fileManager = fileManager
-        self.onChange = onChange
-        start()
-    }
-
-    func stop() {
-        source?.cancel()
-        source = nil
-    }
-
-    private func start() {
-        stop()
-
-        if fileManager.fileExists(atPath: path) {
-            startFileWatcher()
-        } else {
-            startDirectoryWatcher()
-        }
-    }
-
-    private func startFileWatcher() {
-        let fd = open(path, O_EVTONLY)
-        guard fd >= 0 else {
-            startDirectoryWatcher()
-            return
-        }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename, .extend],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            let flags = source.data
-            if flags.contains(.delete) || flags.contains(.rename) {
-                self.start()
-            }
-            self.onChange()
-        }
-
-        source.setCancelHandler {
-            close(fd)
-        }
-
-        self.source = source
-        source.resume()
-    }
-
-    private func startDirectoryWatcher() {
-        let directoryPath = (path as NSString).deletingLastPathComponent
-        let fd = open(directoryPath, O_EVTONLY)
-        guard fd >= 0 else { return }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .rename, .delete],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            if self.fileManager.fileExists(atPath: self.path) {
-                self.start()
-            } else {
-                self.onChange()
-            }
-        }
-
-        source.setCancelHandler {
-            close(fd)
-        }
-
-        self.source = source
-        source.resume()
     }
 }

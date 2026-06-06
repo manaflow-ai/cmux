@@ -26,6 +26,68 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.13": {
+    title:
+      "Browser Focus Mode, SSH Agent Forwarding, Custom Sidebars (Beta), Major Stability Fixes",
+    features: [
+      {
+        title: "Browser Focus Mode",
+        description:
+          "Browser panes get a focus mode that strips away the surrounding chrome so a single page can take over the pane while you read or work in it.",
+      },
+      {
+        title: "SSH Agent Forwarding",
+        description:
+          "`cmux ssh` now forwards your local SSH agent, so remote sessions can use your local keys for git pushes and further hops without copying private keys onto the remote.",
+      },
+      {
+        title: "Vibe-Codable Custom Sidebars (Beta)",
+        description:
+          "Build your own sidebar with a runtime Swift interpreter, behind the Beta Features flag. Edit the sidebar source, validate it from the CLI, and reload it live without rebuilding the app.",
+      },
+      {
+        title: "Browser Mouse Back & Forward",
+        description:
+          "The browser now responds to the dedicated back and forward buttons on a mouse, so side-button navigation works the way it does in a normal browser.",
+      },
+      {
+        title: "Major Stability & Performance Fixes",
+        description:
+          "Fixed a settings-observation leak that grew the app to 4.4 GB over a day, a browser render loop burning ~39% of the main thread on every CoreAnimation commit, a WebKit crash after sleep/wake, a 100% CPU hang in the Markdown and file-preview editor, and child processes launching under Rosetta on Apple Silicon.",
+      },
+    ],
+  },
+  "0.64.12": {
+    title:
+      "Diff Viewer Shortcut, Markdown Zoom, Prompt & Remote SSH Fixes",
+    features: [
+      {
+        title: "Diff Viewer Shortcut",
+        description:
+          "Open the diff viewer with a keyboard shortcut, configurable and editable in Settings alongside every other cmux shortcut.",
+      },
+      {
+        title: "Markdown Viewer Zoom",
+        description:
+          "The Markdown viewer gains font size and zoom controls, so you can scale rendered docs up or down without leaving the pane.",
+      },
+      {
+        title: "Feed Behind Beta Features",
+        description:
+          "The Feed is now gated behind Beta Features and off by default, mirroring how the Dock is gated, so it only appears when you opt in.",
+      },
+      {
+        title: "Prompt & Remote SSH Fixes",
+        description:
+          "Starship and other custom bash prompts no longer go static: the prompt bootstrap composes with your existing PROMPT_COMMAND instead of overwriting it. And `cmux ssh` now reports remote PTY allocation failures loudly instead of failing silently when a plain ssh would have worked.",
+      },
+      {
+        title: "Restored Sidebar Views & Scrollback Colors",
+        description:
+          "The right-click sidebar view switcher and built-in views (Default Workspaces, Project Worktrees, and others) are back after a 0.64.11 regression. Restored session scrollback no longer keeps a previous theme's colors, fixing white-on-white history after a theme change.",
+      },
+    ],
+  },
   "0.64.11": {
     title:
       "Workspace Groups, Focus & Recently Closed History, Agent Hibernation, Detachable SSH",
