@@ -5900,7 +5900,6 @@ class TerminalController {
             "workspace_id": newId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: newId),
             "color": v2OrNull(color),
-            "custom_color": v2OrNull(color),
             "surface_id": v2OrNull(initialSurfaceId?.uuidString),
             "surface_ref": v2Ref(kind: .surface, uuid: initialSurfaceId)
         ])

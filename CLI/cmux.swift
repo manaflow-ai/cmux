@@ -6690,11 +6690,18 @@ struct CMUXCLI {
             actionRaw = first
             positional.removeFirst()
         } else {
-            throw CLIError(message: "workspace-action requires --action <name>")
+            throw CLIError(message: String(
+                localized: "cli.workspaceAction.error.missingAction",
+                defaultValue: "workspace-action requires --action <name>"
+            ))
         }
 
         if let unknown = positional.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "workspace-action: unknown flag '\(unknown)'")
+            let messageFormat = String(
+                localized: "cli.workspaceAction.error.unknownFlag",
+                defaultValue: "workspace-action: unknown flag '%@'"
+            )
+            throw CLIError(message: String(format: messageFormat, unknown))
         }
 
         let action = actionRaw.lowercased().replacingOccurrences(of: "-", with: "_")
@@ -6713,7 +6720,10 @@ struct CMUXCLI {
         let title = (titleOpt ?? (action == "rename" && !inferredPositional.isEmpty ? inferredPositional : nil))?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if action == "rename", (title?.isEmpty ?? true) {
-            throw CLIError(message: "workspace-action rename requires --title <text> (or a trailing title)")
+            throw CLIError(message: String(
+                localized: "cli.workspaceAction.error.missingRenameTitle",
+                defaultValue: "workspace-action rename requires --title <text> (or a trailing title)"
+            ))
         }
 
         let color = (
@@ -6730,7 +6740,10 @@ struct CMUXCLI {
             descriptionOpt ?? (action == "set_description" && !inferredPositional.isEmpty ? inferredPositionalRaw : nil)
         )?.trimmingCharacters(in: .whitespacesAndNewlines)
         if action == "set_description", (description?.isEmpty ?? true) {
-            throw CLIError(message: "workspace-action set-description requires --description <text> (or trailing text)")
+            throw CLIError(message: String(
+                localized: "cli.workspaceAction.error.missingDescription",
+                defaultValue: "workspace-action set-description requires --description <text> (or trailing text)"
+            ))
         }
 
         var params: [String: Any] = ["action": action]
@@ -6788,7 +6801,11 @@ struct CMUXCLI {
             positional.removeFirst()
         }
         if let unknown = positional.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "\(commandName): unknown flag '\(unknown)'")
+            let messageFormat = String(
+                localized: "cli.workspaceColor.error.unknownFlag",
+                defaultValue: "%@: unknown flag '%@'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>, --color <name|#RRGGBB>"
+            )
+            throw CLIError(message: String(format: messageFormat, commandName, unknown))
         }
 
         let inferredColorRaw = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -13425,7 +13442,7 @@ struct CMUXCLI {
               cmux simulate-sidebar-drag --window window:1 --from workspace:1 --to workspace:25 --steps 120 --duration-ms 2000
             """
         case "workspace-action":
-            return """
+            return String(localized: "cli.help.workspaceAction", defaultValue: """
             Usage: cmux workspace-action --action <name> [flags]
 
             Perform workspace context-menu actions from CLI/socket.
@@ -13461,7 +13478,7 @@ struct CMUXCLI {
               cmux workspace-action --action set-description --description "Ship checklist"
               cmux workspace-action --action set-description $'Ship checklist\n- verify build\n- post notes'
               cmux workspace-action clear-color
-            """
+            """)
         case "set-color", "set-workspace-color":
             return String(localized: "cli.help.setColor", defaultValue: """
             Usage: cmux set-color [--workspace <id|ref|index>] [--window <id|ref|index>] [--color <name|#RRGGBB> | <name|#RRGGBB>]
