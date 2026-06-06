@@ -12214,10 +12214,11 @@ private final class TerminalViewportBorderOverlayView: NSView {
             path.move(to: NSPoint(x: 0, y: y))
             path.line(to: NSPoint(x: x, y: y))
         }
-        // Match the pane/split divider color (single source of truth) so the
-        // iOS-connected viewport border looks like every other border in the app,
-        // instead of the previous hardcoded near-white separator stroke.
-        GhosttyConfig.load().resolvedSplitDividerColor.setStroke()
+        // Stroke the exact window-chrome separator color used by the pane outline,
+        // sidebar trailing edge, and tab-bar separators (one source of truth), so the
+        // iOS-connected viewport border is pixel-identical to every other border in the
+        // app instead of the previous hardcoded near-white separator stroke.
+        WindowChromeSeparatorColor.current().setStroke()
         path.stroke()
     }
 }
@@ -13219,9 +13220,9 @@ final class GhosttySurfaceScrollView: NSView {
         layer.backgroundColor = color.cgColor
         layer.isOpaque = color.alphaComponent >= 1.0
         CATransaction.commit()
-        // The viewport border strokes the resolved split-divider color, which tracks the
-        // terminal background. Repaint it when the background changes (e.g. theme switch)
-        // so a connected iOS device's visible-area border stays in sync.
+        // The viewport border strokes the window-chrome separator color, which tracks the
+        // terminal background/theme. Repaint it when the background changes (e.g. theme
+        // switch) so a connected iOS device's visible-area border stays in sync.
         if !mobileViewportBorderOverlayView.isHidden {
             mobileViewportBorderOverlayView.needsDisplay = true
         }
