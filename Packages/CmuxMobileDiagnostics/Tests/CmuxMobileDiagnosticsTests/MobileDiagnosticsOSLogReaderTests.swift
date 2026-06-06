@@ -6,8 +6,8 @@ import Testing
         var lines: [String] = []
         var bytes = 0
 
-        #expect(!appendMobileDiagnosticsRecentLine("one", to: &lines, renderedBytes: &bytes, maxEntries: 1, maxBytes: 100))
-        #expect(appendMobileDiagnosticsRecentLine("two", to: &lines, renderedBytes: &bytes, maxEntries: 1, maxBytes: 100))
+        #expect(!MobileDiagnosticsOSLogReader.appendRecentLine("one", to: &lines, renderedBytes: &bytes, maxEntries: 1, maxBytes: 100))
+        #expect(MobileDiagnosticsOSLogReader.appendRecentLine("two", to: &lines, renderedBytes: &bytes, maxEntries: 1, maxBytes: 100))
         #expect(lines == ["two"])
     }
 
@@ -15,8 +15,8 @@ import Testing
         var lines: [String] = []
         var bytes = 0
 
-        #expect(!appendMobileDiagnosticsRecentLine("one", to: &lines, renderedBytes: &bytes, maxEntries: 10, maxBytes: 8))
-        #expect(appendMobileDiagnosticsRecentLine("three", to: &lines, renderedBytes: &bytes, maxEntries: 10, maxBytes: 8))
+        #expect(!MobileDiagnosticsOSLogReader.appendRecentLine("one", to: &lines, renderedBytes: &bytes, maxEntries: 10, maxBytes: 8))
+        #expect(MobileDiagnosticsOSLogReader.appendRecentLine("three", to: &lines, renderedBytes: &bytes, maxEntries: 10, maxBytes: 8))
         #expect(lines == ["three"])
         #expect(bytes == 5)
     }
@@ -25,7 +25,7 @@ import Testing
         var lines: [String] = []
         var bytes = 0
 
-        #expect(appendMobileDiagnosticsRecentLine("too-long", to: &lines, renderedBytes: &bytes, maxEntries: 10, maxBytes: 3))
+        #expect(MobileDiagnosticsOSLogReader.appendRecentLine("too-long", to: &lines, renderedBytes: &bytes, maxEntries: 10, maxBytes: 3))
         #expect(lines.isEmpty)
         #expect(bytes == 0)
     }

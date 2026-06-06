@@ -83,38 +83,38 @@ public struct MobileFeedbackAppMetadata: Sendable {
             osVersion: environment.osVersion == "?" ? "" : environment.osVersion,
             localeIdentifier: Locale.preferredLanguages.first ?? Locale.current.identifier,
             hardwareModel: environment.deviceModel == "?" ? "" : environment.deviceModel,
-            memoryGB: mobileFeedbackFormatMemoryGB(),
-            architecture: mobileFeedbackCurrentArchitecture(),
-            displayInfo: mobileFeedbackCurrentDisplayInfo()
+            memoryGB: formatMemoryGB(),
+            architecture: currentArchitecture(),
+            displayInfo: currentDisplayInfo()
         )
     }
-}
 
-private func mobileFeedbackFormatMemoryGB() -> String {
-    let bytes = ProcessInfo.processInfo.physicalMemory
-    let gb = Double(bytes) / (1_024 * 1_024 * 1_024)
-    return "\(Int(gb)) GB"
-}
-
-private func mobileFeedbackCurrentArchitecture() -> String {
-    #if arch(arm64)
-    return "arm64"
-    #elseif arch(x86_64)
-    return "x86_64"
-    #else
-    return "unknown"
-    #endif
-}
-
-@MainActor
-private func mobileFeedbackCurrentDisplayInfo() -> String {
-    let descriptions = UIScreen.screens.map { screen -> String in
-        let bounds = screen.bounds
-        let scale = screen.scale
-        return "\(Int(bounds.width))x\(Int(bounds.height)) @\(Int(scale))x"
+    private static func formatMemoryGB() -> String {
+        let bytes = ProcessInfo.processInfo.physicalMemory
+        let gb = Double(bytes) / (1_024 * 1_024 * 1_024)
+        return "\(Int(gb)) GB"
     }
-    let count = UIScreen.screens.count
-    let prefix = "\(count) display\(count == 1 ? "" : "s")"
-    return "\(prefix), \(descriptions.joined(separator: "; "))"
+
+    private static func currentArchitecture() -> String {
+        #if arch(arm64)
+        return "arm64"
+        #elseif arch(x86_64)
+        return "x86_64"
+        #else
+        return "unknown"
+        #endif
+    }
+
+    @MainActor
+    private static func currentDisplayInfo() -> String {
+        let descriptions = UIScreen.screens.map { screen -> String in
+            let bounds = screen.bounds
+            let scale = screen.scale
+            return "\(Int(bounds.width))x\(Int(bounds.height)) @\(Int(scale))x"
+        }
+        let count = UIScreen.screens.count
+        let prefix = "\(count) display\(count == 1 ? "" : "s")"
+        return "\(prefix), \(descriptions.joined(separator: "; "))"
+    }
 }
 #endif

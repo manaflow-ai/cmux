@@ -92,10 +92,10 @@ public actor MobileDiagnosticsOSLogReader {
                     guard let logEntry = entry as? OSLogEntryLog else { continue }
                     guard includedSubsystems.contains(logEntry.subsystem) else { continue }
                     let time = formatter.string(from: logEntry.date)
-                    let level = mobileDiagnosticsOSLogLevelLabel(logEntry.level)
+                    let level = Self.levelLabel(logEntry.level)
                     let category = logEntry.category.isEmpty ? "-" : logEntry.category
                     let line = "\(time) \(category) [\(level)] \(logEntry.subsystem): \(logEntry.composedMessage)"
-                    if appendMobileDiagnosticsRecentLine(
+                    if Self.appendRecentLine(
                         line,
                         to: &lines,
                         renderedBytes: &renderedBytes,
@@ -112,7 +112,7 @@ public actor MobileDiagnosticsOSLogReader {
                         : "(no matching os log entries in the last \(Int(lookback))s)"
                 }
                 if truncated {
-                    _ = appendMobileDiagnosticsRecentLine(
+                    _ = Self.appendRecentLine(
                         "(os log truncated to latest matching entries)",
                         to: &lines,
                         renderedBytes: &renderedBytes,
@@ -131,48 +131,45 @@ public actor MobileDiagnosticsOSLogReader {
     }
 
     #if canImport(OSLog)
-    #endif
-}
-
-#if canImport(OSLog)
-/// Short human label for an OSLog entry level.
-private func mobileDiagnosticsOSLogLevelLabel(_ level: OSLogEntryLog.Level) -> String {
-    switch level {
-    case .undefined: return "undefined"
-    case .debug: return "debug"
-    case .info: return "info"
-    case .notice: return "notice"
-    case .error: return "error"
-    case .fault: return "fault"
-    @unknown default: return "unknown"
+    /// Short human label for an OSLog entry level.
+    private static func levelLabel(_ level: OSLogEntryLog.Level) -> String {
+        switch level {
+        case .undefined: return "undefined"
+        case .debug: return "debug"
+        case .info: return "info"
+        case .notice: return "notice"
+        case .error: return "error"
+        case .fault: return "fault"
+        @unknown default: return "unknown"
+        }
     }
-}
 #endif
 
-@discardableResult
-func appendMobileDiagnosticsRecentLine(
-    _ line: String,
-    to lines: inout [String],
-    renderedBytes: inout Int,
-    maxEntries: Int,
-    maxBytes: Int
-) -> Bool {
-    guard maxEntries > 0, maxBytes > 0 else { return true }
-    let candidateBytes = line.utf8.count
-    guard candidateBytes <= maxBytes else { return true }
+    @discardableResult
+    static func appendRecentLine(
+        _ line: String,
+        to lines: inout [String],
+        renderedBytes: inout Int,
+        maxEntries: Int,
+        maxBytes: Int
+    ) -> Bool {
+        guard maxEntries > 0, maxBytes > 0 else { return true }
+        let candidateBytes = line.utf8.count
+        guard candidateBytes <= maxBytes else { return true }
 
-    let separatorBytes = lines.isEmpty ? 0 : 1
-    lines.append(line)
-    renderedBytes += separatorBytes + candidateBytes
+        let separatorBytes = lines.isEmpty ? 0 : 1
+        lines.append(line)
+        renderedBytes += separatorBytes + candidateBytes
 
-    var droppedOlderLines = false
-    while lines.count > maxEntries || renderedBytes > maxBytes {
-        let removed = lines.removeFirst()
-        renderedBytes -= removed.utf8.count
-        if lines.isEmpty == false {
-            renderedBytes -= 1
+        var droppedOlderLines = false
+        while lines.count > maxEntries || renderedBytes > maxBytes {
+            let removed = lines.removeFirst()
+            renderedBytes -= removed.utf8.count
+            if lines.isEmpty == false {
+                renderedBytes -= 1
+            }
+            droppedOlderLines = true
         }
-        droppedOlderLines = true
+        return droppedOlderLines
     }
-    return droppedOlderLines
 }

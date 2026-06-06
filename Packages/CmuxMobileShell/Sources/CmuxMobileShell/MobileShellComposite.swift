@@ -1470,7 +1470,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func markMacConnectionUnavailableIfNeeded(after error: any Error) {
-        guard isMobileMacAvailabilityFailure(error) else { return }
+        guard Self.isMobileMacAvailabilityFailure(error) else { return }
         markMacConnectionUnavailable()
     }
 
@@ -2488,22 +2488,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
     }
-}
 
-private func isMobileMacAvailabilityFailure(_ error: any Error) -> Bool {
-    if error is CmxNetworkByteTransportError {
-        return true
-    }
-    guard let shellError = error as? MobileShellConnectionError else {
-        return false
-    }
-    switch shellError {
-    case .connectionClosed, .requestTimedOut:
-        return true
-    case .invalidResponse, .insecureManualRoute, .attachTicketExpired, .authorizationFailed, .accountMismatch, .rpcError:
-        // .accountMismatch means the Mac is reachable but signed in to a
-        // different account; that is an auth problem, not a Mac-availability one.
-        return false
+    private static func isMobileMacAvailabilityFailure(_ error: any Error) -> Bool {
+        if error is CmxNetworkByteTransportError {
+            return true
+        }
+        guard let shellError = error as? MobileShellConnectionError else {
+            return false
+        }
+        switch shellError {
+        case .connectionClosed, .requestTimedOut:
+            return true
+        case .invalidResponse, .insecureManualRoute, .attachTicketExpired, .authorizationFailed, .accountMismatch, .rpcError:
+            // .accountMismatch means the Mac is reachable but signed in to a
+            // different account; that is an auth problem, not a Mac-availability one.
+            return false
+        }
     }
 }
 

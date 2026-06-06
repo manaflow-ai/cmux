@@ -26,6 +26,20 @@ import Testing
         #expect(scrubber.scrub("DB_PASSWORD='hunter2longvalue'") == "DB_PASSWORD='<redacted>'")
     }
 
+    @Test func redactsQuotedKeyValueSecretsContainingSpaces() {
+        let samples = [
+            ("PASSWORD='correct horse battery staple'", "PASSWORD='<redacted>'", "horse battery"),
+            ("client_secret=\"super secret oauth value\"", "client_secret=\"<redacted>\"", "oauth value"),
+            ("api_key: 'key with spaces inside'", "api_key: '<redacted>'", "spaces inside"),
+        ]
+
+        for (sample, expected, leakedFragment) in samples {
+            let out = scrubber.scrub(sample)
+            #expect(out == expected)
+            #expect(!out.contains(leakedFragment), "value leaked for \(sample): \(out)")
+        }
+    }
+
     @Test func redactsFirstQueryStringSecrets() {
         let accessTokenURL = "https://example.com/callback?access_token=abcd1234efgh&ok=1"
         let apiKeyURL = "https://example.com/search?api_key=sekretvalue123&q=cmux"
