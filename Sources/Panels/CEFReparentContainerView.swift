@@ -143,6 +143,7 @@ final class CEFReparentContainerView: NSView {
         guard inWindow.width > 0, inWindow.height > 0 else { return }
         let onScreen = window.convertToScreen(inWindow)
         panel.syncRenderFrame(toScreen: onScreen)
+        panel.notifyEmbedHostResized()
     }
 
     private func observeOn(_ name: Notification.Name, target: AnyObject) {

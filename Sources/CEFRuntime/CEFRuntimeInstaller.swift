@@ -100,6 +100,12 @@ final class CEFRuntimeInstaller {
         guard BrowserEngineKind.isCEFSupportedOnCurrentOS else {
             return String(localized: "cefRuntime.menuStatus.unsupportedOS", defaultValue: "requires macOS 15.0")
         }
+        guard BrowserEngineKind.isCEFSupportedOnCurrentArchitecture else {
+            return String(
+                localized: "cefRuntime.menuStatus.unsupportedArchitecture",
+                defaultValue: "requires Apple Silicon"
+            )
+        }
         if isInstalledOrBundled { return nil }
         switch phase {
         case .idle:
@@ -127,6 +133,16 @@ final class CEFRuntimeInstaller {
                 String(
                     localized: "cefRuntime.installFailed.unsupportedOS",
                     defaultValue: "CEF requires macOS 15.0 or later."
+                ),
+                presentingWindow: presentingWindow
+            )
+            return false
+        }
+        guard BrowserEngineKind.isCEFSupportedOnCurrentArchitecture else {
+            presentFailure(
+                String(
+                    localized: "cefRuntime.installFailed.unsupportedArchitecture",
+                    defaultValue: "CEF currently requires an Apple Silicon Mac."
                 ),
                 presentingWindow: presentingWindow
             )

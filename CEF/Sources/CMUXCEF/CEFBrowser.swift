@@ -98,34 +98,44 @@ public final class CEFBrowser: NSObject {
     }
 }
 
-extension CEFBrowser: @MainActor CMUXCEFBrowserBridgeDelegate {
-    public func browserBridgeDidStartLoading(_ bridge: CMUXCEFBrowserBridge) {
-        delegate?.cefBrowserDidStartLoading(self)
+extension CEFBrowser: CMUXCEFBrowserBridgeDelegate {
+    public nonisolated func browserBridgeDidStartLoading(_ bridge: CMUXCEFBrowserBridge) {
+        MainActor.assumeIsolated {
+            self.delegate?.cefBrowserDidStartLoading(self)
+        }
     }
 
-    public func browserBridgeDidFinishLoading(_ bridge: CMUXCEFBrowserBridge) {
-        delegate?.cefBrowserDidFinishLoading(self)
+    public nonisolated func browserBridgeDidFinishLoading(_ bridge: CMUXCEFBrowserBridge) {
+        MainActor.assumeIsolated {
+            self.delegate?.cefBrowserDidFinishLoading(self)
+        }
     }
 
-    public func browserBridge(
+    public nonisolated func browserBridge(
         _ bridge: CMUXCEFBrowserBridge,
         didChangeTitle title: String
     ) {
-        delegate?.cefBrowser(self, didChangeTitle: title)
+        MainActor.assumeIsolated {
+            self.delegate?.cefBrowser(self, didChangeTitle: title)
+        }
     }
 
-    public func browserBridge(
+    public nonisolated func browserBridge(
         _ bridge: CMUXCEFBrowserBridge,
         didChange url: URL
     ) {
-        delegate?.cefBrowser(self, didChangeURL: url)
+        MainActor.assumeIsolated {
+            self.delegate?.cefBrowser(self, didChangeURL: url)
+        }
     }
 
-    public func browserBridge(
+    public nonisolated func browserBridge(
         _ bridge: CMUXCEFBrowserBridge,
         didFailLoad error: Error
     ) {
-        delegate?.cefBrowser(self, didFailLoad: error)
+        MainActor.assumeIsolated {
+            self.delegate?.cefBrowser(self, didFailLoad: error)
+        }
     }
 }
 

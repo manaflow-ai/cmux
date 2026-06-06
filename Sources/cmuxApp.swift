@@ -552,6 +552,12 @@ struct cmuxApp: App {
                             localized: "debug.menu.browserEngine.cefUnsupportedOS",
                             defaultValue: "CEF requires macOS 15.0 or later."
                         ))
+                    } else if !BrowserEngineKind.isCEFSupportedOnCurrentArchitecture {
+                        Divider()
+                        Text(String(
+                            localized: "debug.menu.browserEngine.cefUnsupportedArchitecture",
+                            defaultValue: "CEF currently requires an Apple Silicon Mac."
+                        ))
                     }
                 }
                 Divider()

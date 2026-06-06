@@ -35,10 +35,10 @@ public enum BrowserEngineKind: String, CaseIterable, Sendable {
     /// The currently-active selection, resolved from `UserDefaults`.
     ///
     /// This repairs impossible persisted selections, such as CEF on an
-    /// unsupported OS or a build that does not link the CEF package. It does
-    /// not require the optional CEF runtime to be installed; runtime
-    /// installation is handled when the user selects CEF or when a CEF panel
-    /// activates.
+    /// unsupported OS, unsupported CPU architecture, or a build that does not
+    /// link the CEF package. It does not require the optional CEF runtime to be
+    /// installed; runtime installation is handled when the user selects CEF or
+    /// when a CEF panel activates.
     public static var current: BrowserEngineKind {
         let raw = UserDefaults.standard.string(forKey: userDefaultsKey)
         guard let raw, let kind = BrowserEngineKind(rawValue: raw) else {
@@ -76,9 +76,21 @@ public enum BrowserEngineKind: String, CaseIterable, Sendable {
         }
     }
 
-    /// True only when CEF is linked and the current OS can run it.
+    /// Whether the current CPU architecture can run the pinned CEF runtime.
+    ///
+    /// The current lockfile provisions a `macosarm64` CEF SDK, and runtime
+    /// installation is intentionally compiled for Apple Silicon only.
+    public static var isCEFSupportedOnCurrentArchitecture: Bool {
+        #if arch(arm64)
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    /// True only when CEF is linked and the current platform can run it.
     static var canSelectCEF: Bool {
-        isCEFAvailable && isCEFSupportedOnCurrentOS
+        isCEFAvailable && isCEFSupportedOnCurrentOS && isCEFSupportedOnCurrentArchitecture
     }
 
     /// Human-readable label used by the Debug menu.

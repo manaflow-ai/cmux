@@ -39,10 +39,13 @@ case "${SWIFT_CFG}" in
   *) SWIFT_CFG="debug" ;;
 esac
 
-(cd "${CEF_ROOT}" && xcrun swift build -c "${SWIFT_CFG}" --product CMUXCEFHelper)
-(cd "${CEF_ROOT}" && xcrun swift build -c "${SWIFT_CFG}" --product CMUXCEFHelperRenderer)
+# The pinned CEF SDK is macosarm64-only. Build helpers to match it even when
+# cmux itself is universal; BrowserEngineKind.canSelectCEF disables CEF on x86_64.
+CEF_HELPER_SWIFT_ARCH=(--arch arm64)
+(cd "${CEF_ROOT}" && xcrun swift build -c "${SWIFT_CFG}" "${CEF_HELPER_SWIFT_ARCH[@]}" --product CMUXCEFHelper)
+(cd "${CEF_ROOT}" && xcrun swift build -c "${SWIFT_CFG}" "${CEF_HELPER_SWIFT_ARCH[@]}" --product CMUXCEFHelperRenderer)
 
-BUILD_BIN="$(cd "${CEF_ROOT}" && xcrun swift build -c "${SWIFT_CFG}" --show-bin-path)"
+BUILD_BIN="$(cd "${CEF_ROOT}" && xcrun swift build -c "${SWIFT_CFG}" "${CEF_HELPER_SWIFT_ARCH[@]}" --show-bin-path)"
 HELPER_BIN="${BUILD_BIN}/CMUXCEFHelper"
 RENDERER_BIN="${BUILD_BIN}/CMUXCEFHelperRenderer"
 
