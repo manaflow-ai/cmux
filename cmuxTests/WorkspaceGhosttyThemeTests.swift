@@ -68,6 +68,29 @@ struct WorkspaceGhosttyThemeTests {
         #expect(decoded.windows.first?.tabManager.workspaces.first?.ghosttyThemeSelection == nil)
     }
 
+    @MainActor
+    @Test func sessionAutosaveFingerprintChangesWhenWorkspaceThemeChanges() throws {
+        let manager = TabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.tabs.first)
+
+        let baselineFingerprint = manager.sessionAutosaveFingerprint()
+        workspace.setGhosttyThemeSelection(
+            WorkspaceGhosttyThemeSelection(light: "Catppuccin Latte", dark: "Catppuccin Mocha"),
+            reload: false
+        )
+        let firstThemeFingerprint = manager.sessionAutosaveFingerprint()
+
+        workspace.setGhosttyThemeSelection(
+            WorkspaceGhosttyThemeSelection(light: "Catppuccin Latte", dark: "Solarized Dark"),
+            reload: false
+        )
+        let secondThemeFingerprint = manager.sessionAutosaveFingerprint()
+
+        #expect(firstThemeFingerprint != baselineFingerprint)
+        #expect(secondThemeFingerprint != firstThemeFingerprint)
+    }
+
     private func makeSnapshot(version: Int) -> AppSessionSnapshot {
         let workspace = SessionWorkspaceSnapshot(
             processTitle: "Terminal",
