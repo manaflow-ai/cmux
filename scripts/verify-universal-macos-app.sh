@@ -3,15 +3,19 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/verify-universal-macos-app.sh <app-path> [--label <name>]
+Usage: ./scripts/verify-universal-macos-app.sh <app-path> [--label <name>] [--require-sdk-prefix <prefix>]
 
 Verifies that the app executable, bundled cmux CLI, and bundled Ghostty helper
 all contain both arm64 and x86_64 Mach-O slices.
+
+When --require-sdk-prefix is provided, also verifies that the app executable's
+LC_BUILD_VERSION SDK starts with that prefix, e.g. "26.".
 EOF
 }
 
 APP_PATH=""
 LABEL="macOS app"
+SDK_PREFIX=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --label)
@@ -20,6 +24,14 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       LABEL="$2"
+      shift 2
+      ;;
+    --require-sdk-prefix)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "Missing value for --require-sdk-prefix" >&2
+        exit 1
+      fi
+      SDK_PREFIX="$2"
       shift 2
       ;;
     -h|--help)
@@ -108,3 +120,33 @@ verify_binary_archs() {
 verify_binary_archs "app binary" "$APP_BINARY"
 verify_binary_archs "CLI binary" "$CLI_BINARY"
 verify_binary_archs "Ghostty helper" "$HELPER_BINARY"
+
+if [[ -n "$SDK_PREFIX" ]]; then
+  OTOOL_BIN="${CMUX_OTOOL:-otool}"
+  if ! command -v "$OTOOL_BIN" >/dev/null 2>&1; then
+    echo "error: otool is required to verify the macOS SDK version" >&2
+    exit 1
+  fi
+
+  if ! SDK_VERSION="$(
+    "$OTOOL_BIN" -l "$APP_BINARY" \
+      | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }'
+  )"; then
+    echo "error: failed to inspect app SDK version at $APP_BINARY" >&2
+    exit 1
+  fi
+  if [[ -z "$SDK_VERSION" ]]; then
+    echo "error: failed to inspect app SDK version at $APP_BINARY" >&2
+    exit 1
+  fi
+
+  echo "$LABEL app SDK version: $SDK_VERSION"
+  case "$SDK_VERSION" in
+    "$SDK_PREFIX"*)
+      ;;
+    *)
+      echo "error: app binary at $APP_BINARY was built with SDK $SDK_VERSION, expected prefix $SDK_PREFIX" >&2
+      exit 1
+      ;;
+  esac
+fi
