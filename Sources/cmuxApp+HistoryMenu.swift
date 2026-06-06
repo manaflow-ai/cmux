@@ -134,8 +134,9 @@ extension cmuxApp {
     }
 
     private var recentlyClosedMenuSnapshot: ClosedItemHistoryMenuSnapshot {
-        let _ = closedItemHistoryStore.revision
-        return closedItemHistoryStore.menuSnapshot(maxItemCount: 10)
+        let store = ClosedItemHistoryStore.shared
+        let _ = store.revision
+        return store.menuSnapshot(maxItemCount: 10)
     }
 
     private func historyMenuSectionTitle(title: String, subtitle: String) -> String {
