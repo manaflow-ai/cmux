@@ -2311,6 +2311,7 @@ class GhosttyApp {
         synchronizeGhosttyRuntimeColorScheme(effectiveTerminalColorSchemePreference, source: "initialize")
         lastAppearanceColorScheme = initialColorScheme
         GhosttyConfig.invalidateLoadCache()
+        WorkspaceGhosttyThemeCatalog.invalidateCachedAvailableThemeNames()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
 
         #if os(macOS)
@@ -3556,6 +3557,7 @@ class GhosttyApp {
             ghostty_app_update_config(app, config)
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
+            WorkspaceGhosttyThemeCatalog.invalidateCachedAvailableThemeNames()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
             scheduleSurfaceRefreshAfterConfigurationReload(
                 source: source,
@@ -3598,6 +3600,7 @@ class GhosttyApp {
         }
         config = newConfig
         lastAppearanceColorScheme = reloadColorScheme
+        WorkspaceGhosttyThemeCatalog.invalidateCachedAvailableThemeNames()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
         scheduleSurfaceRefreshAfterConfigurationReload(
             source: source,
@@ -8303,8 +8306,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var onTriggerFlash: (() -> Void)?
     private(set) var terminalBackgroundOverride: NSColor?
     private var workspaceThemeBackgroundColor: NSColor?
+    private var workspaceThemeBackgroundOpacity: Double?
     var backgroundColor: NSColor? {
         terminalBackgroundOverride ?? workspaceThemeBackgroundColor
+    }
+    private var backgroundOpacity: Double {
+        terminalBackgroundOverride == nil
+            ? workspaceThemeBackgroundOpacity ?? GhosttyApp.shared.defaultBackgroundOpacity
+            : GhosttyApp.shared.defaultBackgroundOpacity
     }
     private var appliedColorScheme: ghostty_color_scheme_e?
     private var lastLoggedSurfaceBackgroundSignature: String?
@@ -8442,8 +8451,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func effectiveBackgroundColor() -> NSColor {
         let base = backgroundColor ?? GhosttyApp.shared.defaultBackgroundColor
-        let opacity = GhosttyApp.shared.defaultBackgroundOpacity
-        return base.withAlphaComponent(opacity)
+        return base.withAlphaComponent(backgroundOpacity)
     }
 
     func applySurfaceBackground() {
@@ -8459,7 +8467,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             renderingMode: renderingMode,
             surfaceBackgroundColor: backgroundColor,
             defaultBackgroundColor: GhosttyApp.shared.defaultBackgroundColor,
-            backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
+            backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
             usesBonsplitPaneBackdrop: usesBonsplitPaneBackdrop
         )
@@ -8497,8 +8505,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         lastLoggedWindowBackgroundSignature = nil
     }
 
-    func setWorkspaceThemeBackgroundColor(_ color: NSColor?) {
+    func setWorkspaceThemeBackground(_ color: NSColor?, opacity: Double?) {
         workspaceThemeBackgroundColor = color
+        workspaceThemeBackgroundOpacity = opacity
         lastLoggedSurfaceBackgroundSignature = nil
         lastLoggedWindowBackgroundSignature = nil
     }
@@ -13709,11 +13718,11 @@ final class GhosttySurfaceScrollView: NSView {
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
         reason: String
     ) {
-        let color = selection?.resolvedGhosttyConfig(preferredColorScheme: preferredColorScheme).backgroundColor
-        surfaceView.setWorkspaceThemeBackgroundColor(color)
+        let config = selection?.resolvedGhosttyConfig(preferredColorScheme: preferredColorScheme)
+        surfaceView.setWorkspaceThemeBackground(config?.backgroundColor, opacity: config?.backgroundOpacity)
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
-                "workspace theme surface background tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") reason=\(reason) color=\(color?.hexString() ?? "nil")"
+                "workspace theme surface background tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") reason=\(reason) color=\(config?.backgroundColor.hexString() ?? "nil") opacity=\(config.map { String(format: "%.3f", $0.backgroundOpacity) } ?? "nil")"
             )
         }
         refreshHostBackgroundAfterGhosttyConfigReload()
