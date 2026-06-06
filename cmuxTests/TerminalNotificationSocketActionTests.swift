@@ -163,6 +163,34 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(fixture.notification(notification.id)?.isRead, true)
     }
 
+    func testNotificationOpenPayloadIncludesTurnStartAnchor() async throws {
+        let fixture = try makeSocketFixture(name: "notif-open-anchor", includeWindow: true)
+        defer { fixture.cleanup() }
+
+        let targetWorkspace = fixture.manager.addWorkspace(title: "Open Anchor Target", select: false)
+        let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
+        let anchor = TerminalNotificationOpenAnchor(scrollbarOffset: 123)
+        let notification = makeNotification(
+            tabId: targetWorkspace.id,
+            surfaceId: targetSurfaceId,
+            title: "Open Anchor",
+            openAnchor: anchor
+        )
+        fixture.store.replaceNotificationsForTesting([notification])
+        fixture.manager.selectTab(fixture.workspace)
+
+        let response = try await sendV2RequestAsync(
+            method: "notification.open",
+            params: ["id": notification.id.uuidString],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        let openAnchor = try XCTUnwrap(result["open_anchor"] as? [String: Any])
+        XCTAssertEqual(openAnchor["scrollbar_offset"] as? UInt64, anchor.scrollbarOffset)
+    }
+
     func testNotificationJumpToUnreadOpensLatestUnreadAndNoOpsWhenNoneRemain() async throws {
         let fixture = try makeSocketFixture(name: "notif-jump", includeWindow: true)
         defer { fixture.cleanup() }
@@ -341,7 +369,8 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         tabId: UUID,
         surfaceId: UUID?,
         title: String,
-        isRead: Bool = false
+        isRead: Bool = false,
+        openAnchor: TerminalNotificationOpenAnchor? = nil
     ) -> TerminalNotification {
         TerminalNotification(
             id: UUID(),
@@ -351,7 +380,8 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             subtitle: "socket-test",
             body: "body",
             createdAt: Date(timeIntervalSince1970: 1_778_888_888),
-            isRead: isRead
+            isRead: isRead,
+            openAnchor: openAnchor
         )
     }
 

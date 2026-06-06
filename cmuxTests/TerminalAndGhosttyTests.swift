@@ -3961,6 +3961,32 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
+    func testNotificationOpenAnchorConvertsAbsoluteScrollOffsetToGhosttyRow() {
+        let anchor = TerminalNotificationOpenAnchor(scrollbarOffset: 80)
+        let scrollbar = makeScrollbar(total: 150, offset: 130, len: 20)
+
+        XCTAssertEqual(
+            GhosttySurfaceScrollView.notificationOpenScrollRow(
+                for: anchor,
+                scrollbar: scrollbar
+            ),
+            50
+        )
+    }
+
+    func testNotificationOpenAnchorClampsPastBottomToBottomRow() {
+        let anchor = TerminalNotificationOpenAnchor(scrollbarOffset: 140)
+        let scrollbar = makeScrollbar(total: 150, offset: 130, len: 20)
+
+        XCTAssertEqual(
+            GhosttySurfaceScrollView.notificationOpenScrollRow(
+                for: anchor,
+                scrollbar: scrollbar
+            ),
+            0
+        )
+    }
+
     override func tearDown() {
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
         for surface in surfacesToRelease.reversed() {

@@ -176,6 +176,34 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertEqual(CmuxEventBus.shared.latestSequence, sequenceBeforeSubmit)
     }
 
+    func testPromptSubmitOpenAnchorIsAppliedToNextSurfaceNotification() throws {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _, _ in }
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+        }
+
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        let anchor = TerminalNotificationOpenAnchor(scrollbarOffset: 42)
+        store.recordPromptSubmitOpenAnchor(anchor, forTabId: workspaceId, surfaceId: surfaceId)
+
+        store.addNotification(
+            tabId: workspaceId,
+            surfaceId: surfaceId,
+            title: "Agent finished",
+            subtitle: "codex",
+            body: "Done"
+        )
+
+        let notification = try XCTUnwrap(store.notifications.first)
+        XCTAssertEqual(notification.openAnchor, anchor)
+    }
+
     func testFeedPromptSubmitEventExtractsToolInputMessage() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
