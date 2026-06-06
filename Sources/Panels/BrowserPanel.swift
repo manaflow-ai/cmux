@@ -536,30 +536,6 @@ enum BrowserEngine: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var displayName: String {
-        switch self {
-        case .webKit:
-            return String(localized: "browser.engine.webkit", defaultValue: "WebKit (Embedded)")
-        case .systemDefault:
-            return String(localized: "browser.engine.systemDefault", defaultValue: "Default Browser")
-        }
-    }
-
-    var settingsSubtitle: String {
-        switch self {
-        case .webKit:
-            return String(
-                localized: "settings.browser.engine.subtitle.webkit",
-                defaultValue: "WebKit runs inside cmux with automation, profiles, and imported browser data."
-            )
-        case .systemDefault:
-            return String(
-                localized: "settings.browser.engine.subtitle.systemDefault",
-                defaultValue: "Tabs and intercepted links open in your macOS default browser, preserving its signed-in state."
-            )
-        }
-    }
-
     var usesEmbeddedBrowser: Bool {
         self == .webKit
     }
