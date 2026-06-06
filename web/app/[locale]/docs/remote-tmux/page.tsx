@@ -50,10 +50,7 @@ export default function RemoteTmuxPage() {
 
       <DocsHeading level={2} id="attach">{t("attachTitle")}</DocsHeading>
       <p>{t("attachIntro")}</p>
-      <ul>
-        <li>{t("attachOpen")}</li>
-        <li>{t("attachMirror")}</li>
-      </ul>
+      <p>{t("attachSockets")}</p>
 
       <DocsHeading level={2} id="how-it-works">{t("howTitle")}</DocsHeading>
       <p>{t("howDesc")}</p>
