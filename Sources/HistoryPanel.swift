@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 
 /// A first-class workspace pane that browses the closed-item history (closed
 /// terminals, browsers, panes, workspaces, and windows) and lets the user reopen
@@ -9,11 +8,11 @@ import Combine
 /// is backed by the shared ``ClosedItemHistoryStore``; the panel itself holds no
 /// per-workspace state.
 @MainActor
-final class HistoryPanel: Panel, ObservableObject {
+final class HistoryPanel: Panel {
     let id: UUID
     let panelType: PanelType = .history
 
-    @Published private(set) var focusFlashToken: Int = 0
+    private(set) var focusFlashToken: Int = 0
 
     init() {
         self.id = UUID()
@@ -34,6 +33,7 @@ final class HistoryPanel: Panel, ObservableObject {
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
         guard NotificationPaneFlashSettings.isEnabled() else { return }
+        objectWillChange.send()
         focusFlashToken += 1
     }
 }

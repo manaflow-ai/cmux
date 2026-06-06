@@ -349,15 +349,13 @@ final class SessionIndexViewTests: XCTestCase {
             section: harness.section,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
-            onResume: nil,
-            onDelete: nil
+            onResume: nil
         )
         coordinator.update(
             section: harness.section,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
-            onResume: nil,
-            onDelete: nil
+            onResume: nil
         )
 
         XCTAssertEqual(coordinator.debugRefreshContentCallCount, 0)
@@ -391,8 +389,7 @@ final class SessionIndexViewTests: XCTestCase {
             section: harness.section,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
-            onResume: nil,
-            onDelete: nil
+            onResume: nil
         )
         XCTAssertEqual(coordinator.debugRefreshContentCallCount, 0)
 
@@ -406,8 +403,7 @@ final class SessionIndexViewTests: XCTestCase {
             section: harness.section,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
-            onResume: nil,
-            onDelete: nil
+            onResume: nil
         )
 
         XCTAssertEqual(coordinator.debugRefreshContentCallCount, 1)
@@ -436,39 +432,9 @@ final class SessionIndexViewTests: XCTestCase {
             section: section,
             search: search,
             loadSnapshot: loadSnapshot,
-            onResume: nil,
-            onDelete: nil
+            onResume: nil
         )
         return SessionPopoverHarness(host: host, section: section, search: search, loadSnapshot: loadSnapshot)
-    }
-
-    func testIsDeletableGateAllowsOnlyOneFilePerSessionAgents() {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-deletable-\(UUID().uuidString).jsonl")
-        // Claude is a one-file-per-session agent, so deleting its transcript
-        // removes the indexed row without touching unrelated sessions.
-        XCTAssertTrue(makeEntry(agent: .claude, title: "t", fileURL: url).isDeletable)
-        // Shared-history / database-backed agents must never be deletable, so a
-        // single-file delete can never remove unrelated sessions.
-        XCTAssertFalse(makeEntry(agent: .codex, title: "t", fileURL: url).isDeletable)
-        XCTAssertFalse(makeEntry(agent: .grok, title: "t", fileURL: url).isDeletable)
-        XCTAssertFalse(makeEntry(agent: .opencode, title: "t", fileURL: url).isDeletable)
-        XCTAssertFalse(makeEntry(agent: .rovodev, title: "t", fileURL: url).isDeletable)
-        XCTAssertFalse(makeEntry(agent: .hermesAgent, title: "t", fileURL: url).isDeletable)
-        // No transcript file means nothing to delete.
-        XCTAssertFalse(makeEntry(agent: .claude, title: "t", fileURL: nil).isDeletable)
-    }
-
-    func testDeleteRejectsNonDeletableEntryWithoutTouchingFile() throws {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-del-reject-\(UUID().uuidString).jsonl")
-        try Data("{}".utf8).write(to: url)
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        let store = SessionIndexStore()
-        let entry = makeEntry(agent: .grok, title: "t", fileURL: url)
-        XCTAssertFalse(store.delete(entry))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
     }
 
     private func makeEntry(

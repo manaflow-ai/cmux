@@ -1,6 +1,5 @@
 import Foundation
-import Combine
-import Bonsplit
+import Observation
 import OSLog
 
 private let closedItemHistoryLogger = Logger(
@@ -8,231 +7,24 @@ private let closedItemHistoryLogger = Logger(
     category: "ClosedItemHistory"
 )
 
-struct ClosedPanelSplitPlacement: Codable {
-    let orientation: SplitOrientation
-    let insertFirst: Bool
-    let anchorPanelId: UUID?
-}
-
-struct ClosedPanelHistoryEntry: Codable {
-    let workspaceId: UUID
-    let paneId: UUID
-    let paneAnchorPanelId: UUID?
-    let restoreInOriginalPane: Bool
-    let tabIndex: Int
-    let snapshot: SessionPanelSnapshot
-    let fallbackSplitPlacement: ClosedPanelSplitPlacement?
-
-    init(
-        workspaceId: UUID,
-        paneId: UUID,
-        paneAnchorPanelId: UUID? = nil,
-        restoreInOriginalPane: Bool = true,
-        tabIndex: Int,
-        snapshot: SessionPanelSnapshot,
-        fallbackSplitPlacement: ClosedPanelSplitPlacement? = nil
-    ) {
-        self.workspaceId = workspaceId
-        self.paneId = paneId
-        self.paneAnchorPanelId = paneAnchorPanelId
-        self.restoreInOriginalPane = restoreInOriginalPane
-        self.tabIndex = tabIndex
-        self.snapshot = snapshot
-        self.fallbackSplitPlacement = fallbackSplitPlacement
-    }
-}
-
-struct ClosedWorkspaceHistoryEntry: Codable {
-    let workspaceId: UUID
-    let windowId: UUID?
-    let workspaceIndex: Int
-    let snapshot: SessionWorkspaceSnapshot
-}
-
-struct ClosedWindowHistoryEntry: Codable {
-    let windowId: UUID?
-    let snapshot: SessionWindowSnapshot
-
-    let workspaceIds: [UUID]
-
-    init(windowId: UUID? = nil, snapshot: SessionWindowSnapshot, workspaceIds: [UUID] = []) {
-        self.windowId = windowId
-        self.snapshot = snapshot
-        self.workspaceIds = workspaceIds
-    }
-}
-
-enum ClosedItemHistoryEntry: Codable {
-    case panel(ClosedPanelHistoryEntry)
-    case workspace(ClosedWorkspaceHistoryEntry)
-    case window(ClosedWindowHistoryEntry)
-}
-
-/// Identifies a live item that was just reopened from history so a "redo"
-/// (re-close) can target it.
-enum ReopenedItemRef: Equatable, Sendable {
-    case panel(workspaceId: UUID, panelId: UUID)
-    case workspace(workspaceId: UUID)
-    case window(windowId: UUID)
-}
-
-struct ClosedItemHistoryRecord: Identifiable, Codable {
-    let id: UUID
-    let closedAt: Date
-    /// Groups records closed by the same user action (a multi-select delete).
-    /// A single close is a group of one (`operationId == id`). Older persisted
-    /// records that predate grouping decode as singletons.
-    var operationId: UUID
-    var entry: ClosedItemHistoryEntry
-
-    init(id: UUID = UUID(), closedAt: Date = Date(), operationId: UUID? = nil, entry: ClosedItemHistoryEntry) {
-        self.id = id
-        self.closedAt = closedAt
-        self.operationId = operationId ?? id
-        self.entry = entry
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id, closedAt, operationId, entry
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let id = try container.decode(UUID.self, forKey: .id)
-        self.id = id
-        self.closedAt = try container.decode(Date.self, forKey: .closedAt)
-        self.operationId = try container.decodeIfPresent(UUID.self, forKey: .operationId) ?? id
-        self.entry = try container.decode(ClosedItemHistoryEntry.self, forKey: .entry)
-    }
-}
-
-/// Coarse category of a closed item, used to pick a row icon in the History pane.
-enum ClosedItemKind: String, Equatable, Sendable {
-    case terminal
-    case browser
-    case markdown
-    case filePreview
-    case project
-    case tool
-    case history
-    case extensionBrowser
-    case workspace
-    case window
-
-    /// SF Symbol name representing this kind in the History pane.
-    var systemImage: String {
-        switch self {
-        case .terminal: return "terminal"
-        case .browser: return "globe"
-        case .markdown: return "doc.richtext"
-        case .filePreview: return "doc"
-        case .project: return "folder"
-        case .tool: return "wrench.and.screwdriver"
-        case .history: return "clock.arrow.circlepath"
-        case .extensionBrowser: return "puzzlepiece.extension"
-        case .workspace: return "rectangle.stack"
-        case .window: return "macwindow"
-        }
-    }
-
-    /// Maps a closed panel's `PanelType` to its closed-item kind.
-    static func forPanel(_ type: PanelType) -> ClosedItemKind {
-        switch type {
-        case .terminal: return .terminal
-        case .browser: return .browser
-        case .markdown: return .markdown
-        case .filePreview: return .filePreview
-        case .rightSidebarTool: return .tool
-        case .project: return .project
-        case .history: return .history
-        case .extensionBrowser: return .extensionBrowser
-        }
-    }
-}
-
-struct ClosedItemHistoryMenuItem: Identifiable, Equatable {
-    let id: UUID
-    let kind: ClosedItemKind
-    let title: String
-    let detail: String
-    let closedAt: Date
-    /// True when this item's restored target is currently live (so it should be
-    /// shown as already restored and skipped by "restore remaining" / undo).
-    /// Computed at snapshot time from the in-memory restore map; defaults false.
-    var isRestored: Bool = false
-
-    var menuSubtitle: String {
-        let closed = String(
-            format: String(localized: "historyPane.closedAtFormat", defaultValue: "Closed %@"),
-            closedAt.formatted(date: .omitted, time: .shortened)
-        )
-        return String(
-            format: String(localized: "menu.history.menuItemSubtitleFormat", defaultValue: "%1$@, %2$@"),
-            detail,
-            closed
-        )
-    }
-
-    var menuTitle: String {
-        HistoryMenuLineFormatter.titleWithSubtitle(
-            title: title,
-            subtitle: menuSubtitle
-        )
-    }
-}
-
-struct ClosedItemHistoryMenuSnapshot {
-    let items: [ClosedItemHistoryMenuItem]
-    let totalItemCount: Int
-    let isLimited: Bool
-}
-
-/// One destructive action in the History pane: a group of 1..N closed items that
-/// were closed together (a single close, or a multi-select delete). Restoring an
-/// operation brings back only its not-yet-live items.
-struct ClosedOperationSnapshot: Identifiable, Equatable {
-    /// The shared `operationId` of the records in this group.
-    let id: UUID
-    /// Header label, e.g. "3 workspaces" for a group or the item's title for a singleton.
-    let label: String
-    /// Most recent close time among the group's items.
-    let closedAt: Date
-    let items: [ClosedItemHistoryMenuItem]
-
-    var isSingleton: Bool { items.count == 1 }
-    /// True when every item in the operation is already restored/live.
-    var isFullyRestored: Bool { !items.isEmpty && items.allSatisfy(\.isRestored) }
-}
-
-enum ClosedWindowRestoreValidation {
-    static func hasUsableRestoredContent(
-        snapshot: SessionWindowSnapshot,
-        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]],
-        hasLivePanels: Bool
-    ) -> Bool {
-        guard hasLivePanels else { return false }
-        guard snapshot.hasRestorablePanels else { return true }
-        return restoredPanelIdsByWorkspaceIndex.contains { !$0.isEmpty }
-    }
-}
-
 @MainActor
-final class ClosedItemHistoryStore: ObservableObject {
+@Observable
+final class ClosedItemHistoryStore {
     static let defaultCapacity = 200
     static let shared = ClosedItemHistoryStore(
         capacity: defaultCapacity,
         fileURL: defaultHistoryFileURL()
     )
 
-    @Published private(set) var revision: UInt64 = 0
+    private(set) var revision: UInt64 = 0
     /// The most recently reopened item, re-closable via redo. Cleared whenever a
     /// new close is recorded (any ``push(_:)``) so redo only applies immediately
     /// after an undo.
-    @Published private(set) var redoTarget: ReopenedItemRef? = nil
+    private(set) var redoTarget: ReopenedItemRef? = nil
     /// The operation most recently restored (by undo or pane restore), so a redo
     /// can re-close that whole group. Cleared on any new close.
-    @Published private(set) var lastRestoredOperationId: UUID? = nil
-    @Published private var records: [ClosedItemHistoryRecord] = []
+    private(set) var lastRestoredOperationId: UUID? = nil
+    private var records: [ClosedItemHistoryRecord] = []
     /// In-memory map from a restored record's id to the live item it produced.
     /// Not persisted, so it is empty after relaunch, which is exactly the
     /// reset-on-launch behavior: nothing is marked restored after a fresh launch.
@@ -708,22 +500,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             finishPersistedRecordsLoad(Self.loadRecords(fileURL: fileURL))
         }
         needsPersistenceAfterPersistedRecordsLoad = false
-        let recordsSnapshot = records
-        let revisionSnapshot = revision
-        if persistsRecordsSynchronously {
-            Self.saveRecords(recordsSnapshot, fileURL: fileURL)
-            return
-        }
-        let semaphore = DispatchSemaphore(value: 0)
-        Task.detached(priority: .userInitiated) {
-            await ClosedItemHistoryPersistenceActor.shared.save(
-                recordsSnapshot,
-                fileURL: fileURL,
-                revision: revisionSnapshot
-            )
-            semaphore.signal()
-        }
-        semaphore.wait()
+        Self.saveRecords(records, fileURL: fileURL)
     }
 
     private func loadPersistedRecordsAsync(from fileURL: URL) {
