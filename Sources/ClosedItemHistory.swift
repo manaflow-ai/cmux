@@ -734,7 +734,7 @@ final class ClosedItemHistoryStore {
         fileURL: URL,
         revision: UInt64? = nil
     ) {
-        guard !records.isEmpty || revision != nil else {
+        guard !records.isEmpty else {
             do {
                 try FileManager.default.removeItem(at: fileURL)
             } catch {

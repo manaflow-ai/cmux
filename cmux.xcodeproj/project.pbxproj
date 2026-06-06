@@ -221,6 +221,7 @@
 		AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */ = {isa = PBXBuildFile; productRef = AA11BB22CC33DD44EE550002 /* CMUXWorkstream */; };
 		C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4041001000000000000001A /* CommandClickFileOpenRouter.swift */; };
 		C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */; };
+		D50380000000000000000001 /* CommandPaletteMobileConnectSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50380000000000000000002 /* CommandPaletteMobileConnectSearchTests.swift */; };
 		C0DEC0DE000000000000F202 /* CommandPaletteNucleoFFILibrarySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */; };
 		C0DEC0DE000000000000F102 /* CommandPaletteNucleoFFITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F101 /* CommandPaletteNucleoFFITests.swift */; };
 		C0DEC0DE000000000000F204 /* CommandPaletteNucleoFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F203 /* CommandPaletteNucleoFixtures.swift */; };
@@ -918,6 +919,7 @@
 		E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWorkspaceDefinition.swift; sourceTree = "<group>"; };
 		C4041001000000000000001A /* CommandClickFileOpenRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandClickFileOpenRouter.swift; sourceTree = "<group>"; };
 		C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteIdentifierClipboardUITests.swift; sourceTree = "<group>"; };
+		D50380000000000000000002 /* CommandPaletteMobileConnectSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteMobileConnectSearchTests.swift; sourceTree = "<group>"; };
 		C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteNucleoFFILibrarySupport.swift; sourceTree = "<group>"; };
 		C0DEC0DE000000000000F101 /* CommandPaletteNucleoFFITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteNucleoFFITests.swift; sourceTree = "<group>"; };
 		C0DEC0DE000000000000F203 /* CommandPaletteNucleoFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteNucleoFixtures.swift; sourceTree = "<group>"; };
@@ -2017,6 +2019,7 @@
 				A5008380 /* BrowserFindJavaScriptTests.swift */,
 				C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */,
 				A5008382 /* CommandPaletteSearchEngineTests.swift */,
+				D50380000000000000000002 /* CommandPaletteMobileConnectSearchTests.swift */,
 				C0DEC0DE000000000000F101 /* CommandPaletteNucleoFFITests.swift */,
 				C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */,
 				C0DEC0DE000000000000F203 /* CommandPaletteNucleoFixtures.swift */,
@@ -3020,6 +3023,7 @@
 				C7A509000000000000000002 /* CmuxTopSnapshotScopeTests.swift in Sources */,
 				D0B1000CA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift in Sources */,
 				7D5DA4DC51454ECDBF9AC978 /* CmuxWebViewMouseNavigationButtonTests.swift in Sources */,
+				D50380000000000000000001 /* CommandPaletteMobileConnectSearchTests.swift in Sources */,
 				C0DEC0DE000000000000F202 /* CommandPaletteNucleoFFILibrarySupport.swift in Sources */,
 				C0DEC0DE000000000000F102 /* CommandPaletteNucleoFFITests.swift in Sources */,
 				C0DEC0DE000000000000F204 /* CommandPaletteNucleoFixtures.swift in Sources */,
