@@ -806,13 +806,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in on your computer with the same account, or pair with a QR/link from that computer."
+            "value": "Couldn't verify your account with this Mac. Make sure both devices use the same cmux account and a matching build (both release, or both development), then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータで同じアカウントにサインインするか、そのコンピュータの QR/リンクでペアリングしてください。"
+            "value": "この Mac でアカウントを確認できませんでした。両方のデバイスで同じ cmux アカウントと一致するビルド（どちらもリリース版、またはどちらも開発版）を使用していることを確認してから、もう一度お試しください。"
           }
         }
       }
@@ -2870,6 +2870,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "デフォルトに設定"
+          }
+        }
+      }
+    },
+    "mobile.testflight.link": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download via TestFlight"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TestFlight でダウンロード"
+          }
+        }
+      }
+    },
+    "mobile.testflight.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TestFlight is invite-only for now. Get the Founders Edition to enroll and to download cmux for Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TestFlight は現在招待制です。Founders Edition から登録し、Mac 版 cmux をダウンロードしてください。"
           }
         }
       }

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSettings
 import Foundation
 #if canImport(Security)
 import Security
@@ -174,6 +175,23 @@ enum MobileHostIdentity {
     }
 
     static func displayName() -> String? {
-        Host.current().localizedName
+        displayName(defaults: .standard)
+    }
+
+    /// The name the iOS app shows for this Mac during pairing.
+    ///
+    /// Uses the user's override from
+    /// ``SettingCatalog/mobile``.`iOSPairingDisplayName` when it is set to a
+    /// non-empty value, otherwise falls back to the Mac's name from System
+    /// Settings (`Host.current().localizedName`).
+    static func displayName(defaults: UserDefaults) -> String? {
+        let key = SettingCatalog().mobile.iOSPairingDisplayName.userDefaultsKey
+        if let override = defaults.string(forKey: key) {
+            let trimmed = override.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return Host.current().localizedName
     }
 }
