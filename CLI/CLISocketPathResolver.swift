@@ -158,17 +158,18 @@ enum CLISocketPathResolver {
             return requestedPath
         }
 
-        let resolved = resolveFromCandidateChain(
+        let resolvedFallback = resolveFromCandidateChain(
             requestedPath: requestedPath,
             environment: environment,
             bundleIdentifier: bundleIdentifier,
             currentUserID: currentUserID,
             inspectSocketPathEntry: inspectSocketPathEntry
         )
+        let resolved = resolvedFallback ?? requestedPath
         if source == .environment, !environmentRequestedPathReachable {
             emitEnvironmentSocketFallbackWarning(
                 requestedPath: requestedPath,
-                resolved: resolved,
+                resolved: resolvedFallback,
                 warningSink: warningSink ?? writeStandardErrorLine
             )
         }
@@ -181,7 +182,7 @@ enum CLISocketPathResolver {
         bundleIdentifier: String?,
         currentUserID: uid_t,
         inspectSocketPathEntry: (String) -> SocketPathEntry
-    ) -> String {
+    ) -> String? {
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         if case .stable = variant,
            canConnect(to: requestedPath, currentUserID: currentUserID, inspectSocketPathEntry: inspectSocketPathEntry) {
@@ -212,7 +213,7 @@ enum CLISocketPathResolver {
             return path
         }
 
-        return candidates.first ?? requestedPath
+        return nil
     }
 
     private static func candidatePaths(
@@ -561,10 +562,10 @@ enum CLISocketPathResolver {
 
     private static func emitEnvironmentSocketFallbackWarning(
         requestedPath: String,
-        resolved: String,
+        resolved: String?,
         warningSink: (String) -> Void
     ) {
-        if resolved == requestedPath {
+        guard let resolved, !pathsMatch(resolved, requestedPath) else {
             let format = String(
                 localized: "cli.socketPath.environment.unreachable.noFallback",
                 defaultValue: "cmux: CMUX_SOCKET_PATH=%@ is unreachable; no fallback socket found"
