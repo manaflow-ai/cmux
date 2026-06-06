@@ -6827,16 +6827,7 @@ class TerminalController {
 
             @MainActor
             func closeWorkspaces(_ workspaces: [Workspace]) -> Int {
-                var closed = 0
-                for candidate in workspaces where candidate.id != workspace.id {
-                    let existedBefore = tabManager.tabs.contains(where: { $0.id == candidate.id })
-                    guard existedBefore else { continue }
-                    tabManager.closeWorkspace(candidate)
-                    if !tabManager.tabs.contains(where: { $0.id == candidate.id }) {
-                        closed += 1
-                    }
-                }
-                return closed
+                tabManager.closeWorkspaces(workspaces.filter { $0.id != workspace.id })
             }
 
             @MainActor

@@ -5253,6 +5253,88 @@ class TabManager: ObservableObject {
         publishCmuxWorkspaceClosed(workspace)
     }
 
+    @discardableResult
+    func closeWorkspaces(_ workspaces: [Workspace], recordHistory: Bool = true) -> Int {
+        guard tabs.count > 1 else { return 0 }
+        let targetIds = Set(workspaces.map(\.id))
+        guard !targetIds.isEmpty else { return 0 }
+
+        let originalTabs = tabs
+        let originalIndexById = Dictionary(uniqueKeysWithValues: originalTabs.enumerated().map { ($0.element.id, $0.offset) })
+        var closeCandidates = originalTabs.filter { targetIds.contains($0.id) }
+        guard !closeCandidates.isEmpty else { return 0 }
+        if closeCandidates.count >= originalTabs.count {
+            closeCandidates = Array(closeCandidates.prefix(originalTabs.count - 1))
+        }
+        let closingIds = Set(closeCandidates.map(\.id))
+        guard !closingIds.isEmpty else { return 0 }
+
+        let selectedIdBeforeClose = selectedTabId
+        let selectedReplacementIndex: Int? = selectedIdBeforeClose.flatMap { selectedId in
+            guard closingIds.contains(selectedId),
+                  let selectedOriginalIndex = originalIndexById[selectedId] else { return nil }
+            return originalTabs[..<selectedOriginalIndex].filter { !closingIds.contains($0.id) }.count
+        }
+
+        for workspace in closeCandidates {
+            sentryBreadcrumb("workspace.close", data: ["tabCount": originalTabs.count - closingIds.count])
+            if recordHistory,
+               workspace.isRestorableInSessionSnapshot,
+               let index = originalIndexById[workspace.id] {
+                let snapshot = workspace.sessionSnapshot(
+                    includeScrollback: true,
+                    restorableAgentIndex: RestorableAgentSessionIndex.load()
+                )
+                ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: workspace.id,
+                    windowId: AppDelegate.shared?.windowId(for: self),
+                    workspaceIndex: index,
+                    snapshot: snapshot
+                )))
+            }
+            clearWorkspaceGitProbes(workspaceId: workspace.id)
+            clearWorkspacePullRequestTracking(workspaceId: workspace.id)
+            invalidateFocusHistoryTarget(workspaceId: workspace.id, panelId: nil)
+
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+            workspace.withClosedPanelHistorySuppressed {
+                workspace.teardownAllPanels()
+            }
+            workspace.teardownRemoteConnection()
+            unwireClosedBrowserTracking(for: workspace)
+            recentlyClosedBrowsers.removeSnapshots(forWorkspaceId: workspace.id)
+            workspace.owningTabManager = nil
+        }
+
+        sidebarSelectedWorkspaceIds.subtract(closingIds)
+        let dissolvedGroupIds = Set(
+            workspaceGroups
+                .filter { closingIds.contains($0.anchorWorkspaceId) }
+                .map(\.id)
+        )
+        if !dissolvedGroupIds.isEmpty {
+            for tab in originalTabs where !closingIds.contains(tab.id) && tab.groupId.map(dissolvedGroupIds.contains) == true {
+                tab.groupId = nil
+            }
+            workspaceGroups.removeAll { dissolvedGroupIds.contains($0.id) }
+        }
+
+        let remainingTabs = originalTabs.filter { !closingIds.contains($0.id) }
+        tabs = remainingTabs
+        if selectedIdBeforeClose.map(closingIds.contains) == true, !tabs.isEmpty {
+            let newIndex = min(selectedReplacementIndex ?? 0, max(0, tabs.count - 1))
+            selectedTabId = tabs[newIndex].id
+        }
+        if !dissolvedGroupIds.isEmpty {
+            normalizeWorkspaceGroupContiguity()
+        }
+
+        for workspace in closeCandidates {
+            publishCmuxWorkspaceClosed(workspace)
+        }
+        return closeCandidates.count
+    }
+
     /// If `closedWorkspaceId` was the anchor of any group, dissolve that group:
     /// remaining members lose their `groupId` and stay in `tabs` as ungrouped
     /// workspaces. Caller is responsible for having already removed the closed
@@ -5468,6 +5550,11 @@ class TabManager: ObservableObject {
                 AppDelegate.shared?.closeMainWindowContainingTabId(firstWorkspace.id)
                 return
             }
+        }
+
+        if !plan.workspaces.contains(where: { requiresAnchorCloseConfirmation($0) }) {
+            closeWorkspaces(plan.workspaces)
+            return
         }
 
         for workspace in plan.workspaces {
@@ -5687,6 +5774,15 @@ class TabManager: ObservableObject {
             message: message,
             acceptCmdD: willCloseWindow
         )
+    }
+
+    private func requiresAnchorCloseConfirmation(_ workspace: Workspace) -> Bool {
+        guard !WorkspaceGroupAnchorCloseSettings.suppressed(),
+              let groupId = workspace.groupId,
+              let group = workspaceGroups.first(where: { $0.id == groupId }) else {
+            return false
+        }
+        return group.anchorWorkspaceId == workspace.id
     }
 
     private func closeWorkspaceDisplayTitle(_ title: String?) -> String {
