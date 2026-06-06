@@ -31,6 +31,7 @@ struct WorkspaceDetailView: View {
     @State private var isTerminalPickerPresented = false
     #if canImport(UIKit)
     @State private var diagnosticsReport: MobileDiagnosticsReport?
+    @State private var diagnosticsPreparationTask: Task<MobileDiagnosticsReport, Never>?
     @State private var isPreparingDiagnostics = false
     @State private var isFeedbackComposerPresented = false
     @State private var shouldPresentFeedbackAfterPickerDismisses = false
@@ -146,6 +147,8 @@ struct WorkspaceDetailView: View {
             dismissTerminalKeyboardForChrome()
             #if canImport(UIKit)
             diagnosticsReport = nil
+            diagnosticsPreparationTask?.cancel()
+            diagnosticsPreparationTask = nil
             isPreparingDiagnostics = false
             #endif
             isTerminalPickerPresented = true
@@ -260,47 +263,48 @@ struct WorkspaceDetailView: View {
 
     /// Shares the assembled, scrubbed diagnostics report.
     ///
-    /// `ShareLink` needs the shared item synchronously, so it only renders once
-    /// the report text has been built; until then a disabled placeholder shows a
-    /// progress state.
+    /// `ShareLink` needs the shared item synchronously, so the diagnostics
+    /// section prepares the report as it appears and enables sharing only once
+    /// the text is ready.
     @ViewBuilder
     private var diagnosticsShareButton: some View {
-        if let report = diagnosticsReport {
-            ShareLink(
-                item: report.text,
-                preview: SharePreview(
-                    L10n.string("mobile.diagnostics.shareTitle", defaultValue: "cmux Diagnostics")
-                )
-            ) {
-                Label(
-                    L10n.string("mobile.diagnostics.share", defaultValue: "Share Diagnostics"),
-                    systemImage: "square.and.arrow.up"
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+        Group {
+            if let report = diagnosticsReport {
+                ShareLink(
+                    item: report.text,
+                    preview: SharePreview(
+                        L10n.string("mobile.diagnostics.shareTitle", defaultValue: "cmux Diagnostics")
+                    )
+                ) {
+                    Label(
+                        L10n.string("mobile.diagnostics.share", defaultValue: "Share Diagnostics"),
+                        systemImage: "square.and.arrow.up"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
+            } else {
+                Button(action: {}) {
+                    diagnosticsActionLabel(
+                        title: L10n.string("mobile.diagnostics.preparing", defaultValue: "Preparing Diagnostics…"),
+                        systemImage: "square.and.arrow.up"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(true)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
-        } else {
-            Button {
-                Task { await prepareDiagnosticsForSharing() }
-            } label: {
-                diagnosticsActionLabel(
-                    title: isPreparingDiagnostics
-                        ? L10n.string("mobile.diagnostics.preparing", defaultValue: "Preparing Diagnostics…")
-                        : L10n.string("mobile.diagnostics.share", defaultValue: "Share Diagnostics"),
-                    systemImage: "square.and.arrow.up"
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(isPreparingDiagnostics)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
+        }
+        .task {
+            await prepareDiagnosticsForSharing()
         }
     }
 
@@ -364,11 +368,23 @@ struct WorkspaceDetailView: View {
         if let diagnosticsReport {
             return diagnosticsReport
         }
+        if let diagnosticsPreparationTask {
+            let report = await diagnosticsPreparationTask.value
+            diagnosticsReport = report
+            self.diagnosticsPreparationTask = nil
+            isPreparingDiagnostics = false
+            return report
+        }
 
         isPreparingDiagnostics = true
-        defer { isPreparingDiagnostics = false }
-        let report = await buildDiagnosticsReport()
+        let task = Task { @MainActor in
+            await buildDiagnosticsReport()
+        }
+        diagnosticsPreparationTask = task
+        let report = await task.value
         diagnosticsReport = report
+        diagnosticsPreparationTask = nil
+        isPreparingDiagnostics = false
         return report
     }
 
