@@ -171,6 +171,101 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertEqual(log, "opencode:--version\nkind:unset\n")
     }
 
+    func testOpenCodeSessionPluginDeduplicatesRuntimeLifecycleEvents() throws {
+        let cliPath = try bundledCLIPath()
+        let nodePath = try nodeExecutablePath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-plugin-runtime-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent("opencode", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logURL = root.appendingPathComponent("cmux.log", isDirectory: false)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var installEnvironment = ProcessInfo.processInfo.environment
+        installEnvironment["OPENCODE_CONFIG_DIR"] = configDir.path
+        installEnvironment["PATH"] = "\(binDir.path):\(installEnvironment["PATH"] ?? "/usr/bin")"
+        installEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let installResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "opencode", "install", "--yes"],
+            environment: installEnvironment,
+            timeout: 5
+        )
+        XCTAssertFalse(installResult.timedOut, installResult.stderr)
+        XCTAssertEqual(installResult.status, 0, installResult.stderr)
+        try #"{"type":"module"}"#.write(
+            to: configDir.appendingPathComponent("package.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let fakeCmuxURL = binDir.appendingPathComponent("cmux", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf '%s\\n' "$*" >> "$CMUX_TEST_LOG"
+        if [ "$1" = "hooks" ]; then
+          cat >/dev/null
+        fi
+        exit 0
+        """.write(to: fakeCmuxURL, atomically: true, encoding: .utf8)
+        chmod(fakeCmuxURL.path, 0o755)
+
+        let scriptURL = root.appendingPathComponent("drive-opencode-plugin.mjs", isDirectory: false)
+        try """
+        const plugin = (await import(process.env.CMUX_TEST_PLUGIN_URL)).default;
+        const sessionId = "opencode-session-1";
+        const cwd = process.env.CMUX_TEST_CWD;
+        const restore = await plugin({ directory: cwd });
+        const send = async (type, properties = {}) => {
+          await restore.event({ event: { type, properties } });
+        };
+        const info = { id: sessionId, directory: cwd };
+        const status = (type) => ({ info: { ...info, status: { type } } });
+        await send("session.created", { info });
+        await send("session.status", status("error"));
+        await send("session.error", { info, error: { message: "upstream quota" } });
+        await send("session.status", status("running"));
+        await send("session.error", { info, error: { message: "upstream quota" } });
+        await send("session.status", status("idle"));
+        await send("todo.updated", { info });
+        await send("session.idle", { info });
+        await send("session.idle", { note: "missing session id" });
+        await send("session.status", status("running"));
+        await send("session.idle", { info });
+        """.write(to: scriptURL, atomically: true, encoding: .utf8)
+
+        let pluginURL = configDir.appendingPathComponent("plugins/cmux-session.js", isDirectory: false)
+        var runtimeEnvironment = installEnvironment
+        runtimeEnvironment["CMUX_OPENCODE_CMUX_BIN"] = fakeCmuxURL.path
+        runtimeEnvironment["CMUX_OPENCODE_PID"] = "4242"
+        runtimeEnvironment["CMUX_SURFACE_ID"] = "surface-test"
+        runtimeEnvironment["CMUX_WORKSPACE_ID"] = "workspace-test"
+        runtimeEnvironment["CMUX_TEST_CWD"] = root.path
+        runtimeEnvironment["CMUX_TEST_LOG"] = logURL.path
+        runtimeEnvironment["CMUX_TEST_PLUGIN_URL"] = pluginURL.absoluteString
+
+        let result = runProcess(
+            executablePath: nodePath,
+            arguments: [scriptURL.path],
+            environment: runtimeEnvironment,
+            timeout: 5
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let log = try String(contentsOf: logURL, encoding: .utf8)
+        let commands = log.split(separator: "\n").map(String.init)
+        let errorNotifications = commands.filter { $0.contains("hooks opencode runtime-notification error") }
+        XCTAssertEqual(errorNotifications.count, 2, log)
+        let stopHooks = commands.filter { $0 == "hooks opencode stop" }
+        XCTAssertEqual(stopHooks.count, 2, log)
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -191,6 +286,20 @@ final class OpenCodeHookRegressionTests: XCTestCase {
             return item.path
         }
         throw XCTSkip("Bundled opencode wrapper not found in \(appBundleURL.path)")
+    }
+
+    private func nodeExecutablePath() throws -> String {
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["which", "node"],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 5
+        )
+        let path = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !result.timedOut, result.status == 0, !path.isEmpty else {
+            throw XCTSkip("Node executable not found")
+        }
+        return path
     }
 
     private func createUnixSocket(at path: String) throws -> Int32 {

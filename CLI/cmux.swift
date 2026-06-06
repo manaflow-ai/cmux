@@ -25571,19 +25571,54 @@ function descriptorForOpenCodeStatus(rawStatus) {
 
 const SESSION_LIFECYCLE = new Map();
 
-function sessionLifecycleKey(event) {
-  return sessionIdFor(event) || "default";
+function lifecycleRecordFor(event) {
+  const sessionId = sessionIdFor(event);
+  if (!sessionId) return null;
+  let record = SESSION_LIFECYCLE.get(sessionId);
+  if (!record) {
+    record = { phase: "unknown", errorNotified: false };
+    SESSION_LIFECYCLE.set(sessionId, record);
+  }
+  return record;
 }
 
 function markSessionNotIdle(event) {
-  SESSION_LIFECYCLE.set(sessionLifecycleKey(event), "active");
+  const record = lifecycleRecordFor(event);
+  if (!record) return;
+  record.phase = "active";
+  record.errorNotified = false;
+}
+
+function markSessionNeedsInput(event) {
+  const record = lifecycleRecordFor(event);
+  if (!record) return;
+  record.phase = "needs-input";
+  record.errorNotified = false;
+}
+
+function shouldNotifySessionError(event) {
+  const record = lifecycleRecordFor(event);
+  if (!record) return true;
+  if (record.phase === "error" && record.errorNotified) return false;
+  record.phase = "error";
+  record.errorNotified = true;
+  return true;
+}
+
+function notifyOpenCodeErrorOnce(ctx, event) {
+  if (shouldNotifySessionError(event)) {
+    notifyOpenCode("error", null, ctx, event);
+  }
 }
 
 function sendStopHookOnIdleTransition(ctx, event) {
-  const sessionId = sessionLifecycleKey(event);
-  if (SESSION_LIFECYCLE.get(sessionId) === "idle") return;
-  SESSION_LIFECYCLE.set(sessionId, "idle");
-  sendHook("stop", ctx, event);
+  const record = lifecycleRecordFor(event);
+  if (!record) return;
+  if (record.phase === "idle") return;
+  if (sendHook("stop", ctx, event)) {
+    record.phase = "idle";
+    record.errorNotified = false;
+  }
 }
 
 function setStatus(descriptor, ctx, event) {
@@ -25616,11 +25651,11 @@ function setStatus(descriptor, ctx, event) {
 }
 
 function sendHook(subcommand, ctx, event, extra = {}) {
-  if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID) return;
+  if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return false;
+  if (!process.env.CMUX_SURFACE_ID) return false;
 
   const sessionId = sessionIdFor(event);
-  if (!sessionId) return;
+  if (!sessionId) return false;
 
   const cwd = cwdFor(ctx, event);
   const payload = {
@@ -25631,14 +25666,17 @@ function sendHook(subcommand, ctx, event, extra = {}) {
     ...extra,
   };
   try {
-    runCmux(["hooks", "opencode", subcommand], {
+    const result = runCmux(["hooks", "opencode", subcommand], {
       input: JSON.stringify(payload),
       encoding: "utf8",
       env: hookEnvironment(cwd),
       stdio: ["pipe", "ignore", "ignore"],
       timeout: 5000,
     });
-  } catch (_) {}
+    return result.status === 0;
+  } catch (_) {
+    return false;
+  }
 }
 
 const CMUXSessionRestore = async (ctx) => {
@@ -25665,11 +25703,10 @@ const CMUXSessionRestore = async (ctx) => {
           setStatus(descriptor, ctx, event);
           if (descriptor === STATUS_DESCRIPTORS.idle) {
             sendStopHookOnIdleTransition(ctx, event);
-          } else {
+          } else if (descriptor === STATUS_DESCRIPTORS.error) {
+            notifyOpenCodeErrorOnce(ctx, event);
+          } else if (descriptor) {
             markSessionNotIdle(event);
-            if (descriptor === STATUS_DESCRIPTORS.error) {
-              notifyOpenCode("error", null, ctx, event);
-            }
           }
           break;
         }
@@ -25678,26 +25715,27 @@ const CMUXSessionRestore = async (ctx) => {
           sendStopHookOnIdleTransition(ctx, event);
           break;
         case "permission.asked":
-          markSessionNotIdle(event);
+          markSessionNeedsInput(event);
           setStatus(STATUS_DESCRIPTORS.needsInput, ctx, event);
           notifyOpenCode("permission", promptBody(props), ctx, event);
           break;
         case "question.asked":
-          markSessionNotIdle(event);
+          markSessionNeedsInput(event);
           setStatus(STATUS_DESCRIPTORS.needsInput, ctx, event);
           notifyOpenCode("question", promptBody(props), ctx, event);
           break;
         case "session.error":
-          markSessionNotIdle(event);
           setStatus(STATUS_DESCRIPTORS.error, ctx, event);
-          notifyOpenCode("error", null, ctx, event);
+          notifyOpenCodeErrorOnce(ctx, event);
           break;
         case "session.deleted":
-          SESSION_LIFECYCLE.delete(sessionLifecycleKey(event));
+          {
+            const sessionId = sessionIdFor(event);
+            if (sessionId) SESSION_LIFECYCLE.delete(sessionId);
+          }
           sendHook("session-end", ctx, event);
           break;
         default:
-          markSessionNotIdle(event);
           break;
       }
     },
