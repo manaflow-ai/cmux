@@ -90,7 +90,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ) -> [String]? {
         switch kind {
         case "claude":
-            return withOption("claude", executable: "claude", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+            return claudeResumeArgv(sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "codex":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
             guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: parts.tail) else { return nil }
@@ -99,6 +99,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("grok", executable: "grok", option: "-r", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "pi":
             return withOption("pi", executable: "pi", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "omp":
+            return withOption("omp", executable: "omp", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "amp":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "amp")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "amp", args: parts.tail) else { return nil }
@@ -136,6 +138,36 @@ public struct AgentResumeArgv: Sendable, Equatable {
         default:
             return nil
         }
+    }
+
+    /// Builds the claude resume argv, routing it through cmux's `claude` wrapper
+    /// so cmux hooks fire on the resumed session.
+    ///
+    /// cmux injects Claude Code's hook `--settings` from the `Resources/bin/claude`
+    /// wrapper, which is first on `PATH` inside cmux terminals. The wrapper
+    /// re-injects those hooks whenever it sees `--resume`, exactly as it does on a
+    /// fresh launch (and it also re-applies the rest of the fresh-launch setup:
+    /// `CLAUDE_CONFIG_DIR` normalization, auth-selection env handling, NODE_OPTIONS,
+    /// nested-session unset). The captured launch executable, however, is the
+    /// *real* claude binary (`CMUX_AGENT_LAUNCH_EXECUTABLE`), so resuming with it
+    /// directly bypassed the wrapper and dropped every hook
+    /// (https://github.com/manaflow-ai/cmux/issues/5427).
+    ///
+    /// Forcing the executable to the bare `claude` wrapper is the same thing the
+    /// session-index resume builder (`SessionEntry.resumeCommand`) already does,
+    /// so both resume paths now share one injection point. The captured executable
+    /// is intentionally ignored for claude; the wrapper resolves the real binary
+    /// (honouring `CMUX_CUSTOM_CLAUDE_PATH`).
+    private func claudeResumeArgv(
+        sessionId: String,
+        executablePath: String?,
+        arguments: [String]
+    ) -> [String]? {
+        let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "claude")
+        guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: parts.tail) else {
+            return nil
+        }
+        return ["claude", "--resume", sessionId] + preserved
     }
 
     private func withOption(
