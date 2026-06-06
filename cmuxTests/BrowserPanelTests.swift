@@ -677,6 +677,30 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         )
     }
 
+    func testCloseToleratesAlreadyTornDownScriptHandlers() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let webView = panel.webView
+        XCTAssertNotNil(
+            panel.reactGrabMessageHandler,
+            "Test precondition: binding should install the ReactGrab handler"
+        )
+        XCTAssertNotNil(
+            panel.mediaPlaybackMessageHandler,
+            "Test precondition: binding should install the media playback handler"
+        )
+
+        panel.teardownReactGrabMessageHandler(for: webView)
+        panel.teardownMediaPlaybackMessageHandler(for: webView)
+
+        XCTAssertNil(panel.reactGrabMessageHandler)
+        XCTAssertNil(panel.mediaPlaybackMessageHandler)
+
+        panel.close()
+
+        XCTAssertNil(panel.reactGrabMessageHandler)
+        XCTAssertNil(panel.mediaPlaybackMessageHandler)
+    }
+
     func testDiffViewerURLIsNotPersistedForSessionRestore() throws {
         let schemeURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
         let schemePanel = BrowserPanel(

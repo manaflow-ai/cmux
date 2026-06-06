@@ -227,6 +227,7 @@ extension BrowserPanel {
     }
 
     func teardownReactGrabMessageHandler(for webView: WKWebView) {
+        guard reactGrabMessageHandler != nil else { return }
         webView.configuration.userContentController.removeScriptMessageHandler(forName: reactGrabMessageHandlerName)
         reactGrabMessageHandler = nil
     }

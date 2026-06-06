@@ -188,6 +188,10 @@ extension BrowserPanel {
     }
 
     func teardownMediaPlaybackMessageHandler(for webView: WKWebView) {
+        guard mediaPlaybackMessageHandler != nil else {
+            resetMediaPlaybackTracking()
+            return
+        }
         webView.configuration.userContentController.removeScriptMessageHandler(
             forName: mediaPlaybackMessageHandlerName,
             contentWorld: Self.mediaPlaybackContentWorld
