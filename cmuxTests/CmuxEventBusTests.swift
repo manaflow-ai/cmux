@@ -263,6 +263,43 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(replacedIds, [oldNotification.id.uuidString])
     }
 
+    func testNotificationRemovalDeduplicatesDuplicateOldIds() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        let notificationId = UUID()
+        let firstNotification = TerminalNotification(
+            id: notificationId,
+            tabId: workspaceId,
+            surfaceId: surfaceId,
+            title: "First",
+            subtitle: "",
+            body: "Done",
+            createdAt: Date(),
+            isRead: false
+        )
+        let duplicateNotification = TerminalNotification(
+            id: notificationId,
+            tabId: workspaceId,
+            surfaceId: surfaceId,
+            title: "Duplicate",
+            subtitle: "",
+            body: "Done",
+            createdAt: Date(),
+            isRead: false
+        )
+
+        bus.publishNotificationChanges(
+            oldValue: [firstNotification, duplicateNotification],
+            newValue: []
+        )
+
+        XCTAssertEqual(
+            bus.retainedSnapshot().compactMap { $0["name"] as? String },
+            ["notification.removed"]
+        )
+    }
+
     @MainActor
     func testBulkNotificationClearPublishesClearedWithoutRemovedDuplicates() throws {
         let store = TerminalNotificationStore.shared
