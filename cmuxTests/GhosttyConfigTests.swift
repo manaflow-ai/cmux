@@ -1334,6 +1334,14 @@ final class GhosttyConfigTests: XCTestCase {
                 ["XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration"]
             )
         )
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS": "1",
+                ]
+            )
+        )
         XCTAssertTrue(
             CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow(
                 ["CMUX_UI_TEST_MODE": "1"]
@@ -1354,6 +1362,14 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertTrue(
             CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost(
                 ["XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration"]
+            )
+        )
+        XCTAssertTrue(
+            CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS": "1",
+                ]
             )
         )
         XCTAssertFalse(
@@ -1378,6 +1394,14 @@ final class GhosttyConfigTests: XCTestCase {
                 ["XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration"]
             )
         )
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.shouldStartRuntimeServices(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS": "1",
+                ]
+            )
+        )
         XCTAssertTrue(
             CmuxXCTestLaunchEnvironment.shouldStartRuntimeServices(
                 ["CMUX_UI_TEST_MODE": "1"]
@@ -1398,6 +1422,14 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(
             CmuxXCTestLaunchEnvironment.shouldUseUITestWindowFallback(
                 ["XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration"]
+            )
+        )
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.shouldUseUITestWindowFallback(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS": "1",
+                ]
             )
         )
         XCTAssertTrue(

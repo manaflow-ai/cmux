@@ -667,8 +667,14 @@ final class CmuxMainThreadTurnProfiler {
 #endif
 
 enum CmuxXCTestLaunchEnvironment {
+    private static let unitTestOnlyConfigurationKeys: Set<String> = [
+        "CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS",
+    ]
+
     static func isUITest(_ env: [String: String]) -> Bool {
-        env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") })
+        env.keys.contains { key in
+            key.hasPrefix("CMUX_UI_TEST_") && !unitTestOnlyConfigurationKeys.contains(key)
+        }
     }
 
     static func isUITestSocketHarness(_ env: [String: String]) -> Bool {
