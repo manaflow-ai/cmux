@@ -37,6 +37,7 @@ struct WorkspaceDetailView: View {
     @State private var diagnosticsShareSheetItem: MobileDiagnosticsActivityItem?
     @State private var pendingDiagnosticsShareSheetItem: MobileDiagnosticsActivityItem?
     @State private var isPreparingDiagnostics = false
+    @State private var diagnosticsFailureAlert: MobileDiagnosticsFailureAlert?
     @State private var isFeedbackComposerPresented = false
     @State private var shouldPresentFeedbackAfterPickerDismisses = false
     #endif
@@ -131,6 +132,13 @@ struct WorkspaceDetailView: View {
                 client: feedbackClient
             )
             .presentationDetents([.large])
+        }
+        .alert(item: $diagnosticsFailureAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text(L10n.string("common.ok", defaultValue: "OK")))
+            )
         }
         #endif
     }
@@ -342,6 +350,7 @@ struct WorkspaceDetailView: View {
         diagnosticsReport = nil
         diagnosticsShareSheetItem = nil
         pendingDiagnosticsShareSheetItem = nil
+        diagnosticsFailureAlert = nil
         isPreparingDiagnostics = false
     }
 
@@ -459,7 +468,10 @@ struct WorkspaceDetailView: View {
 
     @MainActor
     private func prepareAndPresentDiagnosticsShareSheet(sessionID: UUID) async {
-        guard let report = await prepareDiagnosticsReport(sessionID: sessionID, cacheResult: true) else { return }
+        guard let report = await prepareDiagnosticsReport(sessionID: sessionID, cacheResult: true) else {
+            showDiagnosticsPreparationFailureIfCurrent(sessionID: sessionID)
+            return
+        }
         guard diagnosticsSessionID == sessionID, !Task.isCancelled else { return }
         let item = MobileDiagnosticsActivityItem(text: report.text)
         if isTerminalPickerPresented {
@@ -504,7 +516,10 @@ struct WorkspaceDetailView: View {
     /// Copies the prepared diagnostics text to the system pasteboard.
     @MainActor
     private func copyDiagnosticsToPasteboard(sessionID: UUID) async {
-        guard let report = await prepareDiagnosticsReport(sessionID: sessionID, cacheResult: false) else { return }
+        guard let report = await prepareDiagnosticsReport(sessionID: sessionID, cacheResult: false) else {
+            showDiagnosticsPreparationFailureIfCurrent(sessionID: sessionID)
+            return
+        }
         guard diagnosticsSessionID == sessionID, !Task.isCancelled else { return }
         isTerminalPickerPresented = false
         UIPasteboard.general.string = report.text
@@ -521,6 +536,14 @@ struct WorkspaceDetailView: View {
     private func terminalPickerDidDisappear() {
         guard !presentPendingPostPickerSheetIfNeeded() else { return }
         cancelDiagnosticsWorkForCurrentSession()
+    }
+
+    @MainActor
+    private func showDiagnosticsPreparationFailureIfCurrent(sessionID: UUID) {
+        guard diagnosticsSessionID == sessionID, !Task.isCancelled else { return }
+        diagnosticsActionTask = nil
+        diagnosticsFailureAlert = MobileDiagnosticsFailureAlert()
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
     }
 
     @discardableResult
@@ -564,3 +587,17 @@ struct WorkspaceDetailView: View {
         UIApplication.shared.dismissMobileKeyboard()
     }
 }
+
+#if canImport(UIKit)
+private struct MobileDiagnosticsFailureAlert: Identifiable {
+    let id = UUID()
+    let title = L10n.string(
+        "mobile.diagnostics.prepareFailedTitle",
+        defaultValue: "Couldn't Prepare Diagnostics"
+    )
+    let message = L10n.string(
+        "mobile.diagnostics.prepareFailedMessage",
+        defaultValue: "Try again in a moment."
+    )
+}
+#endif

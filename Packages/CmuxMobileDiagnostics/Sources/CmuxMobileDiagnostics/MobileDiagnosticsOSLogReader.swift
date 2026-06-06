@@ -81,10 +81,29 @@ public actor MobileDiagnosticsOSLogReader {
         let maxBytes = self.maxBytes
         let notBefore = notBefore
         let noMatchingEntriesMessage = if notBefore != nil {
-            "(no matching os log entries since diagnostics session start)"
+            MobileDiagnosticsL10n.string(
+                "mobile.diagnostics.report.osLog.noMatchingSinceSessionStart",
+                defaultValue: "(no matching os log entries since diagnostics session start)"
+            )
         } else {
-            "(no matching os log entries in the last \(Int(lookback))s)"
+            MobileDiagnosticsL10n.format(
+                "mobile.diagnostics.report.osLog.noMatchingInLastSeconds",
+                defaultValue: "(no matching os log entries in the last %ds)",
+                Int(lookback)
+            )
         }
+        let linesExceededMessage = MobileDiagnosticsL10n.string(
+            "mobile.diagnostics.report.osLog.linesExceeded",
+            defaultValue: "(os log lines exceeded diagnostics limit)"
+        )
+        let truncatedMessage = MobileDiagnosticsL10n.string(
+            "mobile.diagnostics.report.osLog.truncated",
+            defaultValue: "(os log truncated to latest matching entries)"
+        )
+        let unavailableReadFailedMessage = MobileDiagnosticsL10n.string(
+            "mobile.diagnostics.report.osLog.unavailableReadFailed",
+            defaultValue: "(os log unavailable: read failed)"
+        )
         return await Task.detached(priority: .utility) {
             func levelLabel(_ level: OSLogEntryLog.Level) -> String {
                 switch level {
@@ -135,12 +154,12 @@ public actor MobileDiagnosticsOSLogReader {
 
                 if lines.isEmpty {
                     return truncated
-                        ? "(os log lines exceeded diagnostics limit)"
+                        ? linesExceededMessage
                         : noMatchingEntriesMessage
                 }
                 if truncated {
                     _ = Self.appendRecentLine(
-                        "(os log truncated to latest matching entries)",
+                        truncatedMessage,
                         to: &lines,
                         renderedBytes: &renderedBytes,
                         maxEntries: maxEntries,
@@ -149,11 +168,14 @@ public actor MobileDiagnosticsOSLogReader {
                 }
                 return lines.joined(separator: "\n")
             } catch {
-                return "(os log unavailable: read failed)"
+                return unavailableReadFailedMessage
             }
         }.value
         #else
-        return "(os log unavailable: OSLog not importable on this platform)"
+        return MobileDiagnosticsL10n.string(
+            "mobile.diagnostics.report.osLog.unavailableNotImportable",
+            defaultValue: "(os log unavailable: OSLog not importable on this platform)"
+        )
         #endif
     }
 

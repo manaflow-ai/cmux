@@ -142,15 +142,37 @@ public actor MobileDiagnosticsReportBuilder {
         sections.append(liveStateSection(liveState))
         sections.append(
             section(
-                title: "IN-PROCESS LOG (\(logCount) lines)",
-                body: logBody.isEmpty ? "(empty)" : logBody
+                title: MobileDiagnosticsL10n.format(
+                    "mobile.diagnostics.report.inProcessLog.title",
+                    defaultValue: "IN-PROCESS LOG (%d lines)",
+                    logCount
+                ),
+                body: logBody.isEmpty
+                    ? MobileDiagnosticsL10n.string("mobile.diagnostics.report.empty", defaultValue: "(empty)")
+                    : logBody
             )
         )
-        sections.append(section(title: "OS LOG (last 5 min, best-effort)", body: osLog))
-        let terminal = (terminalSnapshot?.isEmpty == false) ? terminalSnapshot! : "(no visible terminal)"
         sections.append(
             section(
-                title: "VISIBLE TERMINAL SNAPSHOT (may contain sensitive output)",
+                title: MobileDiagnosticsL10n.string(
+                    "mobile.diagnostics.report.osLog.title",
+                    defaultValue: "OS LOG (last 5 min, best-effort)"
+                ),
+                body: osLog
+            )
+        )
+        let terminal = (terminalSnapshot?.isEmpty == false)
+            ? terminalSnapshot!
+            : MobileDiagnosticsL10n.string(
+                "mobile.diagnostics.report.noVisibleTerminal",
+                defaultValue: "(no visible terminal)"
+            )
+        sections.append(
+            section(
+                title: MobileDiagnosticsL10n.string(
+                    "mobile.diagnostics.report.visibleTerminal.title",
+                    defaultValue: "VISIBLE TERMINAL SNAPSHOT (may contain sensitive output)"
+                ),
                 body: terminal
             )
         )
@@ -161,35 +183,105 @@ public actor MobileDiagnosticsReportBuilder {
     private func headerSection() -> String {
         let formatter = ISO8601DateFormatter()
         let lines = [
-            "cmux iOS Diagnostics",
+            MobileDiagnosticsL10n.string(
+                "mobile.diagnostics.report.title",
+                defaultValue: "cmux iOS Diagnostics"
+            ),
             Self.sectionRule,
-            "App:        \(environment.appName)",
-            "Version:    \(environment.appVersion) (build \(environment.buildNumber))",
-            "Bundle ID:  \(environment.bundleID)",
-            "Device:     \(environment.deviceModel)",
-            "OS:         \(environment.osVersion)",
-            "Generated:  \(formatter.string(from: now()))",
+            MobileDiagnosticsL10n.format(
+                "mobile.diagnostics.report.app",
+                defaultValue: "App:        %@",
+                environment.appName
+            ),
+            MobileDiagnosticsL10n.format(
+                "mobile.diagnostics.report.version",
+                defaultValue: "Version:    %@ (build %@)",
+                environment.appVersion,
+                environment.buildNumber
+            ),
+            MobileDiagnosticsL10n.format(
+                "mobile.diagnostics.report.bundleID",
+                defaultValue: "Bundle ID:  %@",
+                environment.bundleID
+            ),
+            MobileDiagnosticsL10n.format(
+                "mobile.diagnostics.report.device",
+                defaultValue: "Device:     %@",
+                environment.deviceModel
+            ),
+            MobileDiagnosticsL10n.format(
+                "mobile.diagnostics.report.os",
+                defaultValue: "OS:         %@",
+                environment.osVersion
+            ),
+            MobileDiagnosticsL10n.format(
+                "mobile.diagnostics.report.generated",
+                defaultValue: "Generated:  %@",
+                formatter.string(from: now())
+            ),
         ]
         return lines.joined(separator: "\n")
     }
 
     /// The live runtime-state section.
     private func liveStateSection(_ state: MobileDiagnosticsLiveState) -> String {
+        let yes = MobileDiagnosticsL10n.string("mobile.diagnostics.report.yes", defaultValue: "yes")
+        let no = MobileDiagnosticsL10n.string("mobile.diagnostics.report.no", defaultValue: "no")
+        let none = MobileDiagnosticsL10n.string("mobile.diagnostics.report.none", defaultValue: "(none)")
         var lines = [
-            "Connection:      \(state.connectionState)",
-            "Signed in:       \(state.isSignedIn ? "yes" : "no")",
-            "Authenticated:   \(state.isAuthenticated ? "yes" : "no")",
-            "Last auth error: \(state.lastAuthError ?? "(none)")",
-            "Connected host:  \(state.connectedHostName ?? "(none)")",
-            "Paired Mac:      \(state.pairedMacName ?? "(none)")",
+            MobileDiagnosticsL10n.format(
+                "mobile.diagnostics.report.connection",
+                defaultValue: "Connection:      %@",
+                state.connectionState
+            ),
+            MobileDiagnosticsL10n.format(
+                "mobile.diagnostics.report.signedIn",
+                defaultValue: "Signed in:       %@",
+                state.isSignedIn ? yes : no
+            ),
+            MobileDiagnosticsL10n.format(
+                "mobile.diagnostics.report.authenticated",
+                defaultValue: "Authenticated:   %@",
+                state.isAuthenticated ? yes : no
+            ),
+            MobileDiagnosticsL10n.format(
+                "mobile.diagnostics.report.lastAuthError",
+                defaultValue: "Last auth error: %@",
+                state.lastAuthError ?? none
+            ),
+            MobileDiagnosticsL10n.format(
+                "mobile.diagnostics.report.connectedHost",
+                defaultValue: "Connected host:  %@",
+                state.connectedHostName ?? none
+            ),
+            MobileDiagnosticsL10n.format(
+                "mobile.diagnostics.report.pairedMac",
+                defaultValue: "Paired Mac:      %@",
+                state.pairedMacName ?? none
+            ),
         ]
         if let deviceID = state.pairedMacDeviceID {
-            lines.append("Paired Mac ID:   \(deviceID)")
+            lines.append(
+                MobileDiagnosticsL10n.format(
+                    "mobile.diagnostics.report.pairedMacID",
+                    defaultValue: "Paired Mac ID:   %@",
+                    deviceID
+                )
+            )
         }
         if let error = state.connectionError {
-            lines.append("Last error:      \(error)")
+            lines.append(
+                MobileDiagnosticsL10n.format(
+                    "mobile.diagnostics.report.lastError",
+                    defaultValue: "Last error:      %@",
+                    error
+                )
+            )
         }
-        return section(title: "LIVE STATE", body: lines.joined(separator: "\n"))
+        return section(
+            title: MobileDiagnosticsL10n.string("mobile.diagnostics.report.liveState.title", defaultValue: "LIVE STATE"),
+            body: lines.joined(separator: "\n")
+        )
     }
 
     /// Render one labeled section with a rule under the title.

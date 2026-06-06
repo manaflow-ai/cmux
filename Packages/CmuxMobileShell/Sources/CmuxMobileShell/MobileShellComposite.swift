@@ -324,7 +324,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Clear auth-bound shell state, cancel live connection work, and reset diagnostics for the next user.
     public func signOut() {
-        clearDiagnosticsEvents(resetOSLogBoundary: false)
+        let hadAuthBoundState = isSignedIn ||
+            connectionState != .disconnected ||
+            !connectedHostName.isEmpty ||
+            activeTicket != nil ||
+            activePairedMac != nil ||
+            activeRoute != nil ||
+            !pairedMacs.isEmpty
+        if hadAuthBoundState {
+            clearDiagnosticsEvents(resetOSLogBoundary: false)
+        }
         pairingAttemptID = UUID()
         connectionGeneration = UUID()
         connectedHostName = ""
@@ -347,7 +356,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaces = PreviewMobileHost.workspaces
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
-        resetDiagnosticsOSLogBoundaryDate()
+        if hadAuthBoundState {
+            resetDiagnosticsOSLogBoundaryDate()
+        }
     }
 
     public func resumeForegroundRefresh() {
