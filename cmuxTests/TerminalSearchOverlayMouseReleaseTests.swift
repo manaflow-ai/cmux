@@ -18,6 +18,7 @@ struct TerminalSearchOverlayMouseReleaseTests {
         let (hostedView, window) = try attachToWindow(surface: surface)
         defer { window.orderOut(nil) }
 
+        surface.startRuntimeSurfaceForTesting()
         #expect(waitUntil(description: "runtime surface to start") {
             surface.surface != nil
         })
@@ -59,6 +60,7 @@ struct TerminalSearchOverlayMouseReleaseTests {
         let (hostedView, window) = try attachToWindow(surface: surface)
         defer { window.orderOut(nil) }
 
+        surface.startRuntimeSurfaceForTesting()
         #expect(waitUntil(description: "runtime surface to start") {
             surface.surface != nil
         })

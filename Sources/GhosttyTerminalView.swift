@@ -7918,6 +7918,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         callbackContext?.release()
     }
 
+    /// Test-only helper for view tests that need a live Ghostty runtime surface
+    /// without depending on AppKit window insertion timing.
+    @MainActor
+    func startRuntimeSurfaceForTesting() {
+        guard surface == nil else { return }
+        createSurface(for: attachedView ?? surfaceView)
+    }
+
     /// Test-only helper to simulate a stale Swift wrapper whose native surface
     /// was already freed out-of-band.
     @MainActor
