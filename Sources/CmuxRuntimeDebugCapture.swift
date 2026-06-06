@@ -14,8 +14,7 @@ enum CmuxRuntimeDebugCapture {
         return CmuxRuntimeDebugCaptureConfiguration(baseURL: baseURL, token: token, sessionID: sessionID)
     }()
 
-    private static let sequence = CmuxRuntimeDebugCaptureSequence()
-    private static let inFlightRequests = DispatchSemaphore(value: 16)
+    private static let sender = CmuxRuntimeDebugCaptureSender(maxInFlightRequests: 16)
 
     static func logIfConfigured(
         hypothesisID: String,
@@ -26,16 +25,10 @@ enum CmuxRuntimeDebugCapture {
         data: [String: Any] = [:]
     ) {
         guard let configuration else { return }
-        guard inFlightRequests.wait(timeout: .now()) == .success else { return }
 
         Task(priority: .utility) {
-            defer {
-                inFlightRequests.signal()
-            }
-            let sequenceNumber = await sequence.next()
-            await sendLog(
+            await sender.sendIfCapacityAvailable(
                 configuration: configuration,
-                sequenceNumber: sequenceNumber,
                 hypothesisID: hypothesisID,
                 source: source,
                 name: name,
@@ -44,6 +37,46 @@ enum CmuxRuntimeDebugCapture {
                 data: data
             )
         }
+    }
+}
+
+actor CmuxRuntimeDebugCaptureSender {
+    private let maxInFlightRequests: Int
+    private let sequence = CmuxRuntimeDebugCaptureSequence()
+    private var inFlightRequests = 0
+
+    init(maxInFlightRequests: Int) {
+        self.maxInFlightRequests = maxInFlightRequests
+    }
+
+    func sendIfCapacityAvailable(
+        configuration: CmuxRuntimeDebugCaptureConfiguration,
+        hypothesisID: String,
+        source: String,
+        name: String,
+        expected: String?,
+        actual: String?,
+        data: [String: Any]
+    ) async {
+        guard inFlightRequests < maxInFlightRequests else {
+            return
+        }
+        inFlightRequests += 1
+        defer {
+            inFlightRequests -= 1
+        }
+
+        let sequenceNumber = await sequence.next()
+        await Self.sendLog(
+            configuration: configuration,
+            sequenceNumber: sequenceNumber,
+            hypothesisID: hypothesisID,
+            source: source,
+            name: name,
+            expected: expected,
+            actual: actual,
+            data: data
+        )
     }
 
     private static func sendLog(
