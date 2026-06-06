@@ -201,6 +201,14 @@ final class MobilePairingModel {
     private func observeConnections() {
         connectionObservationTask?.cancel()
         let generation = refreshGeneration
+        // Connections already present when this code is displayed (another phone
+        // is attached, or we are pairing an additional device). Only a NEW
+        // connection above this baseline means "this freshly minted QR was
+        // scanned"; without the baseline, opening the window while a phone is
+        // already connected would falsely jump to "connected" before the new
+        // ticket is ever used, which also makes pairing an additional device
+        // impossible (the QR would hide immediately).
+        let baseline = host.statusSnapshot().activeConnectionCount
         connectionObservationTask = Task { [weak self] in
             guard let self else { return }
             for await status in self.host.statusUpdates() {
@@ -208,19 +216,26 @@ final class MobilePairingModel {
                 guard generation == self.refreshGeneration else { return }
                 self.state = Self.connectionTransition(
                     from: self.state,
-                    activeConnectionCount: status.activeConnectionCount
+                    activeConnectionCount: status.activeConnectionCount,
+                    baselineConnectionCount: baseline
                 )
             }
         }
     }
 
-    /// Computes the next render state from a connection-count change. A connected
-    /// phone (`activeConnectionCount > 0`) flips a displayed ticket from `.ready`
-    /// to `.connected`; losing the last connection flips back so the QR returns.
-    /// All other states pass through unchanged. Pure, so the transition is unit
-    /// tested without a live host.
-    static func connectionTransition(from current: State, activeConnectionCount: Int) -> State {
-        let connected = activeConnectionCount > 0
+    /// Computes the next render state from a connection-count change, relative to
+    /// the `baselineConnectionCount` captured when the code was displayed. A
+    /// connection *above* the baseline (a phone that attached after the QR was
+    /// shown) flips a displayed ticket from `.ready` to `.connected`; dropping
+    /// back to the baseline flips it back so the QR returns. All other states
+    /// pass through unchanged. Pure, so the transition is unit tested without a
+    /// live host.
+    static func connectionTransition(
+        from current: State,
+        activeConnectionCount: Int,
+        baselineConnectionCount: Int
+    ) -> State {
+        let connected = activeConnectionCount > baselineConnectionCount
         switch current {
         case let .ready(ready) where connected:
             return .connected(ready)
