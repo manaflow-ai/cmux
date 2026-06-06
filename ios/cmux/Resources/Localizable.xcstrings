@@ -1429,6 +1429,23 @@
         }
       }
     },
+    "mobile.settings.display": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示"
+          }
+        }
+      }
+    },
     "mobile.settings.switchMac": {
       "extractionState": "manual",
       "localizations": {
@@ -1442,6 +1459,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Macを切り替え"
+          }
+        }
+      }
+    },
+    "mobile.settings.wrapTitles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wrap Workspace Titles"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのタイトルを折り返す"
           }
         }
       }
