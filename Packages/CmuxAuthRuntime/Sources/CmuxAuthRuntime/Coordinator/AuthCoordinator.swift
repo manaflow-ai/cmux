@@ -56,6 +56,14 @@ public final class AuthCoordinator {
         Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: availableTeams)
     }
 
+    /// The most recent display-safe auth error captured for diagnostics.
+    ///
+    /// This never stores access or refresh tokens. Raw backend failures are first
+    /// mapped through ``AuthError/diagnosticsDescription(for:)`` so the iOS
+    /// Share Diagnostics report can include auth context without exposing
+    /// credentials.
+    public private(set) var lastAuthErrorDescription: String?
+
     private let client: any AuthClient
     private let sessionCache: CMUXAuthSessionCache
     private let userCache: CMUXAuthIdentityStore
@@ -272,6 +280,7 @@ public final class AuthCoordinator {
                 setLoading: false
             )
         } catch {
+            recordAuthError(error)
             authLog.error("Auto-login failed: \(error.localizedDescription, privacy: .private)")
             await clearPersistedStackSession()
             clearAuthState()
@@ -285,9 +294,11 @@ public final class AuthCoordinator {
                 return
             }
             authLog.info("Cached session validation returned no current user")
+            recordAuthError(AuthError.unauthorized)
             await clearPersistedStackSession()
             clearAuthState()
         } catch {
+            recordAuthError(error)
             // Drive the clear-vs-preserve decision from LIVE session validity, not
             // the error code alone. The SDK throws the same `UserNotSignedInError`
             // ("USER_NOT_SIGNED_IN") for two opposite situations: a genuine
@@ -346,14 +357,16 @@ public final class AuthCoordinator {
             )
             pendingNonce = nonce
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
     }
 
     /// Verify a magic-link code against the pending nonce.
     public func verifyCode(_ code: String) async throws {
         guard let nonce = pendingNonce else {
-            throw AuthError.invalidCode
+            let error = AuthError.invalidCode
+            recordAuthError(error)
+            throw error
         }
         try await requireOnline()
         isLoading = true
@@ -364,7 +377,7 @@ public final class AuthCoordinator {
             try await client.signInWithMagicLink(code: fullCode)
             try await completeSignIn()
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
         pendingNonce = nil
     }
@@ -379,7 +392,7 @@ public final class AuthCoordinator {
             try await client.signInWithCredential(email: email, password: password)
             try await completeSignIn()
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
     }
 
@@ -401,7 +414,7 @@ public final class AuthCoordinator {
             try await client.signInWithOAuth(provider: provider, anchor: anchor)
             try await completeSignIn()
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
     }
 
@@ -426,7 +439,7 @@ public final class AuthCoordinator {
         do {
             try await completeSignIn()
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
     }
 
@@ -436,13 +449,19 @@ public final class AuthCoordinator {
     ///   post-sign-out side effects (e.g. push unregistration) that live above
     ///   this package. Defaults to a no-op.
     public func signOut(onSignedOut: @Sendable () async -> Void = {}) async {
+        var didFail = false
         do {
             try await client.signOut()
         } catch {
+            didFail = true
+            recordAuthError(error)
             authLog.error("Sign-out failed: \(error.localizedDescription, privacy: .private)")
         }
         if launch.includesDevAuth { debugCredentials = nil }
         clearAuthState()
+        if !didFail {
+            lastAuthErrorDescription = nil
+        }
         await onSignedOut()
     }
 
@@ -486,10 +505,14 @@ public final class AuthCoordinator {
         // (network/server), so stay retryable; a missing one means the SDK
         // definitively cleared the session and the user must sign in again.
         if await client.refreshToken() != nil {
-            throw AuthError.networkError
+            let error = AuthError.networkError
+            recordAuthError(error)
+            throw error
         }
         clearAuthState()
-        throw AuthError.unauthorized
+        let error = AuthError.unauthorized
+        recordAuthError(error)
+        throw error
     }
 
     /// The current refresh token, if any. Native API calls authenticate with
@@ -512,10 +535,14 @@ public final class AuthCoordinator {
     public func currentTokens() async throws -> (accessToken: String, refreshToken: String) {
         await awaitBootstrapped()
         guard let access = await client.accessToken(), !access.isEmpty else {
-            throw AuthError.unauthorized
+            let error = AuthError.unauthorized
+            recordAuthError(error)
+            throw error
         }
         guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
-            throw AuthError.unauthorized
+            let error = AuthError.unauthorized
+            recordAuthError(error)
+            throw error
         }
         return (access, refresh)
     }
@@ -540,10 +567,14 @@ public final class AuthCoordinator {
         // (network/server), so stay retryable; a missing one means the SDK
         // definitively cleared the session.
         if await client.refreshToken() != nil {
-            throw AuthError.networkError
+            let error = AuthError.networkError
+            recordAuthError(error)
+            throw error
         }
         clearAuthState()
-        throw AuthError.unauthorized
+        let error = AuthError.unauthorized
+        recordAuthError(error)
+        throw error
     }
 
     // MARK: - State helpers
@@ -552,6 +583,7 @@ public final class AuthCoordinator {
         currentUser = user
         isAuthenticated = true
         isRestoringSession = false
+        lastAuthErrorDescription = nil
         saveCachedUser(user)
         sessionCache.setHasTokens(true)
         await refreshTeams()
@@ -613,8 +645,17 @@ public final class AuthCoordinator {
 
     private func requireOnline() async throws {
         guard await isOnline() else {
-            throw AuthError.offline
+            let error = AuthError.offline
+            recordAuthError(error)
+            throw error
         }
+    }
+
+    @discardableResult
+    private func recordAuthError(_ error: any Error) -> any Error {
+        let thrownError = AuthError(displaySafe: error) ?? error
+        lastAuthErrorDescription = AuthError.diagnosticsDescription(for: error)
+        return thrownError
     }
 
     private func apply(_ state: CMUXAuthState) {

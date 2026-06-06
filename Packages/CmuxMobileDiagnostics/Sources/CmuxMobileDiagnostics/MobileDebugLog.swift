@@ -3,20 +3,22 @@ import Foundation
 import UIKit
 #endif
 
-/// In-app debug-log facade for iOS DEV builds, backed by an actor sink.
+/// In-app diagnostics log facade for iOS, backed by an actor sink.
 ///
 /// This is the thin compatibility surface the mobile packages call into
 /// (``append(_:)`` from the synchronous ``MobileDebugLog.anchormux(_:)`` helper, and
 /// ``copyToPasteboard(prepending:)`` from the debug menu). The actual buffer
 /// and its synchronization live in ``MobileDebugLogSink`` (an `actor`), so this
 /// type holds no mutable state of its own; it only bridges synchronous callers
-/// into the actor.
+/// into the actor. DEBUG-only `anchormux` probes and shipped high-signal
+/// diagnostics events share the same sink so exported reports have one recent
+/// event timeline.
 ///
 /// - Note: The ``shared`` instance is a TRANSITIONAL (iOS refactor) shim so the
 ///   many existing render/IO-thread call sites stay one-liners. The intended
 ///   end state injects a ``MobileDebugLogSink`` from the app composition root.
 public struct MobileDebugLog: Sendable {
-    /// Process-wide instance used by the legacy anchormux call sites.
+    /// Process-wide instance used by diagnostics event producers.
     // TRANSITIONAL (iOS refactor): call sites still reach for `.shared`; the
     // composition root should inject the sink once decomposition reaches them.
     public static let shared = MobileDebugLog(sink: MobileDebugLogSink())

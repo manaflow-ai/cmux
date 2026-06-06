@@ -63,11 +63,36 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// failing the silence check because `lastTerminalEventAt` stays fresh).
     private static let renderGridLivenessCheckInterval: TimeInterval = 2.5
 
-    public private(set) var isSignedIn: Bool
-    public private(set) var connectionState: MobileConnectionState
+    public private(set) var isSignedIn: Bool {
+        didSet {
+            guard oldValue != isSignedIn else { return }
+            // Release-path high-signal event: sign-in/out transition. `didSet`
+            // does not fire for the `init` assignment, so this only records real
+            // transitions. Routed to the in-process sink directly (NOT the
+            // DEBUG-gated `anchormux`) so it lands in the shipped diagnostics log.
+            MobileDebugLog.shared.append("auth.signedIn=\(isSignedIn)")
+        }
+    }
+    public private(set) var connectionState: MobileConnectionState {
+        didSet {
+            guard oldValue != connectionState else { return }
+            // Release-path high-signal event: connection-state transition
+            // (connect / disconnect / pairing success → .connected).
+            let host = connectedHostName.isEmpty ? "-" : connectedHostName
+            MobileDebugLog.shared.append("conn.state=\(connectionState) host=\(host)")
+        }
+    }
     public private(set) var macConnectionStatus: MobileMacConnectionStatus
     public private(set) var connectedHostName: String
-    public private(set) var connectionError: String?
+    public private(set) var connectionError: String? {
+        didSet {
+            // Release-path high-signal event: every connection/RPC/pairing
+            // failure flows through `connectionError`, so logging non-nil
+            // transitions here captures them in one place.
+            guard let error = connectionError, oldValue != connectionError else { return }
+            MobileDebugLog.shared.append("conn.error=\(error)")
+        }
+    }
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
     public var hasActiveUnexpiredAttachTicket: Bool {

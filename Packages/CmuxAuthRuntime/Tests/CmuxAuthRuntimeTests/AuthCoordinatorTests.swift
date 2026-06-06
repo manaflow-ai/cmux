@@ -39,6 +39,7 @@ import Testing
 
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.currentUser == user)
+        #expect(coordinator.lastAuthErrorDescription == nil)
         #expect(store.bool(forKey: "has_tokens"))
         let recorded = await client.signedInWithCredential
         #expect(recorded?.email == "a@b.com")
@@ -49,6 +50,7 @@ import Testing
         await #expect(throws: AuthError.invalidCode) {
             try await coordinator.verifyCode("000000")
         }
+        #expect(coordinator.lastAuthErrorDescription?.contains("Invalid code") == true)
     }
 
     @Test func sendCodeThenVerifySignsIn() async throws {
@@ -69,6 +71,7 @@ import Testing
         await #expect(throws: AuthError.offline) {
             try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         }
+        #expect(coordinator.lastAuthErrorDescription?.contains("No internet connection") == true)
     }
 
     @Test func oauthAppleAndGoogleRouteToProviders() async throws {
@@ -130,6 +133,7 @@ import Testing
         await #expect(throws: AuthError.unauthorized) {
             _ = try await coordinator.accessToken()
         }
+        #expect(coordinator.lastAuthErrorDescription?.contains("Session expired") == true)
     }
 
     @Test func signInRefreshesTeamsAndResolvesSelection() async throws {

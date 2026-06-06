@@ -61,4 +61,25 @@ extension AuthError {
     public var cachedSessionValidationFailureAction: CachedSessionValidationFailureAction {
         self == .unauthorized ? .clearSession : .preserveCachedSession
     }
+
+    /// Returns a token-free auth error description suitable for diagnostics.
+    ///
+    /// Display-safe ``AuthError`` values use their localized descriptions.
+    /// Stack errors that the sign-in UI renders specifically keep only their
+    /// public code, while unknown backend details collapse through
+    /// ``init(displaySafe:)`` before they are described.
+    /// - Parameter error: The raw or already display-safe auth error.
+    /// - Returns: A diagnostics-safe description, or `nil` for cancellations.
+    static func diagnosticsDescription(for error: any Error) -> String? {
+        if let displayError = AuthError(displaySafe: error) {
+            if displayError == .cancelled {
+                return nil
+            }
+            return displayError.localizedDescription
+        }
+        if let stackError = error as? any StackAuthErrorProtocol {
+            return "StackAuthError code=\(stackError.code)"
+        }
+        return error.localizedDescription
+    }
 }

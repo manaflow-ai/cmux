@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -12,6 +13,7 @@ import AppKit
 #endif
 
 struct WorkspaceDetailView: View {
+    @Environment(AuthCoordinator.self) private var authManager
     let host: String
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
@@ -23,6 +25,10 @@ struct WorkspaceDetailView: View {
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
     @State private var isTerminalPickerPresented = false
+    #if canImport(UIKit)
+    @State private var diagnosticsReport: MobileDiagnosticsReport?
+    @State private var isBuildingDiagnostics = false
+    #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == selectedTerminalID } ?? workspace.terminals.first
@@ -122,6 +128,9 @@ struct WorkspaceDetailView: View {
     private var terminalPickerToolbarButton: some View {
         Button {
             dismissTerminalKeyboardForChrome()
+            #if canImport(UIKit)
+            diagnosticsReport = nil
+            #endif
             isTerminalPickerPresented = true
         } label: {
             Label(
@@ -186,34 +195,128 @@ struct WorkspaceDetailView: View {
             .padding(.vertical, 10)
             .accessibilityIdentifier("MobileNewTerminalMenuItem")
 
-            #if DEBUG && canImport(UIKit)
-            Button(action: copyDebugLogsFromMenu) {
-                // DEV-only debug tooling; not shipped, so not localized.
-                Label("Copy Debug Logs", systemImage: "doc.on.clipboard")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
+            #if canImport(UIKit)
+            Divider()
+                .padding(.vertical, 4)
+
+            diagnosticsCopyButton
+            diagnosticsShareButton
             #endif
         }
         .frame(minWidth: 240, maxWidth: 320, alignment: .leading)
         .presentationCompactAdaptation(.popover)
+        #if canImport(UIKit)
+        // Build the report once when the picker opens so both the Copy action and
+        // the synchronous-item `ShareLink` can use it. Rebuilt each open so the
+        // snapshot is fresh.
+        .task {
+            await prepareDiagnosticsReport()
+        }
+        #endif
     }
 
-    #if DEBUG && canImport(UIKit)
-    private func copyDebugLogsFromMenu() {
-        isTerminalPickerPresented = false
-        // Include "what the user sees" (the visible terminal text) above the
-        // debug log so a pasted bug report shows the on-screen content too.
-        let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
-        Task { @MainActor in
-            let count = await MobileDebugLog.shared.copyToPasteboard(prepending: terminalText)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)
+    #if canImport(UIKit)
+    /// Copies the assembled, scrubbed diagnostics report to the clipboard.
+    @ViewBuilder
+    private var diagnosticsCopyButton: some View {
+        Button(action: copyDiagnosticsToPasteboard) {
+            Label(
+                L10n.string("mobile.diagnostics.copy", defaultValue: "Copy Diagnostics"),
+                systemImage: "doc.on.clipboard"
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .disabled(diagnosticsReport == nil)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        // Preserve the historical accessibility id so existing automation that
+        // taps the debug-log export keeps working.
+        .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
+    }
+
+    /// Shares the assembled, scrubbed diagnostics report as a `.txt` file.
+    ///
+    /// `ShareLink` needs the shared item synchronously, so it only renders once
+    /// the temp file has been built; until then a disabled placeholder shows a
+    /// progress state.
+    @ViewBuilder
+    private var diagnosticsShareButton: some View {
+        if let report = diagnosticsReport {
+            ShareLink(
+                item: report.fileURL,
+                preview: SharePreview(
+                    L10n.string("mobile.diagnostics.shareTitle", defaultValue: "cmux Diagnostics")
+                )
+            ) {
+                Label(
+                    L10n.string("mobile.diagnostics.share", defaultValue: "Share Diagnostics"),
+                    systemImage: "square.and.arrow.up"
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
+        } else {
+            Label(
+                L10n.string("mobile.diagnostics.preparing", defaultValue: "Preparing Diagnostics…"),
+                systemImage: "square.and.arrow.up"
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
+        }
+    }
+    #endif
+
+    #if canImport(UIKit)
+    /// The shell's live runtime state, mapped into the decoupled diagnostics
+    /// snapshot the report builder consumes.
+    private var diagnosticsLiveState: MobileDiagnosticsLiveState {
+        let host = store.connectedHostName.isEmpty ? nil : store.connectedHostName
+        return MobileDiagnosticsLiveState(
+            connectionState: store.connectionState == .connected ? "connected" : "disconnected",
+            isSignedIn: store.isSignedIn,
+            isAuthenticated: authManager.isAuthenticated,
+            lastAuthError: authManager.lastAuthErrorDescription,
+            connectedHostName: host,
+            pairedMacName: host,
+            pairedMacDeviceID: nil,
+            connectionError: store.connectionError
+        )
+    }
+
+    /// Builds the diagnostics report (in-process log + OS log + live state +
+    /// visible terminal, then scrubbed) and writes the shareable temp file.
+    ///
+    /// Runs when the picker opens so both Copy and `ShareLink` have a ready item.
+    private func prepareDiagnosticsReport() async {
+        guard !isBuildingDiagnostics else { return }
+        isBuildingDiagnostics = true
+        defer { isBuildingDiagnostics = false }
+
+        let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
+        let liveState = diagnosticsLiveState
+        let builder = MobileDiagnosticsReportBuilder(sink: MobileDebugLog.shared.sink)
+        let report = await builder.buildReport(
+            liveState: liveState,
+            terminalSnapshot: terminalText
+        )
+        diagnosticsReport = report
+    }
+
+    /// Copies the prepared diagnostics text to the system pasteboard.
+    private func copyDiagnosticsToPasteboard() {
+        guard let report = diagnosticsReport else { return }
+        isTerminalPickerPresented = false
+        UIPasteboard.general.string = report.text
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
     #endif
 
