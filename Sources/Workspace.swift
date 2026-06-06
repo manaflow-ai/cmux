@@ -13431,25 +13431,45 @@ final class Workspace: Identifiable, ObservableObject {
         return environment
     }
 
-    private func normalizedTerminalWorkingDirectory(_ workingDirectory: String?) -> String? {
-        let trimmed = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    private func normalizedTerminalWorkingDirectory(
+        _ workingDirectory: String?,
+        preserveExact: Bool = false
+    ) -> String? {
+        guard let workingDirectory else { return nil }
+        if preserveExact {
+            return workingDirectory.isEmpty ? nil : workingDirectory
+        }
+        let trimmed = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func terminalWorkingDirectoryCandidate(for panelId: UUID?) -> String? {
+    private func terminalWorkingDirectoryCandidate(
+        for panelId: UUID?,
+        preserveExact: Bool
+    ) -> String? {
         guard let panelId else { return nil }
-        if let panelDirectory = normalizedTerminalWorkingDirectory(panelDirectories[panelId]) {
+        if let panelDirectory = normalizedTerminalWorkingDirectory(
+            panelDirectories[panelId],
+            preserveExact: preserveExact
+        ) {
             return panelDirectory
         }
-        return normalizedTerminalWorkingDirectory(terminalPanel(for: panelId)?.requestedWorkingDirectory)
+        return normalizedTerminalWorkingDirectory(
+            terminalPanel(for: panelId)?.requestedWorkingDirectory,
+            preserveExact: preserveExact
+        )
     }
 
     private func resolvedTerminalStartupWorkingDirectory(
         explicitWorkingDirectory: String?,
         sourcePanelId: UUID? = nil,
-        targetPaneId: PaneID? = nil
+        targetPaneId: PaneID? = nil,
+        preserveExact: Bool = false
     ) -> String? {
-        if let explicitWorkingDirectory = normalizedTerminalWorkingDirectory(explicitWorkingDirectory) {
+        if let explicitWorkingDirectory = normalizedTerminalWorkingDirectory(
+            explicitWorkingDirectory,
+            preserveExact: preserveExact
+        ) {
             return explicitWorkingDirectory
         }
 
@@ -13471,12 +13491,15 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         for panelId in candidatePanelIds {
-            if let candidate = terminalWorkingDirectoryCandidate(for: panelId) {
+            if let candidate = terminalWorkingDirectoryCandidate(
+                for: panelId,
+                preserveExact: preserveExact
+            ) {
                 return candidate
             }
         }
 
-        return normalizedTerminalWorkingDirectory(currentDirectory)
+        return normalizedTerminalWorkingDirectory(currentDirectory, preserveExact: preserveExact)
     }
 
     private func normalizedRemotePTYSessionID(_ value: String?) -> String? {
@@ -14448,7 +14471,8 @@ final class Workspace: Identifiable, ObservableObject {
         // back yet, and finally fall back to the workspace's current directory.
         let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
             explicitWorkingDirectory: workingDirectory,
-            sourcePanelId: panelId
+            sourcePanelId: panelId,
+            preserveExact: remoteStartupCommandForEnvironment != nil
         )
 #if DEBUG
         cmuxDebugLog(
@@ -14616,7 +14640,8 @@ final class Workspace: Identifiable, ObservableObject {
             localWorkingDirectory = nil
             if let remoteInitialWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
                 explicitWorkingDirectory: workingDirectory,
-                targetPaneId: paneId
+                targetPaneId: paneId,
+                preserveExact: true
             ) {
                 effectiveStartupEnvironment["CMUX_REMOTE_INITIAL_CWD"] = remoteInitialWorkingDirectory
             }

@@ -10125,8 +10125,13 @@ struct CMUXCLI {
         let explicitAttachmentID = Self.normalizedEnvValue(attachmentIDOpt)
         let surfaceID = environmentSurfaceID ?? (explicitAttachmentID.flatMap { UUID(uuidString: $0) == nil ? nil : $0 })
         let attachmentID = explicitAttachmentID ?? environmentSurfaceID ?? UUID().uuidString.lowercased()
-        let remoteInitialCWDB64 = Self.normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_REMOTE_INITIAL_CWD"])
-            .map { Data($0.utf8).base64EncodedString() } ?? ""
+        let remoteInitialCWDB64: String
+        if let remoteInitialCWD = ProcessInfo.processInfo.environment["CMUX_REMOTE_INITIAL_CWD"],
+           !remoteInitialCWD.isEmpty {
+            remoteInitialCWDB64 = Data(remoteInitialCWD.utf8).base64EncodedString()
+        } else {
+            remoteInitialCWDB64 = ""
+        }
         let command: String? = try commandB64Opt.flatMap { encoded in
             guard let data = Data(base64Encoded: encoded),
                   var decoded = String(data: data, encoding: .utf8) else {

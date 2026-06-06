@@ -2457,7 +2457,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         let sourcePanelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         let paneID = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelID))
-        let selectedPanelDirectory = "/srv/cmux/selected-\(UUID().uuidString)"
+        let selectedPanelDirectory = "/srv/cmux/selected-\(UUID().uuidString) "
         let staleWorkspaceDirectory = "/srv/cmux/stale-\(UUID().uuidString)"
         workspace.updatePanelDirectory(
             panelId: sourcePanelID,
