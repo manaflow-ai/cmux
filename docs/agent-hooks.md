@@ -49,6 +49,10 @@ The sanitizer preserves model, sandbox, config, and cwd-related flags. It drops 
 
 Grok uses its `Notification` hook for user-facing completion messages. cmux records `Stop` as idle state, but leaves the visible notification text to the `Notification` payload so repeated turns keep Grok's own message instead of a generic completion fallback.
 
+## Workspace auto-naming
+
+When the opt-in `automation.workspaceAutoNaming` setting is enabled, turn-end hooks also drive AI naming of workspaces and tabs: the Claude wrapper registers an async `Stop` entry (`cmux hooks claude auto-name`), and the Codex `Stop` hook spawns a detached equivalent. Both gate on the live setting over the socket, reuse the session store above for throttle state, and never overwrite a name the user set. See [workspace-auto-naming.md](workspace-auto-naming.md).
+
 ## Agent Hibernation
 
 Agent Hibernation kills idle background agent processes to free their RAM and CPU, then resumes each one with its saved session when you return to its tab. It is opt-in and off by default. cmux knows which process belongs to which terminal because the agent hooks associate each session ID with its surface (see the session-restore section above), so it can terminate the right process and bring back the right session.

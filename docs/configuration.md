@@ -43,3 +43,17 @@ Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM
 - `maxLiveTerminals`: how many live restorable agent terminals to keep before cmux hibernates the oldest idle background ones. Nothing hibernates while you are at or under this count. Default: `12`. Range: `1`-`256`.
 
 Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
+
+## `automation.workspaceAutoNaming`
+
+Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes Claude Code and Codex sessions into short sidebar and tab names using your own agent binary, and refreshes them as the conversation topic shifts. See [workspace-auto-naming.md](workspace-auto-naming.md) for the full behavior.
+
+```json
+{
+  "automation": {
+    "workspaceAutoNaming": true
+  }
+}
+```
+
+Default: `false`. Manual renames (sidebar, command palette, CLI, or `/rename`) always win: a workspace or tab you renamed yourself is never auto-named again until you clear its custom name. Enable it from **Settings > Automation > Workspace Auto-Naming**.
