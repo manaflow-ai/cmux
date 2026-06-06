@@ -1977,6 +1977,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceFocus(params: params))
         case "surface.split":
             return v2Result(id: id, self.v2SurfaceSplit(params: params))
+        case "surface.respawn":
+            return v2Result(id: id, self.v2SurfaceRespawn(params: params))
         case "surface.create":
             return v2Result(id: id, self.v2SurfaceCreate(params: params))
         case "surface.close":
@@ -2444,6 +2446,7 @@ class TerminalController {
             "surface.current",
             "surface.focus",
             "surface.split",
+            "surface.respawn",
             "surface.create",
             "surface.close",
             "surface.drag_to_split",
@@ -7804,6 +7807,156 @@ class TerminalController {
         }
         return result
     }
+
+    private func v2SurfaceRespawn(params: [String: Any]) -> V2CallResult {
+        let fallbackTabManager = v2ResolveTabManager(params: params)
+
+        let command = v2OptionalTrimmedRawString(params, "command")
+            ?? v2OptionalTrimmedRawString(params, "initial_command")
+            ?? "exec ${SHELL:-/bin/zsh} -l"
+        let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command") ?? command
+        let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
+        let focus: Bool?
+        if v2HasNonNullParam(params, "focus") {
+            guard let parsedFocus = v2Bool(params, "focus") else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "rpc.v2.surface.respawn.invalidFocus",
+                        defaultValue: "Missing or invalid focus"
+                    ),
+                    data: nil
+                )
+            }
+            focus = v2FocusAllowed(requested: parsedFocus)
+        } else {
+            focus = nil
+        }
+
+        var result: V2CallResult = .err(
+            code: "internal_error",
+            message: String(
+                localized: "rpc.v2.surface.respawn.failed",
+                defaultValue: "Failed to respawn surface"
+            ),
+            data: nil
+        )
+        v2MainSync {
+            let ws: Workspace
+            let tabManager: TabManager
+            let surfaceId: UUID
+            if v2HasNonNullParam(params, "surface_id") {
+                guard let requestedSurfaceId = v2UUID(params, "surface_id") else {
+                    result = .err(
+                        code: "not_found",
+                        message: String(
+                            localized: "rpc.v2.surface.respawn.surfaceNotFoundForId",
+                            defaultValue: "Surface not found for the given surface_id"
+                        ),
+                        data: nil
+                    )
+                    return
+                }
+                guard let located = AppDelegate.shared?.locateSurface(surfaceId: requestedSurfaceId),
+                      let locatedWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
+                    result = .err(
+                        code: "not_found",
+                        message: String(
+                            localized: "rpc.v2.surface.respawn.surfaceNotFoundForId",
+                            defaultValue: "Surface not found for the given surface_id"
+                        ),
+                        data: ["surface_id": requestedSurfaceId.uuidString]
+                    )
+                    return
+                }
+                ws = locatedWorkspace
+                tabManager = located.tabManager
+                surfaceId = requestedSurfaceId
+            } else {
+                guard let fallbackTabManager = fallbackTabManager else {
+                    result = .err(
+                        code: "unavailable",
+                        message: String(
+                            localized: "rpc.v2.surface.respawn.tabManagerUnavailable",
+                            defaultValue: "Unable to access the target workspace"
+                        ),
+                        data: nil
+                    )
+                    return
+                }
+                guard let resolvedWorkspace = v2ResolveWorkspace(params: params, tabManager: fallbackTabManager) else {
+                    result = .err(
+                        code: "not_found",
+                        message: String(
+                            localized: "rpc.v2.surface.respawn.workspaceNotFound",
+                            defaultValue: "Workspace not found"
+                        ),
+                        data: nil
+                    )
+                    return
+                }
+                guard let focusedSurfaceId = resolvedWorkspace.focusedPanelId else {
+                    result = .err(
+                        code: "not_found",
+                        message: String(
+                            localized: "rpc.v2.surface.respawn.noFocusedSurface",
+                            defaultValue: "No focused surface"
+                        ),
+                        data: nil
+                    )
+                    return
+                }
+                ws = resolvedWorkspace
+                tabManager = fallbackTabManager
+                surfaceId = focusedSurfaceId
+            }
+            guard ws.terminalPanel(for: surfaceId) != nil else {
+                result = .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "rpc.v2.surface.respawn.surfaceNotTerminal",
+                        defaultValue: "Surface is not a terminal"
+                    ),
+                    data: ["surface_id": surfaceId.uuidString]
+                )
+                return
+            }
+
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+            guard let replacementPanel = ws.respawnTerminalSurface(
+                panelId: surfaceId,
+                command: command,
+                workingDirectory: workingDirectory,
+                tmuxStartCommand: tmuxStartCommand,
+                focus: focus
+            ) else {
+                result = .err(
+                    code: "internal_error",
+                    message: String(
+                        localized: "rpc.v2.surface.respawn.failed",
+                        defaultValue: "Failed to respawn surface"
+                    ),
+                    data: ["surface_id": surfaceId.uuidString]
+                )
+                return
+            }
+
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "type": replacementPanel.panelType.rawValue,
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId)
+            ])
+        }
+        return result
+    }
+
     private func v2SurfaceCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -12427,46 +12580,88 @@ class TerminalController {
     }
 
     private func v2BrowserScreenshot(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let snapshotResult: Data?? = v2AwaitCallback(timeout: 5.0) { finish in
-                browserPanel.takeSnapshot { image in
-                    finish(image.flatMap { self.v2PNGData(from: $0) })
-                }
+        let resolved: (
+            error: V2CallResult?,
+            workspaceId: UUID?,
+            surfaceId: UUID?,
+            browserPanel: BrowserPanel?
+        ) = v2MainSync {
+            guard let tabManager = v2ResolveTabManager(params: params) else {
+                return (.err(code: "unavailable", message: "TabManager not available", data: nil), nil, nil, nil)
             }
-
-            guard let snapshotResult else {
-                return .err(code: "timeout", message: "Timed out waiting for snapshot", data: nil)
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                return (.err(code: "not_found", message: "Workspace not found", data: nil), nil, nil, nil)
             }
-            guard let imageData = snapshotResult else {
-                return .err(code: "internal_error", message: "Failed to capture snapshot", data: nil)
+            let resolvedSurface = v2ResolveBrowserSurfaceId(params: params, workspace: ws)
+            if let error = resolvedSurface.error {
+                return (error, nil, nil, nil)
             }
-
-            var result: [String: Any] = [
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "png_base64": imageData.base64EncodedString()
-            ]
-
-            // Best effort: keep screenshot data available even when temp-file writes fail.
-            let screenshotsDirectory = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-browser-screenshots", isDirectory: true)
-            if (try? FileManager.default.createDirectory(at: screenshotsDirectory, withIntermediateDirectories: true)) != nil {
-                bestEffortPruneTemporaryFiles(in: screenshotsDirectory)
-                let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
-                let shortSurfaceId = String(surfaceId.uuidString.prefix(8))
-                let shortRandomId = String(UUID().uuidString.prefix(8))
-                let filename = "surface-\(shortSurfaceId)-\(timestampMs)-\(shortRandomId).png"
-                let imageURL = screenshotsDirectory.appendingPathComponent(filename, isDirectory: false)
-                if (try? imageData.write(to: imageURL, options: .atomic)) != nil {
-                    result["path"] = imageURL.path
-                    result["url"] = imageURL.absoluteString
-                }
+            guard let surfaceId = resolvedSurface.surfaceId else {
+                return (.err(code: "not_found", message: "No focused browser surface", data: nil), nil, nil, nil)
             }
-
-            return .ok(result)
+            guard let browserPanel = ws.browserPanel(for: surfaceId) else {
+                return (
+                    .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString]),
+                    nil,
+                    nil,
+                    nil
+                )
+            }
+            return (nil, ws.id, surfaceId, browserPanel)
         }
+
+        if let error = resolved.error {
+            return error
+        }
+        guard let workspaceId = resolved.workspaceId,
+              let surfaceId = resolved.surfaceId,
+              let browserPanel = resolved.browserPanel else {
+            return .err(code: "internal_error", message: "Browser operation failed", data: nil)
+        }
+
+        let snapshotResult: Data?? = v2AwaitCallback(timeout: 15.0) { finish in
+            browserPanel.captureAutomationVisibleViewportSnapshot { result in
+                switch result {
+                case .success(let image):
+                    finish(self.v2PNGData(from: image))
+                case .failure:
+                    finish(nil)
+                }
+            }
+        }
+
+        guard let snapshotResult else {
+            return .err(code: "timeout", message: "Timed out waiting for snapshot", data: nil)
+        }
+        guard let imageData = snapshotResult else {
+            return .err(code: "internal_error", message: "Failed to capture snapshot", data: nil)
+        }
+
+        var result: [String: Any] = [
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "surface_id": surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            "png_base64": imageData.base64EncodedString()
+        ]
+
+        // Best effort: keep screenshot data available even when temp-file writes fail.
+        let screenshotsDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-screenshots", isDirectory: true)
+        if (try? FileManager.default.createDirectory(at: screenshotsDirectory, withIntermediateDirectories: true)) != nil {
+            bestEffortPruneTemporaryFiles(in: screenshotsDirectory)
+            let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
+            let shortSurfaceId = String(surfaceId.uuidString.prefix(8))
+            let shortRandomId = String(UUID().uuidString.prefix(8))
+            let filename = "surface-\(shortSurfaceId)-\(timestampMs)-\(shortRandomId).png"
+            let imageURL = screenshotsDirectory.appendingPathComponent(filename, isDirectory: false)
+            if (try? imageData.write(to: imageURL, options: .atomic)) != nil {
+                result["path"] = imageURL.path
+                result["url"] = imageURL.absoluteString
+            }
+        }
+
+        return .ok(result)
     }
 
     private func v2BrowserGetText(params: [String: Any]) -> V2CallResult {

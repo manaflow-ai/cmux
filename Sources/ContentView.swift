@@ -15468,6 +15468,31 @@ struct TabItemView: View, Equatable {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
+
+                // The close button is a sibling that always reserves its width
+                // when the workspace is closable, so the title wraps/truncates
+                // before this corner instead of flowing under the hover x. Its
+                // visibility toggles via opacity so hover never re-lays-out the
+                // row. (Matches the group-header plus-button pattern.)
+                if canCloseWorkspace {
+                    Button(action: {
+                        #if DEBUG
+                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                        #endif
+                        tabManager.closeWorkspaceWithConfirmation(tab)
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: scaledFontSize(9), weight: .medium))
+                            .foregroundColor(activeSecondaryColor(0.7))
+                            .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .safeHelp(closeButtonTooltip)
+                    .opacity(showCloseButton ? 1 : 0)
+                    .allowsHitTesting(showCloseButton)
+                    .accessibilityHidden(!showCloseButton)
+                }
             }
 
             if let description = workspaceSnapshot.customDescription {
@@ -15736,27 +15761,6 @@ struct TabItemView: View, Equatable {
             offsetY: sidebarShortcutHintYOffset,
             fontSize: scaledFontSize(10)
         )
-        .overlay(alignment: .topTrailing) {
-            if showsWorkspaceShortcutHint {
-                EmptyView()
-            } else if showCloseButton {
-                Button(action: {
-                    #if DEBUG
-                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                    #endif
-                    tabManager.closeWorkspaceWithConfirmation(tab)
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: scaledFontSize(9), weight: .medium))
-                        .foregroundColor(activeSecondaryColor(0.7))
-                }
-                .buttonStyle(.plain)
-                .safeHelp(closeButtonTooltip)
-                .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
-                .padding(.top, 8)
-                .padding(.trailing, 10)
-            }
-        }
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
         .background { rowHeightProbe }

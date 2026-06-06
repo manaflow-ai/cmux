@@ -149,8 +149,8 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
-    func previewNotificationSound() {
-        NSSound(named: NSSound.Name("Glass"))?.play()
+    func previewNotificationSound(value: String, customFilePath: String) {
+        NotificationSoundSettings.previewSound(value: value, customFilePath: customFilePath)
     }
 
     func browserHistoryEntryCount() -> Int? {
