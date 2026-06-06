@@ -6151,7 +6151,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testTextBoxMentionRefreshKeepsRowsOnSameTriggerEditButClearsOnTriggerChange() {
+    func testTextBoxMentionRefreshClearsRowsOnSameTriggerEditAndTriggerChange() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "@a"
         textView.setSelectedRange(NSRange(location: 2, length: 0))
@@ -6172,7 +6172,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textView.string = "@z"
         textView.setSelectedRange(NSRange(location: 2, length: 0))
         textView.refreshMentionCompletions()
-        XCTAssertEqual(textView.debugMentionSuggestionCount(), 1)
+        XCTAssertEqual(textView.debugMentionSuggestionCount(), 0)
         XCTAssertFalse(textView.debugMentionSuggestionsAreCurrent())
         XCTAssertFalse(textView.debugAcceptMentionCompletion())
         XCTAssertFalse(textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
