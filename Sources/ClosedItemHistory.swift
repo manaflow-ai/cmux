@@ -431,7 +431,9 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
-        let allItems = records.reversed().map(Self.menuItem(for:))
+        let allItems = records.reversed()
+            .filter { !isRecordRestored($0.id) }
+            .map(Self.menuItem(for:))
         if let maxItemCount, maxItemCount >= 0, allItems.count > maxItemCount {
             return ClosedItemHistoryMenuSnapshot(
                 items: Array(allItems.prefix(maxItemCount)),
