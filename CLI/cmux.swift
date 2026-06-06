@@ -4315,7 +4315,8 @@ struct CMUXCLI {
         case "rename-page":
             let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
             let (pageOpt, rem1) = parseOption(pageContextOptions.remaining, name: "--page")
-            let titleArgs = rem1.dropFirst(rem1.first == "--" ? 1 : 0)
+            let (positionalPage, renameTitleArgs) = splitOptionalPositionalPageHandle(rem1, explicitPage: pageOpt)
+            let titleArgs = renameTitleArgs.dropFirst(renameTitleArgs.first == "--" ? 1 : 0)
             let title = titleArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else {
                 throw CLIError(message: "rename-page requires a title")
@@ -4323,7 +4324,7 @@ struct CMUXCLI {
             var params: [String: Any] = ["title": title]
             let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
             applyPageCommandContext(pageContext, to: &params)
-            let pageId = try normalizePageHandle(pageOpt, client: client, workspaceHandle: pageContext.workspaceHandle, allowCurrent: true)
+            let pageId = try normalizePageHandle(pageOpt ?? positionalPage, client: client, workspaceHandle: pageContext.workspaceHandle, allowCurrent: true)
             if let pageId { params["page_id"] = pageId }
             let payload = try client.sendV2(method: "page.rename", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["page", "workspace"]))
