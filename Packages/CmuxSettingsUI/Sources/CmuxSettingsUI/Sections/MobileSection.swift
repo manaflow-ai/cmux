@@ -170,7 +170,9 @@ public struct MobileSection: View {
                 )
                 .foregroundStyle(.orange)
             }
-        } else if case let .portInUse(requested) = applyResult {
+        } else if case let .portInUse(requested) = applyResult, iOSPairingHost.current {
+            // Only while pairing is on — toggling off stops the listener, which
+            // would make "still listening on …" wrong.
             statusCaption {
                 Label(
                     String(
@@ -181,7 +183,9 @@ public struct MobileSection: View {
                 )
                 .foregroundStyle(.orange)
             }
-        } else if case let .savedForLater(saved) = applyResult {
+        } else if case let .savedForLater(saved) = applyResult, !iOSPairingHost.current {
+            // Only while pairing is off — once it's on, the live indicator shows
+            // the actual listening port instead of this saved-for-later note.
             statusCaption {
                 Label(
                     String(localized: "settings.mobile.port.apply.saved", defaultValue: "Saved. Will use port \(saved) when iOS Pairing is on."),
