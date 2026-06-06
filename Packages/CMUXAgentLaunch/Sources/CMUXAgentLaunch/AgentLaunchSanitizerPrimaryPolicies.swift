@@ -258,6 +258,7 @@ extension AgentLaunchSanitizer {
             "--thinking",
             "--tools",
             "-e",
+            "-r",
             "-t"
         ],
         nonRestorableCommands: [
@@ -422,6 +423,45 @@ extension AgentLaunchSanitizer {
             "--acp",
             "--experimental-acp",
             "--list-extensions"
+        ]
+    )
+
+    static let antigravityPolicy = Policy(
+        valueOptions: [
+            "--add-dir",
+            "--conversation",
+            "--log-file",
+            "--print-timeout",
+            "--prompt",
+            "-p",
+            "--sandbox",
+        ],
+        optionalValueOptions: [
+            "--continue",
+            "-c",
+        ],
+        nonRestorableCommands: [
+            "changelog",
+            "help",
+            "install",
+            "plugin",
+            "plugins",
+            "update",
+        ],
+        droppedOptions: [
+            "--continue",
+            "-c",
+            "--conversation",
+        ],
+        droppedOptionPrefixes: [
+            "--conversation=",
+        ],
+        rejectOptions: [
+            "--prompt",
+            "-p",
+            "--prompt-interactive",
+            "-i",
+            "--print",
         ]
     )
 

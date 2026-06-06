@@ -106,6 +106,10 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
            !processName.isEmpty {
             return processName
         }
+        if let processName = detect.processNames.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !processName.isEmpty {
+            return processName
+        }
         return id
     }
 
@@ -121,19 +125,73 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             sessionDirectory: "~/.pi/agent/sessions"
         )
     }
+
+    static var builtInOmp: CmuxVaultAgentRegistration {
+        CmuxVaultAgentRegistration(
+            id: "omp",
+            name: "OMP",
+            detect: CmuxVaultAgentDetectRule(
+                processName: "omp",
+                alternateArgvContains: ["@oh-my-pi/pi-coding-agent"]
+            ),
+            sessionIdSource: .piSessionFile,
+            resumeCommand: "{{executable}} --session {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: "~/.omp/agent/sessions"
+        )
+    }
+
+    static var builtInAntigravity: CmuxVaultAgentRegistration {
+        CmuxVaultAgentRegistration(
+            id: "antigravity",
+            name: "Antigravity",
+            iconAssetName: "AgentIcons/Antigravity",
+            detect: CmuxVaultAgentDetectRule(processNames: ["agy", "antigravity"]),
+            sessionIdSource: .argvOption("--conversation"),
+            resumeCommand: "{{executable}} --conversation {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: "~/.gemini/antigravity-cli"
+        )
+    }
+
+    static var builtInGrok: CmuxVaultAgentRegistration {
+        CmuxVaultAgentRegistration(
+            id: "grok",
+            name: "Grok",
+            detect: CmuxVaultAgentDetectRule(processNames: ["grok", "grok-macos-aarch64", "grok-macos-aarch"]),
+            sessionIdSource: .grokSessionDirectory,
+            resumeCommand: "{{executable}} -r {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: "~/.grok/sessions"
+        )
+    }
 }
 
 struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
     var processName: String?
+    var processNames: [String]
     var argvContains: [String]
+    var alternateArgvContains: [String]
 
     private enum CodingKeys: String, CodingKey {
-        case processName, argvContains
+        case processName, processNames, argvContains, alternateArgvContains
     }
 
-    init(processName: String? = nil, argvContains: [String] = []) {
-        self.processName = processName?.trimmingCharacters(in: .whitespacesAndNewlines)
+    init(
+        processName: String? = nil,
+        processNames: [String] = [],
+        argvContains: [String] = [],
+        alternateArgvContains: [String] = []
+    ) {
+        let name = processName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.processName = name?.isEmpty == true ? nil : name
+        self.processNames = processNames
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         self.argvContains = argvContains
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.alternateArgvContains = alternateArgvContains
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }
@@ -143,7 +201,9 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
         let name = try container.decodeIfPresent(String.self, forKey: .processName)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         processName = name?.isEmpty == true ? nil : name
+        processNames = try Self.decodeOneOrManyStrings(forKey: .processNames, in: container)
         argvContains = try Self.decodeOneOrManyStrings(forKey: .argvContains, in: container)
+        alternateArgvContains = try Self.decodeOneOrManyStrings(forKey: .alternateArgvContains, in: container)
     }
 
     private static func decodeOneOrManyStrings(
@@ -165,6 +225,7 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
 enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
     case argvOption(String)
     case piSessionFile
+    case grokSessionDirectory
 
     private enum CodingKeys: String, CodingKey {
         case type, argvOption
@@ -177,6 +238,8 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
             switch trimmed {
             case "piSessionFile", "pi-session-file":
                 self = .piSessionFile
+            case "grokSessionDirectory", "grok-session-directory":
+                self = .grokSessionDirectory
             default:
                 guard !trimmed.isEmpty else {
                     throw DecodingError.dataCorrupted(
@@ -202,6 +265,17 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
                 )
             }
             self = .piSessionFile
+        case "grokSessionDirectory", "grok-session-directory":
+            if let option = try container.decodeIfPresent(String.self, forKey: .argvOption)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !option.isEmpty {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .argvOption,
+                    in: container,
+                    debugDescription: "grokSessionDirectory must not include argvOption"
+                )
+            }
+            self = .grokSessionDirectory
         case "argvOption", "argv-option":
             let option = try container.decodeIfPresent(String.self, forKey: .argvOption)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -230,6 +304,8 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
             try container.encode(option, forKey: .argvOption)
         case .piSessionFile:
             try container.encode("piSessionFile", forKey: .type)
+        case .grokSessionDirectory:
+            try container.encode("grokSessionDirectory", forKey: .type)
         }
     }
 }
@@ -301,7 +377,12 @@ struct CmuxVaultAgentRegistry: Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> CmuxVaultAgentRegistry {
-        var registrations = [CmuxVaultAgentRegistration.builtInPi]
+        var registrations = [
+            CmuxVaultAgentRegistration.builtInPi,
+            CmuxVaultAgentRegistration.builtInOmp,
+            CmuxVaultAgentRegistration.builtInAntigravity,
+            CmuxVaultAgentRegistration.builtInGrok,
+        ]
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
             guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }
             registrations.append(contentsOf: config.vault?.agents ?? [])
