@@ -16504,6 +16504,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     private func focusPane(offset: Int) -> Bool {
+        if let zoomedPaneId = bonsplitController.zoomedPaneId {
+            guard bonsplitController.allPaneIds.contains(zoomedPaneId) else { return false }
+            guard bonsplitController.focusedPaneId != zoomedPaneId else { return false }
+            return focusSelectedPanel(inPane: zoomedPaneId)
+        }
+
         let paneIds = bonsplitController.allPaneIds
         guard paneIds.count > 1 else { return false }
 
@@ -16514,8 +16520,13 @@ final class Workspace: Identifiable, ObservableObject {
 
         let targetIndex = (currentIndex + offset + paneIds.count) % paneIds.count
         let targetPaneId = paneIds[targetIndex]
-        let targetTab = bonsplitController.selectedTab(inPane: targetPaneId)
-            ?? bonsplitController.tabs(inPane: targetPaneId).first
+        return focusSelectedPanel(inPane: targetPaneId)
+    }
+
+    @discardableResult
+    private func focusSelectedPanel(inPane paneId: PaneID) -> Bool {
+        let targetTab = bonsplitController.selectedTab(inPane: paneId)
+            ?? bonsplitController.tabs(inPane: paneId).first
         guard let targetTab,
               let targetPanelId = panelIdFromSurfaceId(targetTab.id) else {
             return false

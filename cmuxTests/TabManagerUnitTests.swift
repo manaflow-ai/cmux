@@ -2241,6 +2241,26 @@ final class TabManagerPaneFocusCycleTests: XCTestCase {
         XCTAssertFalse(manager.focusNextPane())
         XCTAssertEqual(workspace.focusedPanelId, originalFocusedPanelId)
     }
+
+    func testFocusPaneCycleDoesNotLeaveZoomedPane() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let rightPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false)
+        )
+
+        workspace.focusPanel(leftPanelId)
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: leftPanelId))
+
+        XCTAssertFalse(manager.focusNextPane())
+        XCTAssertEqual(workspace.focusedPanelId, leftPanelId)
+        XCTAssertNotEqual(workspace.focusedPanelId, rightPanel.id)
+
+        XCTAssertFalse(manager.focusPreviousPane())
+        XCTAssertEqual(workspace.focusedPanelId, leftPanelId)
+        XCTAssertNotEqual(workspace.focusedPanelId, rightPanel.id)
+    }
 }
 
 @MainActor
