@@ -267,26 +267,26 @@ def main() -> int:
 
             numeric_title = _run_cli_json(
                 cli,
-                ["rename-page", "--workspace", workspace_id, "2024"],
+                ["rename-page", "--workspace", workspace_id, "2"],
             )
             _must(
                 str(numeric_title.get("page_id") or "") == second_page_id,
                 f"rename-page numeric title should target the current page: {numeric_title}",
             )
             _must(
-                str(numeric_title.get("page_title") or "") == "2024",
+                str(numeric_title.get("page_title") or "") == "2",
                 f"rename-page numeric title was misparsed as a page handle: {numeric_title}",
             )
             numeric_title_terminator = _run_cli_json(
                 cli,
-                ["rename-page", "--workspace", workspace_id, "--", "5"],
+                ["rename-page", "--workspace", workspace_id, "--", "1"],
             )
             _must(
                 str(numeric_title_terminator.get("page_id") or "") == second_page_id,
                 f"rename-page -- numeric title should target the current page: {numeric_title_terminator}",
             )
             _must(
-                str(numeric_title_terminator.get("page_title") or "") == "5",
+                str(numeric_title_terminator.get("page_title") or "") == "1",
                 f"rename-page -- numeric title was misparsed as a page handle: {numeric_title_terminator}",
             )
             _run_cli_json(
@@ -296,7 +296,7 @@ def main() -> int:
 
             numeric_duplicate = _run_cli_json(
                 cli,
-                ["duplicate-page", "--workspace", workspace_id, "--", "5"],
+                ["duplicate-page", "--workspace", workspace_id, "--", "2"],
             )
             numeric_duplicate_id = str(numeric_duplicate.get("page_id") or "")
             numeric_duplicate_ref = str(numeric_duplicate.get("page_ref") or "")
@@ -305,7 +305,7 @@ def main() -> int:
                 f"duplicate-page -- numeric title should create a distinct page: {numeric_duplicate}",
             )
             _must(
-                str(numeric_duplicate.get("page_title") or "") == "5",
+                str(numeric_duplicate.get("page_title") or "") == "2",
                 f"duplicate-page -- numeric title was misparsed as a page handle: {numeric_duplicate}",
             )
             _run_cli_json(
