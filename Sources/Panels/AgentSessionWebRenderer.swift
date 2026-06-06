@@ -105,6 +105,7 @@ extension AgentSessionWebRenderer {
             appearance: .fromConfig(GhosttyConfig.load())
         )
         private var loadedRendererKind: AgentSessionRendererKind?
+        private var trustedShellURL: URL?
         private var hasFinishedNavigation = false
         private var hasCompletedVisiblePaintFlush = false
         private var isPanelFocused = false
@@ -133,6 +134,7 @@ extension AgentSessionWebRenderer {
             self.workspaceId = workspaceId
             if self.rendererKind != rendererKind {
                 loadedRendererKind = nil
+                trustedShellURL = nil
                 hasFinishedNavigation = false
                 hasCompletedVisiblePaintFlush = false
             }
@@ -195,9 +197,11 @@ extension AgentSessionWebRenderer {
             guard let resourceDirectoryURL = Bundle.main.resourceURL else {
                 return
             }
-            let indexURL = rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
-                $0.appendingPathComponent($1, isDirectory: false)
-            }
+            let indexURL = Self.shellURL(
+                rendererKind: rendererKind,
+                resourceDirectoryURL: resourceDirectoryURL
+            )
+            trustedShellURL = Self.normalizedTrustedFileURL(indexURL)
 #if DEBUG
             cmuxDebugLog(
                 "agentSession.web.load renderer=\(rendererKind.rawValue) " +
@@ -240,6 +244,7 @@ extension AgentSessionWebRenderer {
             }
             webView = nil
             loadedRendererKind = nil
+            trustedShellURL = nil
             hasFinishedNavigation = false
             hasCompletedVisiblePaintFlush = false
         }
@@ -249,7 +254,7 @@ extension AgentSessionWebRenderer {
             didReceive message: WKScriptMessage,
             replyHandler: @escaping (Any?, String?) -> Void
         ) {
-            guard message.frameInfo.isMainFrame else {
+            guard isTrustedBridgeFrame(message.frameInfo) else {
                 replyHandler(["ok": false, "error": [:]], nil)
                 return
             }
@@ -303,16 +308,30 @@ extension AgentSessionWebRenderer {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
-            guard navigationAction.navigationType == .linkActivated,
-                  let url = navigationAction.request.url else {
+            guard let url = navigationAction.request.url else {
                 decisionHandler(.allow)
                 return
             }
+
+            let isMainFrameNavigation = navigationAction.targetFrame?.isMainFrame ?? true
+            guard isMainFrameNavigation else {
+                decisionHandler(.allow)
+                return
+            }
+
+            if Self.isTrustedShellURL(url, expected: trustedShellURL) {
+                decisionHandler(.allow)
+                return
+            }
+
             if isInPageFragment(url, currentURL: webView.url) {
                 decisionHandler(.allow)
                 return
             }
-            handleExternalLink(url)
+
+            if navigationAction.navigationType == .linkActivated || navigationAction.targetFrame == nil {
+                handleExternalLink(url)
+            }
             decisionHandler(.cancel)
         }
 
@@ -379,6 +398,37 @@ extension AgentSessionWebRenderer {
                 "type": "app.theme",
                 "theme": theme.dictionary
             ])
+        }
+
+        private func isTrustedBridgeFrame(_ frameInfo: WKFrameInfo) -> Bool {
+            guard frameInfo.isMainFrame else {
+                return false
+            }
+            return Self.isTrustedShellURL(frameInfo.request.url, expected: trustedShellURL)
+        }
+
+        nonisolated static func shellURL(
+            rendererKind: AgentSessionRendererKind,
+            resourceDirectoryURL: URL
+        ) -> URL {
+            rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
+                $0.appendingPathComponent($1, isDirectory: false)
+            }
+        }
+
+        nonisolated static func isTrustedShellURL(_ candidate: URL?, expected: URL?) -> Bool {
+            guard let candidate = normalizedTrustedFileURL(candidate),
+                  let expected = normalizedTrustedFileURL(expected) else {
+                return false
+            }
+            return candidate == expected
+        }
+
+        nonisolated static func normalizedTrustedFileURL(_ url: URL?) -> URL? {
+            guard let url, url.isFileURL else {
+                return nil
+            }
+            return url.standardizedFileURL.resolvingSymlinksInPath()
         }
 
         private func handle(_ request: AgentSessionBridgeRequest) async throws -> Any {
