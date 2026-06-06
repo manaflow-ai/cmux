@@ -167,38 +167,39 @@ jobs:
           # Write the expanded path ($HOME, not ~) so later steps can read it.
           echo "ASC_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
 
-      - name: Resolve build number
-        id: build_number
-        env:
-          INPUT_BUILD_NUMBER: ${{ github.event.inputs.build_number }}
-        run: |
-          set -euo pipefail
-          BN="${INPUT_BUILD_NUMBER:-}"
-          if [ -z "$BN" ]; then
-            # 14-digit UTC stamp (with seconds). CFBundleVersion must increase
-            # monotonically as an integer or TestFlight never offers the build as
-            # an update. Legacy builds used yyyyMMddHHmmss (e.g. 20260520031606
-            # ~2e13); a 12-digit yyyyMMddHHmm (~2e11) is numerically LOWER, so it
-            # would regress below the existing max and never surface. Keep seconds.
-            BN="$(date -u +%Y%m%d%H%M%S)"
-          fi
-          echo "build_number=$BN" >> "$GITHUB_OUTPUT"
-          echo "Using CFBundleVersion: $BN"
-
       - name: Archive, export, and upload to TestFlight
+        id: upload
         env:
-          BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
+          # Only set for manual workflow_dispatch with an explicit build number.
+          # For push/schedule this is empty and the script generates a monotonic
+          # 14-digit UTC timestamp itself (single source of the numbering scheme,
+          # so the workflow can't drift from it the way it did before). An empty
+          # value here means "let the script decide", which also keeps the guard's
+          # fail-open path (generated timestamps are monotonic by construction;
+          # explicit values fail closed when App Store Connect can't be reached).
+          INPUT_BUILD_NUMBER: ${{ github.event.inputs.build_number }}
+          # The script writes the CFBundleVersion that actually shipped here (the
+          # monotonic guard may bump it), so the summary reports the real value.
+          CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
         run: |
           set -euo pipefail
-          ./ios/scripts/upload-testflight.sh \
-            --lane beta \
-            --signing automatic \
-            --build-number "$BUILD_NUMBER"
+          ARGS=(--lane beta --signing automatic)
+          if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
+            ARGS+=(--build-number "$INPUT_BUILD_NUMBER")
+          fi
+          ./ios/scripts/upload-testflight.sh "${ARGS[@]}"
+          if [ -f "$CMUX_BUILD_NUMBER_OUT_FILE" ]; then
+            FINAL_BN="$(cat "$CMUX_BUILD_NUMBER_OUT_FILE")"
+          else
+            FINAL_BN="${INPUT_BUILD_NUMBER:-unknown}"
+          fi
+          echo "final_build_number=$FINAL_BN" >> "$GITHUB_OUTPUT"
+          echo "Shipped CFBundleVersion: $FINAL_BN"
 
       - name: Summary
         if: always()
         env:
-          BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
+          BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number || github.event.inputs.build_number || 'unknown' }}
         run: |
           {
             echo "### iOS TestFlight upload"
