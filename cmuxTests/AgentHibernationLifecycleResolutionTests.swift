@@ -1,6 +1,10 @@
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
 @testable import cmux
+#endif
 
 /// Behavior tests for the hibernation lifecycle decision functions that make every
 /// agent (not just codex) become hibernation-eligible when it is genuinely idle.
