@@ -2264,6 +2264,7 @@ extension Workspace {
         if surface.selected == true,
            let tabId = surfaceIdFromPanelId(panelId) {
             selectedTabIdByPaneId[paneId] = tabId
+            bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(tabId)
         }
         if surface.focus == true {
