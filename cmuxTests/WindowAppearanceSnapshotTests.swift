@@ -228,6 +228,104 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertTrue(plan.usesWindowGlass)
     }
 
+    /// Verifies pane-local OSC colors paint on the host layer over a shared root backdrop.
+    func testOSCOverrideUsesSurfaceHostFillWhenWindowRootBackdropIsShared() {
+        let plan = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: .windowHostBackdrop,
+            surfaceBackgroundColor: NSColor(hex: "#D2EEF9") ?? .white,
+            defaultBackgroundColor: NSColor(hex: "#272822") ?? .black,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: true,
+            usesBonsplitPaneBackdrop: false
+        )
+
+        XCTAssertEqual(plan.owner, .surfaceHostLayer)
+        XCTAssertEqual(plan.hostLayerColor.hexString(includeAlpha: true), "#D2EEF9FF")
+        XCTAssertTrue(plan.clearsSharedWindowBackdrop)
+    }
+
+    /// Verifies translucent OSC colors use one host-layer fill with configured opacity.
+    func testTranslucentOSCOverrideUsesOneSurfaceHostFillWithConfiguredOpacity() {
+        let plan = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: .windowHostBackdrop,
+            surfaceBackgroundColor: NSColor(hex: "#E2D2F0") ?? .white,
+            defaultBackgroundColor: NSColor(hex: "#272822") ?? .black,
+            backgroundOpacity: 0.42,
+            sharesWindowBackdrop: true,
+            usesBonsplitPaneBackdrop: false
+        )
+
+        XCTAssertEqual(plan.owner, .surfaceHostLayer)
+        XCTAssertEqual(plan.hostLayerColor.hexString(), "#E2D2F0")
+        XCTAssertEqual(plan.hostLayerColor.alphaComponent, 0.42, accuracy: 0.0001)
+        XCTAssertTrue(plan.clearsSharedWindowBackdrop)
+    }
+
+    /// Verifies default backgrounds keep the shared backdrop intact.
+    func testSharedWindowBackdropDoesNotCutOutForDefaultBackgrounds() {
+        let plan = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: .windowHostBackdrop,
+            surfaceBackgroundColor: nil,
+            defaultBackgroundColor: NSColor(hex: "#272822") ?? .black,
+            backgroundOpacity: 0.42,
+            sharesWindowBackdrop: true,
+            usesBonsplitPaneBackdrop: false
+        )
+
+        XCTAssertEqual(plan.owner, .sharedWindowBackdrop)
+        XCTAssertEqual(plan.hostLayerColor.hexString(includeAlpha: true), "#00000000")
+        XCTAssertFalse(plan.clearsSharedWindowBackdrop)
+    }
+
+    /// Verifies Bonsplit-owned pane backdrops stay authoritative when no cutout is available.
+    func testOSCOverrideKeepsBonsplitPaneBackdropOwnerWhenNoCutoutIsAvailable() {
+        let plan = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: .windowHostBackdrop,
+            surfaceBackgroundColor: NSColor(hex: "#D2EEF9") ?? .white,
+            defaultBackgroundColor: NSColor(hex: "#272822") ?? .black,
+            backgroundOpacity: 0.42,
+            sharesWindowBackdrop: false,
+            usesBonsplitPaneBackdrop: true
+        )
+
+        XCTAssertEqual(plan.owner, .bonsplitPaneBackdrop)
+        XCTAssertEqual(plan.hostLayerColor.hexString(includeAlpha: true), "#00000000")
+        XCTAssertFalse(plan.clearsSharedWindowBackdrop)
+    }
+
+    /// Verifies non-shared window backdrops let OSC colors paint directly on the host layer.
+    func testOSCOverrideUsesSurfaceHostFillWhenWindowBackdropIsNotShared() {
+        let plan = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: .windowHostBackdrop,
+            surfaceBackgroundColor: NSColor(hex: "#B5EAD7") ?? .white,
+            defaultBackgroundColor: NSColor(hex: "#272822") ?? .black,
+            backgroundOpacity: 0.73,
+            sharesWindowBackdrop: false,
+            usesBonsplitPaneBackdrop: false
+        )
+
+        XCTAssertEqual(plan.owner, .surfaceHostLayer)
+        XCTAssertEqual(plan.hostLayerColor.hexString(), "#B5EAD7")
+        XCTAssertEqual(plan.hostLayerColor.alphaComponent, 0.73, accuracy: 0.0001)
+        XCTAssertFalse(plan.clearsSharedWindowBackdrop)
+    }
+
+    /// Verifies renderer-owned backgrounds keep cmux host layers clear.
+    func testRendererOwnedOSCOverrideKeepsHostLayerClearWhenWindowRootBackdropIsShared() {
+        let plan = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: .ghosttyRendererOwnedBackgroundImage,
+            surfaceBackgroundColor: NSColor(hex: "#D2EEF9") ?? .white,
+            defaultBackgroundColor: NSColor(hex: "#272822") ?? .black,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: true,
+            usesBonsplitPaneBackdrop: false
+        )
+
+        XCTAssertEqual(plan.owner, .ghosttyNativeRenderer)
+        XCTAssertEqual(plan.hostLayerColor.hexString(includeAlpha: true), "#00000000")
+        XCTAssertFalse(plan.clearsSharedWindowBackdrop)
+    }
+
     private func makeSnapshot(
         unifySurfaceBackdrops: Bool,
         backgroundHex: String = "#272822",
