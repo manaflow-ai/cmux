@@ -233,6 +233,11 @@ def main() -> int:
             if "Usage: cmux layout" not in help_text:
                 raise AssertionError(f"layout help missing usage: {help_text!r}")
 
+            for subcommand in ["save", "open", "export"]:
+                subcommand_help = run_cli_without_socket(cli, ["layout", subcommand, "--help"])
+                if "Usage: cmux layout" not in subcommand_help:
+                    raise AssertionError(f"layout {subcommand} help missing usage: {subcommand_help!r}")
+
             path_text = run_cli_without_socket(cli, ["layout", "path"], layout_env)
             if Path(path_text) != Path(layout_dir):
                 raise AssertionError(f"layout path ignored CMUX_LAYOUT_PRESET_DIR: {path_text!r}")

@@ -23,6 +23,11 @@ extension CMUXCLI {
         let subcommand = commandArgs.first?.lowercased() ?? "help"
         let args = Array(commandArgs.dropFirst())
 
+        if args.contains("--help") || args.contains("-h") {
+            print(layoutUsage())
+            return
+        }
+
         switch subcommand {
         case "help", "--help", "-h":
             print(layoutUsage())
