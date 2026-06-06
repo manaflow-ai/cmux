@@ -257,6 +257,70 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertEqual(status.priority, 0)
     }
 
+    func testMarkingClaudeNotificationReadUsesPanelIdBeforeSurfaceId() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let nonPanelSurfaceId = UUID()
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input",
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            priority: 100
+        )
+        workspace.recordAgentPID(
+            key: "claude_code.session-panel-precedence",
+            pid: pid_t(12345),
+            panelId: panelId,
+            refreshPorts: false
+        )
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: workspace.id,
+            surfaceId: nonPanelSurfaceId,
+            panelId: panelId,
+            title: "Claude Code",
+            subtitle: "Waiting",
+            body: "Claude needs your input",
+            createdAt: Date(),
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([notification])
+
+        store.markRead(id: notification.id)
+
+        let status = try XCTUnwrap(workspace.statusEntries["claude_code"])
+        XCTAssertEqual(status.value, "Idle")
+        XCTAssertEqual(status.icon, "pause.circle.fill")
+        XCTAssertEqual(status.color, "#8E8E93")
+        XCTAssertEqual(status.priority, 0)
+    }
+
     func testRemovingOneOfMultipleUnreadClaudeNotificationsKeepsNeedsInputStatus() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
