@@ -1,0 +1,103 @@
+import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
+import { buildAlternates } from "../../../../i18n/seo";
+import { Callout } from "../../components/callout";
+import { CodeBlock } from "../../components/code-block";
+import { DocsHeading } from "../../components/docs-heading";
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "docs.remoteTmux" });
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+    alternates: buildAlternates(locale, "/docs/remote-tmux"),
+  };
+}
+
+export default function RemoteTmuxPage() {
+  const t = useTranslations("docs.remoteTmux");
+
+  return (
+    <>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
+      <p>{t("intro")}</p>
+
+      <Callout>{t("betaNote")}</Callout>
+
+      <DocsHeading level={2} id="mapping">{t("mappingTitle")}</DocsHeading>
+      <p>{t("mappingIntro")}</p>
+      <table>
+        <thead>
+          <tr>
+            <th>{t("mapTmux")}</th>
+            <th>{t("mapCmux")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>session</code></td><td>{t("rowSession")}</td></tr>
+          <tr><td><code>window</code></td><td>{t("rowWindow")}</td></tr>
+          <tr><td><code>pane</code></td><td>{t("rowPane")}</td></tr>
+        </tbody>
+      </table>
+      <p>{t("mappingPanes")}</p>
+
+      <DocsHeading level={2} id="requirements">{t("requirementsTitle")}</DocsHeading>
+      <p>{t("requirementsDesc")}</p>
+
+      <DocsHeading level={2} id="enable">{t("enableTitle")}</DocsHeading>
+      <p>{t("enableDesc")}</p>
+
+      <DocsHeading level={2} id="attach">{t("attachTitle")}</DocsHeading>
+      <p>{t("attachIntro")}</p>
+      <ul>
+        <li>{t("attachOpen")}</li>
+        <li>{t("attachMirror")}</li>
+      </ul>
+
+      <DocsHeading level={2} id="how-it-works">{t("howTitle")}</DocsHeading>
+      <p>{t("howDesc")}</p>
+
+      <DocsHeading level={2} id="behavior">{t("behaviorTitle")}</DocsHeading>
+      <ul>
+        <li>{t("behaviorSize")}</li>
+        <li>{t("behaviorSplit")}</li>
+        <li>{t("behaviorReorder")}</li>
+        <li>{t("behaviorCwd")}</li>
+        <li>{t("behaviorPaste")}</li>
+        <li>{t("behaviorMouse")}</li>
+        <li>{t("behaviorUnicode")}</li>
+      </ul>
+
+      <DocsHeading level={2} id="socket-commands">{t("socketTitle")}</DocsHeading>
+      <p>{t("socketDesc")}</p>
+      <table>
+        <thead>
+          <tr>
+            <th>{t("socketMethod")}</th>
+            <th>{t("socketParams")}</th>
+            <th>{t("socketMeaning")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>remote.tmux.sessions</code></td><td><code>host</code>, <code>port?</code>, <code>identity_file?</code></td><td>{t("methodSessions")}</td></tr>
+          <tr><td><code>remote.tmux.attach</code></td><td><code>host</code>, <code>session</code>, <code>create?</code></td><td>{t("methodAttach")}</td></tr>
+          <tr><td><code>remote.tmux.open</code></td><td><code>host</code>, <code>session</code></td><td>{t("methodOpen")}</td></tr>
+          <tr><td><code>remote.tmux.mirror</code></td><td><code>host</code></td><td>{t("methodMirror")}</td></tr>
+          <tr><td><code>remote.tmux.detach</code></td><td><code>host</code>, <code>session</code></td><td>{t("methodDetach")}</td></tr>
+          <tr><td><code>remote.tmux.state</code></td><td><code>host</code>, <code>session</code></td><td>{t("methodState")}</td></tr>
+        </tbody>
+      </table>
+      <p>{t("socketSafetyDesc")}</p>
+      <CodeBlock lang="json">{`{ "method": "remote.tmux.mirror", "params": { "host": "dev.example.com" } }`}</CodeBlock>
+
+      <DocsHeading level={2} id="limitations">{t("limitationsTitle")}</DocsHeading>
+      <ul>
+        <li>{t("limitReconnect")}</li>
+        <li>{t("limitPaste")}</li>
+        <li>{t("limitCwd")}</li>
+        <li>{t("limitReflow")}</li>
+      </ul>
+    </>
+  );
+}
