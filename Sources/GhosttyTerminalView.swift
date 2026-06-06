@@ -10249,6 +10249,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 _ = sendTextInputCommand(command, surface: surface, keyEvent: keyEvent)
 #endif
             }
+        } else if let command = emptyKeyCodeZeroBackspaceFallbackCommand(from: textInputEvent) {
+            keyEvent.keycode = command.keycode
+            keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+            keyEvent.composing = false
+            keyEvent.unshifted_codepoint = command.unshiftedCodepoint
+
+#if DEBUG
+            let ghosttySendStart = ProcessInfo.processInfo.systemUptime
+            _ = sendTextInputCommand(
+                command,
+                surface: surface,
+                keyEvent: keyEvent,
+                path: "terminal.keyDown.emptyKeyCodeZeroBackspaceGhosttySend",
+                event: event
+            )
+            ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
+#else
+            _ = sendTextInputCommand(command, surface: surface, keyEvent: keyEvent)
+#endif
         } else {
             // Get the appropriate text for this key event
             // For control characters, this returns the unmodified character
@@ -10570,6 +10589,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 (event.characters ?? "").isEmpty &&
                 (event.charactersIgnoringModifiers ?? "").isEmpty
         }
+    }
+
+    /// Handles Astropad-style empty Backspace events that never emit `deleteBackward:`.
+    private func emptyKeyCodeZeroBackspaceFallbackCommand(from event: NSEvent) -> GhosttyTextInputCommand? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.isDisjoint(with: [.control, .option, .command]),
+              (event.characters ?? "").isEmpty,
+              (event.charactersIgnoringModifiers ?? "").isEmpty,
+              event.keyCode == UInt16(kVK_ANSI_A) else {
+            return nil
+        }
+        return .deleteBackward
     }
 
     /// Get the characters for a key event with control character handling.
