@@ -283,6 +283,18 @@ def main() -> int:
             )
 
             assert_cli_fails(cli, socket_path, ["layout", "save", ".hidden"], "Preset names may not start with '.'")
+            assert_cli_fails(
+                cli,
+                socket_path,
+                ["layout", "save", "--name", "dev", "ignored"],
+                "unexpected argument",
+            )
+            assert_cli_fails(
+                cli,
+                socket_path,
+                ["layout", "open", "--name", "dev", "ignored"],
+                "unexpected argument",
+            )
 
             run_cli(cli, socket_path, ["new-workspace", "--name", "agent"])
             assert_last_call(state, "workspace.create", {"title": "agent", "focus": False})

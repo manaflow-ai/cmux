@@ -152,6 +152,41 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         )
     }
 
+    func testCustomLayoutSelectedTabsDoNotOverrideFallbackFocus() throws {
+        let workspace = Workspace()
+        let fallbackPaneId = try XCTUnwrap(
+            workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+        )
+        let layout = CmuxLayoutNode.split(CmuxSplitDefinition(
+            direction: .horizontal,
+            children: [
+                .pane(CmuxPaneDefinition(surfaces: [
+                    CmuxSurfaceDefinition(type: .terminal, name: "Left"),
+                    CmuxSurfaceDefinition(type: .terminal, name: "Left Selected", selected: true)
+                ])),
+                .pane(CmuxPaneDefinition(surfaces: [
+                    CmuxSurfaceDefinition(type: .terminal, name: "Right"),
+                    CmuxSurfaceDefinition(type: .terminal, name: "Right Selected", selected: true)
+                ]))
+            ]
+        ))
+
+        workspace.applyCustomLayout(layout, baseCwd: NSTemporaryDirectory())
+
+        let focusedPaneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        XCTAssertEqual(
+            focusedPaneId,
+            fallbackPaneId,
+            "Per-pane selected markers should not leave focus on the last populated pane"
+        )
+        let leftSelectedTab = try XCTUnwrap(workspace.bonsplitController.selectedTab(inPane: fallbackPaneId))
+        XCTAssertEqual(leftSelectedTab.title, "Left Selected")
+
+        let otherPaneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first { $0 != fallbackPaneId })
+        let rightSelectedTab = try XCTUnwrap(workspace.bonsplitController.selectedTab(inPane: otherPaneId))
+        XCTAssertEqual(rightSelectedTab.title, "Right Selected")
+    }
+
     func testCustomLayoutExportFailsWhenVisibleTabHasNoLivePanel() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)

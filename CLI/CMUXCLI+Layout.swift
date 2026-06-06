@@ -274,9 +274,21 @@ extension CMUXCLI {
             ))
         }
         let positional = rem1.filter { $0 != "--" && !$0.hasPrefix("-") }
-        let rawName = nameOpt ?? positional.first
-        guard positional.count <= 1 else {
-            throw CLIError(message: String(localized: "cli.layout.error.saveUsage", defaultValue: "Usage: cmux layout save <name> [--workspace <id|ref|index>]"))
+        let rawName: String?
+        if let nameOpt {
+            if let extra = positional.first {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.layout.error.unexpectedArgument", defaultValue: "%@: unexpected argument '%@'"),
+                    "layout save",
+                    extra
+                ))
+            }
+            rawName = nameOpt
+        } else {
+            guard positional.count <= 1 else {
+                throw CLIError(message: String(localized: "cli.layout.error.saveUsage", defaultValue: "Usage: cmux layout save <name> [--workspace <id|ref|index>]"))
+            }
+            rawName = positional.first
         }
         let name = try layoutPresetName(rawName, commandName: "layout save")
 
@@ -395,9 +407,21 @@ extension CMUXCLI {
             ))
         }
         let positional = rem3.filter { $0 != "--" && !$0.hasPrefix("-") }
-        let rawName = nameOpt ?? positional.first
-        guard positional.count <= 1 else {
-            throw CLIError(message: String(localized: "cli.layout.error.openUsage", defaultValue: "Usage: cmux layout open <name> [--cwd <path>] [--title <title>] [--focus <true|false>]"))
+        let rawName: String?
+        if let nameOpt {
+            if let extra = positional.first {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.layout.error.unexpectedArgument", defaultValue: "%@: unexpected argument '%@'"),
+                    "layout open",
+                    extra
+                ))
+            }
+            rawName = nameOpt
+        } else {
+            guard positional.count <= 1 else {
+                throw CLIError(message: String(localized: "cli.layout.error.openUsage", defaultValue: "Usage: cmux layout open <name> [--cwd <path>] [--title <title>] [--focus <true|false>]"))
+            }
+            rawName = positional.first
         }
         let name = try layoutPresetName(rawName, commandName: "layout open")
         let sourceURL = layoutPresetURL(name: name)
