@@ -868,7 +868,21 @@ private struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var launchCommand: AgentLaunchCommandSnapshot?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
+    // Completion signal recorded by every agent integration (including plugin-based
+    // agents like opencode that never emit a live hibernation lifecycle). Used as a
+    // fallback so those agents still become hibernation-eligible when they finish.
+    var lastNotificationStatus: String?
     var updatedAt: TimeInterval
+
+    // Effective hibernation lifecycle: prefer a definitive emitted lifecycle, but
+    // when none was emitted (nil/unknown) treat a recorded idle completion
+    // notification as idle so plugin/no-emit agents can hibernate like codex.
+    var effectiveHibernationLifecycle: AgentHibernationLifecycleState? {
+        AgentHibernationLifecycleState.effective(
+            agentLifecycle: agentLifecycle,
+            lastNotificationStatus: lastNotificationStatus
+        )
+    }
 }
 
 private struct RestorableAgentHookSessionStoreFile: Codable, Sendable {
@@ -1044,7 +1058,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 )
                 let entry = Entry(
                     snapshot: snapshot,
-                    lifecycle: effectiveRecord.agentLifecycle,
+                    lifecycle: effectiveRecord.effectiveHibernationLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
                     processIDs: liveProcessID.map { [$0] } ?? []
                 )

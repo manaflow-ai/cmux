@@ -12333,16 +12333,10 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         fallback: AgentHibernationLifecycleState?
     ) -> AgentHibernationLifecycleState {
-        guard let panelStates = agentLifecycleStatesByPanelId[panelId],
-              !panelStates.isEmpty else {
-            return fallback ?? .unknown
-        }
-        let states = Array(panelStates.values)
-        if states.contains(.running) { return .running }
-        if states.contains(.needsInput) { return .needsInput }
-        if states.contains(.unknown) { return .unknown }
-        if states.contains(.idle) { return .idle }
-        return fallback ?? .unknown
+        AgentHibernationLifecycleState.resolved(
+            from: agentLifecycleStatesByPanelId[panelId].map { Array($0.values) } ?? [],
+            fallback: fallback
+        )
     }
 
     func restorableAgentForHibernation(

@@ -21539,6 +21539,20 @@ struct CMUXCLI {
             )
             let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
+            // Hibernation lifecycle only (the user-facing notification and sidebar
+            // status below are unchanged). A permission/approval prompt means Claude
+            // is blocked mid-tool and must stay live; a plain "waiting for your input"
+            // notification means the turn finished and Claude is idle/ready, which is
+            // safe to hibernate and resume. Without this, every turn's "waiting"
+            // notification downgraded the Stop hook's idle to needsInput, so Claude
+            // never became hibernation-eligible. Keyword matching mirrors the generic
+            // notification classifier (`classifyAgentHookNotification`).
+            let hibernationLifecycle: AgentHibernationLifecycleState =
+                AgentHibernationLifecycleState.notificationIndicatesBlocked(
+                    subtitle: summary.subtitle,
+                    body: summary.body
+                ) ? .needsInput : .idle
+
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
@@ -21546,7 +21560,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
+                    agentLifecycle: hibernationLifecycle,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
@@ -21555,7 +21569,7 @@ struct CMUXCLI {
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,
-                lifecycle: .needsInput,
+                lifecycle: hibernationLifecycle,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
             )
