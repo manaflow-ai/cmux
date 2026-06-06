@@ -16,6 +16,33 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
         self == .idle
     }
 
+    /// Merges an incoming lifecycle into an existing one without ever letting an
+    /// indeterminate `unknown` erase a previously-proven definitive state.
+    ///
+    /// A process restart (SessionStart on session-restore or focus-resume)
+    /// carries no turn-state information, so it reports `unknown`. That `unknown`
+    /// must not clobber an earlier `idle`/`running`/`needsInput` that the agent
+    /// actually emitted, otherwise a resumed-but-quiescent agent gets stuck at
+    /// `unknown` and never becomes hibernation-eligible again (the
+    /// hibernation-is-one-shot bug). This helper only *preserves* a proven state;
+    /// it never *invents* idleness, so eligibility stays positive-evidence-only.
+    ///
+    /// - Parameters:
+    ///   - existing: The currently-persisted lifecycle, if any.
+    ///   - incoming: The lifecycle reported by the event being applied.
+    /// - Returns: `incoming` unless it is `unknown` and `existing` is a definitive
+    ///   (non-`nil`, non-`unknown`) state, in which case `existing` is kept. Any
+    ///   definitive incoming state (`idle`/`running`/`needsInput`) always wins.
+    static func preservingDefinitive(
+        existing: AgentHibernationLifecycleState?,
+        incoming: AgentHibernationLifecycleState
+    ) -> AgentHibernationLifecycleState {
+        guard incoming == .unknown, let existing, existing != .unknown else {
+            return incoming
+        }
+        return existing
+    }
+
     /// Resolves a panel's hibernation lifecycle from all of its per-agent status
     /// sources plus a persisted fallback.
     ///

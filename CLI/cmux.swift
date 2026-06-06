@@ -1062,7 +1062,13 @@ private final class ClaudeHookSessionStore {
             record.isRestorable = isRestorable || record.isRestorable == true
         }
         if let agentLifecycle {
-            record.agentLifecycle = agentLifecycle
+            // A SessionStart on resume/relaunch reports `.unknown`; never let it
+            // erase a previously-proven definitive lifecycle, or a quiescent
+            // resumed agent stays stuck at `.unknown` and never re-hibernates.
+            record.agentLifecycle = AgentHibernationLifecycleState.preservingDefinitive(
+                existing: record.agentLifecycle,
+                incoming: agentLifecycle
+            )
         }
         if let subtitle = normalizeOptional(lastSubtitle) {
             record.lastSubtitle = subtitle
@@ -21357,6 +21363,12 @@ struct CMUXCLI {
                         agentLifecycle: .idle,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
+                        // Persist the idle notification status so claude's index
+                        // fallback (effectiveHibernationLifecycle) resolves to idle
+                        // even if agentLifecycle is later read as nil/unknown,
+                        // matching the generic stop handler's semantics exactly.
+                        lastNotificationStatus: .idle,
+                        updateLastNotificationStatus: true,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
@@ -27843,13 +27855,22 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             }
-            setAgentLifecycle(
-                client: client,
-                key: def.statusKey,
-                lifecycle: .unknown,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
+            // SessionStart's live `.unknown` would mask a previously-proven
+            // definitive state in the live per-panel map (resolved() returns
+            // `.unknown` when the live collection contains it, never consulting
+            // the preserved persisted fallback). Skip the write when the prior
+            // record already proves a definitive lifecycle, so the live map stays
+            // empty on resume/relaunch and Workspace.agentHibernationLifecycleState
+            // falls through to the preserved persisted state.
+            if !(mapped?.agentLifecycle.map { $0 != .unknown } ?? false) {
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: .unknown,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+            }
 
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))

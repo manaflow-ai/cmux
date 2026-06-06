@@ -3696,4 +3696,266 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
         }
     }
+
+    // MARK: Hibernation lifecycle survival across SessionStart (the not-one-shot fix)
+
+    /// A SessionStart on resume/relaunch must not erase a previously-proven
+    /// definitive lifecycle. Before the fix, a resume SessionStart wrote
+    /// `agentLifecycle:.unknown` over a stored `.idle`, so a quiescent resumed
+    /// agent was stuck at `.unknown` forever and never re-hibernated (hibernation
+    /// was effectively one-shot). This drives the real CLI binary end-to-end:
+    ///   1. a turn-end Stop persists `agentLifecycle == "idle"` (+ `lastNotificationStatus == "idle"`),
+    ///   2. a SessionStart for the SAME session must leave `agentLifecycle == "idle"` (was "unknown" before the fix).
+    /// It also proves the safety direction: a `.running` (prompt-submit) and a
+    /// `.needsInput` (permission notification) lifecycle both survive SessionStart,
+    /// so a busy/blocked resumed agent is never made hibernation-eligible.
+    func testGenericSessionStartPreservesProvenLifecycle() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-lifecycle-survival")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-lifecycle-survival-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runCodexHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else { return "OK" }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "surface.resume.set":
+                    return self.v2Response(id: id, ok: true, result: ["ok": true])
+                case "feed.push":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                default:
+                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+                }
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "codex", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        func persistedLifecycle(_ sessionId: String) throws -> (agentLifecycle: String?, lastNotificationStatus: String?) {
+            let storeURL = root.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+            let session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+            return (session["agentLifecycle"] as? String, session["lastNotificationStatus"] as? String)
+        }
+
+        // --- Core red/green: idle must survive SessionStart ---
+        // Faithful repro: the agent does a turn (prompt-submit -> running), finishes
+        // it (stop -> idle), then is resumed (session-start). The resume must NOT
+        // clobber the proven idle to unknown.
+        let idleSession = "codex-idle-session"
+        let idlePromptSubmit = runCodexHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(idleSession)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"do work"}"#
+        )
+        XCTAssertFalse(idlePromptSubmit.timedOut, idlePromptSubmit.stderr)
+        XCTAssertEqual(idlePromptSubmit.status, 0, idlePromptSubmit.stderr)
+        let idleStop = runCodexHook(
+            "stop",
+            input: #"{"session_id":"\#(idleSession)","cwd":"\#(root.path)","hook_event_name":"Stop"}"#
+        )
+        XCTAssertFalse(idleStop.timedOut, idleStop.stderr)
+        XCTAssertEqual(idleStop.status, 0, idleStop.stderr)
+        let afterStop = try persistedLifecycle(idleSession)
+        XCTAssertEqual(afterStop.agentLifecycle, "idle", "Codex Stop must persist an idle lifecycle")
+        XCTAssertEqual(afterStop.lastNotificationStatus, "idle", "Codex Stop must persist an idle notification status")
+
+        let idleRestart = runCodexHook(
+            "session-start",
+            input: #"{"session_id":"\#(idleSession)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(idleRestart.timedOut, idleRestart.stderr)
+        XCTAssertEqual(idleRestart.status, 0, idleRestart.stderr)
+        let afterRestart = try persistedLifecycle(idleSession)
+        XCTAssertEqual(
+            afterRestart.agentLifecycle, "idle",
+            "A resume SessionStart must NOT clobber a proven idle lifecycle to unknown (the hibernation-one-shot bug)"
+        )
+
+        // --- Safety: running (mid-turn) must survive SessionStart ---
+        let runningSession = "codex-running-session"
+        let promptSubmit = runCodexHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(runningSession)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"do work"}"#
+        )
+        XCTAssertFalse(promptSubmit.timedOut, promptSubmit.stderr)
+        XCTAssertEqual(promptSubmit.status, 0, promptSubmit.stderr)
+        XCTAssertEqual(try persistedLifecycle(runningSession).agentLifecycle, "running", "Codex prompt-submit must persist a running lifecycle")
+
+        let runningRestart = runCodexHook(
+            "session-start",
+            input: #"{"session_id":"\#(runningSession)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(runningRestart.timedOut, runningRestart.stderr)
+        XCTAssertEqual(runningRestart.status, 0, runningRestart.stderr)
+        XCTAssertEqual(
+            try persistedLifecycle(runningSession).agentLifecycle, "running",
+            "A SessionStart must preserve a busy (running) lifecycle so a working resumed agent is never hibernated"
+        )
+
+        // --- Safety: needsInput (blocked on a permission prompt) must survive SessionStart ---
+        let blockedSession = "codex-blocked-session"
+        let permission = runCodexHook(
+            "notification",
+            input: #"{"session_id":"\#(blockedSession)","cwd":"\#(root.path)","hook_event_name":"Notification","reason":"permission_prompt","message":"Allow shell command?"}"#
+        )
+        XCTAssertFalse(permission.timedOut, permission.stderr)
+        XCTAssertEqual(permission.status, 0, permission.stderr)
+        XCTAssertEqual(try persistedLifecycle(blockedSession).agentLifecycle, "needsInput", "Codex permission notification must persist a needsInput lifecycle")
+
+        let blockedRestart = runCodexHook(
+            "session-start",
+            input: #"{"session_id":"\#(blockedSession)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(blockedRestart.timedOut, blockedRestart.stderr)
+        XCTAssertEqual(blockedRestart.status, 0, blockedRestart.stderr)
+        XCTAssertEqual(
+            try persistedLifecycle(blockedSession).agentLifecycle, "needsInput",
+            "A SessionStart must preserve a blocked (needsInput) lifecycle so a mid-tool resumed agent is never hibernated"
+        )
+    }
+
+    /// Claude parity: a claude Stop must persist BOTH `agentLifecycle == "idle"`
+    /// and `lastNotificationStatus == "idle"` (matching the generic stop handler),
+    /// and a non-clear SessionStart must preserve both; a `/clear` SessionStart is
+    /// a genuine new-conversation boundary that correctly promotes to `running`.
+    func testClaudeSessionStartPreservesIdleAndClearPromotesRunning() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("claude-lifecycle-survival")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-lifecycle-survival-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "claude-lifecycle-session"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runClaudeHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else { return "OK" }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "surface.resume.set":
+                    return self.v2Response(id: id, ok: true, result: ["ok": true])
+                case "feed.push":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                default:
+                    return self.v2Response(id: id, ok: true, result: [:])
+                }
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "claude", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        func persisted() throws -> (agentLifecycle: String?, lastNotificationStatus: String?) {
+            let storeURL = root.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+            let session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+            return (session["agentLifecycle"] as? String, session["lastNotificationStatus"] as? String)
+        }
+
+        // A Stop persists idle + idle notification status. (No active session is
+        // marked for this workspace yet, so the stop's is-current guard passes and
+        // the upsert applies.)
+        let stop = runClaudeHook(
+            "stop",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Stop"}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        let afterStop = try persisted()
+        XCTAssertEqual(afterStop.agentLifecycle, "idle", "Claude Stop must persist an idle lifecycle")
+        XCTAssertEqual(afterStop.lastNotificationStatus, "idle", "Claude Stop must persist an idle notification status (generic parity)")
+
+        // A non-clear (startup/resume/compact) SessionStart must preserve idle.
+        let resume = runClaudeHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart","source":"startup"}"#
+        )
+        XCTAssertFalse(resume.timedOut, resume.stderr)
+        XCTAssertEqual(resume.status, 0, resume.stderr)
+        let afterResume = try persisted()
+        XCTAssertEqual(
+            afterResume.agentLifecycle, "idle",
+            "A non-clear claude SessionStart must NOT clobber the proven idle lifecycle to unknown"
+        )
+        XCTAssertEqual(afterResume.lastNotificationStatus, "idle", "Claude resume must preserve the idle notification status")
+
+        // A /clear SessionStart is a new-conversation boundary: it correctly
+        // promotes to running (definitive incoming overwrites under preservingDefinitive).
+        let clear = runClaudeHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart","source":"clear"}"#
+        )
+        XCTAssertFalse(clear.timedOut, clear.stderr)
+        XCTAssertEqual(clear.status, 0, clear.stderr)
+        XCTAssertEqual(
+            try persisted().agentLifecycle, "running",
+            "A /clear SessionStart must still promote to running (the genuine new-turn boundary is preserved)"
+        )
+    }
 }

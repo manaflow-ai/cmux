@@ -12288,7 +12288,17 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        // Never let an indeterminate `unknown` (e.g. a resume/relaunch SessionStart,
+        // which can also arrive under a brand-new session id) erase a previously
+        // proven lifecycle for this panel. Without this a resumed-but-quiescent
+        // agent gets stuck at `unknown` and never re-hibernates. Any definitive
+        // incoming state still wins, so a real new turn (`running`)/block
+        // (`needsInput`)/turn-end (`idle`) updates normally.
+        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] =
+            AgentHibernationLifecycleState.preservingDefinitive(
+                existing: agentLifecycleStatesByPanelId[targetPanelId]?[key],
+                incoming: lifecycle
+            )
         recordAgentLifecycleChange(panelId: targetPanelId)
     }
 
@@ -12393,7 +12403,22 @@ final class Workspace: Identifiable, ObservableObject {
                 : .manualResumeAvailable
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
-        clearAgentLifecycleStates(panelId: panelId)
+        // Re-seed the panel's hibernation lifecycle to idle on resume. A
+        // hibernated agent is idle by construction (only idle agents hibernate),
+        // and the resumed process restarts at its prompt, so it is still idle.
+        // The PID/session teardown around hibernation already cleared the live
+        // lifecycle, and the resumed agent may even relaunch under a brand-new
+        // session id, so positive evidence cannot otherwise survive. Seeding idle
+        // here (then suppressing the resumed process's SessionStart `.unknown` via
+        // setAgentLifecycle's preservingDefinitive) keeps the panel
+        // hibernation-eligible until it actually runs a turn, fixing the
+        // hibernation-is-one-shot bug. A real new turn still wins: prompt-submit
+        // emits `.running`, a blocking prompt `.needsInput`, both of which outrank
+        // idle in the resolver. recordTerminalFocus below resets the idle timer so
+        // it waits a fresh idle window after you leave.
+        if let resumedKind = restoredAgentSnapshotsByPanelId[panelId]?.kind {
+            setAgentLifecycle(key: resumedKind.rawValue, panelId: panelId, lifecycle: .idle)
+        }
         AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
         if focus {
             focusPanel(panelId)

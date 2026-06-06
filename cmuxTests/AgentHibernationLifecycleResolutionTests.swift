@@ -78,6 +78,31 @@ import Testing
         #expect(!Lifecycle.notificationIndicatesBlocked(subtitle: "", body: ""))
     }
 
+    // MARK: preservingDefinitive — the non-destructive SessionStart merge
+
+    /// A SessionStart on resume/relaunch reports `.unknown`; it must never erase a
+    /// previously-proven definitive lifecycle, or a quiescent resumed agent gets
+    /// stuck at `.unknown` forever and never re-hibernates. Only a definitive ->
+    /// `.unknown` downgrade is suppressed; everything else passes through.
+    @Test func preservingDefinitiveKeepsProvenStateAgainstUnknown() {
+        #expect(Lifecycle.preservingDefinitive(existing: nil, incoming: .unknown) == .unknown)
+        #expect(Lifecycle.preservingDefinitive(existing: .unknown, incoming: .unknown) == .unknown)
+        #expect(Lifecycle.preservingDefinitive(existing: .idle, incoming: .unknown) == .idle)
+        #expect(Lifecycle.preservingDefinitive(existing: .running, incoming: .unknown) == .running)
+        #expect(Lifecycle.preservingDefinitive(existing: .needsInput, incoming: .unknown) == .needsInput)
+    }
+
+    /// Any definitive incoming state overwrites any existing state, so a genuine
+    /// new-turn `.running`, a blocking `.needsInput`, or a turn-end `.idle` still
+    /// wins. This keeps the claude `/clear` promote-to-running boundary intact.
+    @Test func preservingDefinitiveLetsDefinitiveIncomingWin() {
+        for existing in [nil, .unknown, .idle, .running, .needsInput] as [Lifecycle?] {
+            #expect(Lifecycle.preservingDefinitive(existing: existing, incoming: .idle) == .idle)
+            #expect(Lifecycle.preservingDefinitive(existing: existing, incoming: .running) == .running)
+            #expect(Lifecycle.preservingDefinitive(existing: existing, incoming: .needsInput) == .needsInput)
+        }
+    }
+
     // MARK: allowsHibernation invariant
 
     @Test func onlyIdleAllowsHibernation() {

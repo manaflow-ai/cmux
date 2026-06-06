@@ -179,6 +179,111 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertTrue(selected.isEmpty)
     }
 
+    /// Hibernation must not be one-shot: an idle restorable off-screen agent that
+    /// is hibernated, resumed on focus, then left off-screen again must become
+    /// eligible AGAIN. The persisted-store fix (preservingDefinitive at the
+    /// SessionStart chokepoint) keeps the resumed agent's lifecycle at `.idle`
+    /// instead of clobbering it to `.unknown`, so the planner re-selects it once a
+    /// fresh idle window elapses. This models that planner-level behavior: an
+    /// `.idle` input over the live limit is selected, and after a simulated
+    /// resume (lifecycle still `.idle` thanks to the fix) it is selected again.
+    func testPlannerReHibernatesAfterResume() {
+        let workspaceId = UUID()
+        let target = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let keepLive = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let settings = AgentHibernationSettings.Values(
+            enabled: true,
+            idleSeconds: 5,
+            maxLiveTerminals: 1,
+            confirmationSeconds: 60
+        )
+
+        func selection(targetLifecycle: AgentHibernationLifecycleState, now: TimeInterval, targetActivityAt: TimeInterval) -> Set<AgentHibernationPanelKey> {
+            AgentHibernationPlanner.selectedPanelKeys(
+                inputs: [
+                    .init(key: target, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: targetLifecycle, hasUnconfirmedTerminalInput: false, lastActivityAt: targetActivityAt),
+                    .init(key: keepLive, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .running, hasUnconfirmedTerminalInput: false, lastActivityAt: now),
+                ],
+                settings: settings,
+                now: now
+            )
+        }
+
+        // First hibernation: idle + off-screen + idle window elapsed -> selected.
+        XCTAssertEqual(
+            selection(targetLifecycle: .idle, now: 1_000, targetActivityAt: 1_000 - 300),
+            Set([target]),
+            "Idle restorable over the live limit must hibernate the first time"
+        )
+
+        // The moment it resumes-to-work the resumed activity is fresh, so it is
+        // NOT hibernated even though the lifecycle is still idle (idle window not
+        // yet elapsed). This guards against hibernating the instant it resumes.
+        XCTAssertTrue(
+            selection(targetLifecycle: .idle, now: 2_000, targetActivityAt: 2_000).isEmpty,
+            "A just-resumed agent must not be hibernated until a fresh idle window elapses"
+        )
+
+        // Left off-screen again with the lifecycle preserved at idle (the fix):
+        // once the new idle window elapses it re-hibernates. This is the
+        // not-one-shot proof.
+        XCTAssertEqual(
+            selection(targetLifecycle: .idle, now: 2_100, targetActivityAt: 2_000),
+            Set([target]),
+            "After resume, a preserved-idle off-screen agent must re-hibernate (not one-shot)"
+        )
+
+        // Negative cases at resume: a resumed agent that is actually working
+        // (running), blocked (needsInput), or indeterminate (unknown) is never
+        // selected, even with a stale activity timestamp.
+        for busy in [AgentHibernationLifecycleState.running, .needsInput, .unknown] {
+            XCTAssertTrue(
+                selection(targetLifecycle: busy, now: 3_000, targetActivityAt: 3_000 - 300).isEmpty,
+                "A \(busy) resumed agent must never be hibernated"
+            )
+        }
+    }
+
+    /// No-emit/plugin agents (opencode, pi, omp, amp) never write `.running` at
+    /// turn-start, so once the persisted `.idle` is carried across SessionStart by
+    /// the fix, their ONLY mid-turn protection is `hasUnconfirmedTerminalInput`.
+    /// The generic SessionStart live `.unknown` write (the prior mid-turn input
+    /// flag would have been irrelevant because the live `.unknown` masked
+    /// eligibility) is now skipped, so the input flag is load-bearing. This pins
+    /// that coupling: an `.idle` (preserved) panel with the input flag asserted
+    /// must NOT be selected, even off-screen, over the live limit, idle-window
+    /// elapsed. A future edit that clears the flag mid-turn for a no-emit agent
+    /// fails this test.
+    func testPlannerExcludesNoEmitAgentWithUnconfirmedTerminalInput() {
+        let workspaceId = UUID()
+        let busyNoEmit = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let keepLive = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let settings = AgentHibernationSettings.Values(
+            enabled: true,
+            idleSeconds: 5,
+            maxLiveTerminals: 1,
+            confirmationSeconds: 60
+        )
+
+        let selected = AgentHibernationPlanner.selectedPanelKeys(
+            inputs: [
+                // Persisted/preserved lifecycle is .idle (no-emit agent never
+                // wrote .running), but it is genuinely mid-turn: the input flag
+                // is asserted because a turn-start input event arrived after the
+                // last lifecycle change and nothing advanced lifecycleChangeAt.
+                .init(key: busyNoEmit, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: true, lastActivityAt: 1_000 - 300),
+                .init(key: keepLive, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .running, hasUnconfirmedTerminalInput: false, lastActivityAt: 1_000),
+            ],
+            settings: settings,
+            now: 1_000
+        )
+
+        XCTAssertTrue(
+            selected.isEmpty,
+            "A no-emit agent with unconfirmed terminal input is mid-turn and must never be hibernated, even with a preserved idle lifecycle"
+        )
+    }
+
     func testProcessFallbackFingerprintIncludesProcessIDs() {
         let first = AgentHibernationController.processFallbackFingerprint(
             kind: .opencode,
