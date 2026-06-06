@@ -205,14 +205,35 @@ final class HostSettingsActions: SettingsHostActions {
 
     func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot> {
         AsyncStream { continuation in
-            let task = Task { @MainActor in
+            // Bridge the notification through a Sendable `Void` signal stream so
+            // the non-Sendable `Notification` never crosses into the MainActor
+            // drain task. Mirrors `UserDefaultsSettingsStore.values(for:)`.
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = MobileHostStatusObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: .mobileHostStatusDidChange,
+                    object: nil,
+                    queue: nil
+                ) { _ in
+                    signalContinuation.yield(())
+                }
+            )
+            let drainTask = Task { @MainActor in
                 // Seed with the current status, then forward every change.
                 continuation.yield(Self.mobilePairingSnapshot(from: MobileHostService.shared.statusSnapshot()))
-                for await _ in NotificationCenter.default.notifications(named: .mobileHostStatusDidChange) {
+                for await _ in signals {
+                    if Task.isCancelled { break }
                     continuation.yield(Self.mobilePairingSnapshot(from: MobileHostService.shared.statusSnapshot()))
                 }
+                continuation.finish()
             }
-            continuation.onTermination = { _ in task.cancel() }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
         }
     }
 
@@ -272,6 +293,23 @@ final class HostSettingsActions: SettingsHostActions {
         }
         GhosttyApp.shared.reloadConfiguration(source: reloadSource)
         return true
+    }
+}
+
+/// Wraps the opaque observer returned by `NotificationCenter.addObserver` so the
+/// `@Sendable` stream-termination closure can hold it for removal. Objective-C
+/// doesn't model `Sendable`; the token is immutable and only hands the opaque
+/// observer back to NotificationCenter's thread-safe removal API. CmuxSettings
+/// has an identical internal token, which isn't `public`, so it's duplicated.
+private final class MobileHostStatusObserverToken: @unchecked Sendable {
+    private let token: NSObjectProtocol
+
+    init(_ token: NSObjectProtocol) {
+        self.token = token
+    }
+
+    func remove() {
+        NotificationCenter.default.removeObserver(token)
     }
 }
 
