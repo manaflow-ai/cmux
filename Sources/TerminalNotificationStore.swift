@@ -1647,6 +1647,7 @@ final class TerminalNotificationStore: ObservableObject {
     private func acknowledgeStructuredAgentInputStatuses(for notificationsToAcknowledge: [TerminalNotification]) {
         for notification in notificationsToAcknowledge {
             guard let statusKey = Self.structuredAgentStatusKey(for: notification),
+                  !hasRemainingUnreadStructuredAgentInputStatus(statusKey: statusKey, tabId: notification.tabId),
                   let workspace = workspaceForStructuredAgentInputAcknowledgement(
                       tabId: notification.tabId,
                       surfaceId: notification.surfaceId ?? notification.panelId
@@ -1658,6 +1659,16 @@ final class TerminalNotificationStore: ObservableObject {
                 panelId: notification.surfaceId ?? notification.panelId,
                 notificationCreatedAt: notification.createdAt
             )
+        }
+    }
+
+    private func hasRemainingUnreadStructuredAgentInputStatus(statusKey: String, tabId: UUID) -> Bool {
+        notifications.contains { notification in
+            guard !notification.isRead,
+                  notification.tabId == tabId else {
+                return false
+            }
+            return Self.structuredAgentStatusKey(for: notification) == statusKey
         }
     }
 
@@ -2021,11 +2032,11 @@ final class TerminalNotificationStore: ObservableObject {
         clearWorkspacePanelUnread(forTabId: tabId)
         setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
         setWorkspaceRestoredUnread(false, forTabId: tabId)
-        acknowledgeStructuredAgentInputStatuses(for: notificationsToAcknowledge)
         guard !idsToClear.isEmpty || hadFocusedReadIndicator else { return }
         if !idsToClear.isEmpty {
             replaceNotificationsForClear(updated)
         }
+        acknowledgeStructuredAgentInputStatuses(for: notificationsToAcknowledge)
         clearFocusedReadIndicator(forTabId: tabId)
         if !idsToClear.isEmpty {
             CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: nil)
