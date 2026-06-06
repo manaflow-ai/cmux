@@ -4,11 +4,13 @@ enum CmuxWorkspacePresetName {
     static let fallbackName = "workspace"
 
     static func normalized(_ raw: String?, fallbackName: String = Self.fallbackName) -> String {
+        let trimmedRaw = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let meaningfulRaw = trimmedRaw?.isEmpty == false ? trimmedRaw : nil
         let candidates: [String?] = [
-            raw,
-            raw.map(Self.sanitizedComponent),
+            meaningfulRaw,
+            meaningfulRaw.flatMap(Self.sanitizedCandidate),
             fallbackName,
-            Self.sanitizedComponent(fallbackName),
+            Self.sanitizedCandidate(fallbackName),
             Self.fallbackName
         ]
 
@@ -21,13 +23,17 @@ enum CmuxWorkspacePresetName {
     }
 
     static func sanitizedComponent(_ raw: String) -> String {
+        sanitizedCandidate(raw) ?? Self.fallbackName
+    }
+
+    private static func sanitizedCandidate(_ raw: String) -> String? {
         let sanitized = raw.replacingOccurrences(
             of: #"[^\p{L}\p{N}._-]+"#,
             with: "-",
             options: .regularExpression
         )
         let trimmed = sanitized.trimmingCharacters(in: CharacterSet(charactersIn: "-."))
-        return trimmed.isEmpty ? Self.fallbackName : trimmed
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     static func valid(_ raw: String?) -> String? {

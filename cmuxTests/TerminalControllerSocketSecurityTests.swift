@@ -242,6 +242,18 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 
         let data = try JSONSerialization.data(withJSONObject: result)
         XCTAssertNoThrow(try JSONDecoder().decode(CmuxWorkspacePresetDefinition.self, from: data))
+
+        let whitespaceNameResponse = try handleV2Request(
+            method: "workspace.layout_export",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "name": "   "
+            ]
+        )
+
+        XCTAssertEqual(whitespaceNameResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(whitespaceNameResponse)")
+        let whitespaceNameResult = try XCTUnwrap(whitespaceNameResponse["result"] as? [String: Any])
+        XCTAssertEqual(whitespaceNameResult["name"] as? String, "Agent-Workspace")
     }
 
     func testRemoteConfigureDefaultsPersistentDaemonSlotForBootstrapSSH() throws {
