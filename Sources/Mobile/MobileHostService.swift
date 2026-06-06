@@ -1235,6 +1235,27 @@ final class MobileHostService {
             return nil
         case "mobile.host.status":
             return nil
+        case "workspace.action":
+            // Mobile may only pin/unpin/rename a workspace it is scoped to. The
+            // other workspace.action sub-actions (move_*, close_*, set_color,
+            // mark_*, set_description) reorder the global sidebar or destroy
+            // sibling workspaces, so they stay Mac-only. Normalize the action
+            // exactly as the handler's `v2ActionKey` does (lowercase, '-'→'_') so
+            // the gate and the handler can never disagree on which action runs,
+            // then enforce the same workspace scope used for terminal input.
+            let requestedAction = (request.params["action"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+                .replacingOccurrences(of: "-", with: "_")
+            guard let requestedAction,
+                  ["pin", "unpin", "rename"].contains(requestedAction) else {
+                return scopedTicketError
+            }
+            return ticketTerminalAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value,
+                terminalSelection: terminalSelection.value
+            )
         default:
             return scopedTicketError
         }

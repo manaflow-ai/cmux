@@ -310,6 +310,66 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    // MARK: - Workspace actions
+
+    /// Rename a workspace on the Mac. Updates the local list optimistically and
+    /// rolls back if the RPC fails; the Mac's authoritative `workspace.updated`
+    /// push reconciles the final title.
+    /// - Parameters:
+    ///   - id: The workspace to rename.
+    ///   - title: The new title. Whitespace-only titles are ignored.
+    public func renameWorkspace(id: MobileWorkspacePreview.ID, title: String) async {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let client = remoteClient else { return }
+        let previous = workspaces
+        if let index = workspaces.firstIndex(where: { $0.id == id }) {
+            workspaces[index].name = trimmed
+        }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "workspace.action",
+                params: [
+                    "workspace_id": id.rawValue,
+                    "action": "rename",
+                    "title": trimmed,
+                    "client_id": clientID,
+                ]
+            )
+            _ = try await client.sendRequest(request)
+        } catch {
+            workspaces = previous
+            mobileShellLog.error("workspace rename failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Pin or unpin a workspace on the Mac. Updates the local list optimistically
+    /// and rolls back if the RPC fails; the Mac's authoritative `workspace.updated`
+    /// push reconciles the final pin state.
+    /// - Parameters:
+    ///   - id: The workspace to pin or unpin.
+    ///   - pinned: `true` to pin, `false` to unpin.
+    public func setWorkspacePinned(id: MobileWorkspacePreview.ID, _ pinned: Bool) async {
+        guard let client = remoteClient else { return }
+        let previous = workspaces
+        if let index = workspaces.firstIndex(where: { $0.id == id }) {
+            workspaces[index].isPinned = pinned
+        }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "workspace.action",
+                params: [
+                    "workspace_id": id.rawValue,
+                    "action": pinned ? "pin" : "unpin",
+                    "client_id": clientID,
+                ]
+            )
+            _ = try await client.sendRequest(request)
+        } catch {
+            workspaces = previous
+            mobileShellLog.error("workspace pin failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+    }
+
     // MARK: - Network recovery
 
     /// True while an automatic reconnect is in progress after a network change

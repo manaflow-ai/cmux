@@ -63,7 +63,9 @@ struct WorkspaceShellView: View {
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: signOut
+                signOut: signOut,
+                renameWorkspace: renameWorkspace,
+                setPinned: setWorkspacePinned
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -113,7 +115,9 @@ struct WorkspaceShellView: View {
                 selectWorkspace: selectWorkspace,
                 createWorkspace: store.createWorkspace,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: signOut
+                signOut: signOut,
+                renameWorkspace: renameWorkspace,
+                setPinned: setWorkspacePinned
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
@@ -135,6 +139,14 @@ struct WorkspaceShellView: View {
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
         }
+    }
+
+    private func renameWorkspace(_ id: MobileWorkspacePreview.ID, _ title: String) {
+        Task { await store.renameWorkspace(id: id, title: title) }
+    }
+
+    private func setWorkspacePinned(_ id: MobileWorkspacePreview.ID, _ pinned: Bool) {
+        Task { await store.setWorkspacePinned(id: id, pinned) }
     }
 
     private func createWorkspaceInCompactStack() {

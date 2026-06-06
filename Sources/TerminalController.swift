@@ -20923,6 +20923,7 @@ class TerminalController {
                 "title": workspace.title,
                 "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
                 "is_selected": workspace.id == tabManager.selectedTabId,
+                "is_pinned": workspace.isPinned,
                 "terminals": terminals
             ]
         }
