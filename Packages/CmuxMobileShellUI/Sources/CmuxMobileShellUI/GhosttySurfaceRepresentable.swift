@@ -12,7 +12,7 @@ import UIKit
 /// runs the same libghostty terminal core + Metal renderer as the Mac,
 /// fed by the Mac's own read thread byte-for-byte. No Swift VT parser,
 /// no snapshot rehydration, no cell-by-cell SwiftUI tree.
-struct GhosttySurfaceRepresentable: UIViewRepresentable {
+struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
     let surfaceID: String
     let store: CMUXMobileShellStore
     let fontSize: Float32
@@ -21,7 +21,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         Coordinator(surfaceID: surfaceID, store: store)
     }
 
-    func makeUIView(context: Context) -> UIView {
+    // A view *controller* representable (not a bare `UIViewRepresentable`) so the
+    // surface honors `.ignoresSafeArea(.container, edges: .bottom)` inside a
+    // `NavigationStack` and reaches the screen bottom. See
+    // ``GhosttySurfaceHostingController``.
+    func makeUIViewController(context: Context) -> GhosttySurfaceHostingController {
         let runtime: GhosttyRuntime
         do {
             runtime = try GhosttyRuntime.shared()
@@ -31,7 +35,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             fallback.textColor = .white
             fallback.backgroundColor = UIColor(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0, alpha: 1)
             fallback.text = "Ghostty runtime failed to initialise:\n\(error.localizedDescription)"
-            return fallback
+            return GhosttySurfaceHostingController(content: fallback)
         }
         let view = GhosttySurfaceView(
             runtime: runtime,
@@ -39,14 +43,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             fontSize: fontSize
         )
         context.coordinator.attach(surfaceView: view)
-        return view
+        return GhosttySurfaceHostingController(content: view)
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
+    func updateUIViewController(_ uiViewController: GhosttySurfaceHostingController, context: Context) {
         // No prop-driven mutations yet; bytes flow via the byte sink.
     }
 
-    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+    static func dismantleUIViewController(_ uiViewController: GhosttySurfaceHostingController, coordinator: Coordinator) {
         coordinator.detach()
     }
 
