@@ -20,6 +20,8 @@ extension KeyboardShortcutSettings {
         guard legacy.exists else { return (false, nil) }
         guard var shortcut = legacy.shortcut else { return (false, nil) }
 
+        // Preserve legacy modifiers and stroke shape: chorded shortcuts replace the
+        // second-stroke digit, while single-stroke shortcuts replace the primary key.
         if shortcut.hasChord {
             shortcut.chordKey = String(digit)
         } else {

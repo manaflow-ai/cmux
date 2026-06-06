@@ -1,3 +1,4 @@
+import Testing
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -5,6 +6,19 @@ import XCTest
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@Suite struct KeyboardShortcutContextSwiftTests {
+    @Test func surfaceSelectionContextAvoidsRightSidebarModeConflicts() {
+        let context = KeyboardShortcutSettings.Action.selectSurface1.shortcutContext
+
+        #expect(context == .mainWorkspace)
+        #expect(context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: false))
+        #expect(context.isAvailable(focusedBrowserPanel: true, focusedMarkdownPanel: false, rightSidebarFocused: false))
+        #expect(!context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: true))
+        #expect(!context.overlaps(KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext))
+        #expect(context.overlaps(KeyboardShortcutSettings.Action.browserReload.shortcutContext))
+    }
+}
 
 final class KeyboardShortcutContextTests: XCTestCase {
     func testRenameTabAndBrowserReloadCanShareDefaultChordAcrossContexts() {
@@ -135,17 +149,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
         XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.commandPalette.shortcutContext))
         XCTAssertFalse(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))
-    }
-
-    func testSurfaceSelectionContextAvoidsRightSidebarModeConflicts() {
-        let context = KeyboardShortcutSettings.Action.selectSurface1.shortcutContext
-
-        XCTAssertEqual(context, .mainWorkspace)
-        XCTAssertTrue(context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: false))
-        XCTAssertTrue(context.isAvailable(focusedBrowserPanel: true, focusedMarkdownPanel: false, rightSidebarFocused: false))
-        XCTAssertFalse(context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: true))
-        XCTAssertFalse(context.overlaps(KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext))
-        XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.browserReload.shortcutContext))
     }
 
     func testReactGrabStaysApplicationScopedForTerminalPastebackRouting() {
