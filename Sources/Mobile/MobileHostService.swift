@@ -481,12 +481,35 @@ final class MobileHostService {
     ///
     /// Probes with a throwaway `NWListener` using the *same* parameters the real
     /// listener binds, so it agrees with the actual bind across all interfaces
-    /// (IPv4 and IPv6) rather than missing an IPv6-only conflict. Resolves to
-    /// `true` on `.ready`, `false` on `.failed` or `.waiting(addressUnavailable)`.
+    /// (IPv4 and IPv6) rather than missing an IPv6-only conflict. A bounded
+    /// deadline backs the probe so an unclassified/stuck listener state can never
+    /// hang the Apply flow; on timeout the port is reported unavailable (the safe
+    /// default, leaving any running listener untouched).
     nonisolated static func isPortAvailable(_ port: Int) async -> Bool {
         guard (1...65535).contains(port), let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
             return false
         }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await probePortBind(endpointPort) }
+            group.addTask {
+                // Bounded safety deadline (the carve-out for a check timeout): a
+                // probe that never resolves resolves as unavailable instead of
+                // hanging. Cancellation tears down the probe listener via the
+                // cancellation handler in `probePortBind`.
+                try? await Task.sleep(for: .seconds(2))
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+    }
+
+    /// Binds a throwaway `NWListener` on `endpointPort` and reports whether it
+    /// reached `.ready`. Cancellation (e.g. the deadline winning the race in
+    /// ``isPortAvailable(_:)``) cancels the probe listener, which surfaces as
+    /// `.cancelled` and resolves the continuation as unavailable.
+    private nonisolated static func probePortBind(_ endpointPort: NWEndpoint.Port) async -> Bool {
         let tcpOptions = NWProtocolTCP.Options()
         tcpOptions.noDelay = true
         let probe: NWListener
@@ -496,39 +519,44 @@ final class MobileHostService {
             return false
         }
         let probeQueue = DispatchQueue(label: "dev.cmux.mobile.port-probe")
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            // One-shot resume guard: NWListener emits multiple states and must
-            // resume the continuation exactly once. Lock carve-out for a
-            // synchronous compare-and-set from the non-async state handler.
-            let resumed = OSAllocatedUnfairLock(initialState: false)
-            probe.stateUpdateHandler = { [probe] state in
-                let available: Bool?
-                switch state {
-                case .ready:
-                    available = true
-                case .failed:
-                    available = false
-                case let .waiting(error):
-                    available = isAddressUnavailable(error) ? false : nil
-                default:
-                    available = nil
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                // One-shot resume guard: NWListener emits multiple states and must
+                // resume the continuation exactly once. Lock carve-out for a
+                // synchronous compare-and-set from the non-async state handler.
+                let resumed = OSAllocatedUnfairLock(initialState: false)
+                probe.stateUpdateHandler = { [probe] state in
+                    let available: Bool?
+                    switch state {
+                    case .ready:
+                        available = true
+                    case .failed, .cancelled:
+                        available = false
+                    case let .waiting(error):
+                        available = isAddressUnavailable(error) ? false : nil
+                    default:
+                        available = nil
+                    }
+                    guard let available else { return }
+                    let alreadyResumed = resumed.withLock { state -> Bool in
+                        if state { return true }
+                        state = true
+                        return false
+                    }
+                    guard !alreadyResumed else { return }
+                    probe.stateUpdateHandler = nil
+                    probe.newConnectionHandler = nil
+                    probe.cancel()
+                    continuation.resume(returning: available)
                 }
-                guard let available else { return }
-                let alreadyResumed = resumed.withLock { state -> Bool in
-                    if state { return true }
-                    state = true
-                    return false
-                }
-                guard !alreadyResumed else { return }
-                probe.stateUpdateHandler = nil
-                probe.cancel()
-                continuation.resume(returning: available)
+                // NWListener does not reach `.ready` unless a newConnectionHandler
+                // is set before `start()`; without it the probe would hang on a
+                // free port. We never accept on the probe — reject any arrival.
+                probe.newConnectionHandler = { connection in connection.cancel() }
+                probe.start(queue: probeQueue)
             }
-            // NWListener does not reach `.ready` unless a newConnectionHandler is
-            // set before `start()`; without it the probe would hang on a free
-            // port. We never accept on the probe — reject any arrival immediately.
-            probe.newConnectionHandler = { connection in connection.cancel() }
-            probe.start(queue: probeQueue)
+        } onCancel: {
+            probe.cancel()
         }
     }
 
