@@ -228,6 +228,7 @@ final class WorkspaceStressProfileTests: XCTestCase {
         var scrollBarSamples: [TimedSample] = []
         var pinSamples: [TimedSample] = []
         var unpinSamples: [TimedSample] = []
+        var closeSamples: [TimedSample] = []
 
         for pass in 0..<config.switchPasses {
             timed("pass-\(label(for: pass))-color-apply", collectInto: &colorSamples) {
@@ -277,12 +278,29 @@ final class WorkspaceStressProfileTests: XCTestCase {
         XCTAssertTrue(manager.tabs.allSatisfy { $0.customColor == nil })
         XCTAssertTrue(manager.tabs.allSatisfy { !$0.terminalScrollBarHidden })
 
+        let closeManager = TabManager(autoWelcomeIfNeeded: false)
+        for workspaceIndex in 1..<config.workspaceCount {
+            _ = closeManager.addWorkspace(
+                title: "Close Workspace \(label(for: workspaceIndex))",
+                select: false,
+                eagerLoadTerminal: false,
+                autoWelcomeIfNeeded: false
+            )
+        }
+        closeManager.confirmCloseHandler = { _, _, _ in true }
+        let closeTargetIds = closeManager.tabs.dropFirst().map(\.id)
+        timed("close-all-but-anchor", collectInto: &closeSamples) {
+            closeManager.closeWorkspacesWithConfirmation(closeTargetIds, allowPinned: true)
+        }
+        XCTAssertEqual(closeManager.tabs.count, 1)
+
         let report = [
             "Workspace batch action stress config workspaces=\(config.workspaceCount) passes=\(config.switchPasses)",
             reportLine(title: "color", summary: TimingSummary(samples: colorSamples), slowest: slowest(colorSamples)),
             reportLine(title: "scrollbar", summary: TimingSummary(samples: scrollBarSamples), slowest: slowest(scrollBarSamples)),
             reportLine(title: "pin", summary: TimingSummary(samples: pinSamples), slowest: slowest(pinSamples)),
-            reportLine(title: "unpin", summary: TimingSummary(samples: unpinSamples), slowest: slowest(unpinSamples))
+            reportLine(title: "unpin", summary: TimingSummary(samples: unpinSamples), slowest: slowest(unpinSamples)),
+            reportLine(title: "close", summary: TimingSummary(samples: closeSamples), slowest: slowest(closeSamples))
         ].joined(separator: "\n")
 
         print(report)
