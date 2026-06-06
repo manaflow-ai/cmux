@@ -5797,7 +5797,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             "A matching current keyboard layout should prevent the unrelated ASCII-capable fallback from owning the shortcut"
         )
         XCTAssertEqual(observedKeyCodes, [UInt16(kVK_ANSI_L), UInt16(kVK_ANSI_L)])
-        XCTAssertTrue(observedModifierFlags.allSatisfy { $0.contains(.command) })
+        XCTAssertTrue(observedModifierFlags.allSatisfy { $0.contains(.command) && $0.contains(.shift) })
 #else
         XCTFail("debugCharacterForInputSourceKind is only available in DEBUG")
 #endif
