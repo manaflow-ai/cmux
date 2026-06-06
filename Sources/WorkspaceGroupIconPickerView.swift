@@ -2,18 +2,18 @@ import AppKit
 import SwiftUI
 
 struct WorkspaceGroupIconPickerView: View {
-    private static let pageSize = 96
+    private static let pageSize = 120
 
     let currentSymbol: String?
     let onSelect: (String?) -> Void
 
-    @State private var searchText: String
-    @State private var emojiLimit = Self.pageSize
+    @State private var searchText = ""
+    @State private var emojiCatalog = WorkspaceGroupEmojiCatalog.commonEmoji
+    @State private var visibleEmojiCount = pageSize
 
     init(currentSymbol: String?, onSelect: @escaping (String?) -> Void) {
         self.currentSymbol = currentSymbol
         self.onSelect = onSelect
-        _searchText = State(initialValue: "")
     }
 
     private var selectedIcon: String? {
@@ -37,15 +37,16 @@ struct WorkspaceGroupIconPickerView: View {
         return RenderableSystemSymbol.normalizedWorkspaceGroupIcon(searchText)
     }
 
-    private var emojiSuggestions: [String] {
-        emojiMatches.emojis
-    }
-
-    private var emojiMatches: (emojis: [String], hasMore: Bool) {
-        WorkspaceGroupEmojiCatalog.matching(query: searchText, limit: emojiLimit)
+    private var matchedEmoji: [String] {
+        WorkspaceGroupEmojiCatalog.browseResults(query: searchText, catalog: emojiCatalog)
     }
 
     var body: some View {
+        // `matchedEmoji` is a cached-array slice, so this is O(1); `visibleEmoji` caps how many
+        // cells are ever instantiated so view materialization stays bounded as the catalog grows.
+        let matched = matchedEmoji
+        let visibleEmoji = Array(matched.prefix(visibleEmojiCount))
+
         VStack(spacing: 10) {
             TextField(
                 String(localized: "workspaceGroup.icon.search.placeholder", defaultValue: "Search emoji"),
@@ -54,7 +55,7 @@ struct WorkspaceGroupIconPickerView: View {
             .textFieldStyle(.roundedBorder)
             .frame(height: 24)
             .onChange(of: searchText) { _, _ in
-                emojiLimit = Self.pageSize
+                visibleEmojiCount = Self.pageSize
             }
 
             ScrollView {
@@ -116,7 +117,7 @@ struct WorkspaceGroupIconPickerView: View {
                         .help(typedSystemSymbol)
                     }
 
-                    if !emojiSuggestions.isEmpty {
+                    if !visibleEmoji.isEmpty {
                         WorkspaceGroupIconPickerSectionTitle(
                             title: String(localized: "workspaceGroup.icon.section.emoji", defaultValue: "Emoji")
                         )
@@ -125,7 +126,7 @@ struct WorkspaceGroupIconPickerView: View {
                             alignment: .leading,
                             spacing: 6
                         ) {
-                            ForEach(emojiSuggestions, id: \.self) { emoji in
+                            ForEach(visibleEmoji, id: \.self) { emoji in
                                 WorkspaceGroupEmojiPickerButton(
                                     emoji: emoji,
                                     isSelected: selectedIcon == emoji
@@ -133,9 +134,9 @@ struct WorkspaceGroupIconPickerView: View {
                                     onSelect(emoji)
                                 }
                                 .onAppear {
-                                    guard emojiMatches.hasMore,
-                                          emoji == emojiSuggestions.last else { return }
-                                    emojiLimit += Self.pageSize
+                                    guard emoji == visibleEmoji.last,
+                                          visibleEmoji.count < matched.count else { return }
+                                    visibleEmojiCount += Self.pageSize
                                 }
                             }
                         }
@@ -159,5 +160,12 @@ struct WorkspaceGroupIconPickerView: View {
         }
         .padding(12)
         .frame(width: 344, height: 394)
+        .task {
+            guard emojiCatalog.count == WorkspaceGroupEmojiCatalog.commonEmoji.count else { return }
+            let full = await Task.detached(priority: .userInitiated) {
+                WorkspaceGroupEmojiCatalog.allEmoji
+            }.value
+            emojiCatalog = full
+        }
     }
 }
