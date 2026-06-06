@@ -196,6 +196,9 @@ struct AgentExecutableResolver {
            standardized == bundleBin {
             return true
         }
+        if Self.isCmuxAppBundleResourceBinDirectory(standardized) {
+            return true
+        }
         return false
     }
 
@@ -231,6 +234,9 @@ struct AgentExecutableResolver {
 
     private func isBundledProviderExecutable(_ url: URL) -> Bool {
         let path = url.standardizedFileURL.path
+        if Self.isCmuxAppBundleResourceBinChild(path) {
+            return true
+        }
         guard let resourcePath = bundleResourceURL?.standardizedFileURL.path else { return false }
         return path.hasPrefix(resourcePath + "/")
     }
@@ -244,4 +250,32 @@ struct AgentExecutableResolver {
         return prefix.contains("cmux claude wrapper - injects hooks and session tracking")
     }
 
+    private static func isCmuxAppBundleResourceBinDirectory(_ path: String) -> Bool {
+        cmuxAppBundleResourceBinComponentIndex(path).map { index in
+            URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.pathComponents.count == index + 4
+        } ?? false
+    }
+
+    private static func isCmuxAppBundleResourceBinChild(_ path: String) -> Bool {
+        cmuxAppBundleResourceBinComponentIndex(path).map { index in
+            URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL.pathComponents.count > index + 4
+        } ?? false
+    }
+
+    private static func cmuxAppBundleResourceBinComponentIndex(_ path: String) -> Int? {
+        let components = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+        guard components.count >= 4 else { return nil }
+        for index in components.indices {
+            guard components[index].hasSuffix(".app"),
+                  components[index].lowercased().contains("cmux"),
+                  components.indices.contains(index + 3),
+                  components[index + 1] == "Contents",
+                  components[index + 2] == "Resources",
+                  components[index + 3] == "bin" else {
+                continue
+            }
+            return index
+        }
+        return nil
+    }
 }

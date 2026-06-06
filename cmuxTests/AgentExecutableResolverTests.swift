@@ -141,6 +141,38 @@ struct AgentExecutableResolverTests {
     }
 
     @Test
+    func testSkipsOlderCmuxAppBundleResourceBin() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let oldCmuxBin = root
+            .appendingPathComponent("cmux DEV old.app/Contents/Resources/bin", isDirectory: true)
+        let userBin = root.appendingPathComponent("user-bin", isDirectory: true)
+        let cmuxResources = root
+            .appendingPathComponent("cmux.app/Contents/Resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: oldCmuxBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: userBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: cmuxResources, withIntermediateDirectories: true)
+        let bundledExecutable = oldCmuxBin.appendingPathComponent("codex")
+        let userExecutable = userBin.appendingPathComponent("codex")
+        for executable in [bundledExecutable, userExecutable] {
+            try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": "\(oldCmuxBin.path):\(userBin.path)", "HOME": root.path],
+            bundleResourceURL: cmuxResources,
+            includeStandardSearchDirectories: false
+        )
+
+        let plan = try resolver.resolve(.codex)
+
+        expectEqual(plan.executableURL.path, userExecutable.standardizedFileURL.path)
+    }
+
+    @Test
     func testResolvesConfiguredClaudePathBeforePath() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
