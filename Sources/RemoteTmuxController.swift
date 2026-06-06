@@ -403,11 +403,19 @@ final class RemoteTmuxController {
         let desiredSet = Set(desired)
         var current = mirror.connection.windowOrder.filter { desiredSet.contains($0) }
         guard current.count == desired.count, Set(current) == desiredSet else { return }
+        var swapped = false
         for index in desired.indices where current[index] != desired[index] {
             guard let swapFrom = current.firstIndex(of: desired[index]) else { continue }
             mirror.connection.send("swap-window -d -s @\(current[index]) -t @\(current[swapFrom])")
             current.swapAt(index, swapFrom)
+            swapped = true
         }
+        // `swap-window` changes window indices but emits no notification cmux
+        // re-reads the order from, so `windowOrder` would otherwise stay stale —
+        // and the NEXT reorder would compute swaps against the pre-swap order and
+        // no-op or mis-sort. Re-fetch the authoritative order so reorders keep
+        // working across repeated drags.
+        if swapped { mirror.connection.requestWindows() }
     }
 
     /// A split was requested from a mirrored multi-pane surface → propagate to
