@@ -649,10 +649,21 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         }
     }
 
-    func testClearedLegacySurfaceNumberShortcutDoesNotSuppressPerSurfaceDefaults() throws {
+    func testClearedLegacySurfaceNumberShortcutPreservesLegacyUnbind() throws {
         try withIsolatedShortcutStore {
-            KeyboardShortcutSettings.clearShortcut(for: .selectSurfaceByNumber)
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "1", command: false, shift: false, option: true, control: false),
+                for: .selectSurfaceByNumber
+            )
+            XCTAssertEqual(
+                KeyboardShortcutSettings.shortcut(for: .selectSurface4),
+                StoredShortcut(key: "4", command: false, shift: false, option: true, control: false)
+            )
 
+            KeyboardShortcutSettings.clearShortcut(for: .selectSurfaceByNumber)
+            XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .selectSurface4), .unbound)
+
+            KeyboardShortcutSettings.resetShortcut(for: .selectSurfaceByNumber)
             XCTAssertEqual(
                 KeyboardShortcutSettings.shortcut(for: .selectSurface4),
                 StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)

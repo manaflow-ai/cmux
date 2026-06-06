@@ -18,7 +18,7 @@ extension KeyboardShortcutSettings {
 
         let legacy = configuredShortcutIfPresent(for: .selectSurfaceByNumber)
         guard legacy.exists else { return (false, nil) }
-        guard var shortcut = legacy.shortcut else { return (false, nil) }
+        guard var shortcut = legacy.shortcut else { return (true, nil) }
 
         // Preserve legacy modifiers and stroke shape: chorded shortcuts replace the
         // second-stroke digit, while single-stroke shortcuts replace the primary key.
