@@ -313,6 +313,34 @@ def main() -> int:
                 ["close-page", "--workspace", workspace_id, "--page", numeric_duplicate_ref],
             )
 
+            option_like_title_page = _run_cli_json(
+                cli,
+                ["new-page", "--workspace", workspace_id, "--", "--window", "draft"],
+            )
+            option_like_title_page_ref = str(option_like_title_page.get("page_ref") or "")
+            _must(
+                str(option_like_title_page.get("page_title") or "") == "--window draft",
+                f"new-page should preserve option-looking title text after --: {option_like_title_page}",
+            )
+            _run_cli_json(
+                cli,
+                ["close-page", "--workspace", workspace_id, "--page", option_like_title_page_ref],
+            )
+
+            option_like_duplicate = _run_cli_json(
+                cli,
+                ["duplicate-page", "--workspace", workspace_id, "--", "--page", "literal"],
+            )
+            option_like_duplicate_ref = str(option_like_duplicate.get("page_ref") or "")
+            _must(
+                str(option_like_duplicate.get("page_title") or "") == "--page literal",
+                f"duplicate-page should preserve option-looking title text after --: {option_like_duplicate}",
+            )
+            _run_cli_json(
+                cli,
+                ["close-page", "--workspace", workspace_id, "--page", option_like_duplicate_ref],
+            )
+
             with tempfile.TemporaryDirectory() as temp_dir:
                 Path(temp_dir, "list-pages").mkdir()
                 listed_from_path_collision = _run_cli_json(
