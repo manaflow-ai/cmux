@@ -5315,7 +5315,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             contents: """
             #!/bin/sh
             printf '%s\\n' "$*" >> "\(logPath.path)"
-            printf '%s\\n' '{"ok":true,"result":{"accepted":true,"pending":true}}'
+            printf '%s\\n' '{"ok":true,"result":{"accepted":true,"queued":true}}'
             exit 0
             """
         )
@@ -5542,7 +5542,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             contents: """
             #!/bin/sh
             printf '%s\\n' "$*" >> "\(logPath.path)"
-            printf '%s\\n' '{"ok":true,"result":{"accepted":true,"pending":true}}'
+            printf '%s\\n' '{"ok":true,"result":{"accepted":true,"queued":true}}'
             exit 0
             """
         )

@@ -113,8 +113,8 @@ _cmux_relay_pwd_response_accepted() {
     local response="$1"
     [[ "$response" == *'"ok":false'* || "$response" == *'"ok": false'* ]] && return 1
     [[ "$response" == *'"accepted":false'* || "$response" == *'"accepted": false'* ]] && return 1
-    [[ "$response" == *'"accepted":true'* || "$response" == *'"accepted": true'* ]] && return 0
     [[ "$response" == *'"pending":true'* || "$response" == *'"pending": true'* ]] && return 1
+    [[ "$response" == *'"accepted":true'* || "$response" == *'"accepted": true'* ]] && return 0
     return 0
 }
 

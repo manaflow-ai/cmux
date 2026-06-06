@@ -18134,7 +18134,7 @@ final class Workspace: Identifiable, ObservableObject {
         let forkedPanel = newTerminalSurface(
             inPane: paneId,
             focus: true,
-            workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
+            workingDirectory: workingDirectory,
             initialInput: startupInput
         )
         if let forkedPanel {
