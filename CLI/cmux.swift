@@ -22916,6 +22916,14 @@ struct CMUXCLI {
         var sawAssistantMessage = false
         var sawTerminalTurn = false
         var sawRelevantTurn = turnId == nil
+        func beginRelevantTurn() {
+            sawRelevantTurn = true
+            candidate = nil
+            candidateCanPublishBeforeTerminal = false
+            sawAssistantMessage = false
+            sawTerminalTurn = false
+        }
+
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
@@ -22944,9 +22952,7 @@ struct CMUXCLI {
                         continue
                     }
                 }
-                sawRelevantTurn = true
-                candidate = nil
-                candidateCanPublishBeforeTerminal = false
+                beginRelevantTurn()
             case "error":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
                 if let turnId, let payloadTurnId {
@@ -23133,6 +23139,9 @@ struct CMUXCLI {
                     sawRelevantTurn = payloadTurnId == turnId
                 } else {
                     sawRelevantTurn = true
+                }
+                if sawRelevantTurn {
+                    candidate = nil
                 }
 
             case "request_user_input":
