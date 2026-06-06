@@ -72,6 +72,35 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini home"]
             ),
             GenericHookPersistenceScenario(
+                agent: "kiro",
+                subcommand: "session-start",
+                sessionId: "kiro-session-123",
+                executable: "/Users/example/.cargo/bin/kiro-cli",
+                launchArguments: [
+                    "/Users/example/.cargo/bin/kiro-cli",
+                    "chat",
+                    "--agent",
+                    "cmux",
+                    "--resume-id",
+                    "old-session",
+                    "--trust-tools",
+                    "fs_read,fs_write",
+                    "initial prompt should not persist"
+                ],
+                extraEnvironment: [
+                    "KIRO_HOME": "/tmp/kiro home",
+                    "AWS_ACCESS_KEY_ID": "secret"
+                ],
+                expectedArguments: [
+                    "/Users/example/.cargo/bin/kiro-cli",
+                    "--agent",
+                    "cmux",
+                    "--trust-tools",
+                    "fs_read,fs_write"
+                ],
+                expectedEnvironment: ["KIRO_HOME": "/tmp/kiro home"]
+            ),
+            GenericHookPersistenceScenario(
                 agent: "antigravity",
                 subcommand: "session-start",
                 sessionId: "antigravity-conversation-123",
@@ -524,6 +553,316 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testHermesAgentNotificationsUseShellHookExtraPayload() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("hermes-notification")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-notification-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "hermes-session-123"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else {
+                    return "OK"
+                }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "feed.push":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                default:
+                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+                }
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "hermes-agent", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        func storedHermesSession() throws -> [String: Any] {
+            let storeURL = root.appendingPathComponent("hermes-agent-hook-sessions.json", isDirectory: false)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+            return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        }
+
+        let start = runHermesHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_start"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+        XCTAssertEqual(start.stdout, "{}\n")
+
+        let assistantResponse = "Updated README.md and added usage notes."
+        let stopCommandStart = state.commands.count
+        let stop = runHermesHook(
+            "agent-response",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_llm_call","extra":{"user_message":"make the docs clearer","assistant_response":"\#(assistantResponse)","model":"gpt-4","platform":"cli"}}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        XCTAssertEqual(stop.stdout, "{}\n")
+
+        let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
+        XCTAssertTrue(
+            stopCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Hermes Agent|Completed in ")
+                    && $0.contains("|\(assistantResponse)")
+            },
+            "Expected Hermes completion notification to use extra.assistant_response, saw \(stopCommands)"
+        )
+        XCTAssertTrue(
+            stopCommands.contains { $0.contains("set_status hermes-agent Idle") },
+            "Expected Hermes completion to leave status idle, saw \(stopCommands)"
+        )
+
+        let approvalCommandStart = state.commands.count
+        let approval = runHermesHook(
+            "notification",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"pre_approval_request","extra":{"command":"rm -rf build","description":"recursive delete","pattern_key":"recursive delete","surface":"cli"}}"#
+        )
+        XCTAssertFalse(approval.timedOut, approval.stderr)
+        XCTAssertEqual(approval.status, 0, approval.stderr)
+        XCTAssertEqual(approval.stdout, "{}\n")
+
+        let approvalCommands = Array(state.commands.dropFirst(approvalCommandStart))
+        XCTAssertTrue(
+            approvalCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Hermes Agent|Permission|recursive delete: rm -rf build")
+            },
+            "Expected Hermes approval notification to include description and command, saw \(approvalCommands)"
+        )
+        XCTAssertTrue(
+            approvalCommands.contains { $0.contains("set_status hermes-agent Hermes Agent needs input") },
+            "Expected Hermes approval notification to mark needs input, saw \(approvalCommands)"
+        )
+        XCTAssertFalse(
+            approvalCommands.contains { $0.contains(#""method":"feed.push""#) },
+            "Hermes approval notifications are also installed as feed hooks, so the generic notification handler must not push duplicate feed events. Saw \(approvalCommands)"
+        )
+
+        let session = try storedHermesSession()
+        XCTAssertEqual(session["lastSubtitle"] as? String, "Permission")
+        XCTAssertEqual(session["lastBody"] as? String, "recursive delete: rm -rf build")
+        XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
+
+        let responseCommandStart = state.commands.count
+        let response = runHermesHook(
+            "approval-response",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_approval_response","extra":{"approved":true}}"#
+        )
+        XCTAssertFalse(response.timedOut, response.stderr)
+        XCTAssertEqual(response.status, 0, response.stderr)
+        XCTAssertEqual(response.stdout, "{}\n")
+
+        let responseCommands = Array(state.commands.dropFirst(responseCommandStart))
+        XCTAssertTrue(
+            responseCommands.contains { $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)") },
+            "Expected Hermes approval response to clear the approval notification, saw \(responseCommands)"
+        )
+        XCTAssertTrue(
+            responseCommands.contains { $0.contains("set_status hermes-agent Running") },
+            "Expected Hermes approval response to restore running status, saw \(responseCommands)"
+        )
+        XCTAssertFalse(
+            responseCommands.contains { $0.contains(#""method":"feed.push""#) },
+            "Hermes approval responses are also installed as feed hooks, so the generic approval handler must not push duplicate feed events. Saw \(responseCommands)"
+        )
+
+        let responseSession = try storedHermesSession()
+        XCTAssertNil(responseSession["lastSubtitle"])
+        XCTAssertNil(responseSession["lastBody"])
+        XCTAssertNil(responseSession["lastNotificationStatus"])
+        XCTAssertEqual(responseSession["runtimeStatus"] as? String, "running")
+    }
+
+    func testHermesAgentSessionEndIsTurnBoundaryButFinalizeTearsDown() throws {
+        // Hermes fires the `on_session_end` plugin hook once per conversation turn
+        // (end of every run_conversation()), not at the true session boundary, and a
+        // separate `on_session_finalize` hook once at genuine teardown. cmux maps the
+        // per-turn event to the `session-end` subcommand and the teardown event to the
+        // `session-finalize` subcommand. The per-turn hook must route through the
+        // non-destructive turn-boundary path (recordPromptStop) and must NOT consume
+        // the session or clear the surface resume binding — otherwise the restore
+        // record is destroyed after the first turn and nothing survives a
+        // quit/relaunch. The finalize hook must perform the destructive cleanup.
+        // See https://github.com/manaflow-ai/cmux/issues/5000.
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("hermes-session-end")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-session-end-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "hermes-session-end-123"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else {
+                    return "OK"
+                }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "feed.push":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                default:
+                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+                }
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "hermes-agent", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        func storedHermesSessionIfPresent() throws -> [String: Any]? {
+            let storeURL = root.appendingPathComponent("hermes-agent-hook-sessions.json", isDirectory: false)
+            guard let data = try? Data(contentsOf: storeURL),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let sessions = json["sessions"] as? [String: Any]
+            else {
+                return nil
+            }
+            return sessions[sessionId] as? [String: Any]
+        }
+
+        let start = runHermesHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_start"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        // Finish a turn so a restorable record exists for the session.
+        let stop = runHermesHook(
+            "agent-response",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_llm_call","extra":{"user_message":"do the thing","assistant_response":"done","model":"gpt-4","platform":"cli"}}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        XCTAssertNotNil(
+            try storedHermesSessionIfPresent(),
+            "Expected a Hermes session record to exist before the per-turn session-end hook fires"
+        )
+
+        // The per-turn on_session_end hook. Hermes is a restorable agent, so this is a
+        // turn boundary, not a true session teardown.
+        let sessionEndCommandStart = state.commands.count
+        let sessionEnd = runHermesHook(
+            "session-end",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_end"}"#
+        )
+        XCTAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
+        XCTAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
+        XCTAssertEqual(sessionEnd.stdout, "{}\n")
+
+        let sessionEndCommands = Array(state.commands.dropFirst(sessionEndCommandStart))
+        XCTAssertTrue(
+            sessionEndCommands.contains { $0.contains("feed.push") },
+            "Expected Hermes session-end to emit feed telemetry, saw \(sessionEndCommands)"
+        )
+        XCTAssertFalse(
+            sessionEndCommands.contains { $0.hasPrefix("clear_agent_pid hermes-agent.") },
+            "Hermes on_session_end fires per turn and must not clear saved routing, saw \(sessionEndCommands)"
+        )
+        XCTAssertFalse(
+            sessionEndCommands.contains { $0.contains("surface.resume.clear") },
+            "Hermes on_session_end fires per turn and must not clear the surface resume binding, saw \(sessionEndCommands)"
+        )
+        XCTAssertNotNil(
+            try storedHermesSessionIfPresent(),
+            "Hermes on_session_end fires per turn and must not consume the restore record, saw it removed from the store"
+        )
+
+        // The genuine teardown hook (on_session_finalize) routes to the dedicated
+        // session-finalize subcommand and must perform the destructive cleanup the
+        // per-turn path suppresses: consume the record, clear the resume binding, and
+        // clear the agent PID routing.
+        let finalizeCommandStart = state.commands.count
+        let finalize = runHermesHook(
+            "session-finalize",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_finalize"}"#
+        )
+        XCTAssertFalse(finalize.timedOut, finalize.stderr)
+        XCTAssertEqual(finalize.status, 0, finalize.stderr)
+        XCTAssertEqual(finalize.stdout, "{}\n")
+
+        let finalizeCommands = Array(state.commands.dropFirst(finalizeCommandStart))
+        XCTAssertTrue(
+            finalizeCommands.contains { $0.hasPrefix("clear_agent_pid hermes-agent.") },
+            "Hermes on_session_finalize is a true teardown and must clear agent PID routing, saw \(finalizeCommands)"
+        )
+        XCTAssertTrue(
+            finalizeCommands.contains { $0.contains("surface.resume.clear") },
+            "Hermes on_session_finalize is a true teardown and must clear the surface resume binding, saw \(finalizeCommands)"
+        )
+        XCTAssertNil(
+            try storedHermesSessionIfPresent(),
+            "Hermes on_session_finalize is a true teardown and must consume the restore record"
+        )
+    }
+
     func testAntigravityHookInstallUsesNativeHooksJSONShape() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -607,6 +946,329 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(cmuxGroup["turn-completion"])
         XCTAssertNotNil(cmuxGroup["Notification"])
         XCTAssertNotNil(cmuxGroup["PostToolUse"])
+    }
+
+    func testKiroHookInstallUsesAgentConfigShapeAndPreservesDenyExit() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-kiro-hook-install-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "kiro", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "KIRO_HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            result.stdout.contains("kiro-cli chat --agent cmux"),
+            "Expected Kiro install to print the --agent cmux activation hint, saw: \(result.stdout)"
+        )
+
+        let hookURL = root
+            .appendingPathComponent("agents", isDirectory: true)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        XCTAssertEqual(json["name"] as? String, "cmux")
+        XCTAssertNil(json["version"], "Kiro agent configs should not receive Cursor's hooks version field")
+        XCTAssertEqual(
+            json["tools"] as? [String], ["*"],
+            "Kiro cmux agent must grant the full tool set so `--agent cmux` can run tools and fire preToolUse hooks"
+        )
+
+        let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
+        let preToolUse = try XCTUnwrap(hooks["preToolUse"] as? [[String: Any]])
+        XCTAssertTrue(
+            preToolUse.contains {
+                ($0["command"] as? String)?.contains("hooks feed --source kiro --event preToolUse") == true
+                    && ($0["timeout_ms"] as? Int) == 120_000
+                    && (($0["command"] as? String)?.contains("|| echo '{}'") == false)
+                    && (($0["command"] as? String)?.contains("status=$?") == true)
+                    && (($0["command"] as? String)?.contains("exit 2") == true)
+            },
+            "Expected Kiro preToolUse feed hook to preserve cmux's exit status for deny decisions, saw \(preToolUse)"
+        )
+        XCTAssertNotNil(hooks["agentSpawn"])
+        XCTAssertNotNil(hooks["userPromptSubmit"])
+        XCTAssertNotNil(hooks["postToolUse"])
+        XCTAssertNotNil(hooks["stop"])
+    }
+
+    func testKiroFeedDenyUsesPreToolUseExitCodeTwo() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("kiro-feed-deny")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-kiro-feed-deny-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let surfaceId = "44444444-4444-4444-4444-444444444444"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            XCTAssertEqual(method, "feed.push")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "status": "resolved",
+                    "decision": [
+                        "kind": "permission",
+                        "mode": "deny",
+                    ],
+                ]
+            )
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "kiro", "--event", "preToolUse"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_KIRO_PID": "525252",
+                "CMUX_KIRO_NOTIFICATION_LEVEL": "standard",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"hook_event_name":"preToolUse","session_id":"kiro-session-123","cwd":"\#(root.path)","tool_name":"fs_write","tool_input":{"operations":[{"mode":"Line","path":"\#(root.appendingPathComponent("README.md").path)"}]}}"#,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 2, result.stderr)
+        XCTAssertTrue(result.stderr.contains("User denied permission via cmux Feed."), result.stderr)
+
+        let feedEvents = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event
+        }
+        XCTAssertEqual(feedEvents.count, 1, "Expected one Kiro Feed event, saw \(state.commands)")
+        XCTAssertEqual(feedEvents.first?["hook_event_name"] as? String, "PermissionRequest")
+        XCTAssertEqual(feedEvents.first?["_source"] as? String, "kiro")
+        XCTAssertEqual(feedEvents.first?["_ppid"] as? Int, 525252)
+    }
+
+    /// The Feed permission modes that allow a tool (`once` / `always` / `all`
+    /// / `bypass`, the WorkstreamPermissionMode raw values) must exit 0 so
+    /// Kiro proceeds; an unrecognized/malformed mode must fail closed with
+    /// exit 2 rather than silently allowing the tool.
+    func testKiroFeedAllowModesProceedAndUnknownModeDenies() throws {
+        func runKiroDecision(mode: String) throws -> ProcessRunResult {
+            let cliPath = try bundledCLIPath()
+            let socketPath = makeSocketPath("kiro-feed-mode")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-kiro-feed-mode-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+                try? FileManager.default.removeItem(at: root)
+            }
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line), let id = payload["id"] as? String else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "status": "resolved",
+                        "decision": ["kind": "permission", "mode": mode],
+                    ]
+                )
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "feed", "--source", "kiro", "--event", "preToolUse"],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "PWD": root.path,
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
+                    "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
+                    "CMUX_KIRO_PID": "525252",
+                    "CMUX_KIRO_NOTIFICATION_LEVEL": "standard",
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                ],
+                standardInput: #"{"hook_event_name":"preToolUse","session_id":"kiro-session-mode","cwd":"\#(root.path)","tool_name":"fs_write","tool_input":{"operations":[{"mode":"Line","path":"\#(root.appendingPathComponent("README.md").path)"}]}}"#,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        for mode in ["once", "always", "all", "bypass"] {
+            let result = try runKiroDecision(mode: mode)
+            XCTAssertFalse(result.timedOut, "\(mode): \(result.stderr)")
+            XCTAssertEqual(result.status, 0, "mode \(mode) should allow (exit 0): \(result.stderr)")
+            XCTAssertEqual(result.stdout, "{}\n", "mode \(mode) should print {}")
+        }
+
+        let unknown = try runKiroDecision(mode: "totally-bogus-mode")
+        XCTAssertFalse(unknown.timedOut, unknown.stderr)
+        XCTAssertEqual(unknown.status, 2, "unrecognized mode must fail closed (exit 2): \(unknown.stderr)")
+        XCTAssertTrue(unknown.stderr.contains("unrecognized"), unknown.stderr)
+    }
+
+    /// At the default `standard` notification level, Kiro read-only tool
+    /// events (`fs_read`) are suppressed (no Feed telemetry) while mutating
+    /// tools (`fs_write`) still emit. Guards that suppression keys off the
+    /// classified wire name (`PostToolUse`) rather than the raw camelCase hook
+    /// event — i.e. the suppression actually triggers for real Kiro events.
+    func testKiroStandardLevelSuppressesReadOnlyToolFeedEvents() throws {
+        func feedPushCount(forTool tool: String) throws -> Int {
+            let cliPath = try bundledCLIPath()
+            let socketPath = makeSocketPath("kiro-suppress")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-kiro-suppress-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+                try? FileManager.default.removeItem(at: root)
+            }
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line), let id = payload["id"] as? String else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+                return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "feed", "--source", "kiro", "--event", "postToolUse"],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "PWD": root.path,
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
+                    "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
+                    "CMUX_KIRO_PID": "525252",
+                    "CMUX_KIRO_NOTIFICATION_LEVEL": "standard",
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                ],
+                standardInput: #"{"hook_event_name":"postToolUse","session_id":"kiro-suppress","cwd":"\#(root.path)","tool_name":"\#(tool)"}"#,
+                timeout: 5
+            )
+            XCTAssertFalse(result.timedOut, "\(tool): \(result.stderr)")
+            XCTAssertEqual(result.status, 0, "\(tool): \(result.stderr)")
+            XCTAssertEqual(result.stdout, "{}\n", "\(tool) stdout")
+            // A non-suppressed event sends one feed.push, so wait for the
+            // server to record it (generous timeout to avoid flaking on the
+            // socket/process round-trip under CI load). A suppressed event
+            // sends nothing, so this wait simply times out silently.
+            _ = XCTWaiter().wait(for: [serverHandled], timeout: 5)
+            return state.commands.filter { $0.contains("feed.push") }.count
+        }
+
+        XCTAssertEqual(try feedPushCount(forTool: "fs_read"), 0,
+                       "read-only kiro tool at standard level must be suppressed")
+        XCTAssertGreaterThan(try feedPushCount(forTool: "fs_write"), 0,
+                             "mutating kiro tool at standard level must still emit telemetry")
+    }
+
+    func testLowercaseGenericFeedToolsStayTelemetryOutsideKiro() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("generic-lowercase-feed-tool")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-generic-lowercase-feed-tool-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let surfaceId = "44444444-4444-4444-4444-444444444444"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            XCTAssertEqual(method, "feed.push")
+            return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "gemini", "--event", "PreToolUse"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_GEMINI_PID": "626262",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"hook_event_name":"PreToolUse","session_id":"gemini-session-123","cwd":"\#(root.path)","tool_name":"write","tool_input":{"path":"\#(root.appendingPathComponent("README.md").path)"}}"#,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+
+        let feedPushes = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any] else {
+                return nil
+            }
+            return params
+        }
+        XCTAssertEqual(feedPushes.count, 1, "Expected one generic Feed event, saw \(state.commands)")
+        let event = try XCTUnwrap(feedPushes.first?["event"] as? [String: Any])
+        let waitTimeout = try XCTUnwrap(feedPushes.first?["wait_timeout_seconds"] as? NSNumber)
+        XCTAssertEqual(event["hook_event_name"] as? String, "PreToolUse")
+        XCTAssertEqual(event["_source"] as? String, "gemini")
+        XCTAssertEqual(event["tool_name"] as? String, "write")
+        XCTAssertEqual(event["_ppid"] as? Int, 626262)
+        XCTAssertEqual(waitTimeout.doubleValue, 0)
     }
 
     func testAntigravityFeedHookMissingSessionIdUsesStableFallback() throws {
@@ -892,6 +1554,108 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             enrichedStopCommands.contains { $0.contains("set_status grok Idle") },
             "Expected enriched Grok Stop to leave Grok idle, saw \(enrichedStopCommands)"
+        )
+
+        let oversizedSessionId = "grok-oversized-final"
+        let oversizedAssistantMessage = "Oversized Grok assistant response " + String(repeating: "g", count: 300_000)
+        let oversizedStart = runGrokHook(
+            "session-start",
+            input: #"{"sessionId":"\#(oversizedSessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
+        )
+        XCTAssertFalse(oversizedStart.timedOut, oversizedStart.stderr)
+        XCTAssertEqual(oversizedStart.status, 0, oversizedStart.stderr)
+
+        let oversizedPrompt = runGrokHook(
+            "prompt-submit",
+            input: #"{"sessionId":"\#(oversizedSessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"oversized turn"}"#
+        )
+        XCTAssertFalse(oversizedPrompt.timedOut, oversizedPrompt.stderr)
+        XCTAssertEqual(oversizedPrompt.status, 0, oversizedPrompt.stderr)
+
+        let oversizedSessionURL = grokHome
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(grokEncodedSessionCWD(root.path), isDirectory: true)
+            .appendingPathComponent(oversizedSessionId, isDirectory: true)
+        try FileManager.default.createDirectory(at: oversizedSessionURL, withIntermediateDirectories: true)
+        let oversizedPayload: [String: Any] = ["type": "assistant", "content": oversizedAssistantMessage]
+        let oversizedData = try JSONSerialization.data(withJSONObject: oversizedPayload, options: [.sortedKeys])
+        try oversizedData.write(to: oversizedSessionURL.appendingPathComponent("chat_history.jsonl", isDirectory: false))
+
+        let oversizedStopCommandStart = state.commands.count
+        let oversizedStop = runGrokHook(
+            "stop",
+            input: #"{"sessionId":"\#(oversizedSessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
+        )
+        XCTAssertFalse(oversizedStop.timedOut, oversizedStop.stderr)
+        XCTAssertEqual(oversizedStop.status, 0, oversizedStop.stderr)
+
+        let oversizedStopCommands = Array(state.commands.dropFirst(oversizedStopCommandStart))
+        XCTAssertTrue(
+            oversizedStopCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
+                    && $0.contains("Oversized Grok assistant response")
+            },
+            "Expected Grok Stop fallback to parse the oversized final chat-history line, saw \(oversizedStopCommands)"
+        )
+
+        let multibyteSessionId = "grok-multibyte-boundary"
+        let multibyteStart = runGrokHook(
+            "session-start",
+            input: #"{"sessionId":"\#(multibyteSessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
+        )
+        XCTAssertFalse(multibyteStart.timedOut, multibyteStart.stderr)
+        XCTAssertEqual(multibyteStart.status, 0, multibyteStart.stderr)
+
+        let multibytePrompt = runGrokHook(
+            "prompt-submit",
+            input: #"{"sessionId":"\#(multibyteSessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"multibyte boundary"}"#
+        )
+        XCTAssertFalse(multibytePrompt.timedOut, multibytePrompt.stderr)
+        XCTAssertEqual(multibytePrompt.status, 0, multibytePrompt.stderr)
+
+        let multibyteSessionURL = grokHome
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(grokEncodedSessionCWD(root.path), isDirectory: true)
+            .appendingPathComponent(multibyteSessionId, isDirectory: true)
+        try FileManager.default.createDirectory(at: multibyteSessionURL, withIntermediateDirectories: true)
+        let leadingPrefix = #"{"type":"assistant","content":""#
+        let leadingContent = String(repeating: "あ", count: 90_000)
+        let leadingLine = leadingPrefix + leadingContent + #""}"#
+        let leadingPrefixByteCount = Data(leadingPrefix.utf8).count
+        let leadingLineByteCount = Data(leadingLine.utf8).count
+        var multibyteAssistantMessage = "Grok final after multibyte boundary"
+        var multibyteHistoryData: Data?
+        for suffixLength in 0..<3 {
+            multibyteAssistantMessage = "Grok final after multibyte boundary" + String(repeating: "x", count: suffixLength)
+            let finalLine = #"{"type":"assistant","content":"\#(multibyteAssistantMessage)"}"#
+            let history = leadingLine + "\n" + finalLine + "\n"
+            let data = Data(history.utf8)
+            let readStart = data.count - min(data.count, 256 * 1024)
+            if readStart > leadingPrefixByteCount,
+               readStart < leadingLineByteCount,
+               (readStart - leadingPrefixByteCount) % 3 != 0 {
+                multibyteHistoryData = data
+                break
+            }
+        }
+        let historyData = try XCTUnwrap(multibyteHistoryData)
+        try historyData.write(to: multibyteSessionURL.appendingPathComponent("chat_history.jsonl", isDirectory: false))
+
+        let multibyteStopCommandStart = state.commands.count
+        let multibyteStop = runGrokHook(
+            "stop",
+            input: #"{"sessionId":"\#(multibyteSessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
+        )
+        XCTAssertFalse(multibyteStop.timedOut, multibyteStop.stderr)
+        XCTAssertEqual(multibyteStop.status, 0, multibyteStop.stderr)
+
+        let multibyteStopCommands = Array(state.commands.dropFirst(multibyteStopCommandStart))
+        XCTAssertTrue(
+            multibyteStopCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
+                    && $0.contains(multibyteAssistantMessage)
+            },
+            "Expected Grok Stop fallback to skip the partial multibyte leading line, saw \(multibyteStopCommands)"
         )
 
         let genericCompletionCommandStart = state.commands.count
@@ -1481,7 +2245,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        func runGrokHook(_ subcommand: String, input: String, stallFeedTelemetry: Bool = false, timeout: TimeInterval = 5) -> ProcessRunResult {
+        func runGrokHook(_ subcommand: String, input: String, stallFeedTelemetry: Bool = false) -> ProcessRunResult {
             let serverHandled = startMockServerAllowingNoResponse(listenerFD: listenerFD, state: state) { line in
                 guard let payload = self.jsonObject(line) else {
                     return "OK"
@@ -1503,7 +2267,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 arguments: ["hooks", "grok", subcommand],
                 environment: environment,
                 standardInput: input,
-                timeout: timeout
+                timeout: 5
             )
             wait(for: [serverHandled], timeout: 5)
             return result
@@ -1529,8 +2293,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let notification = runGrokHook(
                 "notification",
                 input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(message)"}"#,
-                stallFeedTelemetry: index == 2,
-                timeout: 2
+                stallFeedTelemetry: index == 2
             )
 
             XCTAssertFalse(notification.timedOut, notification.stderr)
@@ -2443,6 +3206,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -2495,5 +3260,31 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(launchCommand["arguments"] as? [String], scenario.expectedArguments)
         XCTAssertEqual(launchCommand["workingDirectory"] as? String, workspace.path)
         XCTAssertEqual(launchCommand["environment"] as? [String: String], scenario.expectedEnvironment)
+
+        if scenario.agent == "kiro" {
+            let resumeSetRequests = state.commands.compactMap { command -> [String: Any]? in
+                guard let payload = self.jsonObject(command),
+                      payload["method"] as? String == "surface.resume.set" else {
+                    return nil
+                }
+                return payload["params"] as? [String: Any]
+            }
+            XCTAssertEqual(resumeSetRequests.count, 1, state.commands.joined(separator: "\n"))
+            let params = try XCTUnwrap(resumeSetRequests.first)
+            XCTAssertEqual(params["kind"] as? String, "kiro")
+            XCTAssertEqual(params["checkpoint_id"] as? String, scenario.sessionId)
+            XCTAssertEqual(params["auto_resume"] as? Bool, true)
+            XCTAssertEqual(
+                params["command"] as? String,
+                "cd '\(workspace.path)' && '\(scenario.executable)' 'chat' '--resume-id' '\(scenario.sessionId)' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
+            )
+            XCTAssertEqual(params["environment"] as? [String: String], scenario.expectedEnvironment)
+            XCTAssertFalse(
+                state.commands.contains { command in
+                    self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
+                },
+                "Kiro should publish a resume binding instead of clearing it: \(state.commands)"
+            )
+        }
     }
 }
