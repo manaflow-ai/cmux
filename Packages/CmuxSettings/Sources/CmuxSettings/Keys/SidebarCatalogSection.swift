@@ -118,8 +118,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
 
     public let rightMaxWidth = DefaultsKey<Double>(
         id: "sidebar.rightMaxWidth",
-        defaultValue: -1.0,
-        userDefaultsKey: "rightSidebarMaxWidth"
+        defaultValue: RightSidebarWidthSettings.noOverrideValue,
+        userDefaultsKey: RightSidebarWidthSettings.maxWidthKey
+    )
+
+    public let rememberedRightMaxWidth = DefaultsKey<Double>(
+        id: "sidebar.rightMaxWidth.remembered",
+        defaultValue: RightSidebarWidthSettings.defaultConfiguredMaximumWidth,
+        userDefaultsKey: RightSidebarWidthSettings.rememberedMaxWidthKey
     )
 
     public let activeTabIndicatorStyle = DefaultsKey<String>(

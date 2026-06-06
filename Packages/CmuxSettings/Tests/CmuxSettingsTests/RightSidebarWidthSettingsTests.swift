@@ -1,0 +1,38 @@
+import Testing
+@testable import CmuxSettings
+
+@Suite("RightSidebarWidthSettings")
+struct RightSidebarWidthSettingsTests {
+    @Test func disabledOverrideRestoresRememberedCustomMaximumWhenEnabledAgain() {
+        let restored = RightSidebarWidthSettings.storedMaximumWidthWhenEnabling(
+            rememberedStoredValue: 1_234
+        )
+
+        #expect(restored == 1_234)
+    }
+
+    @Test func invalidRememberedMaximumFallsBackToDefaultWhenEnabled() {
+        let restored = RightSidebarWidthSettings.storedMaximumWidthWhenEnabling(
+            rememberedStoredValue: RightSidebarWidthSettings.noOverrideValue
+        )
+
+        #expect(restored == RightSidebarWidthSettings.defaultConfiguredMaximumWidth)
+    }
+
+    @Test func activeCustomMaximumWinsOverRememberedValueForEditor() {
+        let editorValue = RightSidebarWidthSettings.editorMaximumWidth(
+            activeStoredValue: 1_500,
+            rememberedStoredValue: 900
+        )
+
+        #expect(editorValue == 1_500)
+    }
+
+    @Test func rememberedCustomMaximumIsClampedToEditorRange() {
+        let restored = RightSidebarWidthSettings.storedMaximumWidthWhenEnabling(
+            rememberedStoredValue: 10_000
+        )
+
+        #expect(restored == RightSidebarWidthSettings.settingsEditorMaximumWidth)
+    }
+}

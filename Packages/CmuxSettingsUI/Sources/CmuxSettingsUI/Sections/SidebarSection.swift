@@ -34,6 +34,7 @@ public struct SidebarSection: View {
     @State private var showProgress: DefaultsValueModel<Bool>
     @State private var showMetadata: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
+    @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
@@ -59,6 +60,7 @@ public struct SidebarSection: View {
         _showProgress = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
+        _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
     }
 
     public var body: some View {
@@ -87,11 +89,21 @@ public struct SidebarSection: View {
         Binding(
             get: { rightMaxWidthOverrideEnabled },
             set: { enabled in
-                rightMaxWidth.set(
-                    enabled
-                        ? RightSidebarWidthSettings.defaultConfiguredMaximumWidth
-                        : RightSidebarWidthSettings.noOverrideValue
-                )
+                if enabled {
+                    let restored = RightSidebarWidthSettings.storedMaximumWidthWhenEnabling(
+                        rememberedStoredValue: rememberedRightMaxWidth.current
+                    )
+                    rememberedRightMaxWidth.set(restored)
+                    rightMaxWidth.set(restored)
+                } else {
+                    rememberedRightMaxWidth.set(
+                        RightSidebarWidthSettings.storedRememberedMaximumWidth(
+                            activeStoredValue: rightMaxWidth.current,
+                            rememberedStoredValue: rememberedRightMaxWidth.current
+                        )
+                    )
+                    rightMaxWidth.set(RightSidebarWidthSettings.noOverrideValue)
+                }
             }
         )
     }
@@ -99,13 +111,18 @@ public struct SidebarSection: View {
     private var rightMaxWidthEditorBinding: Binding<Double> {
         Binding(
             get: {
-                Self.clampedRightMaxWidth(
-                    rightMaxWidthOverrideEnabled
-                        ? rightMaxWidth.current
-                        : RightSidebarWidthSettings.defaultConfiguredMaximumWidth
+                RightSidebarWidthSettings.editorMaximumWidth(
+                    activeStoredValue: rightMaxWidth.current,
+                    rememberedStoredValue: rememberedRightMaxWidth.current
                 )
             },
-            set: { rightMaxWidth.set(Self.clampedRightMaxWidth($0)) }
+            set: {
+                let clamped = Self.clampedRightMaxWidth($0)
+                rememberedRightMaxWidth.set(clamped)
+                if rightMaxWidthOverrideEnabled {
+                    rightMaxWidth.set(clamped)
+                }
+            }
         )
     }
 
