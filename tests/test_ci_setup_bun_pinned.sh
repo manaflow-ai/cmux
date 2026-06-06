@@ -6,6 +6,19 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+check_ci_job_bun_setup() {
+  local job="$1" expected="$2"
+  if ! awk -v job="$job" -v expected="$expected" '
+    $0 ~ "^  "job":" { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && index($0, expected) { found=1 }
+    END { exit(found ? 0 : 1) }
+  ' .github/workflows/ci.yml; then
+    echo "FAIL: $job in ci.yml must install Bun with: $expected" >&2
+    exit 1
+  fi
+}
+
 found_setup=0
 while IFS= read -r workflow; do
   if grep -n 'uses: oven-sh/setup-bun@' "$workflow"; then
@@ -27,5 +40,9 @@ if [[ "$found_setup" -eq 0 ]]; then
   echo "FAIL: no setup-bun-with-retry.sh workflow calls found" >&2
   exit 1
 fi
+
+check_ci_job_bun_setup "web-typecheck" "../scripts/ci/setup-bun-with-retry.sh 1.3.13"
+check_ci_job_bun_setup "web-db-migrations" "../scripts/ci/setup-bun-with-retry.sh 1.3.13"
+check_ci_job_bun_setup "react-apps-check" "./scripts/ci/setup-bun-with-retry.sh 1.3.13"
 
 echo "PASS: Bun setup uses retrying semver-pinned installer"
