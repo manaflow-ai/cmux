@@ -29,6 +29,7 @@ struct WorkspaceDetailView: View {
     @State private var diagnosticsReport: MobileDiagnosticsReport?
     @State private var isBuildingDiagnostics = false
     @State private var isFeedbackComposerPresented = false
+    @State private var shouldPresentFeedbackAfterPickerDismisses = false
     #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
@@ -153,8 +154,18 @@ struct WorkspaceDetailView: View {
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
         .popover(isPresented: $isTerminalPickerPresented, arrowEdge: .top) {
-            terminalPickerContent
+            terminalPickerPopoverContent
         }
+    }
+
+    @ViewBuilder
+    private var terminalPickerPopoverContent: some View {
+        #if canImport(UIKit)
+        terminalPickerContent
+            .onDisappear(perform: presentPendingFeedbackComposerIfNeeded)
+        #else
+        terminalPickerContent
+        #endif
     }
 
     private var terminalPickerContent: some View {
@@ -351,7 +362,13 @@ struct WorkspaceDetailView: View {
 
     /// Presents the mobile feedback form with the current diagnostics report.
     private func presentFeedbackComposer() {
+        shouldPresentFeedbackAfterPickerDismisses = true
         isTerminalPickerPresented = false
+    }
+
+    private func presentPendingFeedbackComposerIfNeeded() {
+        guard shouldPresentFeedbackAfterPickerDismisses else { return }
+        shouldPresentFeedbackAfterPickerDismisses = false
         isFeedbackComposerPresented = true
     }
     #endif

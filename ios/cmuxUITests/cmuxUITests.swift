@@ -147,6 +147,25 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testDiagnosticsFeedbackMenuPresentsComposer() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        try openSelectedWorkspaceIfNeeded(app)
+
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        let feedbackItem = app.buttons["MobileSendFeedbackMenuItem"]
+        XCTAssertTrue(feedbackItem.waitForExistence(timeout: 8))
+        tap(feedbackItem, in: app)
+
+        XCTAssertTrue(app.navigationBars["Send Feedback"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.textFields["MobileFeedbackEmailField"].waitForExistence(timeout: 6))
+        XCTAssertTrue(app.descendants(matching: .any)["MobileFeedbackAttachPhotosButton"].waitForExistence(timeout: 6))
+    }
+
+    @MainActor
     func testTerminalDropdownSwitchesToAlternateScreenSnapshot() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
