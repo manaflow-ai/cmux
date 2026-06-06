@@ -281,6 +281,11 @@ extension CMUXCLI {
         var files: [URL]
     }
 
+    private struct DiffViewerAppAssets {
+        var sourceDirectory: URL
+        var targetDirectoryName: String
+    }
+
     private struct DiffViewerAllowedFile: Codable {
         var requestPath: String
         var filePath: String
@@ -5744,8 +5749,8 @@ extension CMUXCLI {
             .appendingPathComponent(assetDirectoryName, isDirectory: true)
         try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
 
-        let appSourceDirectory = try diffViewerBundledAppAssetDirectory(nextTo: sourceDirectory)
-        let appAssetDirectoryName = "cmux-webviews-app"
+        let appAssets = try diffViewerBundledAppAssetDirectory(nextTo: sourceDirectory)
+        let appAssetDirectoryName = appAssets.targetDirectoryName
         let targetAppDirectory = viewerURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent(appAssetDirectoryName, isDirectory: true)
@@ -5762,12 +5767,12 @@ extension CMUXCLI {
             try copyDiffViewerAsset(relativePath: assetPath, from: sourceDirectory, to: targetDirectory)
         }
 
-        let appAssetPaths = try diffViewerBundledAssetRelativePaths(in: appSourceDirectory)
+        let appAssetPaths = try diffViewerBundledAssetRelativePaths(in: appAssets.sourceDirectory)
         guard appAssetPaths.contains("main.mjs") else {
             throw CLIError(message: "Bundled cmux diff viewer app entry asset not found")
         }
         for assetPath in appAssetPaths {
-            try copyDiffViewerAsset(relativePath: assetPath, from: appSourceDirectory, to: targetAppDirectory)
+            try copyDiffViewerAsset(relativePath: assetPath, from: appAssets.sourceDirectory, to: targetAppDirectory)
         }
 
         return DiffViewerAssets(
@@ -5781,19 +5786,28 @@ extension CMUXCLI {
         )
     }
 
-    private func diffViewerBundledAppAssetDirectory(nextTo sourceDirectory: URL) throws -> URL {
-        let appDirectory = sourceDirectory
-            .deletingLastPathComponent()
-            .appendingPathComponent("webviews-app", isDirectory: true)
-            .standardizedFileURL
-        let entry = appDirectory.appendingPathComponent("main.mjs", isDirectory: false)
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: appDirectory.path, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              FileManager.default.fileExists(atPath: entry.path) else {
-            throw CLIError(message: "Bundled cmux diff viewer app assets not found")
+    private func diffViewerBundledAppAssetDirectory(nextTo sourceDirectory: URL) throws -> DiffViewerAppAssets {
+        let sourceRoot = sourceDirectory.deletingLastPathComponent()
+        let candidates: [(sourceName: String, targetName: String)] = [
+            ("webviews-app", "cmux-webviews-app"),
+            ("diff-viewer-app", "cmux-diff-viewer-app")
+        ]
+        for candidate in candidates {
+            let appDirectory = sourceRoot
+                .appendingPathComponent(candidate.sourceName, isDirectory: true)
+                .standardizedFileURL
+            let entry = appDirectory.appendingPathComponent("main.mjs", isDirectory: false)
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: appDirectory.path, isDirectory: &isDirectory),
+               isDirectory.boolValue,
+               FileManager.default.fileExists(atPath: entry.path) {
+                return DiffViewerAppAssets(
+                    sourceDirectory: appDirectory,
+                    targetDirectoryName: candidate.targetName
+                )
+            }
         }
-        return appDirectory
+        throw CLIError(message: "Bundled cmux diff viewer app assets not found")
     }
 
     private func copyDiffViewerAsset(relativePath: String, from sourceDirectory: URL, to targetDirectory: URL) throws {
