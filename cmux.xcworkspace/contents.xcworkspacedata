@@ -20,7 +20,13 @@
          location = "group:CMUXDebugLog">
       </FileRef>
       <FileRef
+         location = "group:CMUXExtensionHostSupport">
+      </FileRef>
+      <FileRef
          location = "group:CmuxExtensionKit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxFoundation">
       </FileRef>
       <FileRef
          location = "group:CMUXPasteboardFidelity">
@@ -32,10 +38,23 @@
          location = "group:CmuxSettingsUI">
       </FileRef>
       <FileRef
-         location = "group:CMUXSocketPathDomain">
+         location = "group:CmuxSocketControl">
       </FileRef>
       <FileRef
          location = "group:CMUXWorkstream">
+      </FileRef>
+   </Group>
+   <Group
+      location = "container:Examples"
+      name = "Examples">
+      <FileRef
+         location = "group:TabsVisibleSidebar/TabsVisibleSidebar.xcodeproj">
+      </FileRef>
+      <FileRef
+         location = "group:SampleSidebarExtensionApp/SampleSidebarExtensionApp.xcodeproj">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxExtensionSidebarExamples">
       </FileRef>
    </Group>
 </Workspace>
