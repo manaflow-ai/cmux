@@ -151,7 +151,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show ready to install")
-        replyToInstallChoice(.install, reply: reply)
+        replyToInstallChoice(.install, reply: reply) { [weak self] in
+            self?.setReadyToInstallDeferredState(reply: reply)
+        }
     }
 
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
@@ -210,7 +212,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     private func replyToInstallChoice(
         _ choice: SPUUserUpdateChoice,
-        reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void
+        reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void,
+        deferred: (() -> Void)? = nil
     ) {
         guard choice == .install else {
             confirmedTerminalSessionSummary = nil
@@ -220,10 +223,24 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
         guard confirmUpdateInstallAfterTerminalWarning() else {
             log.append("update install deferred after terminal session warning")
-            reply(.dismiss)
+            deferred?()
             return
         }
         reply(.install)
+    }
+
+    private func setReadyToInstallDeferredState(
+        reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void
+    ) {
+        setState(.installing(.init(
+            retryTerminatingApplication: { [weak self] in
+                self?.replyToInstallChoice(.install, reply: reply)
+            },
+            dismiss: { [weak self] in
+                self?.confirmedTerminalSessionSummary = nil
+                self?.model.setState(.idle)
+            }
+        )))
     }
 
     func runImmediateInstallAfterGate(_ install: @escaping () -> Void) {

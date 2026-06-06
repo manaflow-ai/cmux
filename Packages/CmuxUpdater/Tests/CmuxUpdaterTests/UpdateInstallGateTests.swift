@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import Sparkle
 import Testing
 @testable import CmuxUpdater
 
@@ -94,6 +95,51 @@ import Testing
         #expect(delegate.promptCount == 2)
     }
 
+    @Test func driverDefersReadyInstallWithoutDismissingSparkleWhenTerminalWarningDeclined() {
+        let summary = UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 1,
+            workspaceCount: 1,
+            terminalCount: 1,
+            runningCommandCount: 1
+        )
+        let delegate = DriverGateDelegate(summary: summary, confirmationResult: false)
+        let driver = makeDriver(delegate: delegate)
+        let recorder = UpdateChoiceRecorder()
+
+        driver.showReady(toInstallAndRelaunch: { recorder.record($0) })
+
+        #expect(recorder.snapshot().isEmpty)
+        if case .installing = driver.model.state {
+            #expect(true)
+        } else {
+            #expect(Bool(false), "declining the terminal warning should leave a retryable install state")
+        }
+    }
+
+    @Test func driverRetriesDeferredReadyInstallAfterTerminalWarningConfirmed() {
+        let summary = UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 1,
+            workspaceCount: 1,
+            terminalCount: 1,
+            runningCommandCount: 1
+        )
+        let delegate = DriverGateDelegate(summary: summary, confirmationResult: false)
+        let driver = makeDriver(delegate: delegate)
+        let recorder = UpdateChoiceRecorder()
+
+        driver.showReady(toInstallAndRelaunch: { recorder.record($0) })
+        delegate.confirmationResult = true
+
+        guard case .installing(let installing) = driver.model.state else {
+            #expect(Bool(false), "declined ready install should become retryable")
+            return
+        }
+        installing.retryTerminatingApplication()
+
+        #expect(recorder.snapshot() == [.install])
+        #expect(delegate.promptCount == 2)
+    }
+
     private func makeDriver(delegate: DriverGateDelegate) -> UpdateDriver {
         let driver = UpdateDriver(
             model: UpdateStateModel(),
@@ -117,10 +163,27 @@ private struct ImmediateUpdateClock: UpdateClock {
     func sleep(for duration: Duration) async throws {}
 }
 
+private final class UpdateChoiceRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var choices: [SPUUserUpdateChoice] = []
+
+    func record(_ choice: SPUUserUpdateChoice) {
+        lock.withLock {
+            choices.append(choice)
+        }
+    }
+
+    func snapshot() -> [SPUUserUpdateChoice] {
+        lock.withLock {
+            choices
+        }
+    }
+}
+
 @MainActor
 private final class DriverGateDelegate: UpdateActionDelegate {
     var summary: UpdateInstallGate.TerminalSessionSummary
-    let confirmationResult: Bool
+    var confirmationResult: Bool
     private(set) var promptCount = 0
     private(set) var promptedSummary: UpdateInstallGate.TerminalSessionSummary?
 
