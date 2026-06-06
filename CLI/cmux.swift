@@ -3877,8 +3877,9 @@ struct CMUXCLI {
 
         case "new-page":
             let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
-            let (titleOpt, rem1) = parseOption(pageContextOptions.remaining, name: "--title")
-            let trailingTitle = rem1.dropFirst(rem1.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            let (titleOpt, rem1) = parseOption(pageContextOptions.remainingBeforeTerminator, name: "--title")
+            let titleArgs = rem1 + pageContextOptions.terminatorAndAfter
+            let trailingTitle = titleArgs.dropFirst(titleArgs.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             let title = titleOpt ?? (trailingTitle.isEmpty ? nil : trailingTitle)
             var params: [String: Any] = [:]
             let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
@@ -3889,9 +3890,9 @@ struct CMUXCLI {
 
         case "duplicate-page":
             let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
-            let (pageOpt, rem1) = parseOption(pageContextOptions.remaining, name: "--page")
+            let (pageOpt, rem1) = parseOption(pageContextOptions.remainingBeforeTerminator, name: "--page")
             let (titleOpt, rem2) = parseOption(rem1, name: "--title")
-            let (positionalPage, titleArgs) = splitOptionalPositionalPageHandle(rem2, explicitPage: pageOpt)
+            let (positionalPage, titleArgs) = splitOptionalPositionalPageHandle(rem2 + pageContextOptions.terminatorAndAfter, explicitPage: pageOpt)
             let trailingTitle = titleArgs.dropFirst(titleArgs.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             let title = titleOpt ?? (trailingTitle.isEmpty ? nil : trailingTitle)
             var params: [String: Any] = [:]
@@ -4239,8 +4240,8 @@ struct CMUXCLI {
 
         case "close-page":
             let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
-            let (pageOpt, rem1) = parseOption(pageContextOptions.remaining, name: "--page")
-            let pageRaw = pageOpt ?? firstPositionalPageHandle(rem1)
+            let (pageOpt, rem1) = parseOption(pageContextOptions.remainingBeforeTerminator, name: "--page")
+            let pageRaw = pageOpt ?? firstPositionalPageHandle(rem1 + pageContextOptions.terminatorAndAfter)
             var params: [String: Any] = [:]
             let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
             applyPageCommandContext(pageContext, to: &params)
@@ -4264,8 +4265,8 @@ struct CMUXCLI {
 
         case "select-page":
             let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
-            let (pageOpt, rem0) = parseOption(pageContextOptions.remaining, name: "--page")
-            let pageRaw = pageOpt ?? firstPositionalPageHandle(rem0)
+            let (pageOpt, rem0) = parseOption(pageContextOptions.remainingBeforeTerminator, name: "--page")
+            let pageRaw = pageOpt ?? firstPositionalPageHandle(rem0 + pageContextOptions.terminatorAndAfter)
             guard let pageRaw else {
                 throw CLIError(message: "select-page requires --page <id|ref|index>")
             }
@@ -4314,9 +4315,9 @@ struct CMUXCLI {
 
         case "rename-page":
             let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
-            let (pageOpt, rem1) = parseOption(pageContextOptions.remaining, name: "--page")
+            let (pageOpt, rem1) = parseOption(pageContextOptions.remainingBeforeTerminator, name: "--page")
             let (positionalPage, renameTitleArgs) = splitOptionalPositionalPageHandle(
-                rem1,
+                rem1 + pageContextOptions.terminatorAndAfter,
                 explicitPage: pageOpt,
                 requiresTrailingTitle: true
             )
@@ -6803,13 +6804,13 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowOverride)
-        let (pageOpt, rem0) = parseOption(pageContextOptions.remaining, name: "--page")
+        let (pageOpt, rem0) = parseOption(pageContextOptions.remainingBeforeTerminator, name: "--page")
         let (beforeOpt, rem1) = parseOption(rem0, name: "--before")
         let (beforePageOpt, rem2) = parseOption(rem1, name: "--before-page")
         let (afterOpt, rem3) = parseOption(rem2, name: "--after")
         let (afterPageOpt, rem4) = parseOption(rem3, name: "--after-page")
         let (indexRaw, rem5) = parseOption(rem4, name: "--index")
-        let pageRaw = pageOpt ?? firstPositionalPageHandle(rem5)
+        let pageRaw = pageOpt ?? firstPositionalPageHandle(rem5 + pageContextOptions.terminatorAndAfter)
         guard let pageRaw else {
             throw CLIError(message: "reorder-page requires --page <id|ref|index>")
         }
@@ -15195,7 +15196,8 @@ struct CMUXCLI {
     private struct PageCommandContextOptions {
         let workspaceRaw: String?
         let windowRaw: String?
-        let remaining: [String]
+        let remainingBeforeTerminator: [String]
+        let terminatorAndAfter: [String]
     }
 
     private struct PageCommandContext {
@@ -15207,12 +15209,14 @@ struct CMUXCLI {
         _ args: [String],
         windowOverride: String?
     ) -> PageCommandContextOptions {
-        let (workspaceRaw, rem0) = parseOption(args, name: "--workspace")
+        let split = splitArgsAtTerminator(args)
+        let (workspaceRaw, rem0) = parseOption(split.before, name: "--workspace")
         let (windowRaw, rem1) = parseOption(rem0, name: "--window")
         return PageCommandContextOptions(
             workspaceRaw: workspaceRaw,
             windowRaw: windowRaw ?? windowOverride,
-            remaining: rem1
+            remainingBeforeTerminator: rem1,
+            terminatorAndAfter: split.terminatorAndAfter
         )
     }
 
@@ -15243,6 +15247,13 @@ struct CMUXCLI {
 
     private func positionalArgsAfterOptionalTerminator(_ args: [String]) -> [String] {
         args.first == "--" ? Array(args.dropFirst()) : args
+    }
+
+    private func splitArgsAtTerminator(_ args: [String]) -> (before: [String], terminatorAndAfter: [String]) {
+        guard let terminatorIndex = args.firstIndex(of: "--") else {
+            return (args, [])
+        }
+        return (Array(args[..<terminatorIndex]), Array(args[terminatorIndex...]))
     }
 
     private func firstPositionalPageHandle(_ args: [String]) -> String? {
