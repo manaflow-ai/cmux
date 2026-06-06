@@ -811,8 +811,7 @@ class TerminalController {
         tabManager: TabManager,
         socketPath requestedSocketPath: String,
         accessMode restartAccessMode: SocketControlMode,
-        source: String,
-        preflightReadiness: SocketListenerReadiness? = nil
+        source: String
     ) async -> Bool {
         guard !socketListenerRestartInProgress else {
             sentryBreadcrumb(
@@ -830,12 +829,7 @@ class TerminalController {
         socketListenerRestartInProgress = true
         defer { socketListenerRestartInProgress = false }
 
-        let readiness: SocketListenerReadiness
-        if let preflightReadiness {
-            readiness = preflightReadiness
-        } else {
-            readiness = await socketListenerReadiness(expectedSocketPath: requestedSocketPath, timeout: 1.0)
-        }
+        let readiness = await socketListenerReadiness(expectedSocketPath: requestedSocketPath, timeout: 1.0)
         if readiness.isReady {
             refreshSocketListenerPermissions(socketPath: requestedSocketPath, accessMode: restartAccessMode)
             sentryBreadcrumb(

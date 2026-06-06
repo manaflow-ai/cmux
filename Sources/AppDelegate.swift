@@ -3755,7 +3755,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager: tabManager,
             config: config,
             restartPath: restartPath,
-            preflightReadiness: readiness,
             source: "workspace.didWake"
         )
     }
@@ -3778,7 +3777,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager: TabManager,
         config: (mode: SocketControlMode, path: String),
         restartPath: String,
-        preflightReadiness: TerminalController.SocketListenerReadiness? = nil,
         source: String
     ) async {
         sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
@@ -3790,8 +3788,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager: tabManager,
             socketPath: restartPath,
             accessMode: config.mode,
-            source: source,
-            preflightReadiness: preflightReadiness
+            source: source
         )
     }
 
