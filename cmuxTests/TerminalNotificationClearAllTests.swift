@@ -424,9 +424,9 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         store.addNotification(
             tabId: workspace.id,
             surfaceId: firstPanelId,
-            title: "Build",
-            subtitle: "Done",
-            body: "Sibling panel notification"
+            title: "Claude Code",
+            subtitle: "Waiting",
+            body: "Claude notification on a sibling panel"
         )
 
         store.markRead(forTabId: workspace.id, surfaceId: firstPanelId)
