@@ -4472,6 +4472,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         let panel = try XCTUnwrap(
             workspace.newCodeEditorSurface(
                 inPane: paneId,
+                url: BrowserPanel.SurfaceRole.codeEditor.defaultInitialURL,
                 focus: true,
                 creationPolicy: .restoration
             )
