@@ -40,6 +40,7 @@ const sectionOrder = [
   "terminal",
   "notifications",
   "sidebar",
+  "workspaceGroups",
   "workspaceColors",
   "sidebarAppearance",
   "automation",
@@ -47,10 +48,15 @@ const sectionOrder = [
   "ui",
   "commands",
   "browser",
+  "markdown",
+  "fileEditor",
   "shortcuts",
 ] as const;
 
-const settingsFileExample = `{
+type ConfigurationTranslation = ReturnType<typeof useTranslations>;
+
+function buildSettingsFileExample(t: ConfigurationTranslation) {
+  return `{
   "$schema": "${schemaUrl}",
   "schemaVersion": 1,
 
@@ -69,17 +75,38 @@ const settingsFileExample = `{
   //   "showScrollBar": false,
   //   "copyOnSelect": true,
   //   "autoResumeAgentSessions": true,
+  //   "showTextBoxOnNewTerminals": false,
+  //   "focusTextBoxOnNewTerminals": false,
   //   "agentHibernation": {
   //     "enabled": false,
-  //     "idleSeconds": 3600,
+  //     "idleSeconds": 5,
   //     "maxLiveTerminals": 12
   //   },
   //   "textBoxMaxLines": 10
   // },
 
   // "browser": {
+  //   "defaultSearchEngine": "kagi",
+  //   // For an unlisted provider, set "defaultSearchEngine": "custom" and fill these:
+  //   "customSearchEngineName": "My Search",
+  //   "customSearchEngineURLTemplate": "https://search.example.com/?q={query}",
   //   "openTerminalLinksInCmuxBrowser": true,
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
+  // },
+
+  // "markdown": {
+  //   // ${t("exampleMarkdownFontSize")}
+  //   // ${t("exampleMarkdownFontSizeZoom")}
+  //   "fontSize": 15,
+  //   // ${t("exampleMarkdownFontFamily")}
+  //   "fontFamily": "",
+  //   // ${t("exampleMarkdownMaxWidth")}
+  //   "maxWidth": 980
+  // },
+
+  // "fileEditor": {
+  //   // ${t("exampleFileEditorWordWrap")}
+  //   "wordWrap": false
   // },
 
   // "automation": {
@@ -94,6 +121,10 @@ const settingsFileExample = `{
   //   }
   // },
 
+  // "workspaceGroups": {
+  //   "newWorkspacePlacement": "afterCurrent"
+  // },
+
   // "shortcuts": {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
@@ -103,6 +134,7 @@ const settingsFileExample = `{
   //   }
   // },
 }`;
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -116,6 +148,11 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 
 function localizedText(text: LocalizedText, locale: string) {
   return locale.startsWith("ja") ? text.ja : text.en;
+}
+
+function shortcutToConfig(shortcut: { combos: string[][]; configValue?: string }) {
+  if (shortcut.configValue) return shortcut.configValue;
+  return shortcutComboToConfig(shortcut.combos[0] ?? []);
 }
 
 function shortcutComboToConfig(combo: string[]) {
@@ -270,6 +307,8 @@ touch ~/.config/ghostty/config`}</CodeBlock>
       <DocsHeading level={2} id="example-config">{t("exampleConfig")}</DocsHeading>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`font-family = SF Mono
 font-size = 13
+sidebar-font-size = 14
+surface-tab-bar-font-size = 11
 theme = One Dark
 scrollback-limit = 50000000
 split-divider-color = #3e4451
@@ -315,7 +354,7 @@ working-directory = ~/code`}</CodeBlock>
         <a href={schemaSourceUrl}>{schemaSourceUrl}</a>.
       </p>
       <CodeBlock title="~/.config/cmux/cmux.json" lang="json">
-        {settingsFileExample}
+        {buildSettingsFileExample(t)}
       </CodeBlock>
 
       <DocsHeading level={2} id="schema-reference">Schema reference</DocsHeading>
@@ -415,7 +454,7 @@ working-directory = ~/code`}</CodeBlock>
                 </div>
                 <div className="text-sm text-muted">
                   <div className="font-medium text-foreground">Default file value</div>
-                  <code>{shortcutComboToConfig(shortcut.combos[0] ?? [])}</code>
+                  <code>{shortcutToConfig(shortcut)}</code>
                 </div>
               </div>
             ))}
