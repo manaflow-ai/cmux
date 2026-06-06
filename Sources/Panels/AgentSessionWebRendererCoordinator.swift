@@ -612,8 +612,6 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         case "provider.stop":
             try processStore.stop(sessionId: request.requiredString("sessionId"))
             return ["stopped": true]
-        case "http.request":
-            return try await AgentSessionHTTPBridge.perform(request: request)
         default:
             throw AgentSessionBridgeError.unsupportedMethod(request.method)
         }
