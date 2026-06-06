@@ -192,12 +192,19 @@ final class TerminalInputTextView: UITextView {
     /// user-configurable shortcuts. Command is created but kept out of the
     /// stack until ``applyModifierPresentation()`` inserts it for a Mac remote.
     private static let pinnedLeadingActions: [TerminalInputAccessoryAction] = [
-        .control, .alternate, .command, .zoomOut, .zoomIn,
+        .control, .alternate, .command,
     ]
 
-    /// Build (or rebuild) the bar's buttons: the pinned modifier/zoom controls
-    /// followed by the user-configurable shortcuts in their saved order. Safe to
-    /// call repeatedly; it clears the stack first.
+    /// The structural buttons pinned to the end of the bar, after the
+    /// user-configurable shortcuts. The zoom controls live here so the
+    /// high-traffic shortcuts sit directly after the modifier keys.
+    private static let pinnedTrailingActions: [TerminalInputAccessoryAction] = [
+        .zoomOut, .zoomIn,
+    ]
+
+    /// Build (or rebuild) the bar's buttons: the pinned modifier controls, the
+    /// user-configurable shortcuts in their saved order, then the pinned zoom
+    /// controls. Safe to call repeatedly; it clears the stack first.
     private func populateAccessoryActions() {
         guard let stack = accessoryStackView else { return }
         for view in stack.arrangedSubviews {
@@ -207,7 +214,9 @@ final class TerminalInputTextView: UITextView {
         commandAccessoryButton?.removeFromSuperview()
         commandAccessoryButton = nil
 
-        let actions = Self.pinnedLeadingActions + TerminalAccessoryConfiguration.shared.enabledActions
+        let actions = Self.pinnedLeadingActions
+            + TerminalAccessoryConfiguration.shared.enabledActions
+            + Self.pinnedTrailingActions
         for action in actions {
             let button = makeAccessoryButton(for: action)
             // Command is Mac-only; kept out of the stack and inserted by

@@ -2721,6 +2721,40 @@
         }
       }
     },
+    "terminal.input_accessory.title.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリア"
+          }
+        }
+      }
+    },
+    "terminal.shortcut.name.ctrlL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear (Control-L)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリア (Control-L)"
+          }
+        }
+      }
+    },
     "terminal.input_accessory.title.escape": {
       "extractionState": "manual",
       "localizations": {
