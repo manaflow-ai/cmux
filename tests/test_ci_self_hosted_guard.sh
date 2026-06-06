@@ -118,7 +118,7 @@ check_release_build_signal() {
   local section
   section="$(job_section "$CI_FILE" "release-build")"
 
-  if [[ "$section" != *"./scripts/verify-universal-macos-app.sh"* ]]; then
+  if ! grep -Eq '^[[:space:]]*\./scripts/verify-universal-macos-app\.sh([[:space:]\\]|$)' <<< "$section"; then
     echo "FAIL: release-build must verify the Release artifact through the universal app verifier"
     exit 1
   fi

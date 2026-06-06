@@ -83,7 +83,10 @@ if [ ! -x "$HELPER_PATH" ]; then
   echo "Ghostty theme picker helper not found at $HELPER_PATH" >&2
   exit 1
 fi
-./scripts/verify-universal-macos-app.sh "$APP_PATH" --label "Release app"
+./scripts/verify-universal-macos-app.sh \
+  "$APP_PATH" \
+  --label "Release app" \
+  --require-sdk-prefix "26."
 
 # --- Inject Sparkle keys ---
 echo "Injecting Sparkle keys..."
