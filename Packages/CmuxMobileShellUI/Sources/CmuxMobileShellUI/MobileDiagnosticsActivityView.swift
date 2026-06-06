@@ -3,12 +3,7 @@ import SwiftUI
 import UIKit
 
 struct MobileDiagnosticsActivityView: UIViewControllerRepresentable {
-    struct Item: Identifiable {
-        let id = UUID()
-        let text: String
-    }
-
-    let item: Item
+    let item: MobileDiagnosticsActivityItem
 
     func makeUIViewController(context _: Context) -> UIActivityViewController {
         UIActivityViewController(activityItems: [item.text], applicationActivities: nil)

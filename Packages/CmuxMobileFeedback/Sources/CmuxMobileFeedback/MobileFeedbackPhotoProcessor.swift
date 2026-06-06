@@ -9,25 +9,25 @@ public struct MobileFeedbackPhotoProcessor: Sendable {
     /// Creates a photo processor.
     public init() {}
 
-    /// Builds a bounded JPEG attachment from raw image bytes.
+    /// Builds a bounded JPEG attachment from a file-backed original image.
     ///
     /// The decode, resize, and JPEG compression loop runs in a detached task so
     /// selecting large photos does not block SwiftUI's main actor.
     ///
     /// - Parameters:
-    ///   - sourceData: Original image data loaded from PhotosPicker.
+    ///   - sourceURL: File URL for the original image.
     ///   - index: 1-based attachment index used in the generated filename.
     ///   - maximumByteCount: Per-photo byte budget.
     /// - Returns: A prepared JPEG attachment.
     public func makeAttachment(
-        from sourceData: Data,
+        fromFileAt sourceURL: URL,
         index: Int,
         maximumByteCount: Int
     ) async throws -> MobileFeedbackPhotoAttachment {
         try await Task.detached(priority: .userInitiated) {
             let boundedMaximumByteCount = max(maximumByteCount, 1)
             let jpegData = try self.optimizedJPEGData(
-                from: sourceData,
+                fromFileAt: sourceURL,
                 maximumByteCount: boundedMaximumByteCount
             )
             return MobileFeedbackPhotoAttachment(
@@ -40,15 +40,21 @@ public struct MobileFeedbackPhotoProcessor: Sendable {
     }
 
     private func optimizedJPEGData(
-        from sourceData: Data,
+        fromFileAt sourceURL: URL,
+        maximumByteCount: Int
+    ) throws -> Data {
+        guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil) else {
+            throw MobileFeedbackSubmissionError.photoReadFailed
+        }
+        return try optimizedJPEGData(from: source, maximumByteCount: maximumByteCount)
+    }
+
+    private func optimizedJPEGData(
+        from source: CGImageSource,
         maximumByteCount: Int
     ) throws -> Data {
         let maxPixelDimensions = [2_800, 2_400, 2_000, 1_600, 1_280, 1_024, 768, 640, 512]
         let compressionQualities = [0.82, 0.72, 0.62, 0.52, 0.42, 0.32]
-
-        guard let source = CGImageSourceCreateWithData(sourceData as CFData, nil) else {
-            throw MobileFeedbackSubmissionError.photoReadFailed
-        }
 
         for maxPixelDimension in maxPixelDimensions {
             let thumbnailOptions: [CFString: Any] = [

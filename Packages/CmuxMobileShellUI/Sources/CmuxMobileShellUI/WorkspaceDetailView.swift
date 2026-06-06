@@ -32,8 +32,8 @@ struct WorkspaceDetailView: View {
     #if canImport(UIKit)
     @State private var diagnosticsReport: MobileDiagnosticsReport?
     @State private var diagnosticsPreparationTask: Task<MobileDiagnosticsReport, Never>?
-    @State private var diagnosticsShareSheetItem: MobileDiagnosticsActivityView.Item?
-    @State private var pendingDiagnosticsShareSheetItem: MobileDiagnosticsActivityView.Item?
+    @State private var diagnosticsShareSheetItem: MobileDiagnosticsActivityItem?
+    @State private var pendingDiagnosticsShareSheetItem: MobileDiagnosticsActivityItem?
     @State private var isPreparingDiagnostics = false
     @State private var isFeedbackComposerPresented = false
     @State private var shouldPresentFeedbackAfterPickerDismisses = false
