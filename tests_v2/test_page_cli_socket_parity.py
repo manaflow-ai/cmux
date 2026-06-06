@@ -130,6 +130,27 @@ def main() -> int:
             )
             _must(str(created_page.get("page_title") or "") == "editor", f"new-page did not set title: {created_page}")
 
+            socket_renamed_current = c._call(
+                "page.rename",
+                {"workspace_id": workspace_id, "title": "editor-current"},
+            ) or {}
+            _must(
+                str(socket_renamed_current.get("page_id") or "") == second_page_id,
+                f"page.rename without page_id should rename the active page: {socket_renamed_current}",
+            )
+            _must(
+                str(socket_renamed_current.get("page_title") or "") == "editor-current",
+                f"page.rename without page_id did not apply title: {socket_renamed_current}",
+            )
+            socket_restored_current = c._call(
+                "page.rename",
+                {"workspace_id": workspace_id, "title": "editor"},
+            ) or {}
+            _must(
+                str(socket_restored_current.get("page_id") or "") == second_page_id,
+                f"page.rename without page_id should keep targeting the active page: {socket_restored_current}",
+            )
+
             listed = c._call("page.list", {"workspace_id": workspace_id}) or {}
             titles, selected_titles = _page_titles_and_selected(listed)
             _must(titles == ["agents", "editor"], f"page.list returned unexpected titles after create: {listed}")
