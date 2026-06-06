@@ -5670,7 +5670,7 @@ class TabManager: ObservableObject {
         if tabs.isEmpty {
             // The UI assumes each window always has at least one workspace.
             _ = addWorkspace()
-            return removed
+            return .detached(removed)
         }
         ensureAtLeastOneVisibleWorkspace()
 
