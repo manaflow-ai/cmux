@@ -163,6 +163,19 @@ import Testing
         #expect(scrubber.scrub("api_key: \"sekret-value-here\"").contains("<redacted>"))
     }
 
+    @Test func redactsFirstQueryStringSecrets() {
+        let accessTokenURL = "https://example.com/callback?access_token=abcd1234efgh&ok=1"
+        let apiKeyURL = "https://example.com/search?api_key=sekretvalue123&q=cmux"
+
+        let scrubbedAccessTokenURL = scrubber.scrub(accessTokenURL)
+        let scrubbedAPIKeyURL = scrubber.scrub(apiKeyURL)
+
+        #expect(scrubbedAccessTokenURL.contains("access_token=<redacted>"))
+        #expect(scrubbedAPIKeyURL.contains("api_key=<redacted>"))
+        #expect(!scrubbedAccessTokenURL.contains("abcd1234efgh"))
+        #expect(!scrubbedAPIKeyURL.contains("sekretvalue123"))
+    }
+
     @Test func redactsProviderPrefixedKeys() {
         #expect(scrubber.scrub("sk-abcdefghij0123456789xyz").contains("<redacted>"))
         #expect(scrubber.scrub("ghp_abcdefghij0123456789abcdef").contains("<redacted>"))
@@ -221,5 +234,25 @@ import Testing
     @Test func preservesNormalTerminalOutput() {
         let sample = "$ ls -la\ntotal 8\ndrwxr-xr-x  3 user staff   96 Jun  5 16:00 ."
         #expect(scrubber.scrub(sample) == sample)
+    }
+}
+
+@Suite struct MobileDiagnosticsOSLogReaderTests {
+    @Test func appendCappedLineStopsAtEntryLimit() {
+        var lines: [String] = []
+        var bytes = 0
+
+        #expect(MobileDiagnosticsOSLogReader.appendCappedLine("one", to: &lines, renderedBytes: &bytes, maxEntries: 1, maxBytes: 100))
+        #expect(!MobileDiagnosticsOSLogReader.appendCappedLine("two", to: &lines, renderedBytes: &bytes, maxEntries: 1, maxBytes: 100))
+        #expect(lines == ["one"])
+    }
+
+    @Test func appendCappedLineStopsAtByteLimit() {
+        var lines: [String] = []
+        var bytes = 0
+
+        #expect(MobileDiagnosticsOSLogReader.appendCappedLine("one", to: &lines, renderedBytes: &bytes, maxEntries: 10, maxBytes: 7))
+        #expect(!MobileDiagnosticsOSLogReader.appendCappedLine("three", to: &lines, renderedBytes: &bytes, maxEntries: 10, maxBytes: 7))
+        #expect(lines == ["one"])
     }
 }

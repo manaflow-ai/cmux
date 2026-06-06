@@ -19,6 +19,8 @@ internal import OSLog
 public actor MobileDiagnosticsOSLogReader {
     private let subsystems: Set<String>
     private let lookback: TimeInterval
+    private let maxEntries: Int
+    private let maxBytes: Int
 
     /// Creates an OS-log reader.
     ///
@@ -27,12 +29,19 @@ public actor MobileDiagnosticsOSLogReader {
     ///     subsystem set plus the running bundle identifier (which
     ///     ``MobileShellComposite`` logs under at runtime).
     ///   - lookback: How far back to read, in seconds. Defaults to `300` (5 min).
+    ///   - maxEntries: Maximum matching entries to include. Defaults to `200`.
+    ///   - maxBytes: Approximate UTF-8 byte budget for the formatted text.
+    ///     Defaults to `128 KiB`.
     public init(
         subsystems: Set<String> = MobileDiagnosticsOSLogReader.defaultSubsystems,
-        lookback: TimeInterval = 300
+        lookback: TimeInterval = 300,
+        maxEntries: Int = 200,
+        maxBytes: Int = 128 * 1024
     ) {
         self.subsystems = subsystems
         self.lookback = lookback
+        self.maxEntries = maxEntries
+        self.maxBytes = maxBytes
     }
 
     /// The cmux iOS OSLog subsystems, plus the running bundle identifier.
@@ -72,17 +81,40 @@ public actor MobileDiagnosticsOSLogReader {
             formatter.dateFormat = "HH:mm:ss.SSS"
 
             var lines: [String] = []
+            var renderedBytes = 0
+            var truncated = false
             for entry in entries {
                 guard let logEntry = entry as? OSLogEntryLog else { continue }
                 guard subsystems.contains(logEntry.subsystem) else { continue }
                 let time = formatter.string(from: logEntry.date)
                 let level = Self.levelLabel(logEntry.level)
                 let category = logEntry.category.isEmpty ? "-" : logEntry.category
-                lines.append("\(time) \(category) [\(level)] \(logEntry.subsystem): \(logEntry.composedMessage)")
+                let line = "\(time) \(category) [\(level)] \(logEntry.subsystem): \(logEntry.composedMessage)"
+                guard Self.appendCappedLine(
+                    line,
+                    to: &lines,
+                    renderedBytes: &renderedBytes,
+                    maxEntries: maxEntries,
+                    maxBytes: maxBytes
+                ) else {
+                    truncated = true
+                    break
+                }
             }
 
             if lines.isEmpty {
-                return "(no matching os log entries in the last \(Int(lookback))s)"
+                return truncated
+                    ? "(os log truncated before first matching entry)"
+                    : "(no matching os log entries in the last \(Int(lookback))s)"
+            }
+            if truncated {
+                _ = Self.appendCappedLine(
+                    "(os log truncated)",
+                    to: &lines,
+                    renderedBytes: &renderedBytes,
+                    maxEntries: maxEntries,
+                    maxBytes: maxBytes
+                )
             }
             return lines.joined(separator: "\n")
         } catch {
@@ -107,4 +139,24 @@ public actor MobileDiagnosticsOSLogReader {
         }
     }
     #endif
+
+    @discardableResult
+    static func appendCappedLine(
+        _ line: String,
+        to lines: inout [String],
+        renderedBytes: inout Int,
+        maxEntries: Int,
+        maxBytes: Int
+    ) -> Bool {
+        guard maxEntries > 0, maxBytes > 0 else { return false }
+        guard lines.count < maxEntries else { return false }
+        let separatorBytes = lines.isEmpty ? 0 : 1
+        let candidateBytes = line.utf8.count
+        guard renderedBytes + separatorBytes + candidateBytes <= maxBytes else {
+            return false
+        }
+        lines.append(line)
+        renderedBytes += separatorBytes + candidateBytes
+        return true
+    }
 }
