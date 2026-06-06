@@ -1,4 +1,4 @@
-import CMUXSocketPathDomain
+import CmuxSocketControl
 import Darwin
 import Foundation
 

@@ -347,6 +347,63 @@ extension AgentLaunchSanitizer {
         ]
     )
 
+    // kiro-cli flag widths for session restore. `--resume` / `-r` are boolean
+    // (resume the previous conversation from the current directory; they take
+    // no value), so they live in droppedOptions only — dropping them must not
+    // consume a following token. The session-id variant `--resume-id <id>`
+    // takes a value and is in both valueOptions and droppedOptions so the id is
+    // dropped with the flag. kiro-cli exposes no optional-value or variadic
+    // (single flag carrying multiple space-separated values) flags, so those
+    // Policy fields are intentionally omitted.
+    static let kiroPolicy = Policy(
+        valueOptions: [
+            "--agent",
+            "--delete-session",
+            "--format",
+            "-f",
+            "--resume-id",
+            "--trust-tools",
+            "--wrap"
+        ],
+        nonRestorableCommands: [
+            "agent",
+            "diagnostic",
+            "doctor",
+            "inline",
+            "integrations",
+            "issue",
+            "login",
+            "logout",
+            "mcp",
+            "settings",
+            "theme",
+            "translate",
+            "update",
+            "version",
+            "whoami"
+        ],
+        droppedOptions: [
+            "--delete-session",
+            "--format",
+            "-f",
+            "--resume",
+            "-r",
+            "--resume-id"
+        ],
+        droppedOptionPrefixes: [
+            "--delete-session=",
+            "--format=",
+            "-f=",
+            "--resume-id="
+        ],
+        rejectOptions: [
+            "--list-models",
+            "--list-sessions",
+            "--no-interactive",
+            "--resume-picker"
+        ]
+    )
+
     static let rovoDevPolicy = Policy(
         valueOptions: [
             "--config",

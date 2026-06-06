@@ -1,4 +1,7 @@
 import XCTest
+import Testing
+import CmuxTerminalCopyMode
+import CmuxSocketControl
 import AppKit
 import Darwin
 import SwiftUI
@@ -1146,6 +1149,44 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertEqual(pending.bytes, 0)
     }
 
+    func testSendNamedKeyRecognizesCtrlFForceStopChord() {
+        // Claude Code (and other raw-tty TUIs) only expose force-stop as a Ctrl-F
+        // keybinding. cmux must be able to deliver that chord to the focused terminal
+        // via a non-keyboard path, so the named-key layer has to recognize "ctrl-f".
+        // A recognized-but-undeliverable key returns `.surfaceUnavailable` on a closed
+        // surface, whereas an unrecognized key returns `.unknownKey`.
+        let panel = TerminalPanel(workspaceId: UUID())
+        panel.surface.releaseSurfaceForTesting()
+        panel.surface.beginPortalCloseLifecycle(reason: "test.closed")
+
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl-f"),
+            .surfaceUnavailable,
+            "ctrl-f must be a recognized control chord so it can be forwarded to the focused terminal."
+        )
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl+f"),
+            .surfaceUnavailable,
+            "The ctrl+f alias must resolve identically to ctrl-f."
+        )
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl-thisisnotakey"),
+            .unknownKey,
+            "An unrecognized chord must surface as .unknownKey, proving the ctrl-f result is meaningful."
+        )
+    }
+
+    func testNamedKeySendResultAcceptedReflectsDelivery() {
+        // `sendCtrlFToFocusedTerminal()` reports success from this flag, so delivery and
+        // failure cases must map correctly.
+        XCTAssertTrue(TerminalSurface.NamedKeySendResult.sent.accepted)
+        XCTAssertTrue(TerminalSurface.NamedKeySendResult.queued.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.unknownKey.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.inputQueueFull.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.surfaceUnavailable.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.processExited.accepted)
+    }
+
     func testDaemonSendWorkspaceQueuesColdControlInputInsteadOfReportingDroppedOK() throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()
@@ -1230,7 +1271,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
         XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.control]))
     }
 
-    func testJKWithoutSelectionScrollByLine() {
+    func testVimMotionsWithoutSelectionMoveCursorInsteadOfViewport() {
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
                 keyCode: 38,
@@ -1238,7 +1279,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [],
                 hasSelection: false
             ),
-            .scrollLines(1)
+            .adjustSelection(.down)
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -1247,20 +1288,83 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [],
                 hasSelection: false
             ),
-            .scrollLines(-1)
+            .adjustSelection(.up)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 4,
+                charactersIgnoringModifiers: "h",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .adjustSelection(.left)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 37,
+                charactersIgnoringModifiers: "l",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .adjustSelection(.right)
         )
     }
 
+    func testVimKeysResolveUnderNonASCIIKeyboardLayout() {
+        // Korean 2-set (두벌식) reports non-ASCII characters for physical vim keys.
+        // Copy-mode vim keys must still resolve to a
+        // cursor motion via the ASCII-capable layout fallback, without forcing the
+        // user to switch input sources. The character provider is injected so this
+        // test is deterministic and independent of the CI runner's input source.
+        let asciiProvider: (UInt16, NSEvent.ModifierFlags) -> String? = { keyCode, _ in
+            switch keyCode {
+            case 4: return "h"
+            case 38: return "j"
+            case 40: return "k"
+            case 37: return "l"
+            default: return nil
+            }
+        }
+        let cases: [(keyCode: UInt16, characters: String, move: TerminalKeyboardCopyModeSelectionMove)] = [
+            (4, "ㅗ", .left),
+            (38, "ㅓ", .down),
+            (40, "ㅏ", .up),
+            (37, "ㅣ", .right),
+        ]
+
+        for testCase in cases {
+            XCTAssertEqual(
+                terminalKeyboardCopyModeAction(
+                    keyCode: testCase.keyCode,
+                    charactersIgnoringModifiers: testCase.characters,
+                    modifierFlags: [],
+                    hasSelection: false,
+                    asciiCharacterProvider: asciiProvider
+                ),
+                .adjustSelection(testCase.move)
+            )
+        }
+    }
+
     func testCapsLockDoesNotBlockLetterMappings() {
-        XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
-                keyCode: 38,
-                charactersIgnoringModifiers: "j",
-                modifierFlags: [.capsLock],
-                hasSelection: false
-            ),
-            .scrollLines(1)
-        )
+        let cases: [(keyCode: UInt16, characters: String, move: TerminalKeyboardCopyModeSelectionMove)] = [
+            (4, "h", .left),
+            (38, "j", .down),
+            (40, "k", .up),
+            (37, "l", .right),
+        ]
+
+        for testCase in cases {
+            XCTAssertEqual(
+                terminalKeyboardCopyModeAction(
+                    keyCode: testCase.keyCode,
+                    charactersIgnoringModifiers: testCase.characters,
+                    modifierFlags: [.capsLock],
+                    hasSelection: false
+                ),
+                .adjustSelection(testCase.move)
+            )
+        }
     }
 
     func testJKWithSelectionAdjustSelection() {
@@ -1336,6 +1440,15 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 keyCode: 0,
                 charactersIgnoringModifiers: "\u{05}",
                 modifierFlags: [.control],
+                hasSelection: false
+            ),
+            .scrollLines(1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{05}",
+                modifierFlags: [.control],
                 hasSelection: true
             ),
             .adjustSelection(.down)
@@ -1399,6 +1512,15 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 keyCode: 29,
                 charactersIgnoringModifiers: "0",
                 modifierFlags: [],
+                hasSelection: false
+            ),
+            .adjustSelection(.beginningOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 29,
+                charactersIgnoringModifiers: "0",
+                modifierFlags: [],
                 hasSelection: true
             ),
             .adjustSelection(.beginningOfLine)
@@ -1411,6 +1533,15 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 hasSelection: true
             ),
             .adjustSelection(.beginningOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 21,
+                charactersIgnoringModifiers: "4",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .adjustSelection(.endOfLine)
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -1559,7 +1690,7 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
     func testCountPrefixAppliesToMotion() {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(20, chars: "3", hasSelection: false, state: &state), .consume)
-        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 3))
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.adjustSelection(.down), count: 3))
         XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
     }
 
@@ -1567,7 +1698,13 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(19, chars: "2", hasSelection: false, state: &state), .consume)
         XCTAssertEqual(resolve(29, chars: "0", hasSelection: false, state: &state), .consume)
-        XCTAssertEqual(resolve(40, chars: "k", hasSelection: false, state: &state), .perform(.scrollLines(-1), count: 20))
+        XCTAssertEqual(resolve(40, chars: "k", hasSelection: false, state: &state), .perform(.adjustSelection(.up), count: 20))
+
+        var zeroMotionState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(29, chars: "0", hasSelection: false, state: &zeroMotionState),
+            .perform(.adjustSelection(.beginningOfLine), count: 1)
+        )
 
         var selectionState = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(
@@ -1597,7 +1734,7 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
     func testPendingYankLineDoesNotSwallowNextCommand() {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &state), .consume)
-        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 1))
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.adjustSelection(.down), count: 1))
         XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
     }
 
@@ -1647,7 +1784,7 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
     func testPendingGCancelledByOtherKey() {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
-        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 1))
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.adjustSelection(.down), count: 1))
         XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
     }
 
@@ -1750,6 +1887,173 @@ final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
             ),
             23
         )
+    }
+
+    func testInitialViewportColumnUsesImePointMidpoint() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportColumn(
+                columns: 80,
+                imePointX: 5,
+                imeCellWidth: 10
+            ),
+            0
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportColumn(
+                columns: 80,
+                imePointX: 235,
+                imeCellWidth: 10,
+                leftPadding: 5
+            ),
+            23
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportColumn(
+                columns: 80,
+                imePointX: 9999,
+                imeCellWidth: 10
+            ),
+            79
+        )
+    }
+
+    func testCursorMovementReturnsScrollDeltaOnlyAtVerticalEdges() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 5, column: 3)
+        XCTAssertEqual(cursor.move(.down, count: 2, rows: 10, columns: 8), 0)
+        XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 7, column: 3))
+
+        XCTAssertEqual(cursor.move(.down, count: 4, rows: 10, columns: 8), 2)
+        XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 9, column: 3))
+
+        XCTAssertEqual(cursor.move(.up, count: 12, rows: 10, columns: 8), -3)
+        XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 0, column: 3))
+    }
+
+    func testCursorSelectionXRangeUsesCellInteriorWhenAvailable() throws {
+        let range = try XCTUnwrap(
+            terminalKeyboardCopyModeCursorSelectionXRange(
+                rectMinX: 20,
+                rectMaxX: 30,
+                boundsWidth: 100
+            )
+        )
+
+        XCTAssertEqual(range.startX, 20.5, accuracy: 0.0001)
+        XCTAssertEqual(range.endX, 29.5, accuracy: 0.0001)
+    }
+
+    func testCursorSelectionXRangeKeepsNonzeroDragAtRightEdge() throws {
+        let range = try XCTUnwrap(
+            terminalKeyboardCopyModeCursorSelectionXRange(
+                rectMinX: 99.5,
+                rectMaxX: 120,
+                boundsWidth: 100
+            )
+        )
+
+        XCTAssertEqual(range.startX, 98, accuracy: 0.0001)
+        XCTAssertEqual(range.endX, 99, accuracy: 0.0001)
+    }
+
+    func testCursorSelectionXRangeKeepsNonzeroDragForCollapsedCellWidth() throws {
+        let range = try XCTUnwrap(
+            terminalKeyboardCopyModeCursorSelectionXRange(
+                rectMinX: 50,
+                rectMaxX: 50.4,
+                boundsWidth: 100
+            )
+        )
+
+        XCTAssertEqual(range.startX, 50.2, accuracy: 0.0001)
+        XCTAssertEqual(range.endX, 51.2, accuracy: 0.0001)
+    }
+
+    func testCursorSelectionXRangeReturnsNilWhenViewCannotExpressHorizontalDrag() {
+        XCTAssertNil(
+            terminalKeyboardCopyModeCursorSelectionXRange(
+                rectMinX: 0,
+                rectMaxX: 10,
+                boundsWidth: 1
+            )
+        )
+    }
+}
+
+
+@Suite("Terminal keyboard copy mode cursor")
+struct TerminalKeyboardCopyModeCursorSwiftTests {
+    @Test func clampKeepsStoredCursorInsideResizedGrid() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 25, column: 90)
+        cursor.clamp(rows: 10, columns: 20)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 19))
+
+        cursor = TerminalKeyboardCopyModeCursor(row: -4, column: -2)
+        cursor.clamp(rows: 0, columns: 0)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 0, column: 0))
+    }
+
+    @Test func homeAndEndResetBothAxes() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 5, column: 3)
+        #expect(cursor.move(.home, count: 1, rows: 10, columns: 8) == 0)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 0, column: 0))
+
+        cursor = TerminalKeyboardCopyModeCursor(row: 5, column: 3)
+        #expect(cursor.move(.end, count: 1, rows: 10, columns: 8) == 0)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 7))
+    }
+
+    @Test func viewportScrollShiftsCursorToStayOnSameText() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 5, column: 3)
+        cursor.shiftForViewportScroll(lineDelta: 2, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 3, column: 3))
+
+        cursor.shiftForViewportScroll(lineDelta: -4, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 7, column: 3))
+    }
+
+    @Test func viewportScrollShiftClampsAtEdges() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 1, column: 99)
+        cursor.shiftForViewportScroll(lineDelta: 5, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 0, column: 7))
+
+        cursor = TerminalKeyboardCopyModeCursor(row: 8, column: -2)
+        cursor.shiftForViewportScroll(lineDelta: -5, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 0))
+    }
+
+    @Test func terminalSelectionAdjustmentKeepsEndpointAtViewportEdge() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 9, column: 3)
+        cursor.moveAfterTerminalSelectionAdjustment(.down, count: 1, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 3))
+
+        cursor = TerminalKeyboardCopyModeCursor(row: 0, column: 3)
+        cursor.moveAfterTerminalSelectionAdjustment(.up, count: 1, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 0, column: 3))
+    }
+
+    @Test func visualSelectionAnchorFollowsMovedCursor() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 8, column: 7)
+
+        let moveAction = terminalKeyboardCopyModeAction(
+            keyCode: 38,
+            charactersIgnoringModifiers: "j",
+            modifierFlags: [],
+            hasSelection: false
+        )
+        #expect(moveAction == .adjustSelection(.down))
+        if case let .adjustSelection(move)? = moveAction {
+            #expect(cursor.move(move, count: 1, rows: 20, columns: 40) == 0)
+        }
+
+        #expect(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [],
+                hasSelection: false
+            ) == .startSelection
+        )
+        #expect(cursor.clamped(rows: 20, columns: 40) == TerminalKeyboardCopyModeCursor(row: 9, column: 7))
     }
 }
 
@@ -3066,6 +3370,8 @@ final class WindowTerminalHostViewTests: XCTestCase {
 
 @MainActor
 final class GhosttySurfaceOverlayTests: XCTestCase {
+    private var surfacesToRelease: [TerminalSurface] = []
+
     private final class ScrollProbeSurfaceView: GhosttyNSView {
         private(set) var scrollWheelCallCount = 0
 
@@ -3088,6 +3394,10 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private final class KeyStatusTestWindow: NSWindow {
+        override var isKeyWindow: Bool { true }
+    }
+
     private func makeScrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {
         GhosttyScrollbar(
             c: ghostty_action_scrollbar_s(
@@ -3096,6 +3406,28 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
                 len: len
             )
         )
+    }
+
+    override func tearDown() {
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+        for surface in surfacesToRelease.reversed() {
+            surface.releaseSurfaceForTesting()
+        }
+        surfacesToRelease.removeAll()
+        super.tearDown()
+    }
+
+    private func makeTrackedTerminalSurface(
+        tabId: UUID = UUID()
+    ) -> TerminalSurface {
+        let surface = TerminalSurface(
+            tabId: tabId,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        surfacesToRelease.append(surface)
+        return surface
     }
 
     private func findEditableTextField(in view: NSView) -> NSTextField? {
@@ -3130,17 +3462,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         line: UInt = #line,
         _ condition: @escaping () -> Bool
     ) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                if Thread.isMainThread {
-                    return condition()
-                }
-                return DispatchQueue.main.sync(execute: condition)
-            },
-            object: NSObject()
-        )
-        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
-        guard result == .completed else {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        guard condition() else {
             XCTFail("Timed out waiting for \(description)", file: file, line: line)
             return false
         }
@@ -3297,12 +3626,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 
     func testPreferredScrollerStyleChangeRestoresOverlayScrollbarWidth() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
 
         let window = NSWindow(
@@ -3363,14 +3687,10 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         scrollView.scrollerStyle = .legacy
         scrollView.layoutSubtreeIfNeeded()
         let legacyContentWidth = scrollView.contentSize.width
-        XCTAssertLessThan(
-            legacyContentWidth,
-            initialContentWidth,
-            "Legacy scrollbars should reserve width in the scroll view content area"
-        )
+        XCTAssertEqual(scrollView.scrollerStyle, .legacy)
         assertPendingSurfaceWidth(
             initialSurfaceSize.width,
-            "Changing the scroll view style alone should leave the terminal grid stale until the scroller-style observer runs"
+            "Changing the scroll view style alone should leave the terminal grid unchanged until the scroller-style observer runs"
         )
 
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
@@ -3378,6 +3698,11 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         let restoredContentWidth = scrollView.contentSize.width
         XCTAssertEqual(scrollView.scrollerStyle, .overlay)
+        XCTAssertGreaterThanOrEqual(
+            restoredContentWidth,
+            legacyContentWidth,
+            "Preferred scroller style changes should not shrink terminal content when overlay scrollbars return"
+        )
         XCTAssertEqual(
             restoredContentWidth,
             initialContentWidth,
@@ -3435,57 +3760,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 
     func testSearchOverlayMountsAndUnmountsWithSearchState() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
-        XCTAssertFalse(hostedView.debugHasSearchOverlay())
-
-        let searchState = TerminalSurface.SearchState(needle: "example")
-        hostedView.setSearchOverlay(searchState: searchState)
-        waitUntil(description: "search overlay to mount") {
-            hostedView.debugHasSearchOverlay()
-        }
-        XCTAssertTrue(hostedView.debugHasSearchOverlay())
-
-        hostedView.setSearchOverlay(searchState: nil)
-        waitUntil(description: "search overlay to unmount") {
-            !hostedView.debugHasSearchOverlay()
-        }
-        XCTAssertFalse(hostedView.debugHasSearchOverlay())
-    }
-
-    func testRapidSearchOverlayToggleDoesNotLeaveStaleOverlayMounted() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-
-        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "example"))
-        hostedView.setSearchOverlay(searchState: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        XCTAssertFalse(
-            hostedView.debugHasSearchOverlay(),
-            "A stale deferred mount must not resurrect the find overlay after it closes"
-        )
-    }
-
-    func testSearchOverlayFocusesSearchFieldAfterDeferredAttach() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
             styleMask: [.titled, .closable],
@@ -3505,32 +3781,103 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(hostedView.debugHasSearchOverlay())
+
+        let searchState = TerminalSurface.SearchState(needle: "example")
+        hostedView.setSearchOverlay(searchState: searchState)
+        waitUntil(description: "search overlay to mount") {
+            hostedView.debugHasSearchOverlay()
+        }
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        hostedView.setSearchOverlay(searchState: nil)
+        waitUntil(description: "search overlay to unmount") {
+            !hostedView.debugHasSearchOverlay()
+        }
+        XCTAssertFalse(hostedView.debugHasSearchOverlay())
+    }
+
+    func testRapidSearchOverlayToggleDoesNotLeaveStaleOverlayMounted() {
+        let surface = makeTrackedTerminalSurface()
+        let hostedView = surface.hostedView
+
+        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "example"))
+        hostedView.setSearchOverlay(searchState: nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            hostedView.debugHasSearchOverlay(),
+            "A stale deferred mount must not resurrect the find overlay after it closes"
+        )
+    }
+
+    func testSearchOverlayFocusesSearchFieldAfterDeferredAttach() {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let originalTabManager = appDelegate.tabManager
+        let manager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+
+        let window = KeyStatusTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.tabManager = originalTabManager
+            AppDelegate.shared = previousAppDelegate
+            window.orderOut(nil)
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel else {
+            XCTFail("Expected initial focused terminal panel")
+            return
+        }
+
+        let surface = terminalPanel.surface
+        let hostedView = terminalPanel.hostedView
+        surfacesToRelease.append(surface)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
 
         let searchState = TerminalSurface.SearchState(needle: "")
         surface.searchState = searchState
         hostedView.setSearchOverlay(searchState: searchState)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitUntil(description: "search overlay to mount and expose field") {
+            self.findEditableTextField(in: hostedView) != nil
+        }
 
         guard let searchField = findEditableTextField(in: hostedView) else {
             XCTFail("Expected mounted find text field")
             return
         }
 
-        XCTAssertTrue(
-            firstResponderOwnsTextField(window.firstResponder, textField: searchField),
-            "Deferred search overlay attach should still move focus into the find field"
-        )
+        waitUntil(description: "search field to become first responder") {
+            self.firstResponderOwnsTextField(window.firstResponder, textField: searchField)
+        }
     }
 
     func testStartOrFocusTerminalSearchReusesExistingSearchState() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let existingSearchState = TerminalSurface.SearchState(needle: "existing")
         surface.searchState = existingSearchState
 
@@ -3552,12 +3899,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
         _ = NSApplication.shared
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
 
         let window = NSWindow(
@@ -3645,12 +3987,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
     @MainActor
     func testKeyboardCopyModeIndicatorMountsAndUnmounts() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
 
@@ -3707,12 +4044,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             return
         }
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
@@ -3738,23 +4070,26 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     func testSearchOverlayMountDoesNotRetainTerminalSurface() {
         weak var weakSurface: TerminalSurface?
 
-        let hostedView: GhosttySurfaceScrollView = {
-            let surface = TerminalSurface(
-                tabId: UUID(),
-                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                configTemplate: nil,
-                workingDirectory: nil
-            )
-            weakSurface = surface
-            let hostedView = surface.hostedView
+        var surface: TerminalSurface? = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        weakSurface = surface
+        guard let hostedView = surface?.hostedView else {
+            XCTFail("Expected hosted terminal view")
+            return
+        }
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "retain-check"))
-        return hostedView
-        }()
 
         waitUntil(description: "search overlay to mount") {
             hostedView.debugHasSearchOverlay()
         }
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        surface?.releaseSurfaceForTesting()
+        surface = nil
         waitUntil(description: "terminal surface to deallocate after search overlay mount") {
             weakSurface == nil
         }
@@ -3781,12 +4116,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         contentView.addSubview(anchorA)
         contentView.addSubview(anchorB)
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "split"))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -3820,12 +4150,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 40, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "workspace"))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -4892,6 +5217,32 @@ final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
             cmuxResolveQuicklookPathForTesting(
                 "docs/specs/2026-05-22-test.md.",
                 cwd: cwd,
+                existingPaths: [existingFile]
+            ),
+            existingFile
+        )
+    }
+
+    func testResolveTerminalOpenURLFilePathResolvesAbsoluteMarkdownPathWithTrailingDot() {
+        let existingFile = "/Users/dev/project/skills/marketing/data/lawrencecchen-tweets.md"
+
+        XCTAssertEqual(
+            cmuxResolveTerminalOpenURLFilePathForTesting(
+                "\(existingFile).",
+                cwd: "/Users/dev/project",
+                existingPaths: [existingFile]
+            ),
+            existingFile
+        )
+    }
+
+    func testResolveTerminalOpenURLFilePathResolvesQuotedAbsoluteMarkdownPathWithTrailingDot() {
+        let existingFile = "/Users/dev/project/skills/marketing/data/lawrencecchen-tweets.md"
+
+        XCTAssertEqual(
+            cmuxResolveTerminalOpenURLFilePathForTesting(
+                "\"\(existingFile).\"",
+                cwd: "/Users/dev/project",
                 existingPaths: [existingFile]
             ),
             existingFile
