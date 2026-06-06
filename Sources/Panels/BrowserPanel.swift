@@ -4639,7 +4639,13 @@ final class BrowserPanel: Panel, ObservableObject {
             shouldRenderWebView = renderInitialNavigation
             refreshWebViewLifecycleState()
             guard renderInitialNavigation else { return }
-            guard !Self.isBlankBrowserPageURL(url) else { return }
+            guard !Self.isBlankBrowserPageURL(url) else {
+                if shouldPreloadInitialNavigationInBackground {
+                    shouldPreloadInitialNavigationInBackground = false
+                    ensureBackgroundPreloadHostIfNeeded(reason: "initial-navigation")
+                }
+                return
+            }
             navigate(to: url)
         }
     }
