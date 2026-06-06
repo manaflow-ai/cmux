@@ -23,9 +23,9 @@ struct WorkspaceGhosttyThemeSelection: Codable, Equatable, Sendable {
         case let (light?, dark?):
             return "light:\(light),dark:\(dark)"
         case let (light?, nil):
-            return "light:\(light)"
+            return light
         case let (nil, dark?):
-            return "dark:\(dark)"
+            return dark
         case (nil, nil):
             return nil
         }
@@ -211,6 +211,17 @@ enum WorkspaceGhosttyThemeCatalog {
                 .appendingPathComponent("ghostty", isDirectory: true)
                 .appendingPathComponent("themes", isDirectory: true)
         )
+        if let xdgDataDirs = environment["XDG_DATA_DIRS"] {
+            for dataDir in xdgDataDirs.split(separator: ":").map(String.init) {
+                let trimmed = dataDir.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+                appendIfExisting(
+                    URL(fileURLWithPath: trimmed, isDirectory: true)
+                        .appendingPathComponent("ghostty", isDirectory: true)
+                        .appendingPathComponent("themes", isDirectory: true)
+                )
+            }
+        }
         appendIfExisting(URL(fileURLWithPath: "/Applications/Ghostty.app/Contents/Resources/ghostty/themes", isDirectory: true))
         appendIfExisting(homeExpandedURL("~/.config/ghostty/themes", environment: environment, isDirectory: true))
         appendIfExisting(homeExpandedURL("~/Library/Application Support/com.mitchellh.ghostty/themes", environment: environment, isDirectory: true))

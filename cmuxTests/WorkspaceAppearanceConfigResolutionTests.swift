@@ -72,4 +72,35 @@ final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
 
         XCTAssertEqual(resolved.backgroundColor.hexString(), "#272822")
     }
+
+    func testWorkspaceThemeSelectionPartialOverrideEmitsConcreteThemeConfig() {
+        XCTAssertEqual(
+            WorkspaceGhosttyThemeSelection(light: "Catppuccin Latte", dark: nil).configContents(),
+            "theme = Catppuccin Latte"
+        )
+        XCTAssertEqual(
+            WorkspaceGhosttyThemeSelection(light: nil, dark: "Catppuccin Mocha").configContents(),
+            "theme = Catppuccin Mocha"
+        )
+    }
+
+    func testWorkspaceThemeCatalogIncludesXDGDataDirs() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-theme-catalog-\(UUID().uuidString)", isDirectory: true)
+        let themes = root
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("themes", isDirectory: true)
+        try FileManager.default.createDirectory(at: themes, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let themeFile = themes.appendingPathComponent("XDG Test Theme", isDirectory: false)
+        try "background = #112233\n".write(to: themeFile, atomically: true, encoding: .utf8)
+
+        let names = WorkspaceGhosttyThemeCatalog.availableThemeNames(
+            environment: ["XDG_DATA_DIRS": root.path],
+            bundleResourceURL: nil
+        )
+
+        XCTAssertTrue(names.contains("XDG Test Theme"))
+    }
 }
