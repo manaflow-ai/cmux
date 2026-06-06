@@ -228,7 +228,12 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
         let request = try MobileCoreRPCClient.requestData(
             method: "terminal.input",
             params: MobileTerminalInputParams(
@@ -249,8 +254,10 @@ import Testing
         #expect(recorded.terminalID == "terminal-main")
         #expect(recorded.text == "ls")
         #expect(recorded.hasAuth)
+        // Stack auth is the sole authorization gate; the ticket-covered request
+        // carries the attach token as supplementary context alongside it.
         #expect(recorded.attachToken == "ticket-secret")
-        #expect(recorded.stackAccessToken == nil)
+        #expect(recorded.stackAccessToken == "test-stack-token")
         sendTask.cancel()
         _ = try? await sendTask.value
         await transport.close()
