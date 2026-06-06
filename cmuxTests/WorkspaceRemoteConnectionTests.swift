@@ -1,4 +1,5 @@
 import XCTest
+import CMUXAgentLaunch
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -3724,11 +3725,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["SHELL"] = "/bin/zsh"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
-        let persistedEnvironment = try XCTUnwrap(CMUXCLI(args: []).agentLaunchCommandEnvironmentForTesting(
-            environment,
-            fallbackKind: "codex",
-            cwd: "/tmp/repo"
-        ))
+        let persistedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(
+            from: environment,
+            kind: "codex"
+        )
         XCTAssertEqual(persistedEnvironment, ["CODEX_HOME": "/tmp/codex home"])
     }
 

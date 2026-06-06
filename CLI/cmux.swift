@@ -25046,21 +25046,6 @@ struct CMUXCLI {
         )
     }
 
-#if DEBUG
-    func agentLaunchCommandEnvironmentForTesting(
-        _ env: [String: String],
-        fallbackKind: String,
-        cwd: String? = nil
-    ) -> [String: String]? {
-        agentLaunchCommandFromEnvironment(
-            env,
-            fallbackPID: nil,
-            fallbackKind: fallbackKind,
-            cwd: cwd
-        )?.environment
-    }
-#endif
-
     private func publishAgentSurfaceResumeBinding(
         client: SocketClient,
         workspaceId: String,
