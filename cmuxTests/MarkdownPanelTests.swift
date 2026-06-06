@@ -757,10 +757,8 @@ final class MarkdownPanelTests: XCTestCase {
         let frame = NSRect(x: 0, y: 0, width: 420, height: 260)
         let configuration = makeMarkdownTestWebViewConfiguration()
         let coordinator = MarkdownWebRenderer.Coordinator()
-        let remoteImageHandler = MarkdownRemoteImageHoldingSchemeHandler()
         coordinator.filePath = markdownURL.path
         configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
-        configuration.setURLSchemeHandler(remoteImageHandler, forURLScheme: MarkdownWebRenderer.remoteImageURLScheme)
         let fixture = makeMarkdownTestMarkdownWebView(frame: frame, configuration: configuration)
         let webView = fixture.webView
         coordinator.webView = webView
@@ -768,7 +766,6 @@ final class MarkdownPanelTests: XCTestCase {
             webView.navigationDelegate = nil
             coordinator.webView = nil
             coordinator.cancelImageLoads()
-            remoteImageHandler.cancelOpenTasks()
             fixture.close()
         }
 
@@ -783,6 +780,7 @@ final class MarkdownPanelTests: XCTestCase {
         if let error = loadDelegate.error {
             throw error
         }
+        try await installRemoteImageLoadSuppression(in: webView)
 
         let expectedBlockedTitle = String(
             localized: "markdown.web.remoteImageBlocked",
@@ -1045,7 +1043,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(activeLoadingButtons.allSatisfy { $0["text"] as? String == expectedLoadingButton })
         XCTAssertTrue(activeLoadingButtons.allSatisfy { $0["disabled"] as? Bool == true })
 
-        remoteImageHandler.finishOpenTasks(data: Self.onePixelPNG)
+        try await dispatchRemoteImageEvent(in: webView, alts: ["Linked remote", "Duplicate linked remote"], event: "load")
         let after = try await waitForRemoteImageSnapshot(in: webView) { snapshot in
             guard let images = snapshot["images"] as? [[String: Any]],
                   let placeholders = snapshot["placeholders"] as? [String] else {
@@ -1137,7 +1135,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(autoLoadingButtons.filter { $0 == expectedOpenURLButton }.count, 1)
         XCTAssertEqual(autoLoadingButtonStates.filter { $0["loading"] as? String == "1" }.count, 1)
 
-        remoteImageHandler.cancelOpenTasks()
+        try await dispatchRemoteImageEvent(in: webView, alts: ["Auto approved remote"], event: "error")
         let autoFailed = try await waitForRemoteImageSnapshot(in: webView) { snapshot in
             guard let buttons = snapshot["buttons"] as? [String] else { return false }
             return buttons.contains(expectedLoadButton) && !buttons.contains(expectedLoadingButton)
@@ -1345,6 +1343,53 @@ final class MarkdownPanelTests: XCTestCase {
         )
     }
 
+    private func installRemoteImageLoadSuppression(in webView: WKWebView) async throws {
+        _ = try await webView.evaluateJavaScript(
+            """
+            (function() {
+              if (window.__cmuxRemoteImageLoadSuppressionInstalled) { return; }
+              window.__cmuxRemoteImageLoadSuppressionInstalled = true;
+              var originalSetAttribute = HTMLImageElement.prototype.setAttribute;
+              var originalRemoveAttribute = HTMLImageElement.prototype.removeAttribute;
+              HTMLImageElement.prototype.setAttribute = function(name, value) {
+                if (String(name || '').toLowerCase() === 'src' &&
+                    String(value || '').indexOf('cmux-remote-image://') === 0) {
+                  originalSetAttribute.call(this, 'data-cmux-test-suppressed-remote-src', String(value));
+                  return;
+                }
+                return originalSetAttribute.call(this, name, value);
+              };
+              HTMLImageElement.prototype.removeAttribute = function(name) {
+                if (String(name || '').toLowerCase() === 'src') {
+                  originalRemoveAttribute.call(this, 'data-cmux-test-suppressed-remote-src');
+                }
+                return originalRemoveAttribute.call(this, name);
+              };
+            })();
+            """
+        )
+    }
+
+    private func dispatchRemoteImageEvent(in webView: WKWebView, alts: [String], event: String) async throws {
+        let data = try JSONSerialization.data(withJSONObject: [alts, event])
+        let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
+        _ = try await webView.evaluateJavaScript(
+            """
+            (function(args) {
+              var targetAlts = args[0] || [];
+              var eventName = String(args[1] || '');
+              targetAlts.forEach(function(alt) {
+                var selector = 'img[alt="' + String(alt).replace(/["\\\\]/g, '\\\\$&') + '"]';
+                var img = document.querySelector(selector);
+                if (img) {
+                  img.dispatchEvent(new Event(eventName));
+                }
+              });
+            })(\(literal));
+            """
+        )
+    }
+
     private func evaluateScrollSnapshot(_ script: String, in webView: WKWebView) async throws -> [String: Double] {
         let result = try await webView.evaluateJavaScript(script)
         let raw = try XCTUnwrap(result as? [String: Any])
@@ -1409,10 +1454,11 @@ final class MarkdownPanelTests: XCTestCase {
             (function() {
               return {
                 images: Array.prototype.slice.call(document.querySelectorAll('img')).map(function(img) {
+                  var suppressedSrc = img.getAttribute('data-cmux-test-suppressed-remote-src') || '';
                   return {
                     alt: img.getAttribute('alt') || '',
-                    src: img.getAttribute('src') || '',
-                    currentSrc: img.currentSrc || '',
+                    src: img.getAttribute('src') || suppressedSrc,
+                    currentSrc: img.currentSrc || suppressedSrc,
                     hidden: !!img.hidden,
                     remoteSrc: img.getAttribute('data-cmux-remote-src') || ''
                   };
@@ -1663,51 +1709,5 @@ private final class MarkdownURLSchemeTaskSpy: NSObject, WKURLSchemeTask {
             didFinish: finished,
             error: receivedError
         )
-    }
-}
-
-private final class MarkdownRemoteImageHoldingSchemeHandler: NSObject, WKURLSchemeHandler {
-    private let lock = NSLock()
-    private var tasks: [ObjectIdentifier: WKURLSchemeTask] = [:]
-
-    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-        lock.lock()
-        tasks[ObjectIdentifier(urlSchemeTask as AnyObject)] = urlSchemeTask
-        lock.unlock()
-    }
-
-    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
-        lock.lock()
-        tasks[ObjectIdentifier(urlSchemeTask as AnyObject)] = nil
-        lock.unlock()
-    }
-
-    func cancelOpenTasks() {
-        lock.lock()
-        let openTasks = Array(tasks.values)
-        tasks.removeAll()
-        lock.unlock()
-        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
-        for task in openTasks {
-            task.didFailWithError(error)
-        }
-    }
-
-    func finishOpenTasks(data: Data) {
-        lock.lock()
-        let openTasks = Array(tasks.values)
-        tasks.removeAll()
-        lock.unlock()
-        for task in openTasks {
-            let response = URLResponse(
-                url: task.request.url ?? URL(string: "cmux-remote-image://image")!,
-                mimeType: "image/png",
-                expectedContentLength: data.count,
-                textEncodingName: nil
-            )
-            task.didReceive(response)
-            task.didReceive(data)
-            task.didFinish()
-        }
     }
 }
