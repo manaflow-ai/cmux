@@ -287,6 +287,13 @@ final class RemoteTmuxController {
             return .mirrored(windowId: existing)
         }
 
+        // Bail before creating a window the caller has abandoned. The socket handler
+        // runs this under a v2VmCall timeout that cancels the task on expiry, but the
+        // SSH discovery awaits above are not cancellation-aware — a slow-but-successful
+        // probe could otherwise land here after the caller already received a timeout
+        // and open an orphaned dedicated window (with live SSH/tmux behind it).
+        try Task.checkCancellation()
+
         let windowId = appDelegate.createMainWindow(shouldActivate: activateWindow)
         guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
             throw RemoteTmuxError.unreachable("could not create window")
@@ -746,12 +753,26 @@ final class RemoteTmuxController {
     func handleWindowWorkspacesClosed(workspaceIds: [UUID]) {
         guard !workspaceIds.isEmpty else { return }
         let ids = Set(workspaceIds)
+        var affectedHosts: [String: RemoteTmuxHost] = [:]
         for (key, mirror) in sessionMirrors {
             guard let workspaceId = mirror.mirroredWorkspaceId, ids.contains(workspaceId) else { continue }
+            affectedHosts[mirror.host.connectionHash] = mirror.host
             mirror.detachObserver()
             displayObserverTokens.removeValue(forKey: key)
             sessionMirrors.removeValue(forKey: key)
             connectionsByHostSession.removeValue(forKey: key)?.stop()
+        }
+        // For any host left with no live mirror or connection, close its shared SSH
+        // ControlMaster now — the dedicated-window/last-session paths already do this,
+        // and a non-dedicated `remote.tmux.mirror` window must too or the master
+        // lingers for the full ControlPersist window.
+        for (hash, host) in affectedHosts {
+            let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == hash }
+                || connectionsByHostSession.values.contains { $0.host.connectionHash == hash }
+            if !stillUsed {
+                transports.removeValue(forKey: hash)
+                RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+            }
         }
     }
 
