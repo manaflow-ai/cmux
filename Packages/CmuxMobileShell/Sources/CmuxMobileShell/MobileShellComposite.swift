@@ -889,6 +889,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
+        // A newer attempt may have started while we awaited the store read; if so,
+        // let it own the diagnostics state, flags, and reconnect work.
+        guard generation == storedMacReconnectGeneration else { return false }
         activePairedMac = mac
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
@@ -901,9 +904,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
-        // A newer attempt may have started while we awaited the store read; if so,
-        // let it own the flags rather than marking ourselves the active reconnect.
-        guard generation == storedMacReconnectGeneration else { return false }
         setHasKnownPairedMac(true, generation: generation)
         isReconnectingStoredMac = true
         await connectManualHost(name: mac.displayName ?? host, host: host, port: port)
