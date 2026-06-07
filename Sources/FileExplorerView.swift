@@ -167,8 +167,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
             let isDirectory: Bool
         }
         private var pendingInlineEdit: PendingInlineEdit?
-        /// True while an inline name field is focused; suppresses reloads that would tear it down.
-        private var isInlineEditing = false
+        // The "edit in progress" flag lives on the store (`store.isInteractivelyEditing`) so the
+        // watcher and this reload pass share one owner; the coordinator no longer keeps its own.
 
         init(
             store: FileExplorerStore,
@@ -248,7 +248,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             // visibility/layout pass below, because a relayout lets the keyboard-focus
             // coordinator re-assert first responder onto the outline view and tear down the
             // active field editor (this is what made create-then-rename lose focus after ~1s).
-            guard !isInlineEditing else { return }
+            guard !store.isInteractivelyEditing else { return }
 
             // Update empty state vs tree visibility
             containerView?.updateVisibility(
@@ -333,19 +333,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 ? String(localized: "fileExplorer.newFolder.defaultName", defaultValue: "untitled folder")
                 : String(localized: "fileExplorer.newFile.defaultName", defaultValue: "untitled")
             let name = store.uniqueName(base: base, fileExtension: "", in: target)
-            // Suspend watch-driven reloads before touching disk so the create's own FS event
-            // doesn't reload mid-edit and steal the field editor.
-            store.suppressWatcherReloads = true
             let result = isDirectory
                 ? store.createDirectory(named: name, in: target)
                 : store.createFile(named: name, in: target)
             switch result {
             case .success(let newPath):
+                // Record the pending edit; the reload below brings the new row in, and
+                // beginInlineEdit enters editing mode (gating reloads) once the row appears.
                 pendingInlineEdit = PendingInlineEdit(path: newPath, isNewItem: true, isDirectory: isDirectory)
                 store.setSelection(path: newPath)
                 store.reload()
             case .failure(let error):
-                store.suppressWatcherReloads = false
                 presentMutationError(error)
             }
         }
@@ -420,12 +418,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private func beginPendingInlineEditIfPossible(in outlineView: NSOutlineView) {
             guard let pending = pendingInlineEdit else { return }
             // Drop the pending edit if the item vanished from disk before we could focus it.
-            // Also release watcher suppression that beginCreate turned on — otherwise watch
-            // events buffer forever and the tree stops auto-refreshing until a manual reload.
+            // (Editing mode hasn't been entered yet here, so there's nothing to unwind.)
             if pending.isNewItem, !FileManager.default.fileExists(atPath: pending.path) {
                 pendingInlineEdit = nil
-                isInlineEditing = false
-                store.suppressWatcherReloads = false
                 return
             }
             guard row(forPath: pending.path, in: outlineView) != nil else { return }
@@ -435,15 +430,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         private func beginInlineEdit(context: PendingInlineEdit, in outlineView: NSOutlineView) {
             guard let row = row(forPath: context.path, in: outlineView) else { return }
-            isInlineEditing = true
-            store.suppressWatcherReloads = true
+            store.isInteractivelyEditing = true
             withProgrammaticOutlineUpdate {
                 outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             }
             outlineView.scrollRowToVisible(row)
             guard let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: true) as? FileExplorerCellView else {
-                isInlineEditing = false
-                store.suppressWatcherReloads = false
+                store.isInteractivelyEditing = false
                 return
             }
             cell.onCommitEdit = { [weak self] newName in
@@ -456,13 +449,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         private func finishInlineEdit(commit: Bool, newName: String?, context: PendingInlineEdit) {
-            isInlineEditing = false
             let trimmed = (newName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let currentName = (context.path as NSString).lastPathComponent
 
-            // Re-enable watch reloads and resync the tree; reload() reflects the rename/discard.
+            // Exit editing mode (which re-enables watch reloads) and resync the tree once the
+            // mutation below has run; reload() reflects the rename/discard.
             defer {
-                store.suppressWatcherReloads = false
+                store.isInteractivelyEditing = false
                 store.reload()
             }
 

@@ -811,12 +811,14 @@ final class FileExplorerStore: ObservableObject {
     private var directoryWatchTask: Task<Void, Never>?
     private var directoryWatchPath: String?
 
-    /// When true, filesystem-watch events are buffered instead of triggering a reload.
-    /// Set during inline name editing so a background reload doesn't tear down the field
-    /// editor. Clearing it replays a single coalesced reload if any event was missed.
-    var suppressWatcherReloads = false {
+    /// Single source of truth for "an inline name edit is in progress." While true, both the
+    /// filesystem watcher and the view's reload pass suspend reloads so the active field editor
+    /// is never torn down. Clearing it replays a single coalesced reload if any watch event was
+    /// missed in the meantime. The view reads this instead of keeping its own parallel flag, so
+    /// the reload-gating lifecycle has one owner rather than two independent mechanisms.
+    var isInteractivelyEditing = false {
         didSet {
-            guard oldValue, !suppressWatcherReloads, pendingWatcherReload else { return }
+            guard oldValue, !isInteractivelyEditing, pendingWatcherReload else { return }
             pendingWatcherReload = false
             reload()
             refreshGitStatus()
@@ -973,7 +975,7 @@ final class FileExplorerStore: ObservableObject {
             directoryWatchTask = Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
-                    if self.suppressWatcherReloads {
+                    if self.isInteractivelyEditing {
                         self.pendingWatcherReload = true
                         continue
                     }
@@ -1194,7 +1196,7 @@ final class FileExplorerStore: ObservableObject {
         do {
             try fm.createDirectory(atPath: path, withIntermediateDirectories: false)
         } catch {
-            return .failure(.underlying(error.localizedDescription))
+            return .failure(operationFailure(error))
         }
         return .success(path)
     }
@@ -1227,7 +1229,7 @@ final class FileExplorerStore: ObservableObject {
             do {
                 try fm.moveItem(atPath: path, toPath: tempPath)
             } catch {
-                return .failure(.underlying(error.localizedDescription))
+                return .failure(operationFailure(error))
             }
             do {
                 try fm.moveItem(atPath: tempPath, toPath: destination)
@@ -1239,7 +1241,7 @@ final class FileExplorerStore: ObservableObject {
             do {
                 try fm.moveItem(atPath: path, toPath: destination)
             } catch {
-                return .failure(.underlying(error.localizedDescription))
+                return .failure(operationFailure(error))
             }
         }
         repathState(from: path, to: destination)
@@ -1261,7 +1263,7 @@ final class FileExplorerStore: ObservableObject {
         do {
             try fm.copyItem(atPath: path, toPath: destination)
         } catch {
-            return .failure(.underlying(error.localizedDescription))
+            return .failure(operationFailure(error))
         }
         return .success(destination)
     }
@@ -1287,7 +1289,7 @@ final class FileExplorerStore: ObservableObject {
                 // Items before this one were already trashed — clear their state before
                 // surfacing the failure so nothing dangles pointing at removed paths.
                 clearReferences(to: trashed)
-                return .failure(.underlying(error.localizedDescription))
+                return .failure(operationFailure(error))
             }
         }
         // Clear state for every originally-selected path, including the nested ones.
@@ -1295,11 +1297,32 @@ final class FileExplorerStore: ObservableObject {
         return .success(())
     }
 
+    /// A user-safe failure for a thrown `FileManager` error. The raw error — which can carry
+    /// NSCocoa codes, errno values, or absolute paths — is logged in debug builds but never
+    /// surfaced to the user; the returned message is a generic, localized string instead.
+    private func operationFailure(_ error: Error) -> FileExplorerMutationError {
+        #if DEBUG
+        NSLog("[FileExplorer] mutation failed: \(error)")
+        #endif
+        return .underlying(String(localized: "fileExplorer.mutation.error.generic", defaultValue: "Couldn't complete the operation."))
+    }
+
     /// Removes any expansion/selection state that points at `clearedPaths` or their descendants.
+    ///
+    /// Runs in O(N + M·d): the cleared paths go into a `Set` once (M), then each candidate is
+    /// tested by walking up its own ancestors (bounded directory depth `d`) and probing the
+    /// set — instead of scanning every cleared path for every candidate (the former O(N·M)).
     private func clearReferences(to clearedPaths: [String]) {
         guard !clearedPaths.isEmpty else { return }
+        let cleared = Set(clearedPaths)
         let isClearedOrUnder: (String) -> Bool = { candidate in
-            clearedPaths.contains { candidate == $0 || candidate.hasPrefix($0 + "/") }
+            var current = candidate
+            while true {
+                if cleared.contains(current) { return true }
+                let parent = (current as NSString).deletingLastPathComponent
+                if parent == current || parent.isEmpty { return false }
+                current = parent
+            }
         }
         expandedPaths = expandedPaths.filter { !isClearedOrUnder($0) }
         selectedPaths = selectedPaths.filter { !isClearedOrUnder($0) }
@@ -1315,7 +1338,7 @@ final class FileExplorerStore: ObservableObject {
         do {
             try FileManager.default.removeItem(atPath: path)
         } catch {
-            return .failure(.underlying(error.localizedDescription))
+            return .failure(operationFailure(error))
         }
         repathState(from: path, to: nil)
         return .success(())
