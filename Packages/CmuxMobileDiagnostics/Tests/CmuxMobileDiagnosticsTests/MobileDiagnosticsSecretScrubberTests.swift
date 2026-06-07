@@ -31,6 +31,8 @@ import Testing
         #expect(scrubber.scrub("API_TOKEN='opaquevalue123'") == "API_TOKEN='<redacted>'")
         #expect(scrubber.scrub("DB_PASSWORD='hunter2longvalue'") == "DB_PASSWORD='<redacted>'")
         #expect(scrubber.scrub("AUTH=opaque-secret-123") == "AUTH=<redacted>")
+        #expect(scrubber.scrub("SECRET_KEY=django-signing-secret-1234") == "SECRET_KEY=<redacted>")
+        #expect(scrubber.scrub("DJANGO_SECRET_KEY=framework-signing-secret-1234") == "DJANGO_SECRET_KEY=<redacted>")
         #expect(scrubber.scrub("_authToken=npm_secret_value_123") == "_authToken=<redacted>")
         #expect(
             scrubber.scrub("//registry.npmjs.org/:_authToken=npm_secret_value_456")
@@ -143,6 +145,10 @@ import Testing
         let scrubbedAuthURL = scrubber.scrub(authURL)
         #expect(scrubbedAuthURL.contains("auth=<redacted>"))
         #expect(!scrubbedAuthURL.contains("opaque-secret-123"))
+        let fragmentTokenURL = "https://example.com/callback#access_token=abcd1234efgh"
+        let scrubbedFragmentTokenURL = scrubber.scrub(fragmentTokenURL)
+        #expect(scrubbedFragmentTokenURL.contains("#access_token=<redacted>"))
+        #expect(!scrubbedFragmentTokenURL.contains("abcd1234efgh"))
     }
 
     @Test func redactsStackAuthCallbackAndHeaderSecrets() {
@@ -167,6 +173,10 @@ import Testing
         #expect(scrubber.scrub("sk-abcdefghij0123456789xyz").contains("<redacted>"))
         #expect(scrubber.scrub("const key = \"sk-proj-abcdefghij0123456789xyz\"").contains("<redacted>"))
         #expect(!scrubber.scrub("const key = \"sk-proj-abcdefghij0123456789xyz\"").contains("sk-proj"))
+        let stripeSecretKey = "sk_" + "live_" + "abcdefghijklmnopqrstuvwxyz"
+        let stripeRestrictedKey = "rk_" + "live_" + "abcdefghijklmnopqrstuvwxyz"
+        #expect(scrubber.scrub(stripeSecretKey).contains("<redacted>"))
+        #expect(scrubber.scrub(stripeRestrictedKey).contains("<redacted>"))
         #expect(scrubber.scrub("ghp_abcdefghij0123456789abcdef").contains("<redacted>"))
         #expect(scrubber.scrub("github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz_abcdefghijklmno").contains("<redacted>"))
         #expect(!scrubber.scrub("github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz_abcdefghijklmno").contains("github_pat_"))

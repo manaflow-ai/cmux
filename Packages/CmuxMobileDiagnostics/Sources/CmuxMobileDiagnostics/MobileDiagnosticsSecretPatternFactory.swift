@@ -18,6 +18,7 @@ struct MobileDiagnosticsSecretPatternFactory {
             "token",
             "password",
             "passwd",
+            "secret[_-]?key",
             "secret",
             "client[_-]?secret",
             stackSecretKey,
@@ -76,9 +77,9 @@ struct MobileDiagnosticsSecretPatternFactory {
             // Quoted `token=\"...\"` / `password='...'` style values can include
             // spaces. Handle those before the unquoted rule below so the whole
             // quoted value is redacted instead of only its first word.
-            ("(?i)(?:^|[\\s\"'`({\\[,;&?])\(secretKey)\\b(\\s*[:=]\\s*\")([^\"\\r\\n]{4,})\"",
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?#])\(secretKey)\\b(\\s*[:=]\\s*\")([^\"\\r\\n]{4,})\"",
              2),
-            ("(?i)(?:^|[\\s\"'`({\\[,;&?])\(secretKey)\\b(\\s*[:=]\\s*')([^'\\r\\n]{4,})'",
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?#])\(secretKey)\\b(\\s*[:=]\\s*')([^'\\r\\n]{4,})'",
              2),
 
             // JSON or JavaScript object output, e.g.
@@ -96,7 +97,7 @@ struct MobileDiagnosticsSecretPatternFactory {
             // `stackAccessToken=` match while the trailing `\b` still rejects
             // `tokenizer=` / `mytokenstuff=`. The value capture group stays
             // group 2. Value runs until whitespace, quote, or `&`.
-            ("(?i)(?:^|[\\s\"'`({\\[,;&?])\(secretKey)\\b(\\s*[:=]\\s*[\"']?)([^\\s\"'&]{4,})",
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?#])\(secretKey)\\b(\\s*[:=]\\s*[\"']?)([^\\s\"'&]{4,})",
              2),
 
             // Connection URLs with userinfo credentials, e.g.
@@ -106,7 +107,7 @@ struct MobileDiagnosticsSecretPatternFactory {
             // Provider-prefixed keys: OpenAI `sk-...`, GitHub
             // `ghp_/gho_/ghu_/ghs_/ghr_...`, Stack `pck_/sck_...`, generic
             // `key-...`. Require a meaningful length.
-            ("\\b((?:sk|pk|rk)-[A-Za-z0-9_-]{16,})", 1),
+            ("\\b((?:sk|pk|rk)-[A-Za-z0-9_-]{16,}|(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,})", 1),
             ("\\b(github_pat_[A-Za-z0-9_]{20,})\\b", 1),
             ("\\b(gh[pousr]_[A-Za-z0-9]{20,})", 1),
             ("\\b((?:pck|sck|ssk)_[A-Za-z0-9]{16,})", 1),
