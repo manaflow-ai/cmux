@@ -2676,6 +2676,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return "===== visible terminal: (no on-screen surface) ====="
         }
         return await withCheckedContinuation { continuation in
+            let completion = VisibleSnapshotCompletion(continuation)
             // Enqueue the read before the main actor can run a teardown that
             // enqueues `ghostty_surface_free` for these same pointers. FIFO
             // ordering on `outputQueue` keeps the read ahead of any later free.
@@ -2688,7 +2689,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                         + text
                     )
                 }
-                continuation.resume(returning: built.joined(separator: "\n\n"))
+                let snapshot = built.joined(separator: "\n\n")
+                Task {
+                    await completion.resume(returning: snapshot)
+                }
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                await completion.resume(returning: "===== visible terminal: (snapshot skipped — render busy) =====")
             }
         }
     }
@@ -2728,6 +2736,20 @@ private struct VisibleSnapshotRequest: @unchecked Sendable {
     let grid: String
     let font: Int
     let surface: ghostty_surface_t
+}
+
+private actor VisibleSnapshotCompletion {
+    private var continuation: CheckedContinuation<String, Never>?
+
+    init(_ continuation: CheckedContinuation<String, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(returning value: String) {
+        guard let continuation else { return }
+        self.continuation = nil
+        continuation.resume(returning: value)
+    }
 }
 
 private final class WeakGhosttySurfaceViewBox {
