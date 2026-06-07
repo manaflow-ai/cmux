@@ -413,6 +413,20 @@ check_no_debug_xctest_self_skips() {
   echo "PASS: DEBUG-only XCTest regressions fail closed instead of skipping"
 }
 
+check_port_scanner_fd_regression_fails_closed_on_ci() {
+  local file="$ROOT_DIR/cmuxTests/PortScannerTests.swift"
+  if ! grep -Fq "hosted CI must exercise PortScanner pipe FD leak coverage" "$file"; then
+    echo "FAIL: PortScanner FD leak regression must fail closed on hosted CI when /dev/fd inspection is unavailable"
+    exit 1
+  fi
+  if ! grep -Fq 'environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true"' "$file"; then
+    echo "FAIL: PortScanner FD leak regression must explicitly distinguish hosted CI from local resource skips"
+    exit 1
+  fi
+
+  echo "PASS: PortScanner FD leak regression fails closed on hosted CI"
+}
+
 check_no_swift_test_skip_quarantines() {
   if grep -R -n -E "swift[[:space:]]+test([^|;&]*[[:space:]])--skip([[:space:]]|=)" "$ROOT_DIR/.github/workflows"; then
     echo "FAIL: workflow Swift package tests must not hide coverage with swift test --skip quarantines"
@@ -1102,6 +1116,7 @@ check_workflow_yaml_parse
 check_release_build_signal
 check_no_xctest_quarantines
 check_no_debug_xctest_self_skips
+check_port_scanner_fd_regression_fails_closed_on_ci
 check_no_swift_test_skip_quarantines
 check_vm_socket_tests_do_not_skip_ctrl_interactive
 check_vm_socket_tests_do_not_self_skip
