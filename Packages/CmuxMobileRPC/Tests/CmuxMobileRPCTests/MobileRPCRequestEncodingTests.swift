@@ -13,10 +13,10 @@ import Testing
     }
 
     private func encodedParams(
-        _ params: some MobileRPCRequestParams,
+        _ request: some MobileRPCRequest,
         expectedMethod: String
     ) throws -> NSDictionary {
-        let data = try params.requestData(id: "req-1")
+        let data = try request.requestData(id: "req-1")
         let envelope = try parsedObject(data)
         #expect(envelope["id"] as? String == "req-1")
         #expect(envelope["method"] as? String == expectedMethod)
@@ -25,20 +25,20 @@ import Testing
     }
 
     @Test func workspaceCreateKeepsEmptyParamsObject() throws {
-        let data = try MobileWorkspaceCreateParams().requestData(id: "req-1")
+        let data = try MobileWorkspaceCreateRequest().requestData(id: "req-1")
         let parsed = try parsedObject(data)
         #expect(parsed == ["id": "req-1", "method": "workspace.create", "params": [:]] as NSDictionary)
     }
 
     @Test func hostStatusKeepsEmptyParamsObject() throws {
-        let data = try MobileHostStatusParams().requestData(id: "req-1")
+        let data = try MobileHostStatusRequest().requestData(id: "req-1")
         let parsed = try parsedObject(data)
         #expect(parsed == ["id": "req-1", "method": "mobile.host.status", "params": [:]] as NSDictionary)
     }
 
     @Test func workspaceListParamsMatchLegacyScopedShape() throws {
         let params = try encodedParams(
-            MobileWorkspaceListParams(workspaceID: "ws-1", terminalID: "t-1"),
+            MobileWorkspaceListRequest(workspaceID: "ws-1", terminalID: "t-1"),
             expectedMethod: "workspace.list"
         )
         #expect(params == ["workspace_id": "ws-1", "terminal_id": "t-1"] as NSDictionary)
@@ -46,7 +46,7 @@ import Testing
 
     @Test func workspaceListParamsOmitAbsentScopeKeys() throws {
         let params = try encodedParams(
-            MobileWorkspaceListParams(),
+            MobileWorkspaceListRequest(),
             expectedMethod: "workspace.list"
         )
         #expect(params == [:] as NSDictionary)
@@ -54,7 +54,7 @@ import Testing
 
     @Test func terminalCreateParamsMatchLegacyShape() throws {
         let params = try encodedParams(
-            MobileTerminalCreateParams(workspaceID: "ws-1"),
+            MobileTerminalCreateRequest(workspaceID: "ws-1"),
             expectedMethod: "terminal.create"
         )
         #expect(params == ["workspace_id": "ws-1"] as NSDictionary)
@@ -62,7 +62,7 @@ import Testing
 
     @Test func terminalInputParamsMatchLegacyShapeWithViewport() throws {
         let params = try encodedParams(
-            MobileTerminalInputParams(
+            MobileTerminalInputRequest(
                 workspaceID: "ws-1",
                 surfaceID: "t-1",
                 text: "ls\n",
@@ -84,7 +84,7 @@ import Testing
 
     @Test func terminalInputParamsOmitUnreportedViewport() throws {
         let params = try encodedParams(
-            MobileTerminalInputParams(
+            MobileTerminalInputRequest(
                 workspaceID: "ws-1",
                 surfaceID: "t-1",
                 text: "x",
@@ -102,7 +102,7 @@ import Testing
 
     @Test func terminalScrollParamsPreserveFractionalDelta() throws {
         let params = try encodedParams(
-            MobileTerminalScrollParams(
+            MobileTerminalScrollRequest(
                 workspaceID: "ws-1",
                 surfaceID: "t-1",
                 clientID: "client-1",
@@ -124,7 +124,7 @@ import Testing
 
     @Test func terminalMouseParamsMatchLegacyShape() throws {
         let params = try encodedParams(
-            MobileTerminalMouseParams(
+            MobileTerminalMouseRequest(
                 workspaceID: "ws-1",
                 surfaceID: "t-1",
                 clientID: "client-1",
@@ -144,7 +144,7 @@ import Testing
 
     @Test func terminalViewportReportMatchesLegacyShape() throws {
         let params = try encodedParams(
-            MobileTerminalViewportParams(
+            MobileTerminalViewportRequest(
                 workspaceID: "ws-1",
                 surfaceID: "t-1",
                 clientID: "client-1",
@@ -164,7 +164,7 @@ import Testing
 
     @Test func terminalViewportClearMatchesLegacyShape() throws {
         let params = try encodedParams(
-            MobileTerminalViewportParams(
+            MobileTerminalViewportRequest(
                 workspaceID: "ws-1",
                 surfaceID: "t-1",
                 clientID: "client-1",
@@ -182,7 +182,7 @@ import Testing
 
     @Test func terminalReplayParamsMatchLegacyShape() throws {
         let params = try encodedParams(
-            MobileTerminalReplayParams(workspaceID: "ws-1", surfaceID: "t-1"),
+            MobileTerminalReplayRequest(workspaceID: "ws-1", surfaceID: "t-1"),
             expectedMethod: "mobile.terminal.replay"
         )
         #expect(params == ["workspace_id": "ws-1", "surface_id": "t-1"] as NSDictionary)
@@ -190,7 +190,7 @@ import Testing
 
     @Test func eventsSubscribeParamsMatchLegacyShape() throws {
         let params = try encodedParams(
-            MobileEventsSubscribeParams(
+            MobileEventsSubscribeRequest(
                 streamID: "stream-1",
                 topics: ["terminal.bytes", "workspace.changed"]
             ),
@@ -204,7 +204,7 @@ import Testing
 
     @Test func attachTicketCreateParamsMatchLegacyShape() throws {
         let params = try encodedParams(
-            MobileAttachTicketCreateParams(ttlSeconds: 3600, scope: "mac"),
+            MobileAttachTicketCreateRequest(ttlSeconds: 3600, scope: "mac"),
             expectedMethod: "mobile.attach_ticket.create"
         )
         #expect(params == ["ttl_seconds": 3600, "scope": "mac"] as NSDictionary)
@@ -244,7 +244,7 @@ import Testing
             ticket: ticket,
             allowsStackAuthFallback: true
         )
-        let request = try MobileTerminalInputParams(
+        let request = try MobileTerminalInputRequest(
             workspaceID: "workspace-main",
             surfaceID: "terminal-main",
             text: "ls",

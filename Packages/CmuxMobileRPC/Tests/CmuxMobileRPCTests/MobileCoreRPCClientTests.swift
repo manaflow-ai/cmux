@@ -93,13 +93,13 @@ import Testing
             ticket: ticket,
             allowsStackAuthFallback: true
         )
-        let firstRequest = try MobileTerminalInputParams(
+        let firstRequest = try MobileTerminalInputRequest(
             workspaceID: "workspace-main",
             surfaceID: "terminal-main",
             text: "first",
             clientID: "client-1"
         ).requestData(id: "first-input")
-        let queuedRequest = try MobileWorkspaceCreateParams().requestData(id: "queued-create")
+        let queuedRequest = try MobileWorkspaceCreateRequest().requestData(id: "queued-create")
 
         let firstTask = Task {
             try await client.sendRequest(firstRequest)

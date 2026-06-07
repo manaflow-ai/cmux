@@ -268,7 +268,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         do {
             _ = try await client.send(
-                MobileTerminalScrollParams(
+                MobileTerminalScrollRequest(
                     workspaceID: workspaceID.rawValue,
                     surfaceID: surfaceID,
                     clientID: clientID,
@@ -293,7 +293,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         do {
             _ = try await client.send(
-                MobileTerminalMouseParams(
+                MobileTerminalMouseRequest(
                     workspaceID: workspaceID.rawValue,
                     surfaceID: surfaceID,
                     clientID: clientID,
@@ -717,7 +717,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             allowsStackAuthFallback: true
         )
         let resultData = try await client.send(
-            MobileAttachTicketCreateParams(ttlSeconds: 3600, scope: "mac"),
+            MobileAttachTicketCreateRequest(ttlSeconds: 3600, scope: "mac"),
             timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
         )
         let response = try MobileManualAttachTicketCreateResponse.decode(resultData)
@@ -986,7 +986,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         throw lastError ?? MobileShellConnectionError.connectionClosed
     }
 
-    private struct WorkspaceListRequest {
+    private struct WorkspaceListAttempt {
         var data: Data
         var isScoped: Bool
         var preferActiveTicketTarget: Bool
@@ -1010,37 +1010,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ticket.expiresAt > now
     }
 
-    private static func initialWorkspaceListParams(for ticket: CmxAttachTicket) -> MobileWorkspaceListParams? {
+    private static func initialScopedWorkspaceListRequest(for ticket: CmxAttachTicket) -> MobileWorkspaceListRequest? {
         guard UUID(uuidString: ticket.workspaceID) != nil else {
             return nil
         }
-        var params = MobileWorkspaceListParams(workspaceID: ticket.workspaceID)
+        var request = MobileWorkspaceListRequest(workspaceID: ticket.workspaceID)
         if let terminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
            !terminalID.isEmpty {
-            params.terminalID = terminalID
+            request.terminalID = terminalID
         }
-        return params
+        return request
     }
 
-    private static func initialWorkspaceListRequests(for ticket: CmxAttachTicket) throws -> [WorkspaceListRequest] {
-        let scopedParams = initialWorkspaceListParams(for: ticket)
+    private static func initialWorkspaceListRequests(for ticket: CmxAttachTicket) throws -> [WorkspaceListAttempt] {
+        let scopedRequest = initialScopedWorkspaceListRequest(for: ticket)
         let hasAttachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
 
-        var requests: [WorkspaceListRequest] = []
+        var requests: [WorkspaceListAttempt] = []
         if hasAttachToken {
             requests.append(
-                WorkspaceListRequest(
-                    data: try MobileWorkspaceListParams().requestData(),
+                WorkspaceListAttempt(
+                    data: try MobileWorkspaceListRequest().requestData(),
                     isScoped: false,
                     preferActiveTicketTarget: true
                 )
             )
         }
 
-        if let scopedParams {
+        if let scopedRequest {
             requests.append(
-                WorkspaceListRequest(
-                    data: try scopedParams.requestData(),
+                WorkspaceListAttempt(
+                    data: try scopedRequest.requestData(),
                     isScoped: true,
                     preferActiveTicketTarget: true
                 )
@@ -1049,8 +1049,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         if requests.isEmpty {
             requests.append(
-                WorkspaceListRequest(
-                    data: try MobileWorkspaceListParams().requestData(),
+                WorkspaceListAttempt(
+                    data: try MobileWorkspaceListRequest().requestData(),
                     isScoped: false,
                     preferActiveTicketTarget: true
                 )
@@ -1090,7 +1090,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         do {
             let resultData = try await client.send(
-                MobileWorkspaceListParams(),
+                MobileWorkspaceListRequest(),
                 timeoutNanoseconds: timeoutNanoseconds ?? runtime?.pairingRequestTimeoutNanoseconds
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
@@ -1275,7 +1275,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let client = remoteClient else { return }
         let generation = connectionGeneration
         do {
-            let resultData = try await client.send(MobileWorkspaceCreateParams())
+            let resultData = try await client.send(MobileWorkspaceCreateRequest())
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
@@ -1300,7 +1300,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let generation = connectionGeneration
         do {
             let resultData = try await client.send(
-                MobileTerminalCreateParams(workspaceID: workspaceID)
+                MobileTerminalCreateRequest(workspaceID: workspaceID)
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             guard isCurrentRemoteOperation(client: client, generation: generation),
@@ -1346,17 +1346,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
             #endif
             let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-            var params = MobileTerminalInputParams(
+            var request = MobileTerminalInputRequest(
                 workspaceID: workspaceID.rawValue,
                 surfaceID: terminalID.rawValue,
                 text: text,
                 clientID: clientID
             )
             if let viewportSize = reportedViewportSizesByTerminalKey[key] {
-                params.viewportColumns = viewportSize.columns
-                params.viewportRows = viewportSize.rows
+                request.viewportColumns = viewportSize.columns
+                request.viewportRows = viewportSize.rows
             }
-            let responseData = try await client.send(params)
+            let responseData = try await client.send(request)
             guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
             handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
         } catch {
@@ -1378,7 +1378,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> Bool {
         let requestData: Data
         do {
-            requestData = try MobileEventsSubscribeParams(
+            requestData = try MobileEventsSubscribeRequest(
                 streamID: terminalEventStreamID,
                 topics: topics
             ).requestData()
@@ -1415,7 +1415,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let fallback: TerminalOutputTransport = .rawBytes
         do {
             let data = try await client.send(
-                MobileHostStatusParams(),
+                MobileHostStatusRequest(),
                 timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
             )
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
@@ -1759,7 +1759,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         do {
             let data = try await client.send(
-                MobileTerminalViewportParams(
+                MobileTerminalViewportRequest(
                     workspaceID: workspaceID.rawValue,
                     surfaceID: surfaceID,
                     clientID: clientID,
@@ -1789,7 +1789,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let id = clientID
         Task { @MainActor in
             _ = try? await client.send(
-                MobileTerminalViewportParams(
+                MobileTerminalViewportRequest(
                     workspaceID: workspaceID.rawValue,
                     surfaceID: surfaceID,
                     clientID: id,
@@ -1829,7 +1829,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             defer { self.terminalReplaySurfaceIDsInFlight.remove(surfaceID) }
             do {
                 let data = try await client.send(
-                    MobileTerminalReplayParams(
+                    MobileTerminalReplayRequest(
                         workspaceID: workspaceID.rawValue,
                         surfaceID: surfaceID
                     )
@@ -1971,7 +1971,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // "mobile.workspace.list" and "workspace.list" hit the same host
                 // handler (MobileHostService); use the canonical method every other
                 // call site already sends so the binding stays one-to-one.
-                let data = try await client.send(MobileWorkspaceListParams())
+                let data = try await client.send(MobileWorkspaceListRequest())
                 let response = try MobileSyncWorkspaceListResponse.decode(data)
                 guard self.remoteClient === client, self.connectionState == .connected else { return }
                 self.applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)

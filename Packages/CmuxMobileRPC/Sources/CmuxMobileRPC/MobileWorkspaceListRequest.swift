@@ -1,8 +1,8 @@
-/// Parameters for `workspace.list` / `mobile.workspace.list` requests.
+/// The `workspace.list` / `mobile.workspace.list` request.
 ///
 /// Both fields are optional: an unscoped list omits them from the wire entirely
 /// (absent keys, not JSON nulls), matching the legacy `[String: Any]` shape.
-public struct MobileWorkspaceListParams: MobileRPCRequestParams {
+public struct MobileWorkspaceListRequest: MobileRPCRequest {
     /// The bound JSON-RPC method name.
     public static let method = "workspace.list"
 

@@ -1,5 +1,5 @@
-/// Parameters for `mobile.attach_ticket.create` requests.
-public struct MobileAttachTicketCreateParams: MobileRPCRequestParams {
+/// The `mobile.attach_ticket.create` request.
+public struct MobileAttachTicketCreateRequest: MobileRPCRequest {
     /// The bound JSON-RPC method name.
     public static let method = "mobile.attach_ticket.create"
 

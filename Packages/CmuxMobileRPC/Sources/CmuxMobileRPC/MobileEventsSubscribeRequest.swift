@@ -1,5 +1,5 @@
-/// Parameters for `mobile.events.subscribe` requests.
-public struct MobileEventsSubscribeParams: MobileRPCRequestParams {
+/// The `mobile.events.subscribe` request.
+public struct MobileEventsSubscribeRequest: MobileRPCRequest {
     /// The bound JSON-RPC method name.
     public static let method = "mobile.events.subscribe"
 

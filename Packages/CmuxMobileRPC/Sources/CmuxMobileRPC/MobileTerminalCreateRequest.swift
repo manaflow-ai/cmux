@@ -1,5 +1,5 @@
-/// Parameters for `terminal.create` / `mobile.terminal.create` requests.
-public struct MobileTerminalCreateParams: MobileRPCRequestParams {
+/// The `terminal.create` / `mobile.terminal.create` request.
+public struct MobileTerminalCreateRequest: MobileRPCRequest {
     /// The bound JSON-RPC method name.
     public static let method = "terminal.create"
 

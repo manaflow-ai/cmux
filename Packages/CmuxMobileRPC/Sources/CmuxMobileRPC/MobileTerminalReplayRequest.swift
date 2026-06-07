@@ -1,5 +1,5 @@
-/// Parameters for `mobile.terminal.replay` requests (cold-attach/self-heal).
-public struct MobileTerminalReplayParams: MobileRPCRequestParams {
+/// The `mobile.terminal.replay` request (cold-attach/self-heal).
+public struct MobileTerminalReplayRequest: MobileRPCRequest {
     /// The bound JSON-RPC method name.
     public static let method = "mobile.terminal.replay"
 

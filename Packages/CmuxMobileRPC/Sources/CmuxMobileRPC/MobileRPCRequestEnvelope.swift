@@ -1,5 +1,5 @@
 /// The JSON-RPC request envelope `{"id", "method", "params"}` encoded by
-/// ``MobileRPCRequestParams/requestData(id:)``.
+/// ``MobileRPCRequest/requestData(id:)``.
 struct MobileRPCRequestEnvelope<Params: Encodable>: Encodable {
     /// The request id the session router keys responses by.
     let id: String

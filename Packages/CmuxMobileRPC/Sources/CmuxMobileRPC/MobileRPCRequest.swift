@@ -1,27 +1,28 @@
 public import Foundation
 
-/// Typed JSON-RPC request parameters bound one-to-one to their wire method.
+/// One typed JSON-RPC request: a wire method bound one-to-one to its payload.
 ///
-/// Each conforming type declares the single method name its payload shape is
-/// defined for, and ``requestData(id:)`` assembles the full envelope from that
-/// pair. This makes a mismatched method/params combination unrepresentable;
-/// there is no API that takes a free-form method string next to a payload.
+/// Each conforming type IS a complete request. It declares the single method
+/// name its payload shape is defined for, its stored properties encode as the
+/// `params` object, and ``requestData(id:)`` assembles the full envelope. This
+/// makes a mismatched method/params combination unrepresentable; there is no
+/// API that takes a free-form method string next to a payload.
 ///
 /// ```swift
-/// let frame = try MobileTerminalInputParams(
+/// let frame = try MobileTerminalInputRequest(
 ///     workspaceID: workspaceID,
 ///     surfaceID: surfaceID,
 ///     text: "ls\n",
 ///     clientID: clientID
 /// ).requestData()
 /// ```
-public protocol MobileRPCRequestParams: Encodable, Sendable {
-    /// The JSON-RPC method name this parameter payload belongs to.
+public protocol MobileRPCRequest: Encodable, Sendable {
+    /// The JSON-RPC method name this request is bound to.
     static var method: String { get }
 }
 
-extension MobileRPCRequestParams {
-    /// Encode this call as its JSON-RPC request frame (`{"id", "method", "params"}`).
+extension MobileRPCRequest {
+    /// Encode this request as its JSON-RPC frame (`{"id", "method", "params"}`).
     ///
     /// The wire shape matches the legacy `[String: Any]` envelopes: `params` is
     /// always present (`{}` when the payload has no fields) and optional fields
