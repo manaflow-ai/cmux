@@ -44,13 +44,16 @@ import Testing
         let password = scrubber.scrub("deploy --password=hunter2secret")
         let token = scrubber.scrub("curl --token abcdefghijklmnop https://example.test")
         let apiKey = scrubber.scrub("tool --api-key 'api-key-secret-1234'")
+        let quotedPassword = scrubber.scrub(#"deploy --password "correct horse battery staple""#)
 
         #expect(password == "deploy --password=<redacted>")
         #expect(token == "curl --token <redacted> https://example.test")
         #expect(apiKey == "tool --api-key '<redacted>'")
+        #expect(quotedPassword == #"deploy --password "<redacted>""#)
         #expect(!password.contains("hunter2secret"))
         #expect(!token.contains("abcdefghijklmnop"))
         #expect(!apiKey.contains("api-key-secret"))
+        #expect(!quotedPassword.contains("horse battery"))
     }
 
     @Test func redactsQuotedKeyValueSecretsContainingSpaces() {
@@ -246,6 +249,21 @@ import Testing
         #expect(!scrubbedEnvKey.contains(accountKey))
     }
 
+    @Test func redactsSignedURLSignatures() {
+        let s3Signature = "0123456789abcdef0123456789abcdef"
+        let azureSignature = "base64SasSignatureValue123456789"
+        let s3URL = "https://bucket.s3.amazonaws.com/file?X-Amz-Expires=60&X-Amz-Signature=\(s3Signature)"
+        let azureURL = "https://account.blob.core.windows.net/container/file?sv=2025-01-05&sig=\(azureSignature)&se=2026-06-07"
+
+        let scrubbedS3URL = scrubber.scrub(s3URL)
+        let scrubbedAzureURL = scrubber.scrub(azureURL)
+
+        #expect(scrubbedS3URL.contains("X-Amz-Signature=<redacted>"))
+        #expect(scrubbedAzureURL.contains("sig=<redacted>"))
+        #expect(!scrubbedS3URL.contains(s3Signature))
+        #expect(!scrubbedAzureURL.contains(azureSignature))
+    }
+
     @Test func redactsPrivateKeyBlocks() {
         let openSSH = """
         -----BEGIN OPENSSH PRIVATE KEY-----
@@ -275,6 +293,8 @@ import Testing
             "DB_PASSWORD=plainvalue123",
             "STACK_REFRESH_TOKEN=opaquevalue9999",
             "AWS_SECRET=plainsecret456",
+            "PGPASSWORD=postgresPassword123",
+            "MYSQL_PWD=mysqlPassword123",
             "PRIVATE_KEY=opaquePrivateKeyMaterial123",
             "JWT_PRIVATE_KEY=opaqueJwtPrivateKeyMaterial123",
             "aws_access_key_id = AKIAIOSFODNN7EXAMPLE",
@@ -286,6 +306,8 @@ import Testing
             #expect(!out.contains("plain"), "value leaked for \(sample): \(out)")
             #expect(!out.contains("abcd1234efgh"))
             #expect(!out.contains("opaquevalue9999"))
+            #expect(!out.contains("postgresPassword"))
+            #expect(!out.contains("mysqlPassword"))
             #expect(!out.contains("opaquePrivateKeyMaterial"))
             #expect(!out.contains("opaqueJwtPrivateKeyMaterial"))
             #expect(!out.contains("AKIAIOSFODNN7EXAMPLE"))

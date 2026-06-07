@@ -105,6 +105,11 @@ struct MobileDiagnosticsSecretPatternFactory {
             // Stop at the next semicolon so later non-secret fields stay visible.
             ("(?i)(\\bAccountKey\\s*=\\s*)([^;\\r\\n]{4,})", 2),
 
+            // Compact database password environment variables do not separate the
+            // secret noun from the product prefix (`PGPASSWORD`, `MYSQL_PWD`).
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?#])((?:PGPASSWORD|MYSQL_PWD)\\b\\s*[:=]\\s*[\"']?)([^\\s\"'&;]{4,})",
+             2),
+
             // Quoted `token=\"...\"` / `password='...'` style values can include
             // spaces. Handle those before the unquoted rule below so the whole
             // quoted value is redacted instead of only its first word.
@@ -123,6 +128,10 @@ struct MobileDiagnosticsSecretPatternFactory {
 
             // CLI flags in shell history and copied command output:
             // `--password=value`, `--token value`, `--api-key 'value'`.
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?#])(--\(secretKey)\\b(?:\\s*=\\s*|\\s+)\")([^\"\\r\\n]{4,})\"",
+             2),
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?#])(--\(secretKey)\\b(?:\\s*=\\s*|\\s+)')([^'\\r\\n]{4,})'",
+             2),
             ("(?i)(?:^|[\\s\"'`({\\[,;&?#])(--\(secretKey)\\b(?:\\s*=\\s*|\\s+)[\"']?)([^\\s\"'&;]{4,})",
              2),
 
@@ -139,6 +148,11 @@ struct MobileDiagnosticsSecretPatternFactory {
             // Connection URLs with userinfo credentials, e.g.
             // `postgres://user:password@host` or `redis://:password@host`.
             ("(?i)\\b([A-Za-z][A-Za-z0-9+.-]{1,32}://[^\\s/?#@]*?:)([^\\s/?#@]{4,})(@)", 2),
+
+            // Signed object URL query parameters, e.g. S3 `X-Amz-Signature` or
+            // Azure SAS `sig`, grant temporary access even when the URL has no
+            // obvious token-looking value.
+            ("(?i)([?&#](?:X-Amz-Signature|signature|sig)=)([^\\s\"'&;]{4,})", 2),
 
             // Provider-prefixed keys: OpenAI `sk-...`, GitHub
             // `ghp_/gho_/ghu_/ghs_/ghr_...`, Slack `xox...`, Stack
