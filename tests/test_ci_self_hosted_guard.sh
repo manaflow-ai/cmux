@@ -124,6 +124,20 @@ check_e2e_runner_fallbacks() {
   echo "PASS: test-e2e.yml exposes Depot runner choices, identity guard, and duplicate-queue cancellation"
 }
 
+check_ios_change_detection_covers_workflow_trigger() {
+  if ! grep -Fq '.github/workflows/test-ios.yml' "$TEST_IOS_FILE"; then
+    echo "FAIL: test-ios.yml pull_request paths must trigger when the iOS workflow changes"
+    exit 1
+  fi
+
+  if ! grep -Fq '\.github/workflows/test-ios\.yml$' "$TEST_IOS_FILE"; then
+    echo "FAIL: test-ios.yml change detector must run iOS jobs when the iOS workflow itself changes"
+    exit 1
+  fi
+
+  echo "PASS: test-ios.yml change detector covers workflow-triggered iOS changes"
+}
+
 check_e2e_recording_preflight() {
   if ! awk '
     /cmux-screen-capture-preflight\.c/ { saw_source=1 }
@@ -1035,6 +1049,7 @@ check_self_hosted_workspace_prep "$E2E_FILE" "e2e"
 
 # test-ios.yml runs app and package tests on macOS 26. Keep it on the paid
 # runner variable so PR runs do not sit behind the generic GitHub-hosted queue.
+check_ios_change_detection_covers_workflow_trigger
 check_macos_runner "$TEST_IOS_FILE" "mobile-core-package"
 check_macos_runner "$TEST_IOS_FILE" "ios-simulator"
 
