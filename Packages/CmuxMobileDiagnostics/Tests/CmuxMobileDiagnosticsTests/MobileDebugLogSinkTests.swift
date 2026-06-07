@@ -88,6 +88,21 @@ import Testing
         #expect(!result.body.contains("old session"))
     }
 
+    @Test func clearBarrierUsesFacadeIssueOrder() async {
+        let sink = MobileDebugLogSink()
+        let oldIssuedAt = ContinuousClock.now
+        let clearIssuedAt = oldIssuedAt + .nanoseconds(1)
+        let newIssuedAt = clearIssuedAt + .nanoseconds(1)
+
+        await sink.append("new session", issuedAt: newIssuedAt)
+        await sink.clear(issuedAt: clearIssuedAt)
+        await sink.append("old session", issuedAt: oldIssuedAt)
+
+        let result = await sink.snapshotWithCount()
+        #expect(result.body.contains("new session"))
+        #expect(!result.body.contains("old session"))
+    }
+
     @Test func timestampUsesInjectedClock() async {
         // A monotonic stepping clock: each read advances 1.5s from a fixed base.
         // The first read seeds `startedAt`; the second is the append time, so the
