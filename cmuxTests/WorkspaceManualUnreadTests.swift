@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Combine
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -2198,6 +2199,114 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
         XCTAssertFalse(workspace.bonsplitController.tab(initialTabId)?.showsNotificationBadge ?? true)
         XCTAssertTrue(workspace.bonsplitController.tab(splitTabId)?.showsNotificationBadge ?? false)
+    }
+
+    func testNotificationBadgeInvalidationPublisherEmitsOnlyChangedWorkspacePanel() {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+        let siblingWorkspaceId = UUID()
+        let panelId = UUID()
+        let siblingPanelId = UUID()
+        var workspaceInvalidations: [TerminalNotificationBadgeInvalidation] = []
+        var siblingInvalidations: [TerminalNotificationBadgeInvalidation] = []
+        var cancellables = Set<AnyCancellable>()
+
+        store.replaceNotificationsForTesting([])
+        store.badgeInvalidations(forTabId: workspaceId)
+            .sink { workspaceInvalidations.append($0) }
+            .store(in: &cancellables)
+        store.badgeInvalidations(forTabId: siblingWorkspaceId)
+            .sink { siblingInvalidations.append($0) }
+            .store(in: &cancellables)
+
+        let workspaceNotification = TerminalNotification(
+            id: UUID(),
+            tabId: workspaceId,
+            surfaceId: panelId,
+            title: "workspace",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: false
+        )
+        let siblingNotification = TerminalNotification(
+            id: UUID(),
+            tabId: siblingWorkspaceId,
+            surfaceId: siblingPanelId,
+            title: "sibling",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: false
+        )
+
+        store.replaceNotificationsForTesting([workspaceNotification])
+
+        XCTAssertEqual(
+            workspaceInvalidations,
+            [TerminalNotificationBadgeInvalidation(tabId: workspaceId, scope: .panelIds([panelId]))]
+        )
+        XCTAssertTrue(siblingInvalidations.isEmpty)
+
+        workspaceInvalidations.removeAll()
+        siblingInvalidations.removeAll()
+
+        store.replaceNotificationsForTesting([workspaceNotification, siblingNotification])
+
+        XCTAssertTrue(workspaceInvalidations.isEmpty)
+        XCTAssertEqual(
+            siblingInvalidations,
+            [TerminalNotificationBadgeInvalidation(tabId: siblingWorkspaceId, scope: .panelIds([siblingPanelId]))]
+        )
+    }
+
+    func testBonsplitTabPresentationSyncUpdatesOnlyRequestedPanel() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = Workspace()
+        guard let initialPanelId = workspace.focusedPanelId,
+              let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal, focus: false),
+              let initialTabId = workspace.surfaceIdFromPanelId(initialPanelId),
+              let splitTabId = workspace.surfaceIdFromPanelId(splitPanel.id) else {
+            XCTFail("Expected workspace with a split panel")
+            return
+        }
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: workspace.id,
+            surfaceId: initialPanelId,
+            title: "target",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([notification])
+
+        workspace.bonsplitController.updateTab(initialTabId, showsNotificationBadge: false)
+        workspace.bonsplitController.updateTab(splitTabId, showsNotificationBadge: true)
+
+        workspace.syncBonsplitTabPresentationState(forPanelIds: [initialPanelId])
+
+        XCTAssertTrue(workspace.bonsplitController.tab(initialTabId)?.showsNotificationBadge ?? false)
+        XCTAssertTrue(
+            workspace.bonsplitController.tab(splitTabId)?.showsNotificationBadge ?? false,
+            "Targeted sync should not walk through and repair an unrelated tab"
+        )
+
+        workspace.syncBonsplitTabPresentationStateForAllPanels()
+
+        XCTAssertFalse(workspace.bonsplitController.tab(splitTabId)?.showsNotificationBadge ?? true)
     }
 }
 

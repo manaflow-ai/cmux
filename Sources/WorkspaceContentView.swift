@@ -2,6 +2,7 @@ import SwiftUI
 import Foundation
 import AppKit
 import Bonsplit
+import Combine
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface
@@ -171,10 +172,16 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @State private var deferredThemeRefresh: DeferredThemeRefresh?
+    @State private var lastWorkspaceManualUnreadPanelIdForBadgeSync: UUID?
+    @State private var lastWorkspaceManualUnreadForBadgeSync = false
+    @State private var unreadBadgeRevision: UInt64 = 0
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
+
+    private var notificationStore: TerminalNotificationStore {
+        AppDelegate.shared?.notificationStore ?? TerminalNotificationStore.shared
+    }
 
     private var isMinimalMode: Bool {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
@@ -196,6 +203,7 @@ struct WorkspaceContentView: View {
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
+        let _ = unreadBadgeRevision
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
@@ -301,7 +309,8 @@ struct WorkspaceContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             updateAgentHibernationPresentationVisibility()
-            syncBonsplitNotificationBadges()
+            syncBonsplitNotificationBadgesForAllPanels()
+            resetWorkspaceManualUnreadBadgeSyncState()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
@@ -315,20 +324,17 @@ struct WorkspaceContentView: View {
         .onDisappear {
             workspace.setAgentHibernationAutoResumePresentationVisible(false)
         }
-        .onChange(of: notificationStore.notifications) { _, _ in
-            syncBonsplitNotificationBadges()
+        .onReceive(notificationStore.badgeInvalidations(forTabId: workspace.id)) { invalidation in
+            applyNotificationBadgeInvalidation(invalidation)
         }
-        .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
-            syncBonsplitNotificationBadges()
+        .onChange(of: workspace.manualUnreadPanelIds) { oldValue, newValue in
+            syncBonsplitNotificationBadges(forPanelIds: oldValue.symmetricDifference(newValue))
         }
-        .onChange(of: workspace.restoredUnreadPanelIds) { _, _ in
-            syncBonsplitNotificationBadges()
+        .onChange(of: workspace.restoredUnreadPanelIds) { oldValue, newValue in
+            syncBonsplitNotificationBadges(forPanelIds: oldValue.symmetricDifference(newValue))
         }
-        .onChange(of: isWorkspaceManuallyUnread) { _, _ in
-            syncBonsplitNotificationBadges()
-        }
-        .onChange(of: workspaceManualUnreadPanelId) { _, _ in
-            syncBonsplitNotificationBadges()
+        .onChange(of: workspaceManualUnreadPanelId) { oldValue, newValue in
+            syncWorkspaceManualUnreadRepresentativeChange(oldPanelId: oldValue, newPanelId: newValue)
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
@@ -360,42 +366,57 @@ struct WorkspaceContentView: View {
             .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
     }
 
-    private func syncBonsplitNotificationBadges() {
-        let manualUnread = workspace.manualUnreadPanelIds
-        let restoredUnread = workspace.restoredUnreadPanelIds
-        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
-        let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
-
-        for paneId in workspace.bonsplitController.allPaneIds {
-            for tab in workspace.bonsplitController.tabs(inPane: paneId) {
-                let panelId = workspace.panelIdFromSurfaceId(tab.id)
-                let expectedKind = panelId.flatMap { workspace.panelKind(panelId: $0) }
-                let expectedPinned = panelId.map { workspace.isPanelPinned($0) } ?? false
-                let shouldShow = panelId.map {
-                    Workspace.shouldShowUnreadIndicator(
-                        hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
-                            forTabId: workspace.id,
-                            surfaceId: $0
-                        ),
-                        hasPanelUnreadIndicator: manualUnread.contains($0) || restoredUnread.contains($0),
-                        isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
-                        isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == $0
-                    )
-                } ?? false
-                let kindUpdate: String?? = expectedKind.map { .some($0) }
-
-                if tab.showsNotificationBadge != shouldShow ||
-                    tab.isPinned != expectedPinned ||
-                    (expectedKind != nil && tab.kind != expectedKind) {
-                    workspace.bonsplitController.updateTab(
-                        tab.id,
-                        kind: kindUpdate,
-                        showsNotificationBadge: shouldShow,
-                        isPinned: expectedPinned
-                    )
-                }
-            }
+    private func applyNotificationBadgeInvalidation(_ invalidation: TerminalNotificationBadgeInvalidation) {
+        switch invalidation.scope {
+        case .panelIds(let panelIds):
+            syncBonsplitNotificationBadges(forPanelIds: panelIds)
+        case .workspaceManualUnread:
+            syncWorkspaceManualUnreadBadgeState()
         }
+    }
+
+    private func syncBonsplitNotificationBadgesForAllPanels() {
+        workspace.syncBonsplitTabPresentationStateForAllPanels()
+        bumpUnreadBadgeRevision()
+    }
+
+    private func syncBonsplitNotificationBadges(forPanelIds panelIds: Set<UUID>) {
+        guard !panelIds.isEmpty else { return }
+        workspace.syncBonsplitTabPresentationState(forPanelIds: panelIds)
+        bumpUnreadBadgeRevision()
+    }
+
+    private func resetWorkspaceManualUnreadBadgeSyncState() {
+        lastWorkspaceManualUnreadForBadgeSync = notificationStore.hasManualUnread(forTabId: workspace.id)
+        lastWorkspaceManualUnreadPanelIdForBadgeSync = workspace.representativePanelIdForWorkspaceManualUnread()
+    }
+
+    private func syncWorkspaceManualUnreadBadgeState() {
+        let wasUnread = lastWorkspaceManualUnreadForBadgeSync
+        let oldPanelId = lastWorkspaceManualUnreadPanelIdForBadgeSync
+        let isUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let newPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
+        lastWorkspaceManualUnreadForBadgeSync = isUnread
+        lastWorkspaceManualUnreadPanelIdForBadgeSync = newPanelId
+
+        var affectedPanelIds = Set<UUID>()
+        if wasUnread, let oldPanelId {
+            affectedPanelIds.insert(oldPanelId)
+        }
+        if isUnread, let newPanelId {
+            affectedPanelIds.insert(newPanelId)
+        }
+        syncBonsplitNotificationBadges(forPanelIds: affectedPanelIds)
+    }
+
+    private func syncWorkspaceManualUnreadRepresentativeChange(oldPanelId: UUID?, newPanelId: UUID?) {
+        lastWorkspaceManualUnreadPanelIdForBadgeSync = newPanelId
+        guard notificationStore.hasManualUnread(forTabId: workspace.id) else { return }
+        syncBonsplitNotificationBadges(forPanelIds: Set([oldPanelId, newPanelId].compactMap { $0 }))
+    }
+
+    private func bumpUnreadBadgeRevision() {
+        unreadBadgeRevision &+= 1
     }
 
     private var splitZoomRenderIdentity: String {
