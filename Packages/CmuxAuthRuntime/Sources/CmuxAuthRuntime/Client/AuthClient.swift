@@ -64,9 +64,18 @@ public protocol AuthClient: Sendable {
     func signOut() async throws
 }
 
+/// Convenience operations built from the required ``AuthClient`` token APIs.
 public extension AuthClient {
     /// Clear the persisted Stack session only if the client still exposes the
     /// token pair captured when sign-out began.
+    ///
+    /// Use this when a caller has already cleared local auth state and is
+    /// revoking a previously captured remote session. If another sign-in wins
+    /// that race, the token mismatch preserves the newer session.
+    ///
+    /// - Parameters:
+    ///   - expectedAccessToken: The access token observed before sign-out began.
+    ///   - expectedRefreshToken: The refresh token observed before sign-out began.
     func signOutIfCurrent(accessToken expectedAccessToken: String?, refreshToken expectedRefreshToken: String?) async throws {
         let currentAccessToken = await accessToken()
         let currentRefreshToken = await refreshToken()
