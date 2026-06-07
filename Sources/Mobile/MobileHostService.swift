@@ -299,6 +299,7 @@ final class MobileHostService {
     /// like rename/pin on the entries present here.
     nonisolated static let mobileHostCapabilities: [String] = [
         "events.v1",
+        "notification.dismiss.v1",
         "terminal.bytes.v1",
         "terminal.render_grid.v1",
         "terminal.replay.v1",

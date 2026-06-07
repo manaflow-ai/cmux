@@ -837,6 +837,28 @@ final class TerminalNotificationStore: ObservableObject {
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
+
+    /// Mobile-host event topic the Mac emits when one or more delivered
+    /// notifications are dismissed/cleared on this Mac, so an attached phone can
+    /// clear the matching banners it is mirroring. Payload carries only the
+    /// stable notification ids (`["ids": [String]]`) — never any terminal
+    /// content — so dismiss-sync is safe even with phone-forward hideContent on.
+    static let dismissedEventTopic = "notification.dismissed"
+
+    /// Forwards a dismiss/clear to any attached phone over the peer mobile-host
+    /// channel. Call only from the change-confirmed branch of a user-driven
+    /// read/clear/remove path, so the Mac→iOS→Mac echo can't loop. Session
+    /// restore / surface rebind paths must NOT call this: they reassign ids on
+    /// churn and would clear a phone banner that should persist.
+    private func emitNotificationsDismissed(ids: [String]) {
+        guard !ids.isEmpty else { return }
+        // nonisolated static fan-out; short-circuits when no phone is subscribed.
+        MobileHostService.emitEvent(
+            topic: Self.dismissedEventTopic,
+            payload: ["ids": ids]
+        )
+    }
+
     private enum AuthorizationRequestOrigin: String {
         case notificationDelivery = "notification_delivery"
         case settingsButton = "settings_button"
@@ -1542,6 +1564,11 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+            // A newer notification for this tab+surface superseded the old one and
+            // its Mac banner was just cleared; clear the superseded phone banner
+            // too. The new notification carries a different id (and APNs
+            // collapse-id), so without this the phone would stack both.
+            emitNotificationsDismissed(ids: idsToClear)
         }
         deliverNotificationSideEffects(
             notification,
@@ -1647,6 +1674,7 @@ final class TerminalNotificationStore: ObservableObject {
         updated[index].isRead = true
         notifications = updated
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
+        emitNotificationsDismissed(ids: [id.uuidString])
     }
 
     func markUnread(id: UUID) {
@@ -1684,6 +1712,7 @@ final class TerminalNotificationStore: ObservableObject {
         setWorkspaceRestoredUnread(false, forTabId: tabId)
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
+            emitNotificationsDismissed(ids: idsToClear)
         }
     }
 
@@ -1709,6 +1738,7 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+            emitNotificationsDismissed(ids: idsToClear)
         }
     }
 
@@ -1786,6 +1816,7 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+            emitNotificationsDismissed(ids: idsToClear)
         }
     }
 
@@ -1800,6 +1831,7 @@ final class TerminalNotificationStore: ObservableObject {
             clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
         }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
+        emitNotificationsDismissed(ids: [id.uuidString])
     }
 
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
@@ -1876,6 +1908,7 @@ final class TerminalNotificationStore: ObservableObject {
         CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
+        emitNotificationsDismissed(ids: ids)
     }
 
     func clearNotifications(
@@ -1908,6 +1941,7 @@ final class TerminalNotificationStore: ObservableObject {
             CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: surfaceId)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+            emitNotificationsDismissed(ids: idsToClear)
         }
     }
 
@@ -1973,6 +2007,7 @@ final class TerminalNotificationStore: ObservableObject {
             CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: nil)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+            emitNotificationsDismissed(ids: idsToClear)
         }
     }
 

@@ -1661,6 +1661,116 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    // MARK: - notification.dismiss (cross-device dismiss-sync)
+
+    /// A phone-side banner swipe routes `notification.dismiss` over the mobile
+    /// host channel and must mark the matching Mac notification *read* (banner
+    /// cleared, entry retained), mirroring a Mac-side banner swipe — NOT remove
+    /// it like the socket `notification.dismiss` verb.
+    func testMobileNotificationDismissMarksReadAndKeepsEntry() async throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        defer { store.replaceNotificationsForTesting(previousNotifications) }
+
+        let tabId = UUID()
+        let target = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: UUID(),
+            title: "Dismiss me", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_000), isRead: false
+        )
+        let sibling = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: UUID(),
+            title: "Keep me", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_001), isRead: false
+        )
+        store.replaceNotificationsForTesting([target, sibling])
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "dismiss",
+                method: "notification.dismiss",
+                params: ["notification_id": target.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any] else {
+            XCTFail("Expected notification.dismiss to succeed, got \(response)")
+            return
+        }
+        XCTAssertEqual(payload["dismissed"] as? Int, 1)
+        // markRead, not remove: both entries remain in the store.
+        XCTAssertEqual(store.notifications.first(where: { $0.id == target.id })?.isRead, true)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == sibling.id })?.isRead, false)
+        XCTAssertEqual(store.notifications.count, 2)
+    }
+
+    /// A batched Mac clear (e.g. "Mark all read" on the phone) sends an id array;
+    /// every listed notification is marked read, unknown ids are ignored.
+    func testMobileNotificationDismissAcceptsIdArrayAndIgnoresUnknownIds() async throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        defer { store.replaceNotificationsForTesting(previousNotifications) }
+
+        let tabId = UUID()
+        let first = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: UUID(),
+            title: "One", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_000), isRead: false
+        )
+        let second = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: UUID(),
+            title: "Two", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_001), isRead: false
+        )
+        store.replaceNotificationsForTesting([first, second])
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "dismiss-batch",
+                method: "notification.dismiss",
+                params: [
+                    "notification_ids": [
+                        first.id.uuidString,
+                        UUID().uuidString, // unknown id, ignored by markRead
+                        second.id.uuidString,
+                    ]
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any] else {
+            XCTFail("Expected batched notification.dismiss to succeed, got \(response)")
+            return
+        }
+        // dismissed counts real unread→read transitions: the two known unread
+        // notifications, not the ignored unknown id.
+        XCTAssertEqual(payload["dismissed"] as? Int, 2)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == first.id })?.isRead, true)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == second.id })?.isRead, true)
+    }
+
+    /// A request with no usable id is a client bug, not a silent no-op.
+    func testMobileNotificationDismissRejectsMissingId() async throws {
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "dismiss-bad",
+                method: "notification.dismiss",
+                params: ["notification_id": "not-a-uuid"],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected malformed notification.dismiss to fail, got \(response)")
+            return
+        }
+        XCTAssertEqual(error.code, "invalid_params")
+    }
+
 #if DEBUG
     func testMobileWorkspaceCreateSkipsHiddenMacSideWorkAndReturnsCreatedScopeOnly() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
