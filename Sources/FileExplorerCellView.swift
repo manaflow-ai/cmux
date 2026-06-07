@@ -2,6 +2,11 @@ import AppKit
 
 // MARK: - Cell View
 
+/// The reusable row view for a single file or folder in the explorer outline view.
+///
+/// Renders the type icon, name, an optional trailing git-status badge, and a loading
+/// spinner, and supports inline name editing (used by create and rename). Cells are
+/// recycled by `NSOutlineView`, so all per-row state is reset in ``configure(with:gitStatus:)``.
 final class FileExplorerCellView: NSTableCellView {
     private let iconView = NSImageView()
     private let nameLabel = NSTextField(labelWithString: "")
@@ -19,6 +24,7 @@ final class FileExplorerCellView: NSTableCellView {
     var onCancelEdit: (() -> Void)?
     private var isEditingName = false
 
+    /// Creates a cell with the given reuse identifier and builds its subview hierarchy.
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
         self.identifier = identifier
@@ -34,6 +40,7 @@ final class FileExplorerCellView: NSTableCellView {
     private var iconToTextConstraint: NSLayoutConstraint!
     private var loadingWidthConstraint: NSLayoutConstraint!
 
+    /// Builds the icon / name / status / spinner subviews and their Auto Layout constraints.
     private func setupViews() {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.imageScaling = .scaleProportionallyDown
@@ -107,6 +114,9 @@ final class FileExplorerCellView: NSTableCellView {
         nameLabelTrailingToStatusConstraint.isActive = false
     }
 
+    /// Populates the recycled cell for `node`, applying the current visual style, the type
+    /// icon, the loading state, and the trailing git-status badge for `gitStatus` (if any).
+    /// No-ops while the cell is mid inline-edit so the user's typing isn't clobbered.
     func configure(with node: FileExplorerNode, gitStatus: GitFileStatus? = nil) {
         assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
         // Never overwrite the field while the user is typing a name into this reused cell.
@@ -226,6 +236,7 @@ final class FileExplorerCellView: NSTableCellView {
         }
     }
 
+    /// Rebuilds the mouse-tracking area on resize so hover callbacks stay accurate.
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let existing = trackingArea {
@@ -241,10 +252,12 @@ final class FileExplorerCellView: NSTableCellView {
         trackingArea = area
     }
 
+    /// Forwards hover-begin to ``onHover`` (used to prefetch a folder's children).
     override func mouseEntered(with event: NSEvent) {
         onHover?(true)
     }
 
+    /// Forwards hover-end to ``onHover``.
     override func mouseExited(with event: NSEvent) {
         onHover?(false)
     }
@@ -290,6 +303,8 @@ final class FileExplorerCellView: NSTableCellView {
 }
 
 extension FileExplorerCellView: NSTextFieldDelegate {
+    /// Intercepts the field editor's commands during an inline edit; treats Escape as a cancel
+    /// (firing ``onCancelEdit``) and lets all other commands fall through to commit.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         guard isEditingName else { return false }
         if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
@@ -301,6 +316,8 @@ extension FileExplorerCellView: NSTextFieldDelegate {
         return false
     }
 
+    /// Commits the typed name (via ``onCommitEdit``) when the field editor ends on Enter, Tab,
+    /// or focus loss — unless an Escape cancel already tore the edit down.
     func controlTextDidEndEditing(_ obj: Notification) {
         // `cancelOperation` already tore down editing and fired `onCancelEdit`; bail out so
         // Escape doesn't also commit. Enter, Tab, and focus loss all commit the typed value.
