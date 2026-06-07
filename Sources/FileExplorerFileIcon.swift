@@ -2,8 +2,8 @@ import AppKit
 
 /// A colorful, file-type-specific icon for the file explorer.
 ///
-/// Maps a file's name (extension first, then well-known full names like
-/// `package.json` or `.gitignore`) to an SF Symbol glyph and a tint color,
+/// Maps a file's name (well-known full names like `package.json` or
+/// `.gitignore` first, then extension lookups) to an SF Symbol glyph and a tint color,
 /// in the spirit of Seti / Material icon themes. Used by the High-Density
 /// (Cursor-like) explorer style so files are distinguishable at a glance
 /// instead of all sharing one gray document glyph.
