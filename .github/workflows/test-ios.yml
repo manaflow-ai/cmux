@@ -258,7 +258,8 @@ jobs:
             local log_path="$1"
             grep -Eq "Test Suite 'Selected tests' passed|Test Suite 'cmuxUITests' passed" "$log_path" &&
               grep -Eq "Executed [1-9][0-9]* tests, with 0 failures \\(0 unexpected\\)" "$log_path" &&
-              ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)" "$log_path"
+              ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)" "$log_path" &&
+              ! grep -Eiq "Test Case '.*' skipped|with [1-9][0-9]* skipped|[1-9][0-9]* skips?"
           }
           require_executed_tests() {
             local log_path="$1"

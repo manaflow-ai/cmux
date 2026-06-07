@@ -1068,6 +1068,25 @@ check_ios_simulator_tests_require_nonzero_execution() {
   echo "PASS: test-ios.yml rejects zero-test simulator runs"
 }
 
+check_ios_simulator_cleanup_passthrough_rejects_skips() {
+  if ! awk '
+    /^[[:space:]]*- name: Run iOS simulator tests$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /selected_tests_passed_despite_xcodebuild_status\(\)/ { saw_function=1 }
+    in_step && /Test Suite '\''Selected tests'\'' passed\|Test Suite '\''cmuxUITests'\'' passed/ { saw_suite_pass=1 }
+    in_step && /Executed \[1-9\]\[0-9\]\* tests, with 0 failures/ { saw_zero_failure_guard=1 }
+    in_step && /Test Suite '\''\.\*'\'' failed\|Test Case '\''\.\*'\'' failed\|Assertion Failure\|Failing tests:/ { saw_failure_reject=1 }
+    in_step && /Test Case '\''\.\*'\'' skipped\|with \[1-9\]\[0-9\]\* skipped\|\[1-9\]\[0-9\]\* skips\?/ { saw_skip_reject=1 }
+    in_step && /selected_tests_passed_despite_xcodebuild_status "\$LOG_PATH"/ { saw_call=1 }
+    END { exit(saw_function && saw_suite_pass && saw_zero_failure_guard && saw_failure_reject && saw_skip_reject && saw_call ? 0 : 1) }
+  ' "$TEST_IOS_FILE"; then
+    echo "FAIL: test-ios.yml must not treat nonzero xcodebuild cleanup exits as success when selected iOS tests skipped"
+    exit 1
+  fi
+
+  echo "PASS: test-ios.yml cleanup pass-through rejects skipped selected iOS tests"
+}
+
 check_ios_mobile_core_package_tests_require_nonzero_execution() {
   if ! awk '
     /^[[:space:]]*- name: Run CMUXMobileCore package tests$/ { in_step=1; next }
@@ -1414,6 +1433,7 @@ check_xcodebuild_unit_step_requires_nonzero_execution "$TERMINAL_CORPUS_NIGHTLY_
 check_xcodebuild_unit_step_rejects_expected_failures "$CI_FILE" "Run unit tests"
 check_xcodebuild_unit_step_rejects_expected_failures "$COMPAT_FILE" "Run unit tests"
 check_ios_mobile_core_package_tests_require_nonzero_execution
+check_ios_simulator_cleanup_passthrough_rejects_skips
 check_tests_deriveddata_cache
 check_cached_deriveddata_prunes_module_caches
 check_ui_regression_budget
