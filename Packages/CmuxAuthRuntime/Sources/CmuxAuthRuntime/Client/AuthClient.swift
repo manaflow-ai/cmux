@@ -63,3 +63,17 @@ public protocol AuthClient: Sendable {
     /// Clear the persisted Stack session (tokens) for the current device.
     func signOut() async throws
 }
+
+public extension AuthClient {
+    /// Clear the persisted Stack session only if the client still exposes the
+    /// token pair captured when sign-out began.
+    func signOutIfCurrent(accessToken expectedAccessToken: String?, refreshToken expectedRefreshToken: String?) async throws {
+        let currentAccessToken = await accessToken()
+        let currentRefreshToken = await refreshToken()
+        guard currentAccessToken == expectedAccessToken,
+              currentRefreshToken == expectedRefreshToken else {
+            return
+        }
+        try await signOut()
+    }
+}

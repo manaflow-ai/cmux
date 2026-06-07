@@ -128,6 +128,27 @@ import Testing
         #expect(await client.refreshToken() == nil)
     }
 
+    @Test func staleSignOutDoesNotRevokeSessionCreatedDuringHook() async throws {
+        let firstUser = CMUXAuthUser(id: "u1", primaryEmail: "first@example.com", displayName: "First")
+        let secondUser = CMUXAuthUser(id: "u2", primaryEmail: "second@example.com", displayName: "Second")
+        let client = FakeAuthClient(user: firstUser)
+        let (coordinator, _) = makeCoordinator(client: client)
+        try await coordinator.signInWithPassword(email: "first@example.com", password: "pw")
+        await client.setTokens(access: "old-access", refresh: "old-refresh")
+
+        await coordinator.signOut {
+            await client.setUser(secondUser)
+            await client.setTokens(access: "new-access", refresh: "new-refresh")
+            try? await coordinator.completeExternalSignIn()
+        }
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == secondUser)
+        #expect(await client.accessToken() == "new-access")
+        #expect(await client.refreshToken() == "new-refresh")
+        #expect(await client.signOutCount == 0)
+    }
+
     @Test func signOutClearsPreviousDiagnosticsError() async {
         let (coordinator, _) = makeCoordinator(client: FakeAuthClient())
         await #expect(throws: AuthError.unauthorized) {

@@ -78,6 +78,7 @@ public final class AuthCoordinator {
     private var debugCredentials: CMUXAuthAutoLoginCredentials?
     private var bootstrapTask: Task<Void, Never>?
     private var isRevalidatingSession = false
+    private var authStateRevision: UInt64 = 0
 
     /// Creates an auth coordinator.
     ///
@@ -239,6 +240,7 @@ public final class AuthCoordinator {
             sessionCache.setHasTokens(true)
             currentUser = fixtureUser
             isAuthenticated = true
+            bumpAuthStateRevision()
             return
         }
 
@@ -450,11 +452,21 @@ public final class AuthCoordinator {
     ///   unregistration) and lives above this package. Defaults to a no-op.
     public func signOut(onSignedOut: @Sendable () async -> Void = {}) async {
         var signOutError: (any Error)?
+        let revocationAccessToken = await client.accessToken()
+        let revocationRefreshToken = await client.refreshToken()
         if launch.includesDevAuth { debugCredentials = nil }
         clearAuthState()
+        let signOutRevision = authStateRevision
         await onSignedOut()
+        guard authStateRevision == signOutRevision else {
+            authLog.info("Skipping stale sign-out token revocation after auth state changed")
+            return
+        }
         do {
-            try await client.signOut()
+            try await client.signOutIfCurrent(
+                accessToken: revocationAccessToken,
+                refreshToken: revocationRefreshToken
+            )
         } catch {
             signOutError = error
             authLog.error("Sign-out failed: \(error.localizedDescription, privacy: .private)")
@@ -589,6 +601,7 @@ public final class AuthCoordinator {
         lastAuthErrorDescription = nil
         saveCachedUser(user)
         sessionCache.setHasTokens(true)
+        bumpAuthStateRevision()
         await refreshTeams()
         await onSignedIn()
     }
@@ -634,6 +647,7 @@ public final class AuthCoordinator {
         currentUser = cachedUser
         isAuthenticated = cachedUser != nil
         isRestoringSession = false
+        bumpAuthStateRevision()
     }
 
     private func clearPersistedAuthForUITest() async {
@@ -668,6 +682,11 @@ public final class AuthCoordinator {
         currentUser = state.currentUser
         isAuthenticated = state.isAuthenticated
         isRestoringSession = state.isRestoringSession
+        bumpAuthStateRevision()
+    }
+
+    private func bumpAuthStateRevision() {
+        authStateRevision &+= 1
     }
 
     private func loadCachedUser() -> CMUXAuthUser? {
