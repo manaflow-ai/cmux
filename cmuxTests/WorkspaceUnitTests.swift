@@ -6437,6 +6437,35 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testConversationPreviewChangesUseDebouncedSidebarObservationOnly() {
+        let workspace = Workspace()
+
+        var immediatePublishCount = 0
+        let immediateCancellable = workspace.sidebarImmediateObservationPublisher.sink {
+            immediatePublishCount += 1
+        }
+        defer { immediateCancellable.cancel() }
+
+        var debouncedPublishCount = 0
+        let debouncedCancellable = workspace.sidebarObservationPublisher.sink {
+            debouncedPublishCount += 1
+        }
+        defer { debouncedCancellable.cancel() }
+
+        XCTAssertTrue(workspace.recordSubmittedMessage("please implement this"))
+
+        XCTAssertEqual(
+            immediatePublishCount,
+            0,
+            "Expected agent message previews to avoid immediate sidebar row invalidations"
+        )
+        XCTAssertGreaterThan(
+            debouncedPublishCount,
+            0,
+            "Expected agent message previews to still refresh sidebar rows through the debounced observation path"
+        )
+    }
+
     @MainActor
     func testSidebarPullRequestsTrackFocusedPanelOnly() {
         let workspace = Workspace()

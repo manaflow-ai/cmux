@@ -10631,9 +10631,6 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($customDescription),
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
-            sidebarObservationSignal($latestConversationMessage),
-            sidebarObservationSignal($latestSubmittedMessage),
-            sidebarObservationSignal($latestSubmittedAt),
         ]
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
@@ -10652,6 +10649,9 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($panelDirectories),
             sidebarObservationSignal($statusEntries),
             sidebarObservationSignal($metadataBlocks),
+            sidebarObservationSignal($latestConversationMessage),
+            sidebarObservationSignal($latestSubmittedMessage),
+            sidebarObservationSignal($latestSubmittedAt),
             sidebarObservationSignal($logEntries),
             sidebarObservationSignal($progress),
             sidebarObservationSignal($gitBranch),
