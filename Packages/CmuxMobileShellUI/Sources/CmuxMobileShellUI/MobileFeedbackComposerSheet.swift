@@ -94,6 +94,7 @@ struct MobileFeedbackComposerSheet: View {
             await applyInitialEmailIfNeeded()
             await ensureDiagnosticsReport()
         }
+        .interactiveDismissDisabled(isSubmitting)
         .onChange(of: selectedPhotoItems) { _, newItems in
             guard newItems.isEmpty == false else { return }
             Task { await loadSelectedPhotos(newItems) }
