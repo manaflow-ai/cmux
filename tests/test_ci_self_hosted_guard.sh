@@ -413,6 +413,66 @@ check_no_debug_xctest_self_skips() {
   echo "PASS: DEBUG-only XCTest regressions fail closed instead of skipping"
 }
 
+check_ui_expected_failures_are_activation_scoped() {
+  local failed=0
+  while IFS= read -r -d '' file; do
+    local option_vars=" "
+    local non_strict_vars=" "
+    local line line_no=0
+    while IFS= read -r line; do
+      line_no=$((line_no + 1))
+      if [[ "$line" == *"XCTExpectedFailure.Options()"* ]]; then
+        local options_var
+        options_var="$(printf '%s\n' "$line" | sed -nE 's/.*let[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=.*/\1/p')"
+        if [ -n "$options_var" ]; then
+          option_vars="$option_vars$options_var "
+        fi
+      fi
+
+      if [[ "$line" == *".isStrict"* && "$line" == *"false"* ]]; then
+        local strict_var
+        strict_var="$(printf '%s\n' "$line" | sed -nE 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)\.isStrict[[:space:]]*=[[:space:]]*false.*/\1/p')"
+        if [ -n "$strict_var" ]; then
+          non_strict_vars="$non_strict_vars$strict_var "
+        fi
+      fi
+
+      if [[ "$line" == *"XCTExpectFailure("* ]]; then
+        local parsed message options_name
+        parsed="$(printf '%s\n' "$line" | sed -nE 's/.*XCTExpectFailure\("([^"]+)",[[:space:]]*options:[[:space:]]*([A-Za-z_][A-Za-z0-9_]*).*/\1	\2/p')"
+        if [ -z "$parsed" ]; then
+          printf '%s:%s: unsupported XCTExpectFailure shape: %s\n' "$file" "$line_no" "$line"
+          failed=1
+          continue
+        fi
+        IFS=$'\t' read -r message options_name <<< "$parsed"
+        case "$message" in
+          "App activation may fail on headless CI runners" | \
+          "App activation may fail on headless GUI runners" | \
+          "Headless CI may launch the app without foreground activation" | \
+          "App could not be foregrounded on this runner")
+            ;;
+          *)
+            printf '%s:%s: unsupported XCTExpectFailure message: %s\n' "$file" "$line_no" "$message"
+            failed=1
+            ;;
+        esac
+        if [[ "$option_vars" != *" $options_name "* || "$non_strict_vars" != *" $options_name "* ]]; then
+          printf '%s:%s: XCTExpectFailure options must be declared and set isStrict=false: %s\n' "$file" "$line_no" "$line"
+          failed=1
+        fi
+      fi
+    done < "$file"
+  done < <(find "$ROOT_DIR/cmuxUITests" -name '*.swift' -print0)
+
+  if [ "$failed" -ne 0 ]; then
+    echo "FAIL: UI expected failures must stay non-strict and scoped to headless launch/activation only"
+    exit 1
+  fi
+
+  echo "PASS: UI expected failures stay non-strict and scoped to headless launch/activation"
+}
+
 check_port_scanner_fd_regression_fails_closed_on_ci() {
   local file="$ROOT_DIR/cmuxTests/PortScannerTests.swift"
   if ! grep -Fq "hosted CI must exercise PortScanner pipe FD leak coverage" "$file"; then
@@ -1324,6 +1384,7 @@ check_workflow_yaml_parse
 check_release_build_signal
 check_no_xctest_quarantines
 check_no_debug_xctest_self_skips
+check_ui_expected_failures_are_activation_scoped
 check_port_scanner_fd_regression_fails_closed_on_ci
 check_cmux_config_icon_fixture_fails_closed
 check_ssh_fish_shell_regression_fails_closed_on_ci
