@@ -29,6 +29,7 @@ struct PairingView: View {
     @State private var host = UITestConfig.addDeviceHost ?? ""
     @State private var port = UITestConfig.addDevicePort ?? "\(CmxMobileDefaults.defaultHostPort)"
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.analytics) private var analytics
     @State private var validationError: String?
     @State private var isPairing = false
     @State private var pairingTaskID: UUID?
@@ -210,6 +211,9 @@ struct PairingView: View {
                     await connectPairingCode()
                 }
             }
+        }
+        .onAppear {
+            analytics.capture("ios_pairing_screen_viewed", ["entry": .string("post_sign_in")])
         }
         #endif
     }
