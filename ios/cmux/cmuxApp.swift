@@ -52,20 +52,37 @@ struct cmuxApp: App {
 
     var body: some Scene {
         WindowGroup {
-            CMUXMobileRootScene(
-                runtime: Self.root.runtime,
-                auth: Self.root.auth,
-                reachability: Self.root.reachability,
-                analytics: Self.root.analytics.emitter,
-                pushCoordinator: Self.root.pushCoordinator
-            )
-            // `initial: true` so the cold-launch `.active` value (which `onChange`
-            // otherwise skips) drives the first `ios_session_started` +
-            // `ios_app_foregrounded`. Without it the whole session funnel stays
-            // empty until the first background-and-return.
-            .onChange(of: scenePhase, initial: true) { _, newPhase in
-                Self.root.handleScenePhase(newPhase)
-            }
+            rootScene
+                // `initial: true` so the cold-launch `.active` value (which
+                // `onChange` otherwise skips) drives the first
+                // `ios_session_started` + `ios_app_foregrounded`. Without it the
+                // whole session funnel stays empty until the first
+                // background-and-return.
+                .onChange(of: scenePhase, initial: true) { _, newPhase in
+                    Self.root.handleScenePhase(newPhase)
+                }
         }
+    }
+
+    @ViewBuilder
+    private var rootScene: some View {
+        #if DEBUG
+        CMUXMobileRootScene(
+            runtime: Self.root.runtime,
+            auth: Self.root.auth,
+            reachability: Self.root.reachability,
+            analytics: Self.root.analytics.emitter,
+            pushCoordinator: Self.root.pushCoordinator,
+            diagnosticLog: Self.root.diagnosticLog
+        )
+        #else
+        CMUXMobileRootScene(
+            runtime: Self.root.runtime,
+            auth: Self.root.auth,
+            reachability: Self.root.reachability,
+            analytics: Self.root.analytics.emitter,
+            pushCoordinator: Self.root.pushCoordinator
+        )
+        #endif
     }
 }

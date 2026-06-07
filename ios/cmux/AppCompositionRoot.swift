@@ -5,6 +5,10 @@ import Foundation
 import SwiftUI
 import cmuxFeature
 
+#if DEBUG
+import CmuxMobileDiagnostics
+#endif
+
 /// Holds the de-singletonized graph the `cmuxApp` builds once at launch.
 ///
 /// Owns the mobile runtime, the auth composition (coordinator + push
@@ -18,6 +22,15 @@ final class AppCompositionRoot {
     let reachability: any ReachabilityProviding
     let pushCoordinator: MobilePushCoordinator
     let analytics: MobileAnalyticsComposition
+
+    #if DEBUG
+    /// The structured diagnostic log, built once here and injected into the
+    /// shell store. DEBUG-only: it backs the DEV dogfood feedback round-trip and
+    /// is not present in release builds. Its export header is stamped with the
+    /// same build identity as the string debug log so a submitted bundle proves
+    /// which reload it came from.
+    let diagnosticLog: DiagnosticLog
+    #endif
 
     init(
         runtime: CMUXMobileRuntime,
@@ -35,6 +48,9 @@ final class AppCompositionRoot {
             registration: auth.pushRegistration,
             analytics: analytics.emitter
         )
+        #if DEBUG
+        self.diagnosticLog = DiagnosticLog(buildStamp: MobileDebugLog.buildStamp)
+        #endif
     }
 
     /// The most recent scene phase, so a `.active` transition is classified as a

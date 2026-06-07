@@ -297,14 +297,24 @@ final class MobileHostService {
     /// cache, the live `publicHostStatusResult`, and `TerminalController`'s
     /// full status) reads this so the lists cannot drift; iOS gates features
     /// like rename/pin on the entries present here.
-    nonisolated static let mobileHostCapabilities: [String] = [
-        "events.v1",
-        "terminal.bytes.v1",
-        "terminal.render_grid.v1",
-        "terminal.replay.v1",
-        "terminal.viewport.v1",
-        "workspace.actions.v1",
-    ]
+    ///
+    /// In DEBUG builds this also advertises `dogfood.v1`, the DEV dogfood
+    /// feedback round-trip (`dogfood.feedback.submit`). It is absent from
+    /// release builds, so a release client never sees the verb advertised.
+    nonisolated static var mobileHostCapabilities: [String] {
+        var capabilities = [
+            "events.v1",
+            "terminal.bytes.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "terminal.viewport.v1",
+            "workspace.actions.v1",
+        ]
+        #if DEBUG
+        capabilities.append("dogfood.v1")
+        #endif
+        return capabilities
+    }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
     private let routeResolver = MobileRouteResolver()

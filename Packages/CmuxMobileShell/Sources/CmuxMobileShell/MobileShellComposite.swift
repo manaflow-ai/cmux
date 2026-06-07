@@ -218,6 +218,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reading it again would report the first successful pair as `is_first_pair:
     /// false` and break the first-pair funnel.
     private var pairingAttemptIsFirstPair = false
+
+    /// The structured diagnostic log, injected from the app composition root.
+    ///
+    /// Recording is lock-free and `nonisolated`, so the connect/pair, liveness,
+    /// and seq/byte-gap seams below dual-emit a compact ``DiagnosticEvent``
+    /// alongside their existing ``MobileDebugLog/anchormux(_:)`` string line.
+    /// `nil` in previews/tests that do not exercise the round-trip. Exposed
+    /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
+    /// it.
+    public let diagnosticLog: DiagnosticLog?
     private var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -284,6 +294,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return selectedWorkspace.preferredTerminal
     }
 
+    /// A small stable numeric handle for a surface-id string, for the compact
+    /// ``DiagnosticEvent/surface`` field. Surface ids are strings (e.g.
+    /// `"workspace-1-terminal-2"`); this maps one to a `UInt32` so the structured
+    /// log can carry which surface an event relates to without storing a string.
+    /// Correlation only, not reversible.
+    private static func diagnosticSurfaceHandle(_ surfaceID: String) -> UInt32 {
+        var hash: UInt32 = 2_166_136_261
+        for byte in surfaceID.utf8 {
+            hash = (hash ^ UInt32(byte)) &* 16_777_619
+        }
+        return hash
+    }
+
     public init(
         runtime: (any MobileSyncRuntime)? = nil,
         isSignedIn: Bool = false,
@@ -296,7 +319,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         identityProvider: (any MobileIdentityProviding)? = nil,
         reachability: any ReachabilityProviding = ReachabilityService(),
         pairingHintDefaults: UserDefaults = .standard,
-        analytics: any AnalyticsEmitting = NoopAnalytics()
+        analytics: any AnalyticsEmitting = NoopAnalytics(),
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.runtime = runtime
         self.pairedMacStore = pairedMacStore
@@ -304,6 +328,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.reachability = reachability
         self.pairingHintDefaults = pairingHintDefaults
         self.analytics = analytics
+        self.diagnosticLog = diagnosticLog
         // Distinguish "key absent" (an install that predates the hint and may
         // already have a paired Mac in SQLite) from "key present and false" (we
         // determined there is no paired Mac). didSet is not called for these
@@ -537,6 +562,105 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.error("workspace pin failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
     }
+
+    #if DEBUG
+    /// DEV dogfood feedback round-trip (P1): export the structured diagnostic
+    /// log, package it with the supplied debug-log text, visible terminal text,
+    /// and an optional freeform note, and submit it to the paired Mac's
+    /// `dogfood.feedback.submit` sink.
+    ///
+    /// The structured log is exported here (the store owns ``diagnosticLog``);
+    /// the string snapshots are gathered by the caller on the UI layer, where the
+    /// `GhosttySurfaceView`/`MobileDebugLog` accessors live. Fire-and-forget; a
+    /// transport failure is logged and surfaced via the returned `Bool`.
+    ///
+    /// - Parameters:
+    ///   - text: An optional freeform note from the dogfooder.
+    ///   - debugLogText: The string debug-log snapshot (from `MobileDebugLog`).
+    ///   - terminalText: The visible terminal text (from `GhosttySurfaceView`).
+    /// - Returns: `true` when the Mac acknowledged the bundle.
+    @discardableResult
+    public func submitDogfoodFeedback(
+        text: String,
+        debugLogText: String,
+        terminalText: String
+    ) async -> Bool {
+        guard let client = remoteClient else { return false }
+        let diagnosticBlob = await diagnosticLog?.export() ?? Data()
+        let buildStamp = diagnosticLog?.buildStamp ?? ""
+        let clientID = clientID
+        // Cap inputs and build the (potentially multi-MiB) combined blob +
+        // base64 + JSON request OFF the main actor: the store is `@MainActor`, so
+        // doing the concat/encode here would block the UI on a large bundle. A
+        // detached task returns the finished request bytes (`Data` is `Sendable`).
+        let request: Data?
+        do {
+            request = try await Task.detached(priority: .utility) { () -> Data in
+                try Self.buildDogfoodFeedbackRequest(
+                    text: text,
+                    debugLogText: debugLogText,
+                    terminalText: terminalText,
+                    buildStamp: buildStamp,
+                    clientID: clientID,
+                    diagnosticBlob: diagnosticBlob
+                )
+            }.value
+        } catch {
+            mobileShellLog.error("dogfood feedback encode failed error=\(String(describing: error), privacy: .public)")
+            return false
+        }
+        guard let request else { return false }
+        do {
+            _ = try await client.sendRequest(request)
+            return true
+        } catch {
+            mobileShellLog.error("dogfood feedback submit failed error=\(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
+    /// Client-side caps mirroring the Mac sink, applied before any large
+    /// allocation so a huge debug log or note can't be encoded into a multi-MiB
+    /// request on the phone. `nonisolated` so the off-main request builder can
+    /// read them.
+    nonisolated private static let dogfoodFeedbackMaxTextChars = 16_384
+    nonisolated private static let dogfoodFeedbackMaxTerminalChars = 262_144
+    nonisolated private static let dogfoodFeedbackMaxDebugLogChars = 1_048_576
+
+    /// Combine the structured + string diagnostics into one self-contained blob,
+    /// base64-encode it, and build the RPC request — all off the main actor.
+    ///
+    /// The string debug log rides inside the same diagnostic file as the compact
+    /// structured rows (rows, a divider, then the human-readable log) so the Mac
+    /// bundle is self-contained. Inputs are size-capped first.
+    nonisolated private static func buildDogfoodFeedbackRequest(
+        text: String,
+        debugLogText: String,
+        terminalText: String,
+        buildStamp: String,
+        clientID: String,
+        diagnosticBlob: Data
+    ) throws -> Data {
+        let cappedText = String(text.prefix(dogfoodFeedbackMaxTextChars))
+        let cappedTerminal = String(terminalText.prefix(dogfoodFeedbackMaxTerminalChars))
+        let cappedDebugLog = String(debugLogText.prefix(dogfoodFeedbackMaxDebugLogChars))
+        var combined = diagnosticBlob
+        if !cappedDebugLog.isEmpty {
+            combined.append(Data("\n----- mobile debug log -----\n".utf8))
+            combined.append(Data(cappedDebugLog.utf8))
+        }
+        return try MobileCoreRPCClient.requestData(
+            method: "dogfood.feedback.submit",
+            params: [
+                "text": cappedText,
+                "terminal_text": cappedTerminal,
+                "build_stamp": buildStamp,
+                "diagnostic_blob_base64": combined.base64EncodedString(),
+                "client_id": clientID,
+            ]
+        )
+    }
+    #endif
 
     // MARK: - Network recovery
 
@@ -1443,6 +1567,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async throws {
         let generation = UUID()
         connectionGeneration = generation
+        diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
@@ -1509,6 +1634,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
                     markMacConnectionHealthy()
+                    diagnosticLog?.record(DiagnosticEvent(.pairOk))
                     if workspaceListRequest.isScoped {
                         scheduleFullWorkspaceListRefreshIfAvailable(
                             client: client,
@@ -1528,6 +1654,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         clearRemoteConnectionContext()
+        diagnosticLog?.record(DiagnosticEvent(.pairFail))
         throw lastError ?? MobileShellConnectionError.connectionClosed
     }
 
@@ -2180,6 +2307,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ) ?? false
             guard subscribed else {
                 MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
+                self?.diagnosticLog?.record(DiagnosticEvent(.error))
                 self?.markMacConnectionUnavailable()
                 return
             }
@@ -2219,6 +2347,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         mobileShellLog.info("terminal event stream ended, restarting")
         MobileDebugLog.anchormux("sync.stream_ended restarting (render-grid push stopped; falling back to poll)")
+        diagnosticLog?.record(DiagnosticEvent(.streamEnded))
         markMacConnectionReconnecting()
         terminalEventListenerTask = nil
         terminalEventListenerID = nil
@@ -2295,6 +2424,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard silent >= Self.renderGridLivenessSilenceThreshold else { return }
         let silentMs = Int(silent * 1000)
         MobileDebugLog.anchormux("sync.liveness re-subscribe silentMs=\(silentMs)")
+        diagnosticLog?.record(DiagnosticEvent(.livenessResubscribe, ms: UInt32(clamping: silentMs)))
         mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms, re-subscribing")
         // resyncTerminalOutput(restartEventStream: true) stops the wedged listener
         // (which cancels this watchdog via stopTerminalRefreshPolling) and starts a
@@ -2341,6 +2471,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             pendingTerminalByteEndSeqBySurfaceID[surfaceID] = max(remoteSeq, pendingSeq ?? 0)
             if let pendingSeq, localSeq < pendingSeq {
                 MobileDebugLog.anchormux("sync.input_seq_still_behind surface=\(surfaceID) local=\(localSeq) pending=\(pendingSeq) remote=\(remoteSeq)")
+                diagnosticLog?.record(DiagnosticEvent(
+                    .inputSeqBehind,
+                    surface: Self.diagnosticSurfaceHandle(surfaceID),
+                    a: Int(clamping: localSeq),
+                    b: Int(clamping: remoteSeq),
+                    c: Int(clamping: pendingSeq)
+                ))
                 mobileShellLog.info("terminal render-grid still behind after input surface=\(surfaceID, privacy: .public) localSeq=\(localSeq, privacy: .public) pendingSeq=\(pendingSeq, privacy: .public) remoteSeq=\(remoteSeq, privacy: .public)")
                 resyncTerminalOutput(
                     reason: "input_seq_still_behind",
@@ -2354,6 +2491,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         MobileDebugLog.anchormux("sync.input_seq_behind surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
+        diagnosticLog?.record(DiagnosticEvent(
+            .inputSeqBehind,
+            surface: Self.diagnosticSurfaceHandle(surfaceID),
+            a: Int(clamping: localSeq),
+            b: Int(clamping: remoteSeq)
+        ))
         mobileShellLog.info("terminal output behind after input surface=\(surfaceID, privacy: .public) localSeq=\(localSeq, privacy: .public) remoteSeq=\(remoteSeq, privacy: .public)")
         resyncTerminalOutput(
             reason: "input_seq_behind",
@@ -2640,6 +2783,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] {
             if seq > deliveredSeq {
                 MobileDebugLog.anchormux("sync.byte_gap surface=\(surfaceID) delivered=\(deliveredSeq) next=\(seq)")
+                diagnosticLog?.record(DiagnosticEvent(
+                    .byteGap,
+                    surface: Self.diagnosticSurfaceHandle(surfaceID),
+                    a: Int(clamping: deliveredSeq),
+                    b: Int(clamping: seq)
+                ))
                 mobileShellLog.info("terminal byte gap surface=\(surfaceID, privacy: .public) deliveredSeq=\(deliveredSeq, privacy: .public) nextSeq=\(seq, privacy: .public)")
                 resyncTerminalOutput(
                     reason: "seq_gap",
