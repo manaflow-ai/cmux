@@ -492,6 +492,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// initial-load gate for the next session.
     private var signInBootstrapGeneration = 0
 
+    /// The real stored `macDeviceID` of a paired Mac currently being reconnected
+    /// or switched to, so ``setActiveMac`` keys the live partition by the stored id
+    /// even when a legacy host's synthetic ticket carries a `manual-...` id.
+    ///
+    /// Set by ``switchToMac`` / ``reconnectActiveMacIfAvailable`` around their
+    /// ``connectManualHost`` call and consumed (cleared) by ``setActiveMac``. `nil`
+    /// for first-time pairing / manual-host add / preview, which then key by the
+    /// ticket as before. A transient rather than a threaded parameter so the public
+    /// ``connectManualHost`` signature (used by the manual-add UI) is unchanged.
+    private var pendingKnownActiveMacDeviceID: String?
+
     public func signOut() {
         pairingAttemptID = UUID()
         connectionGeneration = UUID()
@@ -925,6 +936,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard generation == storedMacReconnectGeneration else { return false }
         setHasKnownPairedMac(true, generation: generation)
         isReconnectingStoredMac = true
+        // Carry the real stored id so a legacy synthetic-ticket fallback still keys
+        // the live partition by macDeviceID (matching pairedMacs / refresh / forget).
+        pendingKnownActiveMacDeviceID = mac.macDeviceID
         await connectManualHost(name: mac.displayName ?? host, host: host, port: port)
         // A newer attempt may have started during the connect; it now owns the flags.
         guard generation == storedMacReconnectGeneration else { return false }
@@ -1181,6 +1195,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .public)")
             return
         }
+        // Carry the real stored id so a legacy synthetic-ticket fallback still keys
+        // the live partition by macDeviceID (matching pairedMacs / refresh / forget).
+        pendingKnownActiveMacDeviceID = macDeviceID
         await connectManualHost(name: target.displayName ?? host, host: host, port: port)
         // Persist the active row only if the live connection is to THIS Mac's
         // route. A different switch tapped while this connect was in flight
@@ -2049,6 +2066,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         macConnectionStatus = .unavailable
         activeMacDeviceID = nil
+        // A failed/torn-down connect never reached setActiveMac, so drop the
+        // pending known-mac id rather than letting it leak into a later connect.
+        pendingKnownActiveMacDeviceID = nil
         replaceRemoteClient(with: nil)
         rawTerminalInputBuffer.clear()
     }
@@ -3514,11 +3534,50 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ticket.macDeviceID.isEmpty ? "manual-\(ticket.workspaceID)" : ticket.macDeviceID
     }
 
+    /// Resolve the active partition key, preferring a known stored Mac id over the
+    /// ticket-derived one.
+    ///
+    /// A stored Mac always has a stable real `macDeviceID` from pairing, but on
+    /// reconnect a legacy host that lacks `mobile.attach_ticket.create` falls back
+    /// to a synthetic `manual-<host>:<port>` ticket. Keying the active partition by
+    /// the synthetic ticket id then diverges from the `pairedMacs` row (the
+    /// secondary refresh, switch, and forget all use the real id), duplicating the
+    /// Mac across two sections. Threading the known stored id keeps the live
+    /// partition under the same key everything else uses. First-time pairing /
+    /// manual-host / preview pass `nil` and fall back to the ticket-derived key.
+    /// - Parameters:
+    ///   - knownMacDeviceID: The real stored `macDeviceID` of the reconnecting /
+    ///     switching paired Mac, or `nil` for a first-time / manual / preview
+    ///     connection.
+    ///   - ticket: The attach ticket the connection was established with.
+    /// - Returns: The partition key to use for the active Mac.
+    static func activePartitionKey(
+        knownMacDeviceID: String?,
+        ticket: CmxAttachTicket
+    ) -> String {
+        if let knownMacDeviceID, !knownMacDeviceID.isEmpty, !knownMacDeviceID.hasPrefix("manual-") {
+            return knownMacDeviceID
+        }
+        return macPartitionKey(for: ticket)
+    }
+
     /// Promote `ticket`'s Mac to the active (heavy-session) Mac and record its
     /// display name, so subsequent ``applyRemoteWorkspaceList`` calls write that
     /// Mac's partition and selection tags resolve to it.
-    private func setActiveMac(from ticket: CmxAttachTicket) {
-        let macID = Self.macPartitionKey(for: ticket)
+    ///
+    /// - Parameters:
+    ///   - ticket: The attach ticket the connection was established with.
+    ///   - knownMacDeviceID: The real stored `macDeviceID` when reconnecting or
+    ///     switching a known paired Mac, so a legacy synthetic-ticket fallback
+    ///     does not partition the live session under a `manual-...` id that
+    ///     diverges from the `pairedMacs` row. `nil` for first-time/manual/preview.
+    private func setActiveMac(from ticket: CmxAttachTicket, knownMacDeviceID: String? = nil) {
+        // Prefer an explicit argument, else the transient set by the stored-Mac
+        // reconnect/switch paths; clear the transient so it never leaks into a
+        // later first-time/manual connect.
+        let resolvedKnownID = knownMacDeviceID ?? pendingKnownActiveMacDeviceID
+        pendingKnownActiveMacDeviceID = nil
+        let macID = Self.activePartitionKey(knownMacDeviceID: resolvedKnownID, ticket: ticket)
         let displayName = ticket.macDisplayName ?? ticket.macDeviceID
         // Drop the synthetic preview-host partition the moment a real Mac becomes
         // active: the seeded preview workspaces are not a real device and must not

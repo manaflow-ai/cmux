@@ -265,6 +265,46 @@ import Testing
         #expect(store.hasNoPairedMacs == true)
     }
 
+    @Test func activePartitionKeyPrefersKnownStoredIDOverSyntheticTicket() throws {
+        let route = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: 39377)
+        // A legacy host's reconnect ticket is synthetic (manual-<host>:<port>) even
+        // though the stored paired-Mac row holds the real device id.
+        let syntheticTicket = try CmxAttachTicket(
+            workspaceID: "ws-1",
+            terminalID: nil,
+            macDeviceID: "manual-100.71.210.41:39377",
+            macDisplayName: "Legacy Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "secret"
+        )
+
+        // With the known stored id, the active partition keys by the real id so it
+        // matches pairedMacs / refresh / forget instead of splitting into two
+        // sections under the synthetic id.
+        #expect(
+            MobileShellComposite.activePartitionKey(
+                knownMacDeviceID: "real-mac-abc",
+                ticket: syntheticTicket
+            ) == "real-mac-abc"
+        )
+        // A manual-prefixed "known" id is ignored (it is not a real stored id), so
+        // the ticket-derived key is used.
+        #expect(
+            MobileShellComposite.activePartitionKey(
+                knownMacDeviceID: "manual-x",
+                ticket: syntheticTicket
+            ) == "manual-100.71.210.41:39377"
+        )
+        // No known id (first-time pairing / manual add) -> ticket-derived key.
+        #expect(
+            MobileShellComposite.activePartitionKey(
+                knownMacDeviceID: nil,
+                ticket: syntheticTicket
+            ) == "manual-100.71.210.41:39377"
+        )
+    }
+
     @Test func activeMacReconnectRouteSkipsUnsupportedLoopbackRoute() throws {
         let loopback = try hostPortRoute(
             kind: .debugLoopback,
