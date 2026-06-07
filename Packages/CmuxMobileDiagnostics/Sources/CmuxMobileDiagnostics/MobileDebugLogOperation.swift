@@ -12,11 +12,4 @@ enum MobileDebugLogOperation: Sendable {
             receipt.finish()
         }
     }
-
-    func runIfDropped(from sink: MobileDebugLogSink) {
-        guard case .clear = self else { return }
-        Task.detached {
-            await run(on: sink)
-        }
-    }
 }
