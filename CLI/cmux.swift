@@ -7756,7 +7756,19 @@ struct CMUXCLI {
         if originalForegroundProcessGroup > 0 {
             let childProcessGroup = getpgid(process.processIdentifier)
             if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
-                try? setTerminalForegroundProcessGroup(childProcessGroup)
+                do {
+                    try setTerminalForegroundProcessGroup(childProcessGroup)
+                } catch {
+                    // The handoff is required: without the terminal foreground, ssh's
+                    // prompt SIGTTIN-stops and waitUntilExit() below hangs forever (the
+                    // exact bug this dance prevents). Continue the child in case it
+                    // already stopped, kill it, and fail loudly instead of hanging.
+                    _ = Darwin.kill(-childProcessGroup, SIGCONT)
+                    process.terminate()
+                    throw CLIError(
+                        message: "ssh-tmux: couldn't hand the terminal to ssh for \(destination); aborting to avoid a hang (\(error.localizedDescription))"
+                    )
+                }
                 _ = Darwin.kill(-childProcessGroup, SIGCONT)
                 didForegroundChild = true
             }
