@@ -663,11 +663,13 @@ final class TerminalInputTextView: UITextView {
 
     /// Read the system clipboard for the Paste button. An image is forwarded via
     /// ``onPasteImage`` (the host uploads it to the Mac as `terminal.paste_image`
-    /// and the Mac injects the resulting file path); plain text rides the normal
-    /// ``onText`` input path. Images win when both are present. A large image
-    /// falls back to JPEG so it stays under the Mac's 10 MB cap. Accessing the
-    /// pasteboard contents here is what shows iOS's one-shot paste banner, which
-    /// is the expected confirmation for an explicit Paste tap.
+    /// and the Mac injects the resulting file path); plain text rides the
+    /// bracketed-paste ``onPasteText`` path so multi-line clipboard text lands as
+    /// one paste instead of executing line-by-line. Images win when both are
+    /// present. A large image falls back to JPEG so it stays under the Mac's
+    /// 10 MB cap. Accessing the pasteboard contents here is what shows iOS's
+    /// one-shot paste banner, which is the expected confirmation for an explicit
+    /// Paste tap.
     private func handlePasteAction() {
         let pasteboard = UIPasteboard.general
         if pasteboard.hasImages, let image = pasteboard.image {
@@ -686,7 +688,15 @@ final class TerminalInputTextView: UITextView {
             }
         }
         if pasteboard.hasStrings, let string = pasteboard.string, !string.isEmpty {
-            onText?(string)
+            // An explicit Paste is always pasted content, so it goes through the
+            // bracketed-paste sink (which falls back to per-key input on a host
+            // that does not support it). The host gates the fallback on the
+            // `terminal.paste.v1` capability.
+            if onPasteText != nil {
+                onPasteText?(string)
+            } else {
+                onText?(string)
+            }
         }
     }
 
