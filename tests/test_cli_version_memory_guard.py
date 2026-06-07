@@ -9,14 +9,14 @@ from __future__ import annotations
 import glob
 import os
 import plistlib
-import re
+import resource
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
 
 
-JUNK_APP_COUNT = 40000
 RSS_LIMIT_KB = 64 * 1024
 TIMEOUT_SECONDS = 10.0
 EXPECTED_STDOUT = "cmux 9.9.9 (999)"
@@ -84,12 +84,26 @@ def build_fixture(root: str, cli_path: str) -> str:
     with open(os.path.join(contents_path, "Info.plist"), "wb") as handle:
         plistlib.dump(info, handle)
 
-    # Regular files are enough here because the fallback scan keys off the
-    # ".app" suffix before it ever tries to inspect bundle contents.
-    for index in range(JUNK_APP_COUNT):
-        open(os.path.join(resources_path, f"junk-{index:05d}.app"), "wb").close()
+    # A sibling app's Info.plist should never be opened after the enclosing
+    # bundle Info.plist is found. The FIFO turns that regression into a timeout
+    # without creating tens of thousands of filesystem entries in CI.
+    trap_info = os.path.join(resources_path, "trap.app", "Contents", "Info.plist")
+    os.makedirs(os.path.dirname(trap_info), exist_ok=True)
+    os.mkfifo(trap_info)
 
     return fixture_cli
+
+
+def kill_process_group(proc: subprocess.Popen[str]) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+
+
+def max_child_rss_kb() -> int:
+    peak_rss_raw = int(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
+    return peak_rss_raw if peak_rss_raw <= RSS_LIMIT_KB * 16 else peak_rss_raw // 1024
 
 
 def run_with_limits(cli_path: str, *args: str) -> dict[str, object]:
@@ -97,18 +111,19 @@ def run_with_limits(cli_path: str, *args: str) -> dict[str, object]:
     env.pop("CMUX_COMMIT", None)
 
     proc = subprocess.Popen(
-        ["/usr/bin/time", "-l", cli_path, *args],
+        [cli_path, *args],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         env=env,
+        start_new_session=True,
     )
 
     started = time.time()
     try:
         stdout, stderr = proc.communicate(timeout=TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        proc.kill()
+        kill_process_group(proc)
         stdout, stderr = proc.communicate()
         elapsed = time.time() - started
         return {
@@ -116,16 +131,12 @@ def run_with_limits(cli_path: str, *args: str) -> dict[str, object]:
             "stdout": stdout.strip(),
             "stderr": stderr.strip(),
             "elapsed": elapsed,
-            "peak_rss_kb": 0,
+            "peak_rss_kb": max_child_rss_kb(),
             "failure_reason": f"timeout exceeded ({elapsed:.2f}s > {TIMEOUT_SECONDS:.2f}s)",
         }
 
     elapsed = time.time() - started
-    peak_rss_kb = 0
-    rss_match = re.search(r"(\d+)\s+maximum resident set size", stderr)
-    if rss_match:
-        peak_rss_raw = int(rss_match.group(1))
-        peak_rss_kb = peak_rss_raw if peak_rss_raw <= RSS_LIMIT_KB * 16 else peak_rss_raw // 1024
+    peak_rss_kb = max_child_rss_kb()
 
     failure_reason: str | None = None
     if peak_rss_kb > RSS_LIMIT_KB:
@@ -150,7 +161,7 @@ def main() -> int:
         print(f"FAIL: {exc}")
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="cmux-version-memory-guard-") as root:
+    with tempfile.TemporaryDirectory(prefix="cmux-version-memory-guard-", dir="/tmp") as root:
         fixture_cli = build_fixture(root, cli_path)
         result = run_with_limits(fixture_cli, "--version")
 

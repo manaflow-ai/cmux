@@ -10865,6 +10865,11 @@ struct VerticalTabsSidebar: View {
         return KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
     }
 
+    private func workspaceWindowMoveTargets() -> [AppDelegate.WindowMoveTargetSnapshot] {
+        guard let app = AppDelegate.shared else { return [] }
+        return app.windowMoveTargetSnapshots(referenceWindowId: app.windowId(for: tabManager))
+    }
+
     private func requestSelectedWorkspaceScroll(_ proxy: ScrollViewProxy, workspaceIds: [UUID]) {
         guard let selectedWorkspaceId = tabManager.selectedTabId,
               workspaceIds.contains(selectedWorkspaceId) else {
@@ -12617,6 +12622,7 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             contextMenuPinState: contextMenuPinState,
+            workspaceWindowMoveTargetsProvider: workspaceWindowMoveTargets,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
             onContextMenuAppear: onContextMenuAppear,
@@ -12636,6 +12642,7 @@ struct VerticalTabsSidebar: View {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
     }
+
 }
 
 struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
@@ -15155,6 +15162,7 @@ struct TabItemView: View, Equatable {
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
+    let workspaceWindowMoveTargetsProvider: () -> [AppDelegate.WindowMoveTargetSnapshot]
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
     /// Called from this row's contextMenu.onAppear so the parent can freeze
@@ -15963,6 +15971,7 @@ struct TabItemView: View, Equatable {
         let isMulti = targetIds.count > 1
         let tabColorPalette = WorkspaceTabColorSettings.palette()
         let shouldPin = contextMenuPinState?.pinned ?? !tab.isPinned
+        let workspaceWindowMoveTargets = workspaceWindowMoveTargetsProvider()
         let reconnectLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.reconnectWorkspaces", defaultValue: "Reconnect Workspaces"),
             single: String(localized: "contextMenu.reconnectWorkspace", defaultValue: "Reconnect Workspace"),
@@ -16137,8 +16146,6 @@ struct TabItemView: View, Equatable {
         }
         .disabled(targetIds.isEmpty)
 
-        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
-        let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
         let moveMenuTitle = targetIds.count > 1
             ? String(localized: "contextMenu.moveWorkspacesToWindow", defaultValue: "Move Workspaces to Window")
             : String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")
@@ -16148,11 +16155,11 @@ struct TabItemView: View, Equatable {
             }
             .disabled(targetIds.isEmpty)
 
-            if !windowMoveTargets.isEmpty {
+            if !workspaceWindowMoveTargets.isEmpty {
                 Divider()
             }
 
-            ForEach(windowMoveTargets) { target in
+            ForEach(workspaceWindowMoveTargets) { target in
                 Button(target.label) {
                     moveWorkspaces(targetIds, toWindow: target.windowId)
                 }

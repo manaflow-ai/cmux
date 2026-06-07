@@ -2601,6 +2601,28 @@ struct CMUXCLI {
         return keys
     }
 
+    private final class CodexTranscriptChangeWaiter: @unchecked Sendable {
+        private let condition = NSCondition()
+        private var didObserveChange = false
+
+        func signal() {
+            condition.lock()
+            didObserveChange = true
+            condition.signal()
+            condition.unlock()
+        }
+
+        func wait(until deadline: Date) {
+            condition.lock()
+            while !didObserveChange, Date() < deadline {
+                if !condition.wait(until: deadline) {
+                    break
+                }
+            }
+            condition.unlock()
+        }
+    }
+
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
         if client.hasUnfinishedOperationTelemetry() {
             telemetry.captureError(stage: stage, error: error, data: client.operationTelemetryContext())
@@ -23566,6 +23588,8 @@ struct CMUXCLI {
     private static let codexMonitorRetiredLeaseMaxAgeSeconds: TimeInterval = 2 * 60
     private static let codexMonitorOwnerCheckIntervalSeconds: TimeInterval = 60
     private static let codexMonitorOwnerCheckTimeoutSeconds: TimeInterval = 1
+    private static let codexMonitorOwnerProcessPollIntervalSeconds: TimeInterval = 1
+    private static let codexMonitorUnresolvedTranscriptTimeoutSeconds: TimeInterval = 5 * 60
 
     private func codexMonitorLeaseDirectory(env: [String: String]) -> URL {
         let statePath = NSString(
@@ -23726,6 +23750,23 @@ struct CMUXCLI {
         return ownerFound ? .alive : .gone
     }
 
+    private func codexMonitorOwnerProcessIsGone(_ ownerPID: Int?) -> Bool {
+        guard let ownerPID, ownerPID > 1 else { return false }
+        if kill(pid_t(ownerPID), 0) == 0 {
+            return false
+        }
+        return errno == ESRCH
+    }
+
+    private func codexMonitorUnresolvedTranscriptTimeout(env: [String: String]) -> TimeInterval {
+        guard let rawValue = env["CMUX_CODEX_MONITOR_UNRESOLVED_TRANSCRIPT_TIMEOUT_SECONDS"],
+              let parsed = TimeInterval(rawValue),
+              parsed > 0 else {
+            return Self.codexMonitorUnresolvedTranscriptTimeoutSeconds
+        }
+        return max(parsed, 0.05)
+    }
+
     private func startCodexTranscriptMonitor(
         sessionId: String,
         turnId: String?,
@@ -23733,6 +23774,7 @@ struct CMUXCLI {
         cwd: String?,
         workspaceId: String,
         surfaceId: String?,
+        ownerPID: Int?,
         leasePath: String?,
         env: [String: String],
         telemetry: CLISocketSentryTelemetry
@@ -23742,11 +23784,20 @@ struct CMUXCLI {
             return
         }
 
+        let validOwnerPID = ownerPID.flatMap { $0 > 1 ? $0 : nil }
+        if ownerPID != nil, validOwnerPID == nil {
+            telemetry.breadcrumb(
+                "codex-hook.monitor.invalid-owner-pid",
+                data: ["owner_pid": ownerPID ?? -1]
+            )
+        }
+
         let monitorTelemetry: [String: Any] = [
             "has_lease": normalizedHookValue(leasePath) != nil,
             "has_turn_id": normalizedHookValue(turnId) != nil,
             "has_transcript": normalizedHookValue(transcriptPath) != nil,
             "has_surface_id": normalizedHookValue(surfaceId) != nil,
+            "has_owner_pid": validOwnerPID != nil,
         ]
         telemetry.breadcrumb("codex-hook.monitor.start", data: monitorTelemetry)
 
@@ -23773,6 +23824,9 @@ struct CMUXCLI {
         if let cwd, !cwd.isEmpty {
             monitorArgs += ["--cwd", cwd]
         }
+        if let ownerPID = validOwnerPID {
+            monitorArgs += ["--owner-pid", String(ownerPID)]
+        }
         if let leasePath, !leasePath.isEmpty {
             monitorArgs += ["--lease", leasePath]
         }
@@ -23789,7 +23843,11 @@ struct CMUXCLI {
         }
     }
 
-    private func runCodexTranscriptMonitor(commandArgs: [String], client: SocketClient) throws {
+    private func runCodexTranscriptMonitor(
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) throws {
         let env = ProcessInfo.processInfo.environment
         let workspaceId = optionValue(commandArgs, name: "--workspace") ?? env["CMUX_WORKSPACE_ID"] ?? ""
         let surfaceId = optionValue(commandArgs, name: "--surface") ?? env["CMUX_SURFACE_ID"]
@@ -23801,6 +23859,24 @@ struct CMUXCLI {
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
         let leasePath = optionValue(commandArgs, name: "--lease")
+        let ownerPID: Int?
+        if let rawOwnerPID = optionValue(commandArgs, name: "--owner-pid") {
+            guard let parsedOwnerPID = Int(rawOwnerPID), parsedOwnerPID > 1 else {
+                telemetry.breadcrumb(
+                    "codex-hook.monitor.invalid-owner-pid",
+                    data: ["raw": rawOwnerPID]
+                )
+                throw CLIError(
+                    message: String(
+                        localized: "cli.error.codexMonitorInvalidOwnerPID",
+                        defaultValue: "hooks codex monitor: --owner-pid must be an integer greater than 1"
+                    )
+                )
+            }
+            ownerPID = parsedOwnerPID
+        } else {
+            ownerPID = nil
+        }
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -23809,9 +23885,14 @@ struct CMUXCLI {
 
         defer { removeCodexMonitorLease(path: leasePath) }
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
+        let unresolvedTranscriptTimeout = codexMonitorUnresolvedTranscriptTimeout(env: env)
+        var transcriptMissingSince: Date?
         var nextOwnerCheck = Date.distantPast
         var publishedUserInputCallIds = Set<String>()
         while Date() < deadline {
+            if codexMonitorOwnerProcessIsGone(ownerPID) {
+                return
+            }
             if isCodexMonitorLeaseRetired(path: leasePath) {
                 return
             }
@@ -23825,6 +23906,15 @@ struct CMUXCLI {
 
             if transcriptPath == nil {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
+            }
+            if transcriptPath == nil {
+                let missingSince = transcriptMissingSince ?? now
+                transcriptMissingSince = missingSince
+                if now.timeIntervalSince(missingSince) >= unresolvedTranscriptTimeout {
+                    return
+                }
+            } else {
+                transcriptMissingSince = nil
             }
 
             if let currentTranscriptPath = transcriptPath {
@@ -23873,7 +23963,15 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return }
-            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
+            var waitTimeout = min(30, remaining)
+            if let transcriptMissingSince {
+                let unresolvedRemaining = unresolvedTranscriptTimeout - Date().timeIntervalSince(transcriptMissingSince)
+                waitTimeout = min(waitTimeout, max(0.05, unresolvedRemaining))
+            }
+            if ownerPID != nil {
+                waitTimeout = min(waitTimeout, Self.codexMonitorOwnerProcessPollIntervalSeconds)
+            }
+            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: waitTimeout)
         }
     }
 
@@ -23919,7 +24017,8 @@ struct CMUXCLI {
     private func waitForCodexTranscriptChange(path: String?, leasePath: String?, timeout: TimeInterval) {
         guard timeout > 0 else { return }
 
-        let semaphore = DispatchSemaphore(value: 0)
+        let waiter = CodexTranscriptChangeWaiter()
+        let deadline = Date().addingTimeInterval(timeout)
         var sources: [DispatchSourceFileSystemObject] = []
 
         func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
@@ -23933,7 +24032,7 @@ struct CMUXCLI {
                 queue: DispatchQueue.global(qos: .utility)
             )
             source.setEventHandler {
-                semaphore.signal()
+                waiter.signal()
             }
             source.setCancelHandler {
                 close(fd)
@@ -23946,11 +24045,11 @@ struct CMUXCLI {
         addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
 
         guard !sources.isEmpty else {
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+            waiter.wait(until: deadline)
             return
         }
 
-        _ = semaphore.wait(timeout: .now() + timeout)
+        waiter.wait(until: deadline)
         sources.forEach { $0.cancel() }
     }
 
@@ -27472,7 +27571,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         telemetry.breadcrumb("\(def.name)-hook.\(subcommand)")
 
         if def.name == "codex", subcommand == "monitor" {
-            try runCodexTranscriptMonitor(commandArgs: hookArgs, client: client)
+            try runCodexTranscriptMonitor(commandArgs: hookArgs, client: client, telemetry: telemetry)
             return
         }
 
@@ -28048,6 +28147,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     cwd: hookCwd ?? mapped?.cwd,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
+                    ownerPID: pid,
                     leasePath: leasePath,
                     env: env,
                     telemetry: telemetry
