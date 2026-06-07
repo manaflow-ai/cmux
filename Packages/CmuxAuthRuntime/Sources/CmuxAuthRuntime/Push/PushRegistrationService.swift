@@ -20,6 +20,7 @@ public actor PushRegistrationService: PushRegistering {
     private let apnsEnvironment: String
     private let defaults: UserDefaults
     private let session: URLSession
+    private var signedInObservationTask: Task<Void, Never>?
 
     private static let enabledKey = "cmux.notifications.pushEnabled"
     private static let cachedTokenKey = "cmux.notifications.deviceTokenHex"
@@ -55,6 +56,31 @@ public actor PushRegistrationService: PushRegistering {
             self.defaults = .standard
         }
         self.session = session
+    }
+
+    deinit {
+        signedInObservationTask?.cancel()
+    }
+
+    /// Begin re-uploading the cached device token after each sign-in event.
+    ///
+    /// Pass ``AuthCoordinator/signedInEvents()`` so a fresh sign-in or session
+    /// restore re-associates the device token with the new session. This
+    /// replaces the construction-time `onSignedIn` hook that kept the auth and
+    /// push graphs cyclically coupled.
+    ///
+    /// A subsequent call replaces the previous subscription.
+    /// - Parameter events: A stream that yields once per successful sign-in.
+    public func observeSignedInEvents(_ events: AsyncStream<Void>) {
+        signedInObservationTask?.cancel()
+        // The loop parks on the stream (no polling) and ends when the stream
+        // finishes or the task is cancelled (replacement subscription/deinit);
+        // `weak self` keeps the subscription from pinning the service alive.
+        signedInObservationTask = Task { [weak self] in
+            for await _ in events {
+                await self?.syncTokenIfPossible()
+            }
+        }
     }
 
     public var isEnabled: Bool { defaults.bool(forKey: Self.enabledKey) }

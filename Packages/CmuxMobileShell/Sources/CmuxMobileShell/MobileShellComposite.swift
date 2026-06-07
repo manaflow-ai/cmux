@@ -288,18 +288,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         do {
-            let request = try MobileCoreRPCClient.requestData(
-                method: "mobile.terminal.scroll",
-                params: [
-                    "workspace_id": workspaceID.rawValue,
-                    "surface_id": surfaceID,
-                    "client_id": clientID,
-                    "delta_lines": lines,
-                    "col": col,
-                    "row": row,
-                ]
+            _ = try await client.send(
+                MobileTerminalScrollParams(
+                    workspaceID: workspaceID.rawValue,
+                    surfaceID: surfaceID,
+                    clientID: clientID,
+                    deltaLines: lines,
+                    col: col,
+                    row: row
+                )
             )
-            _ = try await client.sendRequest(request)
         } catch {
             mobileShellLog.error("scroll forward failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
@@ -315,17 +313,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         do {
-            let request = try MobileCoreRPCClient.requestData(
-                method: "mobile.terminal.mouse",
-                params: [
-                    "workspace_id": workspaceID.rawValue,
-                    "surface_id": surfaceID,
-                    "client_id": clientID,
-                    "col": col,
-                    "row": row,
-                ]
+            _ = try await client.send(
+                MobileTerminalMouseParams(
+                    workspaceID: workspaceID.rawValue,
+                    surfaceID: surfaceID,
+                    clientID: clientID,
+                    col: col,
+                    row: row
+                )
             )
-            _ = try await client.sendRequest(request)
         } catch {
             mobileShellLog.error("click forward failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
@@ -908,14 +904,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket: probeTicket,
             allowsStackAuthFallback: true
         )
-        let resultData = try await client.sendRequest(
-            MobileCoreRPCClient.requestData(
-                method: "mobile.attach_ticket.create",
-                params: [
-                    "ttl_seconds": 3600,
-                    "scope": "mac",
-                ]
-            ),
+        let resultData = try await client.send(
+            MobileAttachTicketCreateParams(ttlSeconds: 3600, scope: "mac"),
             timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
         )
         let response = try MobileManualAttachTicketCreateResponse.decode(resultData)
@@ -1259,14 +1249,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ticket.expiresAt > now
     }
 
-    private static func initialWorkspaceListParams(for ticket: CmxAttachTicket) -> [String: Any] {
+    private static func initialWorkspaceListParams(for ticket: CmxAttachTicket) -> MobileWorkspaceListParams? {
         guard UUID(uuidString: ticket.workspaceID) != nil else {
-            return [:]
+            return nil
         }
-        var params: [String: Any] = ["workspace_id": ticket.workspaceID]
+        var params = MobileWorkspaceListParams(workspaceID: ticket.workspaceID)
         if let terminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
            !terminalID.isEmpty {
-            params["terminal_id"] = terminalID
+            params.terminalID = terminalID
         }
         return params
     }
@@ -1279,18 +1269,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if hasAttachToken {
             requests.append(
                 WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
+                    data: try MobileWorkspaceListParams().requestData(),
                     isScoped: false,
                     preferActiveTicketTarget: true
                 )
             )
         }
 
-        if !scopedParams.isEmpty {
+        if let scopedParams {
             requests.append(
                 WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: scopedParams),
-                    isScoped: !scopedParams.isEmpty,
+                    data: try scopedParams.requestData(),
+                    isScoped: true,
                     preferActiveTicketTarget: true
                 )
             )
@@ -1299,7 +1289,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if requests.isEmpty {
             requests.append(
                 WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
+                    data: try MobileWorkspaceListParams().requestData(),
                     isScoped: false,
                     preferActiveTicketTarget: true
                 )
@@ -1338,11 +1328,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         do {
-            let resultData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(
-                    method: "workspace.list",
-                    params: [:]
-                ),
+            let resultData = try await client.send(
+                MobileWorkspaceListParams(),
                 timeoutNanoseconds: timeoutNanoseconds ?? runtime?.pairingRequestTimeoutNanoseconds
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
@@ -1528,9 +1515,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let client = remoteClient else { return }
         let generation = connectionGeneration
         do {
-            let resultData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(method: "workspace.create")
-            )
+            let resultData = try await client.send(MobileWorkspaceCreateParams())
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
@@ -1561,11 +1546,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let requestedWorkspaceID = MobileWorkspacePreview.ID(rawValue: workspaceID)
         let generation = connectionGeneration
         do {
-            let resultData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(
-                    method: "terminal.create",
-                    params: ["workspace_id": workspaceID]
-                )
+            let resultData = try await client.send(
+                MobileTerminalCreateParams(workspaceID: workspaceID)
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             guard isCurrentRemoteOperation(client: client, generation: generation),
@@ -1613,22 +1595,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
             #endif
             let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-            var params: [String: Any] = [
-                "workspace_id": workspaceID.rawValue,
-                "surface_id": terminalID.rawValue,
-                "text": text,
-                "client_id": clientID,
-            ]
-            if let viewportSize = reportedViewportSizesByTerminalKey[key] {
-                params["viewport_columns"] = viewportSize.columns
-                params["viewport_rows"] = viewportSize.rows
-            }
-            let responseData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(
-                    method: "terminal.input",
-                    params: params
-                )
+            var params = MobileTerminalInputParams(
+                workspaceID: workspaceID.rawValue,
+                surfaceID: terminalID.rawValue,
+                text: text,
+                clientID: clientID
             )
+            if let viewportSize = reportedViewportSizesByTerminalKey[key] {
+                params.viewportColumns = viewportSize.columns
+                params.viewportRows = viewportSize.rows
+            }
+            let responseData = try await client.send(params)
             guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
             handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
         } catch {
@@ -1710,13 +1687,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> Bool {
         let requestData: Data
         do {
-            requestData = try MobileCoreRPCClient.requestData(
-                method: "mobile.events.subscribe",
-                params: [
-                    "stream_id": terminalEventStreamID,
-                    "topics": topics,
-                ]
-            )
+            requestData = try MobileEventsSubscribeParams(
+                streamID: terminalEventStreamID,
+                topics: topics
+            ).requestData()
         } catch {
             mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
             return false
@@ -1749,8 +1723,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func resolveTerminalOutputTransport(client: MobileCoreRPCClient) async -> TerminalOutputTransport {
         let fallback: TerminalOutputTransport = .rawBytes
         do {
-            let data = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:]),
+            let data = try await client.send(
+                MobileHostStatusParams(),
                 timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
             )
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
@@ -2096,17 +2070,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return nil
         }
         do {
-            let request = try MobileCoreRPCClient.requestData(
-                method: "mobile.terminal.viewport",
-                params: [
-                    "workspace_id": workspaceID.rawValue,
-                    "surface_id": surfaceID,
-                    "client_id": clientID,
-                    "viewport_columns": columns,
-                    "viewport_rows": rows,
-                ]
+            let data = try await client.send(
+                MobileTerminalViewportParams(
+                    workspaceID: workspaceID.rawValue,
+                    surfaceID: surfaceID,
+                    clientID: clientID,
+                    viewportColumns: columns,
+                    viewportRows: rows
+                )
             )
-            let data = try await client.sendRequest(request)
             guard remoteClient === client else { return nil }
             guard let payload = try? MobileTerminalViewportResponse.decode(data),
                   let grid = payload.effectiveGrid else {
@@ -2128,17 +2100,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let id = clientID
         Task { @MainActor in
-            let request = try? MobileCoreRPCClient.requestData(
-                method: "mobile.terminal.viewport",
-                params: [
-                    "workspace_id": workspaceID.rawValue,
-                    "surface_id": surfaceID,
-                    "client_id": id,
-                    "clear": true,
-                ]
+            _ = try? await client.send(
+                MobileTerminalViewportParams(
+                    workspaceID: workspaceID.rawValue,
+                    surfaceID: surfaceID,
+                    clientID: id,
+                    clear: true
+                )
             )
-            guard let request else { return }
-            _ = try? await client.sendRequest(request)
         }
     }
 
@@ -2171,14 +2140,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self else { return }
             defer { self.terminalReplaySurfaceIDsInFlight.remove(surfaceID) }
             do {
-                let request = try MobileCoreRPCClient.requestData(
-                    method: "mobile.terminal.replay",
-                    params: [
-                        "workspace_id": workspaceID.rawValue,
-                        "surface_id": surfaceID,
-                    ]
+                let data = try await client.send(
+                    MobileTerminalReplayParams(
+                        workspaceID: workspaceID.rawValue,
+                        surfaceID: surfaceID
+                    )
                 )
-                let data = try await client.sendRequest(request)
                 guard self.remoteClient === client else { return }
                 let payload = try? MobileTerminalReplayResponse.decode(data)
                 let bytes = payload?.dataBase64.flatMap { Data(base64Encoded: $0) }
@@ -2313,8 +2280,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             defer { self?.workspaceListRefreshTask = nil }
             guard let self else { return }
             do {
-                let request = try MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
-                let data = try await client.sendRequest(request)
+                // "mobile.workspace.list" and "workspace.list" hit the same host
+                // handler (MobileHostService); use the canonical method every other
+                // call site already sends so the binding stays one-to-one.
+                let data = try await client.send(MobileWorkspaceListParams())
                 let response = try MobileSyncWorkspaceListResponse.decode(data)
                 guard self.remoteClient === client, self.connectionState == .connected else { return }
                 self.applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)

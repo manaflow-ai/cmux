@@ -102,11 +102,10 @@ public struct CMUXMobileRootScene: View {
 
     @MainActor
     private func makeStore() -> CMUXMobileShellStore {
-        let identityProvider = AuthCoordinatorIdentityProvider(coordinator: auth.coordinator)
-        return CMUXMobileShellStore(
+        CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: pairedMacStore,
-            identityProvider: identityProvider,
+            identityProvider: auth.coordinator,
             reachability: reachability
         )
     }
