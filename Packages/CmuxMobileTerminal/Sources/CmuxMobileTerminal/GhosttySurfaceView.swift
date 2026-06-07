@@ -2675,58 +2675,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if pending.isEmpty {
             return "===== visible terminal: (no on-screen surface) ====="
         }
-        let holder = VisibleSnapshotHolder()
-        // carve-out justification: one-shot cross-queue completion signal with a
-        // bounded wait in a detached task, never a lock guarding shared state.
-        let done = DispatchSemaphore(value: 0)
-        enqueueVisibleTerminalSnapshotRead(pending: pending, holder: holder, done: done)
-        return await visibleTerminalSnapshotTextFromEnqueuedRead(holder: holder, done: done)
-    }
-
-    nonisolated private static func enqueueVisibleTerminalSnapshotRead(
-        pending: [VisibleSnapshotRequest],
-        holder: VisibleSnapshotHolder,
-        // carve-out justification: completion signal owned by one snapshot read.
-        done: DispatchSemaphore
-    ) {
-        // Enqueue the read before the main actor can run a teardown that enqueues
-        // `ghostty_surface_free` for these same pointers. FIFO ordering on
-        // `outputQueue` keeps the read ahead of any later free.
-        outputQueue.async {
-            var built: [String] = []
-            for item in pending {
-                let text = surfaceText(item.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
-                built.append(
-                    "===== visible terminal · grid=\(item.grid) · font=\(item.font) =====\n"
-                    + text
-                )
+        return await withCheckedContinuation { continuation in
+            // Enqueue the read before the main actor can run a teardown that
+            // enqueues `ghostty_surface_free` for these same pointers. FIFO
+            // ordering on `outputQueue` keeps the read ahead of any later free.
+            Self.outputQueue.async {
+                var built: [String] = []
+                for item in pending {
+                    let text = surfaceText(item.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
+                    built.append(
+                        "===== visible terminal · grid=\(item.grid) · font=\(item.font) =====\n"
+                        + text
+                    )
+                }
+                continuation.resume(returning: built.joined(separator: "\n\n"))
             }
-            holder.sections = built
-            done.signal()
         }
-    }
-
-    nonisolated private static func visibleTerminalSnapshotTextFromEnqueuedRead(
-        holder: VisibleSnapshotHolder,
-        // carve-out justification: waited in a detached sync helper, not main actor.
-        done: DispatchSemaphore
-    ) async -> String {
-        await Task.detached(priority: .utility) {
-            Self.visibleTerminalSnapshotTextFromEnqueuedReadSync(holder: holder, done: done)
-        }.value
-    }
-
-    nonisolated private static func visibleTerminalSnapshotTextFromEnqueuedReadSync(
-        holder: VisibleSnapshotHolder,
-        // carve-out justification: bounded wait for one already-enqueued queue read.
-        done: DispatchSemaphore
-    ) -> String {
-        // Bound the wait. If a render wedge has the queue stuck mid-`process_output`,
-        // ship the logs without the snapshot instead.
-        if done.wait(timeout: .now() + 0.6) == .timedOut {
-            return "===== visible terminal: (snapshot skipped — render busy) ====="
-        }
-        return holder.sections.joined(separator: "\n\n")
     }
 
     private func handleBell() {
@@ -2764,16 +2728,6 @@ private struct VisibleSnapshotRequest: @unchecked Sendable {
     let grid: String
     let font: Int
     let surface: ghostty_surface_t
-}
-
-/// Carrier for the snapshot text produced off `GhosttySurfaceView.outputQueue`.
-///
-/// `sections` is written exactly once on that queue before its semaphore is
-/// signaled and read by the caller only after the matching wait, so the two
-/// accesses never overlap — hence `@unchecked Sendable`. On the timeout path the
-/// caller never reads it, leaving the queue task the sole accessor.
-private final class VisibleSnapshotHolder: @unchecked Sendable {
-    var sections: [String] = []
 }
 
 private final class WeakGhosttySurfaceViewBox {
