@@ -52,6 +52,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     private let anonymousID: String
     private let flushBatchSize: Int
     private let flushInterval: Duration
+    private let maxPendingEvents: Int
 
     private let stream: AsyncStream<Item>
     private let continuation: AsyncStream<Item>.Continuation
@@ -76,6 +77,12 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     ///     submission so timestamps stay ordered.
     ///   - flushBatchSize: Flush when this many events are buffered. Default 50.
     ///   - flushInterval: The periodic flush cadence. Default 30s.
+    ///   - maxPendingEvents: The hard cap on the buffered-but-unsent backlog.
+    ///     When an upload outage keeps `.retry`-ing, the buffer is held intact for
+    ///     the next attempt, so without a cap a sustained outage would grow memory
+    ///     unboundedly across the lifecycle/pairing/terminal fire-sites. Once the
+    ///     backlog exceeds this cap, the oldest events are dropped (newest kept).
+    ///     Default 1000.
     public init(
         uploader: any AnalyticsUploading,
         consent: any AnalyticsConsentProviding,
@@ -83,7 +90,8 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         clock: any Clock<Duration> = ContinuousClock(),
         now: @escaping @Sendable () -> Date = { Date() },
         flushBatchSize: Int = 50,
-        flushInterval: Duration = .seconds(30)
+        flushInterval: Duration = .seconds(30),
+        maxPendingEvents: Int = 1000
     ) {
         self.uploader = uploader
         self.consent = consent
@@ -92,6 +100,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         self.now = now
         self.flushBatchSize = flushBatchSize
         self.flushInterval = flushInterval
+        self.maxPendingEvents = max(flushBatchSize, maxPendingEvents)
         self.distinctID = anonymousID
         (self.stream, self.continuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
         Task { await self.startConsuming() }
@@ -168,6 +177,13 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
                 timestamp: timestamp
             )
         )
+        // Bound the backlog so a sustained upload outage (`.retry` keeps the
+        // buffer intact) cannot grow memory without limit. Drop the oldest events
+        // first: the freshest signal is the most useful, and dropping here is
+        // off-main on the consumer, never on the `capture` fire path.
+        if pending.count > maxPendingEvents {
+            pending.removeFirst(pending.count - maxPendingEvents)
+        }
     }
 
     private func applyIdentify(
@@ -215,6 +231,14 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     }
 
     private func drain() async {
+        // Honor a withdrawn opt-out even for events buffered while telemetry was
+        // still enabled: if consent was revoked between enqueue and this flush,
+        // discard the backlog and send nothing. `flush()` routes through here via
+        // its barrier, so an opt-out followed by a background flush also drops.
+        guard consent.isTelemetryEnabled else {
+            pending.removeAll()
+            return
+        }
         while !pending.isEmpty {
             let batch = pending
             let result = await uploader.upload(batch)

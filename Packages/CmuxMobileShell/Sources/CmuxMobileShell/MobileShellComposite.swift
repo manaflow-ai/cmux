@@ -304,8 +304,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // initial assignments, so the undetermined flag is not clobbered here.
         self.pairedMacHintUndetermined = pairingHintDefaults.object(forKey: Self.hasKnownPairedMacDefaultsKey) == nil
         self.hasKnownPairedMac = pairingHintDefaults.bool(forKey: Self.hasKnownPairedMacDefaultsKey)
-        let resolvedClientID = clientIDRepository.resolveClientID()
-        self.clientID = resolvedClientID.id
+        // The id is resolved (and minted on first install) by
+        // `MobileAnalyticsComposition`, which is constructed before this shell and
+        // owns the `ios_app_first_launch` emit. The shell only needs the stable id
+        // here — by the time it resolves, the value is already persisted, so its
+        // `created` flag is always false and is intentionally not read.
+        self.clientID = clientIDRepository.resolveClientID().id
         self.isSignedIn = isSignedIn
         self.connectionState = connectionState
         self.macConnectionStatus = connectionState == .connected ? .connected : .unavailable
@@ -335,13 +339,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalOutputTransport = .rawBytes
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
-
-        // Install proxy: fired exactly once, the first time the per-install client
-        // id is minted. `resolveClientID()` returns `created == true` only on that
-        // first read, so this never repeats on later launches.
-        if resolvedClientID.created {
-            analytics.capture("ios_app_first_launch", ["client_id": .string(resolvedClientID.id)])
-        }
     }
 
     isolated deinit {

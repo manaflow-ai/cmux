@@ -7,19 +7,40 @@ private struct FixedConsent: AnalyticsConsentProviding {
     let isTelemetryEnabled: Bool
 }
 
+/// A consent gate whose value can be flipped between captures, so a test can
+/// enqueue events while opted in and then withdraw consent before the flush.
+private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendable {
+    // Read on the emitter's `capture` (caller thread) and its drain (actor);
+    // a lock keeps the flip race-free without an async hop on the capture path.
+    private let lock = NSLock()
+    private var enabled: Bool
+    init(enabled: Bool) { self.enabled = enabled }
+    var isTelemetryEnabled: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return enabled
+    }
+    func set(_ value: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        enabled = value
+    }
+}
+
 @Suite struct AnalyticsEmitterTests {
     private func makeEmitter(
         uploader: RecordingAnalyticsUploader,
+        consent: (any AnalyticsConsentProviding)? = nil,
         consentEnabled: Bool = true,
         anonymousID: String = "anon-1",
-        flushBatchSize: Int = 50
+        flushBatchSize: Int = 50,
+        maxPendingEvents: Int = 1000
     ) -> AnalyticsEmitter {
         AnalyticsEmitter(
             uploader: uploader,
-            consent: FixedConsent(isTelemetryEnabled: consentEnabled),
+            consent: consent ?? FixedConsent(isTelemetryEnabled: consentEnabled),
             anonymousID: anonymousID,
             now: { Date(timeIntervalSince1970: 1_000_000) },
-            flushBatchSize: flushBatchSize
+            flushBatchSize: flushBatchSize,
+            maxPendingEvents: maxPendingEvents
         )
     }
 
@@ -114,5 +135,55 @@ private struct FixedConsent: AnalyticsConsentProviding {
         await emitter.flush()
         let events = await uploader.uploadedEvents
         #expect(events.contains { $0.name == "ios_app_launched" })
+    }
+
+    @Test func withdrawnConsentDropsEventsBufferedWhileEnabled() async {
+        // Captured while opted in, but consent is revoked before the events
+        // actually ship. The buffered backlog must be discarded, not uploaded —
+        // the opt-out applies even to events queued while telemetry was enabled.
+        let consent = MutableConsent(enabled: true)
+        let uploader = RecordingAnalyticsUploader(result: .retry)
+        let emitter = makeEmitter(uploader: uploader, consent: consent)
+        emitter.capture("ios_terminal_input_submitted", ["byte_count": .int(7)])
+        await emitter.flush() // .retry leaves the event buffered
+        let batchesBeforeWithdrawal = await uploader.uploadedBatches.count
+        // Withdraw consent, then let uploads succeed: the next flush must clear the
+        // backlog instead of shipping it, so no further batch reaches the uploader.
+        consent.set(false)
+        await uploader.setResult(.accepted)
+        await emitter.flush()
+        #expect(await uploader.uploadedBatches.count == batchesBeforeWithdrawal)
+        // Re-enabling does not resurrect the dropped events: nothing left to send.
+        consent.set(true)
+        await emitter.flush()
+        #expect(await uploader.uploadedBatches.count == batchesBeforeWithdrawal)
+    }
+
+    @Test func sustainedRetryBoundsBacklogByDroppingOldest() async {
+        // A stuck uploader (.retry forever) must not let the pending buffer grow
+        // without limit. With a cap of 4, only the 4 newest of 20 events survive.
+        let uploader = RecordingAnalyticsUploader(result: .retry)
+        let emitter = makeEmitter(
+            uploader: uploader,
+            flushBatchSize: 2,
+            maxPendingEvents: 4
+        )
+        for index in 0..<20 {
+            emitter.capture("ios_event", ["seq": .int(index)])
+        }
+        // Let the outage clear; the bounded backlog ships on the next flush. The
+        // final accepted batch is the only one whose events were actually retired,
+        // so it holds exactly the survivors (earlier batches were retry attempts).
+        await emitter.flush()
+        await uploader.setResult(.accepted)
+        await emitter.flush()
+        let finalBatch = await uploader.uploadedBatches.last ?? []
+        let survivors = finalBatch.compactMap { event -> Int? in
+            if case let .int(seq)? = event.properties["seq"] { return seq }
+            return nil
+        }
+        #expect(survivors.count <= 4)
+        // Drop-oldest: the surviving seqs are the highest (newest) ones.
+        #expect(survivors.allSatisfy { $0 >= 16 })
     }
 }

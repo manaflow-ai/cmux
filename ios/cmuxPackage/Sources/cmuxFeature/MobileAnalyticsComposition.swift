@@ -53,13 +53,22 @@ public struct MobileAnalyticsComposition {
             session: session
         )
         let consent = UserDefaultsAnalyticsConsentProvider(defaults: defaults)
-        let anonymousID = MobileClientIDRepository(defaults: defaults).clientID
+        // Resolve the per-install id once, here, at the single point that owns
+        // analytics. This composition is built before the app shell, so reading
+        // the id is also what *mints* it on a fresh install — which is exactly why
+        // the `ios_app_first_launch` emit must live here and not in the shell:
+        // by the time the shell resolves the id, `created` is already false.
+        let resolved = MobileClientIDRepository(defaults: defaults).resolveClientID()
+        let anonymousID = resolved.id
         let emitter = AnalyticsEmitter(
             uploader: uploader,
             consent: consent,
             anonymousID: anonymousID
         )
         emitter.setSuperProperties(Self.deviceSuperProperties(anonymousID: anonymousID))
+        if resolved.created {
+            emitter.capture("ios_app_first_launch", ["client_id": .string(anonymousID)])
+        }
         self.emitter = emitter
         self.sessionStore = AnalyticsSessionStore(defaults: defaults)
     }
