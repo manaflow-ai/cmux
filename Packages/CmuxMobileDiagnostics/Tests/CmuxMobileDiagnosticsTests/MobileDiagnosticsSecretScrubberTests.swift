@@ -249,6 +249,19 @@ import Testing
         }
     }
 
+    @Test func redactsAWSCredentialProcessJSONFields() {
+        let json = """
+        {"Version":1,"AccessKeyId":"AKIAIOSDIAGNOSTICS123","SecretAccessKey":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","SessionToken":"IQoJb3JpZ2luX2VjEFAaCXVzLXdlc3QtMiJHMEUCIQD","Expiration":"2026-06-07T00:00:00Z"}
+        """
+        let out = scrubber.scrub(json)
+        #expect(out.contains(#""AccessKeyId":"<redacted>""#))
+        #expect(out.contains(#""SecretAccessKey":"<redacted>""#))
+        #expect(out.contains(#""SessionToken":"<redacted>""#))
+        #expect(!out.contains("AKIAIOSDIAGNOSTICS123"))
+        #expect(!out.contains("wJalrXUtnFEMI"))
+        #expect(!out.contains("IQoJb3JpZ2lu"))
+    }
+
     @Test func doesNotRedactKeywordSubstrings() {
         #expect(scrubber.scrub("tokenizer=gpt2") == "tokenizer=gpt2")
         #expect(scrubber.scrub("mytokenstuff=value") == "mytokenstuff=value")

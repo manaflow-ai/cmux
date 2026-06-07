@@ -30,6 +30,10 @@ struct MobileDiagnosticsSecretPatternFactory {
             "authToken",
             "attachToken",
             "clientSecret",
+            "accessKeyId",
+            "secretAccessKey",
+            "sessionToken",
+            "securityToken",
         ].joined(separator: "|")
         let separatedSecretKey = "(?:[A-Za-z0-9]+[_-])*(?:\(separatedSecretNames))"
         let camelSecretKey = "(?:[A-Za-z0-9]+)?(?:\(camelSecretNames))|stack(?:Access|Refresh)(?:Token)?"
