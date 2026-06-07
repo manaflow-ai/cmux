@@ -140,11 +140,7 @@ final class cmuxUITests: XCTestCase {
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
-        assertButtonLabel(
-            "MobileTerminalDropdown",
-            equals: "Terminal 2",
-            in: app
-        )
+        assertTerminalCount(2, in: "workspace-3", on: server)
     }
 
     @MainActor
@@ -599,6 +595,25 @@ final class cmuxUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         XCTAssertEqual(button.label, expectedLabel, file: file, line: line)
+    }
+
+    @MainActor
+    private func assertTerminalCount(
+        _ expectedCount: Int,
+        in workspaceID: String,
+        on server: MobileSyncMockHostServer,
+        timeout: TimeInterval = 12,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if server.terminalCount(in: workspaceID) == expectedCount {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTAssertEqual(server.terminalCount(in: workspaceID), expectedCount, file: file, line: line)
     }
 
     @MainActor
@@ -1066,6 +1081,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 connection.cancel()
             }
             self.connections.removeAll()
+        }
+    }
+
+    func terminalCount(in workspaceID: String) -> Int {
+        queue.sync {
+            workspaces.first { $0.id == workspaceID }?.terminals.count ?? 0
         }
     }
 
