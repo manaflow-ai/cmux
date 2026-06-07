@@ -328,7 +328,17 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
     }
 
     private func requireExecutable(_ candidates: [String], name: String) throws -> String {
-        guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { throw XCTSkip("\(name) is not installed") }
+        guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+            let message = "\(name) is not installed"
+            let environment = ProcessInfo.processInfo.environment
+            if environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true" {
+                XCTFail("\(message); hosted CI must exercise SSH bootstrap fish shell coverage")
+                throw NSError(domain: "cmux.tests", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: message,
+                ])
+            }
+            throw XCTSkip(message)
+        }
         return path
     }
 
