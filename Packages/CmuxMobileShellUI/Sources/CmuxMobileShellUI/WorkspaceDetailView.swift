@@ -374,7 +374,7 @@ struct WorkspaceDetailView: View {
         let activePairedMac = store.activePairedMac
         let persistedActivePairedMac = store.pairedMacs.first { $0.isActive }
         return MobileDiagnosticsLiveState(
-            connectionState: diagnosticsConnectionState,
+            connectionState: connectionStatus.label,
             isSignedIn: store.isSignedIn,
             isAuthenticated: authManager.isAuthenticated,
             lastAuthError: authManager.lastAuthErrorDescription,
@@ -399,17 +399,6 @@ struct WorkspaceDetailView: View {
             return nil
         }
         return email
-    }
-
-    private var diagnosticsConnectionState: String {
-        switch connectionStatus {
-        case .connected:
-            return "connected"
-        case .reconnecting:
-            return "reconnecting"
-        case .unavailable:
-            return "unavailable"
-        }
     }
 
     /// Builds the report after the user chooses a diagnostics action, so the
