@@ -45,7 +45,11 @@ struct WorkspaceDetailView: View {
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
-                    autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID),
+                    // While the composer is open it owns the keyboard, so a
+                    // surface re-create from switching terminals must not let the
+                    // hidden terminal input proxy grab first responder back.
+                    autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
+                        && !store.isComposerPresented,
                     isComposerActive: store.isComposerPresented
                 )
                 // Identity must track the selected terminal. The representable's

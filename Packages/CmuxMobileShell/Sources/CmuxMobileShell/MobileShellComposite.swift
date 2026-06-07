@@ -1208,12 +1208,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// open. Unlike ``submitTerminalInput()``, this delivers a multi-line block
     /// as one paste + one submit (via `terminal.paste`) so interior newlines do
     /// not fragment into multiple submissions in a TUI agent.
+    ///
+    /// The field is cleared only after the Mac acknowledges the paste. If the
+    /// send fails (no connection, or an older host that does not implement
+    /// `terminal.paste` and answers `method_not_found`), the composed text is
+    /// kept so the user can retry instead of silently losing the message.
     public func submitComposerInput() async {
         let text = terminalInputText
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        terminalInputText = ""
         guard remoteClient != nil else { return }
-        await sendRemoteTerminalPaste(text, submitKey: "return")
+        let sent = await sendRemoteTerminalPaste(text, submitKey: "return")
+        // Only clear if the field still holds exactly what we sent, so a value
+        // the user typed while the send was in flight is not discarded.
+        if sent, terminalInputText == text {
+            terminalInputText = ""
+        }
     }
 
     public func sendTerminalRawInput(_ text: String) {
@@ -1857,15 +1866,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func sendRemoteTerminalPaste(_ text: String, submitKey: String) async {
+    /// - Returns: `true` when the Mac acknowledged the paste, `false` when there
+    ///   is no selected workspace/terminal or the send failed.
+    @discardableResult
+    private func sendRemoteTerminalPaste(_ text: String, submitKey: String) async -> Bool {
         guard let workspaceID = selectedWorkspace?.id,
               let terminalID = selectedTerminalID else {
             #if DEBUG
             mobileShellLog.info("skip remote terminal paste selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
             #endif
-            return
+            return false
         }
-        await sendRemoteTerminalPaste(text, submitKey: submitKey, workspaceID: workspaceID, terminalID: terminalID)
+        return await sendRemoteTerminalPaste(text, submitKey: submitKey, workspaceID: workspaceID, terminalID: terminalID)
     }
 
     /// Deliver a composed block to the Mac surface via `terminal.paste`: a
@@ -1873,17 +1885,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// followed by an optional submit key. Mirrors ``sendRemoteTerminalInput(_:workspaceID:terminalID:)``
     /// but takes the dedicated paste path instead of the raw `terminal.input`
     /// path, which rewrites newlines to carriage returns.
+    ///
+    /// - Returns: `true` when the Mac acknowledged the paste, `false` on any
+    ///   failure (no client, a stale generation, or an RPC error such as
+    ///   `method_not_found` from an older host). Callers use this to keep the
+    ///   composer text on failure instead of clearing it optimistically.
+    @discardableResult
     private func sendRemoteTerminalPaste(
         _ text: String,
         submitKey: String,
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
-    ) async {
+    ) async -> Bool {
         guard let client = remoteClient else {
             #if DEBUG
             mobileShellLog.info("skip remote terminal paste remoteClient=0")
             #endif
-            return
+            return false
         }
         let generation = connectionGeneration
         do {
@@ -1908,13 +1926,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     params: params
                 )
             )
-            guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
+            guard isCurrentRemoteOperation(client: client, generation: generation) else { return false }
             handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
+            return true
         } catch {
-            guard generation == connectionGeneration else { return }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            guard generation == connectionGeneration else { return false }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
             markMacConnectionUnavailableIfNeeded(after: error)
             connectionError = Self.localizedConnectionError(for: error)
+            return false
         }
     }
 
