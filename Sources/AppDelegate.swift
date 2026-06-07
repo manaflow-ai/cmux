@@ -1168,7 +1168,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Before the auth graph is configured, fall back to a default router
         // (built-in cmux schemes) so dropped callbacks are still detected.
         let callbackRouter = auth?.callbackRouter ?? AuthCallbackRouter()
-        let authCallbacks = urls.filter(callbackRouter.isAuthCallbackURL)
+        // Panecho: never treat any incoming URL as an auth callback in privacy mode
+        // (remote sign-in is disabled). Preserves the fork's auth privacy gate that
+        // previously lived in AuthCallbackRouter (now an upstream package without
+        // PrivacyMode visibility).
+        let authCallbacks = PrivacyMode.isEnabled ? [] : urls.filter(callbackRouter.isAuthCallbackURL)
         if let browserSignIn = auth?.browserSignIn {
             for url in authCallbacks {
                 Task { @MainActor in
