@@ -13,6 +13,7 @@ struct DetectedSSHSession: Equatable {
     let forwardAgent: Bool
     let compressionEnabled: Bool
     let sshOptions: [String]
+    var password: String? = nil
 
     func uploadDroppedFiles(
         _ fileURLs: [URL],
@@ -101,9 +102,13 @@ struct DetectedSSHSession: Equatable {
                 }
 
                 let remotePath = WorkspaceRemoteSessionController.remoteDropPath(for: normalizedLocalURL)
-                let result = try Self.runProcess(
+                let (scpExecutable, scpArgs) = wrappedCommand(
                     executable: "/usr/bin/scp",
-                    arguments: scpArguments(localPath: normalizedLocalURL.path, remotePath: remotePath),
+                    arguments: scpArguments(localPath: normalizedLocalURL.path, remotePath: remotePath)
+                )
+                let result = try Self.runProcess(
+                    executable: scpExecutable,
+                    arguments: scpArgs,
                     timeout: 45,
                     operation: operation
                 )
@@ -132,9 +137,11 @@ struct DetectedSSHSession: Equatable {
             "-o", "ConnectTimeout=6",
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
-            "-o", "BatchMode=yes",
             "-o", "ControlMaster=no",
         ]
+        if password == nil {
+            args += ["-o", "BatchMode=yes"]
+        }
 
         if useIPv4 {
             args.append("-4")
@@ -181,9 +188,11 @@ struct DetectedSSHSession: Equatable {
             "-o", "ConnectTimeout=6",
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
-            "-o", "BatchMode=yes",
             "-o", "ControlMaster=no",
         ]
+        if password == nil {
+            args += ["-o", "BatchMode=yes"]
+        }
 
         if useIPv4 {
             args.append("-4")
@@ -224,13 +233,30 @@ struct DetectedSSHSession: Equatable {
         return args
     }
 
+    private func wrappedCommand(executable: String, arguments: [String]) -> (String, [String]) {
+        guard let password, !password.isEmpty,
+              let sshpass = Self.sshpassExecutablePath() else {
+            return (executable, arguments)
+        }
+        return (sshpass, ["-p", password, executable] + arguments)
+    }
+
+    private static func sshpassExecutablePath() -> String? {
+        let candidates = ["/opt/homebrew/bin/sshpass", "/usr/local/bin/sshpass", "/usr/bin/sshpass"]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
     private func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
         guard !remotePaths.isEmpty else { return }
         let cleanupScript = "rm -f -- " + remotePaths.map(Self.shellSingleQuoted).joined(separator: " ")
         let cleanupCommand = "sh -c \(Self.shellSingleQuoted(cleanupScript))"
-        _ = try? Self.runProcess(
+        let (sshExecutable, sshArgs) = wrappedCommand(
             executable: "/usr/bin/ssh",
-            arguments: sshArguments(command: cleanupCommand),
+            arguments: sshArguments(command: cleanupCommand)
+        )
+        _ = try? Self.runProcess(
+            executable: sshExecutable,
+            arguments: sshArgs,
             timeout: 8
         )
     }
@@ -428,8 +454,14 @@ enum TerminalSSHSessionDetector {
             }
 
         for candidate in candidates {
+            guard let arguments = argumentsByPID[candidate.pid] else { continue }
+            if RemoteShellSessionParsing.normalizedExecutableName(candidate.executableName) == "sshpass" {
+                if let session = parseSshpassCommandLine(arguments) {
+                    return session
+                }
+                continue
+            }
             guard let transport = RemoteShellTransport(executableName: candidate.executableName),
-                  let arguments = argumentsByPID[candidate.pid],
                   let session = parseCommandLine(arguments, for: transport) else {
                 continue
             }
@@ -437,6 +469,45 @@ enum TerminalSSHSessionDetector {
         }
 
         return nil
+    }
+
+    // Sesiones lanzadas via `sshpass -p<pass> ssh ...`: el ssh real corre en un pty
+    // interno de sshpass, asi que en el TTY del pane solo se ve `sshpass`. Parseamos su
+    // linea de comando para extraer la sesion ssh embebida + el password.
+    static func parseSshpassCommandLine(_ arguments: [String]) -> DetectedSSHSession? {
+        guard !arguments.isEmpty else { return nil }
+        var index = 0
+        if RemoteShellSessionParsing.normalizedExecutableName(arguments[0]) == "sshpass" {
+            index = 1
+        }
+        var password: String?
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument.hasPrefix("-p") {
+                if argument.count > 2 {
+                    password = String(argument.dropFirst(2))
+                } else {
+                    index += 1
+                    if index < arguments.count { password = arguments[index] }
+                }
+                index += 1
+            } else if argument == "-f" || argument == "-d" || argument == "-P" {
+                index += 2
+            } else if argument == "-e" || argument == "-v" {
+                index += 1
+            } else if argument.hasPrefix("-") {
+                index += 1
+            } else {
+                break
+            }
+        }
+        guard index < arguments.count else { return nil }
+        let sshArguments = Array(arguments[index...])
+        guard var session = parseSSHCommandLine(sshArguments) else { return nil }
+        if let password, !password.isEmpty {
+            session.password = password
+        }
+        return session
     }
 
     private static let psPath = "/bin/ps"
@@ -454,10 +525,15 @@ enum TerminalSSHSessionDetector {
 
     private static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
         normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
-            RemoteShellTransport(executableName: process.executableName) != nil &&
+            isRemoteShellExecutable(process.executableName) &&
             process.pgid > 0 &&
             process.tpgid > 0 &&
             process.pgid == process.tpgid
+    }
+
+    private static func isRemoteShellExecutable(_ executableName: String) -> Bool {
+        if RemoteShellTransport(executableName: executableName) != nil { return true }
+        return RemoteShellSessionParsing.normalizedExecutableName(executableName) == "sshpass"
     }
 
     private static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {
