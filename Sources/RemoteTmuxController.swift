@@ -311,6 +311,20 @@ final class RemoteTmuxController {
                 #endif
             }
         }
+        // If every session failed to attach (e.g. all were killed between discovery
+        // and attach), don't leave a sticky empty dedicated window: the reuse check
+        // at the top would hand it back on the next attach and never retry. Tear down
+        // the window, bindings, and master, and surface the failure so the CLI reports
+        // it instead of a false success. (Bindings are cleared before the window
+        // close so its onClose handleRemoteWindowClosed is a no-op — no double exit.)
+        guard sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash }) else {
+            windowIdByHost.removeValue(forKey: host.connectionHash)
+            hostByWindowId.removeValue(forKey: windowId)
+            transports.removeValue(forKey: host.connectionHash)
+            RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+            appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId)
+            throw RemoteTmuxError.unreachable("could not mirror any tmux session on \(host.destination)")
+        }
         // Remove the window's bootstrap (local welcome) workspace once at least
         // one remote workspace exists, so the window is a clean 1:1 mirror.
         if let bootstrapWorkspaceId,
