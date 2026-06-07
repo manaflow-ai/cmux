@@ -1,0 +1,14 @@
+{"timestamp":"2026-06-06T08:33:48.664Z","type":"session_meta","payload":{"id":"sess-codex-1","timestamp":"2026-06-06T08:33:27.138Z","cwd":"/tmp/demo","cli_version":"0.137.0"}}
+{"timestamp":"2026-06-06T08:33:48.667Z","type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}
+{"timestamp":"2026-06-06T08:33:48.668Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"<permissions instructions>\nDanger full access.\n</permissions instructions>"}]}}
+{"timestamp":"2026-06-06T08:33:48.668Z","type":"turn_context","payload":{"turn_id":"t1","cwd":"/tmp/demo","model":"gpt-5.5"}}
+{"timestamp":"2026-06-06T08:33:58.716Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"List the files in the repo."}]}}
+{"timestamp":"2026-06-06T08:33:58.719Z","type":"event_msg","payload":{"type":"user_message","message":"List the files in the repo."}}
+{"timestamp":"2026-06-06T08:34:11.016Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"I'll run ls."}],"encrypted_content":"xxx"}}
+{"timestamp":"2026-06-06T08:34:11.611Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Listing files now."}]}}
+{"timestamp":"2026-06-06T08:34:11.609Z","type":"event_msg","payload":{"type":"agent_message","message":"Listing files now."}}
+{"timestamp":"2026-06-06T08:34:12.523Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"ls\",\"workdir\":\"/tmp/demo\"}","call_id":"call_01"}}
+{"timestamp":"2026-06-06T08:34:21.925Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_01","output":"README.md\nPackage.swift"}}
+{"timestamp":"2026-06-06T08:34:22.029Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":22178}}}}
+{"timestamp":"2026-06-06T08:34:58.563Z","type":"response_item","payload":{"type":"tool_search_call","call_id":"call_02","status":"completed"}}
+{"timestamp":"2026-06-06T08:35:30.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"There are two files."}]}}
