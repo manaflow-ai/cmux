@@ -12,6 +12,13 @@ for derived_data_path in "$@"; do
   fi
 
   find "$derived_data_path" \
-    \( -name ModuleCache.noindex -o -name SDKStatCaches.noindex \) \
+    \( -name ModuleCache.noindex -o -name SDKStatCaches.noindex -o -name SwiftExplicitPrecompiledModules \) \
     -type d -prune -print -exec rm -rf {} +
+
+  intermediates_path="$derived_data_path/Build/Intermediates.noindex"
+  if [ -d "$intermediates_path" ]; then
+    find "$intermediates_path" \
+      -type f -name '*-Bridging-header.pch' \
+      -print -delete
+  fi
 done

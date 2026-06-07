@@ -1226,6 +1226,8 @@ check_cached_deriveddata_prunes_module_caches() {
   for pattern in \
     'ModuleCache.noindex' \
     'SDKStatCaches.noindex' \
+    'SwiftExplicitPrecompiledModules' \
+    '*-Bridging-header.pch' \
     'find "$derived_data_path"'
   do
     if ! grep -Fq "$pattern" "$script"; then
@@ -1247,7 +1249,12 @@ check_cached_deriveddata_prunes_module_caches() {
     fi
   done
 
-  echo "PASS: cached Xcode DerivedData lanes prune restored module caches before xcodebuild"
+  if ! grep -Fq 'prune_stale_bridging_header_pch "$DERIVED_DATA"' "$ROOT_DIR/scripts/reload.sh"; then
+    echo "FAIL: reload.sh must prune stale bridging-header PCH files before tagged xcodebuild builds"
+    exit 1
+  fi
+
+  echo "PASS: cached Xcode DerivedData lanes prune restored module caches and stale bridging-header PCH files before xcodebuild"
 }
 
 check_ui_regression_budget() {

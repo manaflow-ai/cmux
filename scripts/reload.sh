@@ -386,6 +386,21 @@ cleanup_incomplete_xcodebuild_outputs() {
   remove_app_bundle_output "${TAG_APP_STAGING_PATH:-}"
 }
 
+prune_stale_bridging_header_pch() {
+  local derived_data_path="${1:-}"
+  local intermediates_path=""
+  if [[ -z "$derived_data_path" || ! -d "$derived_data_path" ]]; then
+    return 0
+  fi
+  intermediates_path="$derived_data_path/Build/Intermediates.noindex"
+  if [[ ! -d "$intermediates_path" ]]; then
+    return 0
+  fi
+  find "$intermediates_path" \
+    -type f -name '*-Bridging-header.pch' \
+    -print -delete
+}
+
 validate_app_bundle() {
   local app_path="$1"
   local executable_name="$2"
@@ -710,6 +725,7 @@ XCODEBUILD_ARGS+=(build)
 if [[ -n "$BUILD_PRODUCTS_DEBUG_DIR" ]]; then
   mkdir -p "$BUILD_PRODUCTS_DEBUG_DIR"
   cleanup_incomplete_xcodebuild_outputs
+  prune_stale_bridging_header_pch "$DERIVED_DATA"
   XCODEBUILD_CLEANED_OUTPUTS=0
 fi
 
