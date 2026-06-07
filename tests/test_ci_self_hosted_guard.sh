@@ -1143,7 +1143,7 @@ check_ios_simulator_tests_fail_closed_after_xcodebuild_status() {
     in_step && /xctest_started\(\)/ { saw_xctest_started_function=1 }
     in_step && /Test Suite .* started|Testing started|Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_xctest_started_patterns=1 }
     in_step && /status="\$\{PIPESTATUS\[0\]\}"/ { saw_status=1 }
-    in_step && /\[ "$attempt" -lt 2 \] && ! xctest_started "\$LOG_PATH" && grep -Eq "Timed out while launching application via Xcode\|Failed to send signal 19\|DTXMessage" "\$LOG_PATH"/ { saw_retry_gated_before_xctest=1 }
+    in_step && /\[ "\$attempt" -lt 2 \]/ && /! xctest_started "\$LOG_PATH"/ && /grep -Eq/ && /Timed out while launching application via Xcode/ && /Failed to send signal 19/ && /DTXMessage/ { saw_retry_gated_before_xctest=1 }
     in_step && /Detected Xcode simulator launch failure, retrying on a clean simulator/ { saw_prelaunch_retry=1 }
     in_step && /iOS simulator xcodebuild failed; failing instead of treating post-XCTest cleanup as success/ { saw_fail_closed_message=1 }
     in_step && /exit "\$status"/ { saw_exit=1 }

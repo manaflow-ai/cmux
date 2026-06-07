@@ -281,6 +281,10 @@ jobs:
               return 1
             fi
           }
+          xctest_started() {
+            local log_path="$1"
+            grep -Eq 'Test Suite .* started|Testing started|Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$log_path"
+          }
           for attempt in 1 2; do
             LOG_PATH="/tmp/cmux-ios-${{ matrix.family }}-attempt-${attempt}.log"
             echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
@@ -293,7 +297,7 @@ jobs:
               exit 0
             fi
             status="${PIPESTATUS[0]}"
-            if [ "$attempt" -lt 2 ] && grep -Eq "Timed out while launching application via Xcode|Failed to send signal 19|DTXMessage" "$LOG_PATH"; then
+            if [ "$attempt" -lt 2 ] && ! xctest_started "$LOG_PATH" && grep -Eq "Timed out while launching application via Xcode|Failed to send signal 19|DTXMessage" "$LOG_PATH"; then
               echo "Detected Xcode simulator launch failure, retrying on a clean simulator."
               continue
             fi
