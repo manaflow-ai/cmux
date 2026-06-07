@@ -74,8 +74,15 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
-    /// Default: fall back to per-character input so a conformer that does not
-    /// implement the bracketed-paste path still delivers the text.
+    /// Default bracketed-paste handler that falls back to per-character input.
+    ///
+    /// A conformer that does not implement the bracketed-paste path still
+    /// delivers the text: newlines are normalized to CR (matching the
+    /// per-keystroke input path) and the bytes are forwarded through
+    /// ``ghosttySurfaceView(_:didProduceInput:)``.
+    /// - Parameters:
+    ///   - surfaceView: The surface view that produced the committed block.
+    ///   - text: The committed block of pasted/dictated text.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteText text: String) {
         let normalized = text.replacingOccurrences(of: "\n", with: "\r")
         ghosttySurfaceView(surfaceView, didProduceInput: Data(normalized.utf8))
