@@ -1072,7 +1072,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let ticket: CmxAttachTicket
         do {
-            ticket = try await requestManualAttachTicket(route: route, displayName: displayName)
+            // Use the same fallback-aware mint `connectManualHost` uses: a legacy
+            // Mac that returns `method_not_found` for `mobile.attach_ticket.create`
+            // falls back to a synthetic manual ticket that still authorizes the
+            // authenticated `workspace.list` below. Calling the raw
+            // `requestManualAttachTicket` here would mark every such legacy Mac
+            // `.unavailable` and never surface its workspaces.
+            ticket = try await manualHostTicket(name: displayName, host: normalizedHost, port: port)
         } catch {
             mobileShellLog.info("secondary mac ticket mint failed mac=\(mac.macDeviceID, privacy: .public): \(String(describing: error), privacy: .private)")
             return MacWorkspaceListRefreshOutcome(
