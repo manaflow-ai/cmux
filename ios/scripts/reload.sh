@@ -140,6 +140,68 @@ BUNDLE_ID="dev.cmux.ios.$TAG_SLUG"
 DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$TAG_SLUG"
 DESTINATION="platform=iOS Simulator,name=$SIMULATOR_NAME"
 
+# --- optional dogfood auto sign-in -------------------------------------------
+# When dev Stack credentials are available, inject them at launch so a freshly
+# installed tagged app signs in automatically (no manual login per tag). Reuses
+# the app's DEBUG launch hooks (CMUX_UITEST_STACK_*), which only auto-login when
+# the app has no stored tokens, so re-reloading a tag that is already signed in
+# is a no-op. Prefers a personal dogfood account (CMUX_DOGFOOD_STACK_*) over the
+# shared agent test account (CMUX_UITEST_STACK_*). Opt out: CMUX_RELOAD_NO_SIGN_IN=1.
+# Optional auto-pair: set CMUX_DOGFOOD_ATTACH_URL to a fresh cmux-ios://attach URL.
+SIGN_IN_EMAIL=""
+SIGN_IN_PASSWORD=""
+ATTACH_URL="${CMUX_DOGFOOD_ATTACH_URL:-}"
+if [[ "${CMUX_RELOAD_NO_SIGN_IN:-0}" != "1" ]]; then
+  DOGFOOD_EMAIL="${CMUX_DOGFOOD_STACK_EMAIL:-}"
+  DOGFOOD_PASSWORD="${CMUX_DOGFOOD_STACK_PASSWORD:-}"
+  UITEST_EMAIL="${CMUX_UITEST_STACK_EMAIL:-}"
+  UITEST_PASSWORD="${CMUX_UITEST_STACK_PASSWORD:-}"
+  load_signin_secret() {
+    local f="$1"
+    [[ -f "$f" ]] || return 0
+    while IFS= read -r line; do
+      case "$line" in
+        CMUX_DOGFOOD_STACK_EMAIL=*) : "${DOGFOOD_EMAIL:=${line#*=}}" ;;
+        CMUX_DOGFOOD_STACK_PASSWORD=*) : "${DOGFOOD_PASSWORD:=${line#*=}}" ;;
+        CMUX_UITEST_STACK_EMAIL=*) : "${UITEST_EMAIL:=${line#*=}}" ;;
+        CMUX_UITEST_STACK_PASSWORD=*) : "${UITEST_PASSWORD:=${line#*=}}" ;;
+      esac
+    done < "$f"
+  }
+  load_signin_secret "$HOME/.secrets/cmuxterm-dev.env"
+  load_signin_secret "$HOME/.secrets/cmux.env"
+  if [[ -n "$DOGFOOD_EMAIL" && -n "$DOGFOOD_PASSWORD" ]]; then
+    SIGN_IN_EMAIL="$DOGFOOD_EMAIL"
+    SIGN_IN_PASSWORD="$DOGFOOD_PASSWORD"
+  elif [[ -n "$UITEST_EMAIL" && -n "$UITEST_PASSWORD" ]]; then
+    SIGN_IN_EMAIL="$UITEST_EMAIL"
+    SIGN_IN_PASSWORD="$UITEST_PASSWORD"
+  fi
+fi
+
+# Auto-pair: if signing in and no explicit attach URL was given, mint a fresh
+# attach ticket against a dev Mac build's pairing listener and inject it, so the
+# app pairs without a QR scan. The QR is just one transport for this same
+# cmux-ios://attach deeplink; here the Mac mints + the launch hands it over.
+# Pair target defaults to the same tag's Mac build (mac + ios share a tag);
+# override with CMUX_DOGFOOD_PAIR_TAG. Needs that Mac build running with iOS
+# pairing enabled; otherwise auto-pair is skipped and sign-in still applies.
+if [[ -n "$SIGN_IN_EMAIL" && -z "$ATTACH_URL" && "${CMUX_RELOAD_NO_AUTO_PAIR:-0}" != "1" ]]; then
+  PAIR_TAG="${CMUX_DOGFOOD_PAIR_TAG:-$TAG_SLUG}"
+  PAIR_SOCK="/tmp/cmux-debug-${PAIR_TAG}.sock"
+  if [[ -S "$PAIR_SOCK" ]]; then
+    REPO_ROOT_DIR="$(cd "$IOS_DIR/.." && pwd)"
+    minted_url="$("$REPO_ROOT_DIR/scripts/mobile-attach-qr.sh" --tag "$PAIR_TAG" 2>/dev/null \
+      | grep -oE 'cmux-ios://attach[^[:space:]]+' | tail -1 || true)"
+    if [[ -n "$minted_url" ]]; then
+      ATTACH_URL="$minted_url"
+      echo "==> auto-pair: minted attach ticket against Mac tag '$PAIR_TAG'"
+    else
+      echo "==> auto-pair skipped: could not mint against '$PAIR_TAG' (is that Mac build running with iOS pairing enabled?)" >&2
+    fi
+  fi
+fi
+
 LOCAL_ASC_CONFIG="$IOS_DIR/Config/AppStoreConnect.local.plist"
 if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
   ASC_API_KEY_ID="${ASC_API_KEY_ID:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_KEY_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
@@ -429,7 +491,16 @@ PY
 
   if [[ "$LAUNCH" -eq 1 ]]; then
     xcrun simctl terminate "$SIM_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
-    xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
+    if [[ -n "$SIGN_IN_EMAIL" ]]; then
+      echo "==> auto sign-in as $SIGN_IN_EMAIL (CMUX_RELOAD_NO_SIGN_IN=1 to disable)"
+      SIMCTL_CHILD_CMUX_UITEST_STACK_EMAIL="$SIGN_IN_EMAIL" \
+      SIMCTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$SIGN_IN_PASSWORD" \
+      SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
+      SIMCTL_CHILD_CMUX_UITEST_ATTACH_URL="$ATTACH_URL" \
+        xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
+    else
+      xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
+    fi
   fi
 
   cat <<EOF
@@ -525,7 +596,23 @@ reload_device() {
     # Build + install already succeeded; a launch failure (most commonly a
     # LOCKED device — "could not be unlocked") must not fail the whole reload
     # or skip the QR marker update below. Warn and continue.
-    if ! xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null 2>&1; then
+    launch_args=(device process launch --terminate-existing --device "$selected_device_install_id")
+    if [[ -n "$SIGN_IN_EMAIL" ]]; then
+      echo "==> auto sign-in as $SIGN_IN_EMAIL (CMUX_RELOAD_NO_SIGN_IN=1 to disable)"
+      device_env_json="$(SIGN_IN_EMAIL="$SIGN_IN_EMAIL" SIGN_IN_PASSWORD="$SIGN_IN_PASSWORD" ATTACH_URL="$ATTACH_URL" python3 -c '
+import json, os
+env = {
+  "CMUX_UITEST_STACK_EMAIL": os.environ["SIGN_IN_EMAIL"],
+  "CMUX_UITEST_STACK_PASSWORD": os.environ["SIGN_IN_PASSWORD"],
+  "CMUX_UITEST_MOCK_DATA": "0",
+}
+if os.environ.get("ATTACH_URL"):
+    env["CMUX_UITEST_ATTACH_URL"] = os.environ["ATTACH_URL"]
+print(json.dumps(env))')"
+      launch_args+=(--environment-variables "$device_env_json")
+    fi
+    launch_args+=("$BUNDLE_ID")
+    if ! xcrun devicectl "${launch_args[@]}" >/dev/null 2>&1; then
       echo "warning: installed but could not launch $BUNDLE_ID (device locked? unlock the iPhone and tap the app)" >&2
     fi
   fi
