@@ -383,7 +383,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 let format = String(localized: "fileExplorer.delete.confirmMultiple", defaultValue: "Are you sure you want to move these %lld items to the Trash?")
                 alert.messageText = String(format: format, paths.count)
             }
-            alert.informativeText = String(localized: "fileExplorer.delete.confirmInfo", defaultValue: "You can restore it from the Trash.")
+            alert.informativeText = paths.count == 1
+                ? String(localized: "fileExplorer.delete.confirmInfo.single", defaultValue: "You can restore it from the Trash.")
+                : String(localized: "fileExplorer.delete.confirmInfo.multiple", defaultValue: "You can restore them from the Trash.")
             alert.addButton(withTitle: String(localized: "fileExplorer.delete.confirmButton", defaultValue: "Move to Trash"))
             alert.addButton(withTitle: String(localized: "fileExplorer.dialog.cancel", defaultValue: "Cancel"))
 

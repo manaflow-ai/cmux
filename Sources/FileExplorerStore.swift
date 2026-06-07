@@ -1217,18 +1217,30 @@ final class FileExplorerStore: ObservableObject {
         guard isCaseOnlyRename || !fm.fileExists(atPath: destination) else {
             return .failure(.alreadyExists(name: trimmed))
         }
-        do {
-            if isCaseOnlyRename {
-                // Two-step move through a temp name so case-only renames also succeed on
-                // case-insensitive filesystems, which reject a direct same-name move.
-                let tempPath = (directory as NSString).appendingPathComponent(".cmux-rename-\(trimmed)")
+        if isCaseOnlyRename {
+            // Case-only rename on a case-insensitive volume needs a two-step move through a
+            // unique temp name. If the second move fails, roll the item back to its original
+            // name so it's never stranded under the hidden temp path, and surface a clean
+            // message rather than one that exposes the internal temp name.
+            let tempName = uniqueName(base: ".cmux-rename", fileExtension: "", in: directory)
+            let tempPath = (directory as NSString).appendingPathComponent(tempName)
+            do {
                 try fm.moveItem(atPath: path, toPath: tempPath)
-                try fm.moveItem(atPath: tempPath, toPath: destination)
-            } else {
-                try fm.moveItem(atPath: path, toPath: destination)
+            } catch {
+                return .failure(.underlying(error.localizedDescription))
             }
-        } catch {
-            return .failure(.underlying(error.localizedDescription))
+            do {
+                try fm.moveItem(atPath: tempPath, toPath: destination)
+            } catch {
+                try? fm.moveItem(atPath: tempPath, toPath: path)
+                return .failure(.underlying(String(localized: "fileExplorer.mutation.error.renameFailed", defaultValue: "Couldn't rename the item.")))
+            }
+        } else {
+            do {
+                try fm.moveItem(atPath: path, toPath: destination)
+            } catch {
+                return .failure(.underlying(error.localizedDescription))
+            }
         }
         repathState(from: path, to: destination)
         return .success(destination)
@@ -1266,20 +1278,32 @@ final class FileExplorerStore: ObservableObject {
             if let ancestor = acc.last, path == ancestor || path.hasPrefix(ancestor + "/") { return }
             acc.append(path)
         }
+        var trashed: [String] = []
         for path in roots {
             do {
                 try fm.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil)
+                trashed.append(path)
             } catch {
+                // Items before this one were already trashed — clear their state before
+                // surfacing the failure so nothing dangles pointing at removed paths.
+                clearReferences(to: trashed)
                 return .failure(.underlying(error.localizedDescription))
             }
         }
         // Clear state for every originally-selected path, including the nested ones.
-        for path in paths {
-            expandedPaths = expandedPaths.filter { $0 != path && !$0.hasPrefix(path + "/") }
-        }
-        selectedPaths.subtract(paths)
-        if let selectedPath, paths.contains(selectedPath) { self.selectedPath = nil }
+        clearReferences(to: paths)
         return .success(())
+    }
+
+    /// Removes any expansion/selection state that points at `clearedPaths` or their descendants.
+    private func clearReferences(to clearedPaths: [String]) {
+        guard !clearedPaths.isEmpty else { return }
+        let isClearedOrUnder: (String) -> Bool = { candidate in
+            clearedPaths.contains { candidate == $0 || candidate.hasPrefix($0 + "/") }
+        }
+        expandedPaths = expandedPaths.filter { !isClearedOrUnder($0) }
+        selectedPaths = selectedPaths.filter { !isClearedOrUnder($0) }
+        if let selectedPath, isClearedOrUnder(selectedPath) { self.selectedPath = nil }
     }
 
     /// Permanently removes a just-created, still-empty item when the user cancels its
