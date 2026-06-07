@@ -10,6 +10,9 @@ import Observation
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+import os.log
+
+nonisolated private let imageThemeLogger = Logger(subsystem: "com.cmuxterm.app", category: "ImageTheme")
 
 /// The process entry point. When the binary is launched with a sidebar worker
 /// flag (the app re-executes its own binary that way so a crash in the
@@ -3230,7 +3233,7 @@ enum ImageThemePresets {
             try jpeg.write(to: destinationURL)
             return destinationURL.path
         } catch {
-            NSLog("[ImageThemePresets] failed to write background image: %@", error.localizedDescription)
+            imageThemeLogger.error("failed to write background image: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -3262,7 +3265,7 @@ enum ImageThemePresets {
             )
             try next.write(to: url, atomically: true, encoding: .utf8)
         } catch {
-            NSLog("[ImageThemePresets] failed to write ghostty config: %@", error.localizedDescription)
+            imageThemeLogger.error("failed to write ghostty config: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -3280,7 +3283,7 @@ enum ImageThemePresets {
                 try (stripped + "\n").write(to: url, atomically: true, encoding: .utf8)
             }
         } catch {
-            NSLog("[ImageThemePresets] failed to clear ghostty config: %@", error.localizedDescription)
+            imageThemeLogger.error("failed to clear ghostty config: \(error.localizedDescription, privacy: .public)")
         }
     }
 

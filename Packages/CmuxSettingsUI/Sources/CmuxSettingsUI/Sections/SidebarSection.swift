@@ -92,7 +92,7 @@ public struct SidebarSection: View {
         SettingsCardRow(
             configurationReview: .json("sidebarAppearance.backgroundImage"),
             String(localized: "settings.sidebarAppearance.backgroundImage", defaultValue: "Background Image"),
-            subtitle: String(localized: "settings.sidebarAppearance.backgroundImage.subtitle", defaultValue: "A full-window image behind the sidebar, terminal, and titlebar. Use Solar Flare for the matching palette and terminal transparency.")
+            subtitle: String(localized: "settings.sidebarAppearance.backgroundImage.subtitle", defaultValue: "A full-window image behind the sidebar, terminal, and titlebar. Use a theme preset for a matching palette and terminal transparency.")
         ) {
             HStack(spacing: 8) {
                 let presets = hostActions.availableImageThemePresets()

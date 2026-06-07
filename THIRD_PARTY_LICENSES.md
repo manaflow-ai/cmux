@@ -208,3 +208,21 @@ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
 ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+---
+
+## Warp (image theme assets)
+
+The bundled image-theme background images and their color palettes
+(`Assets.xcassets/*Background.imageset/*.jpg` — Solar Flare, Phenomenon,
+Jellyfish, Koi, Leafy, Marble, Pink City, Snowy, Red Rock, Dark City) are
+derived from the Warp open-source terminal's bundled themes.
+
+- **License:** GNU Affero General Public License v3.0 (AGPL-3.0) / MIT (Warp is
+  dual-licensed; see source)
+- **Copyright:** Copyright (c) 2020-2026 Denver Technologies, Inc.
+- **Source:** https://github.com/warpdotdev/Warp
+
+These assets are included for parity with Warp's image themes. Maintainers
+should confirm redistribution terms for the image files before release; the
+color palettes are factual color values reproduced for compatibility.

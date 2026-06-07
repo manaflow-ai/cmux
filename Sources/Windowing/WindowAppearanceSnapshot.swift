@@ -470,20 +470,6 @@ enum BackgroundImageFit: String, CaseIterable, Identifiable {
     init(rawValueOrCover raw: String?) {
         self = BackgroundImageFit(rawValue: raw ?? "") ?? .cover
     }
-
-    var contentMode: SwiftUI.ContentMode {
-        switch self {
-        case .cover: return .fill
-        case .contain: return .fit
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .cover: return String(localized: "settings.backgroundImage.fit.cover", defaultValue: "Cover")
-        case .contain: return String(localized: "settings.backgroundImage.fit.contain", defaultValue: "Contain")
-        }
-    }
 }
 
 /// UserDefaults keys for the full-window background image theme. Mirrors the
@@ -514,6 +500,10 @@ enum BackgroundImageThemeStore {
         let image: NSImage
     }
 
+    // Small lock around a synchronous, non-async image cache shared by the
+    // window backdrop bridge (an AppKit/CALayer code path that has no actor).
+    // An actor would force the synchronous render-time `image(forPath:)` lookup
+    // to become async; the critical section is a dictionary read/write only.
     private static let lock = NSLock()
     private static var cache: [String: CacheEntry] = [:]
 
