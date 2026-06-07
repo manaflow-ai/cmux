@@ -13,10 +13,12 @@ struct MobileDiagnosticsSecretPatternFactory {
             "access[_-]?token",
             "refresh[_-]?token",
             "api[_-]?key",
+            "account[_-]?key",
             "auth[_-]?token",
             "auth",
             "access[_-]?key[_-]?id",
             "secret[_-]?access[_-]?key",
+            "storage[_-]?key",
             "session[_-]?token",
             "security[_-]?token",
             "token",
@@ -32,6 +34,7 @@ struct MobileDiagnosticsSecretPatternFactory {
             "accessToken",
             "refreshToken",
             "apiKey",
+            "accountKey",
             "authToken",
             "attachToken",
             "clientSecret",
@@ -83,6 +86,10 @@ struct MobileDiagnosticsSecretPatternFactory {
             ("(?i)(?:^|[\\s\"'`({\\[,;&?:])(_authToken\\b\\s*[:=]\\s*[\"']?)([^\\s\"'&]{4,})",
              2),
 
+            // Azure Storage connection strings use `;AccountKey=...;`.
+            // Stop at the next semicolon so later non-secret fields stay visible.
+            ("(?i)(\\bAccountKey\\s*=\\s*)([^;\\r\\n]{4,})", 2),
+
             // Quoted `token=\"...\"` / `password='...'` style values can include
             // spaces. Handle those before the unquoted rule below so the whole
             // quoted value is redacted instead of only its first word.
@@ -105,8 +112,8 @@ struct MobileDiagnosticsSecretPatternFactory {
             // alternatives let `API_TOKEN=`, `STACK_REFRESH_TOKEN=`, and
             // `stackAccessToken=` match while the trailing `\b` still rejects
             // `tokenizer=` / `mytokenstuff=`. The value capture group stays
-            // group 2. Value runs until whitespace, quote, or `&`.
-            ("(?i)(?:^|[\\s\"'`({\\[,;&?#])\(secretKey)\\b(\\s*[:=]\\s*[\"']?)([^\\s\"'&]{4,})",
+            // group 2. Value runs until whitespace, quote, `&`, or `;`.
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?#])\(secretKey)\\b(\\s*[:=]\\s*[\"']?)([^\\s\"'&;]{4,})",
              2),
 
             // Connection URLs with userinfo credentials, e.g.

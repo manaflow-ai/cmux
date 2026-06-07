@@ -199,6 +199,19 @@ import Testing
         }
     }
 
+    @Test func redactsAzureStorageAccountKeys() {
+        let accountKey = "ZmFrZUF6dXJlU3RvcmFnZUtleQ=="
+        let connectionString = "DefaultEndpointsProtocol=https;AccountName=cmuxdiag;AccountKey=\(accountKey);EndpointSuffix=core.windows.net"
+        let scrubbedConnectionString = scrubber.scrub(connectionString)
+        #expect(scrubbedConnectionString == "DefaultEndpointsProtocol=https;AccountName=cmuxdiag;AccountKey=<redacted>;EndpointSuffix=core.windows.net")
+        #expect(!scrubbedConnectionString.contains(accountKey))
+
+        let envKey = "AZURE_STORAGE_KEY=\(accountKey)"
+        let scrubbedEnvKey = scrubber.scrub(envKey)
+        #expect(scrubbedEnvKey == "AZURE_STORAGE_KEY=<redacted>")
+        #expect(!scrubbedEnvKey.contains(accountKey))
+    }
+
     @Test func redactsPrivateKeyBlocks() {
         let openSSH = """
         -----BEGIN OPENSSH PRIVATE KEY-----
