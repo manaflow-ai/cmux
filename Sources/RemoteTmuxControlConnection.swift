@@ -30,7 +30,7 @@ final class RemoteTmuxControlConnection {
     private var paneCwdObservers: [ObserverToken: (_ paneId: Int, _ path: String) -> Void] = [:]
     private var activePaneObservers: [ObserverToken: (_ windowId: Int, _ paneId: Int) -> Void] = [:]
     private var topologyObservers: [ObserverToken: () -> Void] = [:]
-    private var exitObservers: [ObserverToken: () -> Void] = [:]
+    private var exitObservers: [ObserverToken: (SessionEndReason) -> Void] = [:]
 
     // MARK: Observed state
 
@@ -59,6 +59,19 @@ final class RemoteTmuxControlConnection {
         case listWindows, capturePane(Int), paneState(Int), panePath(Int), paneAltScreen(Int), other
     }
 
+    /// Why a control connection ended — distinguishes a genuine tmux end from a
+    /// transport drop so consumers can react differently (e.g. keep the host
+    /// persisted for relaunch on a transient network loss, but forget it when the
+    /// session was actually killed).
+    enum SessionEndReason: Sendable, Equatable {
+        /// tmux reported `%exit` — the session/server intentionally ended.
+        case sessionExited
+        /// The control stream died without `%exit` (ssh process exit, EOF, or a
+        /// broken-pipe write) — typically a network/transport loss, not a
+        /// deliberate end.
+        case transportLost
+    }
+
     /// Subscription-name prefix for per-pane `pane_current_path` (`refresh-client -B`).
     /// The tmux pane id is appended so an inbound `%subscription-changed` can be
     /// routed back to its pane; defined once so the writer and reader can't drift.
@@ -67,6 +80,13 @@ final class RemoteTmuxControlConnection {
     /// `ESC[?1049h` — enter the alternate screen, emitted to a mirror surface when
     /// the remote pane is on the alternate screen (see ``capturePane(paneId:)``).
     private static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
+
+    /// How many lines of pane history `capture-pane` seeds onto a freshly mounted
+    /// (or reconnected) mirror surface. Capturing scrollback — not just the visible
+    /// screen — is what makes the mirrored tab scrollable from the start; without it
+    /// a fresh attach has only the current screen and nothing to scroll up into.
+    /// Clamped by the remote pane's `history-limit`, so short panes seed less.
+    private static let scrollbackCaptureLines = 5_000
 
     init(host: RemoteTmuxHost, sessionName: String, createIfMissing: Bool = false) {
         self.host = host
@@ -92,14 +112,14 @@ final class RemoteTmuxControlConnection {
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
     ///   - onTopologyChanged: fires when the window/pane topology changes.
-    ///   - onExit: fires once when control mode ends.
+    ///   - onExit: fires once when control mode ends, with the ``SessionEndReason``.
     @discardableResult
     func addObserver(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)? = nil,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)? = nil,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
         onTopologyChanged: (() -> Void)? = nil,
-        onExit: (() -> Void)? = nil
+        onExit: ((SessionEndReason) -> Void)? = nil
     ) -> ObserverToken {
         let token = ObserverToken()
         if let onPaneOutput { paneOutputObservers[token] = onPaneOutput }
@@ -135,8 +155,8 @@ final class RemoteTmuxControlConnection {
         for callback in topologyObservers.values { callback() }
     }
 
-    private func notifyExit() {
-        for callback in exitObservers.values { callback() }
+    private func notifyExit(reason: SessionEndReason) {
+        for callback in exitObservers.values { callback(reason) }
     }
 
     /// Spawns the SSH `tmux -CC` process and begins streaming.
@@ -273,7 +293,11 @@ final class RemoteTmuxControlConnection {
             "display-message -p -t %\(paneId) -F \"#{alternate_on}\"",
             kind: .paneAltScreen(paneId)
         )
-        sendInternal("capture-pane -p -e -t %\(paneId)", kind: .capturePane(paneId))
+        // `-S -<N>` seeds scrollback history (not just the visible screen) so the
+        // mirrored tab is scrollable immediately on attach/reconnect. On an
+        // alternate-screen pane there is no history, so tmux clamps to the visible
+        // alt screen — harmless.
+        sendInternal("capture-pane -p -e -S -\(Self.scrollbackCaptureLines) -t %\(paneId)", kind: .capturePane(paneId))
         // Query the pane's terminal STATE; tmux exposes it all as formats. Sent
         // after capture-pane so it applies on top of the painted rows (the seed
         // escapes are built in `paneStateSeedSequence`). See the doc comment for why
@@ -395,7 +419,7 @@ final class RemoteTmuxControlConnection {
         guard !exited else { return }
         exited = true
         stop()
-        notifyExit()
+        notifyExit(reason: .transportLost)
     }
 
     private func ingest(_ data: Data) {
@@ -408,7 +432,7 @@ final class RemoteTmuxControlConnection {
         guard !exited else { return }
         exited = true
         record("stream-end")
-        notifyExit()
+        notifyExit(reason: .transportLost)
     }
 
     private func handle(_ message: RemoteTmuxControlMessage) {
@@ -419,7 +443,7 @@ final class RemoteTmuxControlConnection {
         case let .exit(reason):
             exited = true
             record("exit\(reason.map { " " + $0 } ?? "")")
-            notifyExit()
+            notifyExit(reason: .sessionExited)
         case let .output(paneId, data):
             paneOutputByteCounts[paneId, default: 0] += data.count
             totalOutputBytes += data.count
@@ -501,16 +525,28 @@ final class RemoteTmuxControlConnection {
                 )
                 order.append(id)
             }
+            // Ignore an empty/garbled reply on purpose: a live tmux session always
+            // has ≥1 window, so a zero-window parse is a transient or malformed
+            // result, not a real topology. Acting on it would wipe `windowOrder`
+            // and tear down every mirror tab. A genuine "no windows" state means
+            // the session ended — that arrives as the connection's `%exit` /
+            // stream-end (see `handleConnectionExited` → `handleSessionEndedRemotely`),
+            // which is the path that closes the workspace / dedicated window.
             if !order.isEmpty {
                 windowOrder = order
                 notifyTopologyChanged()
             }
         case let .capturePane(paneId):
-            // capture-pane -e output is the pane's visible rows (with SGR
-            // escapes). Home + clear, paint the rows, and leave the cursor at
-            // the END of the last row (no trailing newline) so it lines up with
-            // tmux's real prompt cursor — otherwise echoed input lands a line
-            // below the prompt.
+            // capture-pane -e -S output is the pane's history + visible rows (with
+            // SGR escapes). Home + clear the VISIBLE SCREEN (ESC[2J — NOT ESC[3J,
+            // which would erase the scrollback we are seeding), then write every
+            // captured row joined by CR LF: rows that overflow the screen scroll up
+            // into the surface's scrollback buffer, which is what makes the mirrored
+            // tab scrollable from the start. The last row (the visible bottom) gets
+            // no trailing newline so the cursor lands at its END, lining up with
+            // tmux's real prompt cursor — otherwise echoed input lands a line below
+            // the prompt. The `.paneState` seed then repositions the cursor within
+            // the visible screen.
             let painted = "\u{1b}[H\u{1b}[2J" + lines.joined(separator: "\r\n")
             if let data = painted.data(using: .utf8) {
                 emitPaneOutput(paneId, data)

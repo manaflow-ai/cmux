@@ -256,6 +256,84 @@ import Testing
         )
     }
 
+    // MARK: - Session-end action (disconnect handling)
+
+    @Test func sessionEndClosesDedicatedWindowWhenAnotherWindowRemains() {
+        let windowId = UUID()
+        // Dedicated host-owned window lost its last session and another window is
+        // open → close the whole window (the disconnect UX).
+        #expect(
+            RemoteTmuxController.sessionEndAction(
+                dedicatedWindowId: windowId, dedicatedWindowOwnedByEndingHost: true, otherMainWindowCount: 1
+            ) == .closeDedicatedWindow(windowId)
+        )
+        #expect(
+            RemoteTmuxController.sessionEndAction(
+                dedicatedWindowId: windowId, dedicatedWindowOwnedByEndingHost: true, otherMainWindowCount: 3
+            ) == .closeDedicatedWindow(windowId)
+        )
+    }
+
+    @Test func sessionEndKeepsSoleDedicatedWindowOpen() {
+        // Dedicated window but it is the ONLY window → don't close it (never leave
+        // the user with zero windows); fall back to closing just the workspace.
+        #expect(
+            RemoteTmuxController.sessionEndAction(
+                dedicatedWindowId: UUID(), dedicatedWindowOwnedByEndingHost: true, otherMainWindowCount: 0
+            ) == .closeWorkspace
+        )
+    }
+
+    @Test func sessionEndKeepsDedicatedWindowWithUnrelatedWorkspace() {
+        // The user moved a local workspace — or another host's mirror — into the
+        // dedicated window → closing the whole window would discard it. Close only
+        // the dead workspace instead.
+        #expect(
+            RemoteTmuxController.sessionEndAction(
+                dedicatedWindowId: UUID(), dedicatedWindowOwnedByEndingHost: false, otherMainWindowCount: 2
+            ) == .closeWorkspace
+        )
+    }
+
+    @Test func sessionEndClosesWorkspaceWhenNotDedicated() {
+        // No dedicated window (host still has other sessions, or a shared/socket
+        // mirror) → only the dead workspace closes, regardless of window count.
+        #expect(
+            RemoteTmuxController.sessionEndAction(
+                dedicatedWindowId: nil, dedicatedWindowOwnedByEndingHost: false, otherMainWindowCount: 0
+            ) == .closeWorkspace
+        )
+        #expect(
+            RemoteTmuxController.sessionEndAction(
+                dedicatedWindowId: nil, dedicatedWindowOwnedByEndingHost: true, otherMainWindowCount: 5
+            ) == .closeWorkspace
+        )
+    }
+
+    // MARK: - Mirror tab reorder (out-of-band tmux window reorder)
+
+    @Test func mirrorTabReorderFollowsRemoteWindowOrder() {
+        let a = UUID(), b = UUID(), c = UUID()
+        // Remote moved the windows → cmux tabs rearrange to match.
+        #expect(Workspace.mirrorTabReorder(current: [a, b, c], requested: [c, a, b]) == [c, a, b])
+        // A requested id that has no tab yet (filtered out) still yields the valid
+        // reorder of the present tabs.
+        #expect(Workspace.mirrorTabReorder(current: [a, b], requested: [b, a, UUID()]) == [b, a])
+    }
+
+    @Test func mirrorTabReorderNoOpsWhenAlreadyOrdered() {
+        let a = UUID(), b = UUID(), c = UUID()
+        #expect(Workspace.mirrorTabReorder(current: [a, b, c], requested: [a, b, c]) == nil)
+    }
+
+    @Test func mirrorTabReorderSkipsWhenSetsDiverge() {
+        let a = UUID(), b = UUID(), c = UUID()
+        // Requested is missing a present tab → not a permutation → leave untouched.
+        #expect(Workspace.mirrorTabReorder(current: [a, b, c], requested: [a, b]) == nil)
+        // Requested drops one present tab and only reorders the rest → sets diverge.
+        #expect(Workspace.mirrorTabReorder(current: [a, b, c], requested: [c, b]) == nil)
+    }
+
     // MARK: - Raw layout parser
 
     @Test func parsesLeafLayoutWithChecksum() {

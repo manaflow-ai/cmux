@@ -11410,6 +11410,13 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] = [:]
     private var activeDetachCloseTransactions: Int = 0
     private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
+    /// True while ``reorderRemoteTmuxMirrorTabs(toPanelOrder:)`` is rearranging tabs.
+    /// bonsplit's `reorderTab`/`selectTab`/`focusPane` fire `didSelectTab` /
+    /// `didFocusPane`, each of which runs the full `applyTabSelection` activation
+    /// (focus moves, hibernation resume, focus-LRU record). A reactive tmux-driven
+    /// reorder must not run any of that — the user's selection/focus is unchanged —
+    /// so the delegate handlers short-circuit while this is set.
+    private var isApplyingRemoteTmuxTabReorder = false
     private var pendingRemoteSurfaceTTYName: String?
     private var pendingRemoteSurfaceTTYSurfaceId: UUID?
     private var pendingRemoteSurfacePortKickReason: WorkspaceRemoteSessionController.PortScanKickReason?
@@ -16246,6 +16253,75 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
+    /// Computes the target tab order for a remote-tmux-driven reorder, or `nil`
+    /// when no reorder is needed or safe.
+    ///
+    /// - Parameters:
+    ///   - current: the workspace's current mirror-tab order (panel ids).
+    ///   - requested: the tmux window order mapped to panel ids.
+    /// - Returns: the new order to apply, or `nil` when the tabs already match
+    ///   `requested` or when `requested` (restricted to currently-present tabs) is
+    ///   not a permutation of `current` (sets diverge — leave the tabs untouched).
+    nonisolated static func mirrorTabReorder(current: [UUID], requested: [UUID]) -> [UUID]? {
+        let present = Set(current)
+        let desired = requested.filter { present.contains($0) }
+        guard desired.count == current.count, Set(desired) == present else { return nil }
+        return desired == current ? nil : desired
+    }
+
+    /// Reorders this workspace's remote-tmux mirror tabs so their left-to-right
+    /// order matches `panelOrder` (the tmux window order), preserving the user's
+    /// current tab selection and pane focus.
+    ///
+    /// This follows reorders that originate on the remote (a second tmux client, or
+    /// a manual `move-window` / a `new-window` inserted mid-list). The cmux→tmux
+    /// drag direction is handled by `handleMirrorWindowsReordered`. bonsplit's
+    /// `reorderTab` selects+focuses the moved tab (and `selectTab`/`focusPane` fire
+    /// the same activation), so the whole operation runs under
+    /// ``isApplyingRemoteTmuxTabReorder`` to suppress that churn — a reactive tmux
+    /// event must not steal focus or resume agents (socket focus policy). The user's
+    /// selection/focus are unchanged, so bonsplit's internal state is just restored
+    /// to match. No-ops when the tabs already match or aren't all in one pane.
+    ///
+    /// Known beta limitation: if a *remote* window reorder arrives while the user is
+    /// mid tab-drag, this can move tabs under the drag. The trigger is narrow (a
+    /// concurrent remote reorder during a ~1s local drag) and self-heals — the
+    /// drop's `didReorderTabsInPane` reconciles `connection.windowOrder` to the
+    /// final order. A drag-aware guard would need bonsplit to expose drag state.
+    @discardableResult
+    func reorderRemoteTmuxMirrorTabs(toPanelOrder panelOrder: [UUID]) -> Bool {
+        // All mirror tabs must live in a single pane: a global tmux window order
+        // can't be expressed across a user-arranged split. If the requested panels
+        // resolve to more than one pane (or none), skip rather than reorder a
+        // subset of one pane.
+        let presentPaneIds = Set(panelOrder.compactMap { paneId(forPanelId: $0) })
+        guard presentPaneIds.count == 1, let paneId = presentPaneIds.first else { return false }
+        let currentPanelIds = bonsplitController.tabs(inPane: paneId).compactMap { panelIdFromSurfaceId($0.id) }
+        guard let desired = Self.mirrorTabReorder(current: currentPanelIds, requested: panelOrder) else { return false }
+#if DEBUG
+        cmuxDebugLog("remote-tmux: reorder mirror tabs ws=\(id.uuidString.prefix(5)) count=\(desired.count)")
+#endif
+
+        let savedSelectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id
+        let savedFocusedPaneId = bonsplitController.focusedPaneId
+
+        isApplyingRemoteTmuxTabReorder = true
+        defer { isApplyingRemoteTmuxTabReorder = false }
+        for (index, panelId) in desired.enumerated() {
+            guard let tabId = surfaceIdFromPanelId(panelId) else { continue }
+            _ = bonsplitController.reorderTab(tabId, toIndex: index)
+        }
+        // Restore bonsplit's internal selection + focus (the loop moved them to the
+        // last-reordered tab). cmux's own focus/selection were never touched (the
+        // delegate handlers short-circuited), so this just realigns bonsplit with
+        // the user's unchanged state — no `applyTabSelection` runs.
+        if let savedSelectedTabId { bonsplitController.selectTab(savedSelectedTabId) }
+        if let savedFocusedPaneId { bonsplitController.focusPane(savedFocusedPaneId) }
+
+        scheduleTerminalGeometryReconcile()
+        return true
+    }
+
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard let sourcePanel = panels[panelId] else { return nil }
@@ -19214,6 +19290,9 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
+        // Suppress the per-move selection churn of a reactive mirror-tab reorder
+        // (the user's selection/focus is restored explicitly afterwards).
+        guard !isApplyingRemoteTmuxTabReorder else { return }
         applyTabSelection(tabId: tab.id, inPane: pane)
     }
 
@@ -19295,6 +19374,9 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
+        // See `isApplyingRemoteTmuxTabReorder`: a reactive reorder restores the
+        // prior pane focus itself, without re-running tab activation.
+        guard !isApplyingRemoteTmuxTabReorder else { return }
         // When a pane is focused, focus its selected tab's panel
         guard let tab = controller.selectedTab(inPane: pane) else { return }
 #if DEBUG

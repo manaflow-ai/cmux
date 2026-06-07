@@ -568,29 +568,164 @@ final class RemoteTmuxController {
         return true
     }
 
+    /// What to do when a mirrored session ends remotely: close the dead session's
+    /// workspace, or — when the host's dedicated mirror window has just lost its
+    /// last session — close that whole window (the disconnect UX).
+    enum SessionEndAction: Equatable {
+        /// Close only the dead session's workspace (host still has other sessions,
+        /// or the mirror lives in a shared/non-dedicated window).
+        case closeWorkspace
+        /// Close the dedicated remote-tmux window wholesale, because its last
+        /// session disconnected and `closeWorkspace` can't remove a window's last
+        /// workspace.
+        case closeDedicatedWindow(UUID)
+    }
+
+    /// Decides how a remote session-end is reflected in the UI.
+    ///
+    /// - Parameters:
+    ///   - dedicatedWindowId: the host's dedicated mirror window, or `nil` when the
+    ///     host still has other live mirror sessions or was mirrored into a shared
+    ///     window (the socket `remote.tmux.mirror` path).
+    ///   - dedicatedWindowOwnedByEndingHost: whether every workspace in that window
+    ///     belongs to the host whose session just ended (the dead workspace itself,
+    ///     or another live mirror for the same host). `false` when the user has moved
+    ///     a local workspace — or another host's mirror — into the dedicated window;
+    ///     then closing the whole window would discard unrelated work, so only the
+    ///     dead workspace is closed.
+    ///   - otherMainWindowCount: how many OTHER main windows are open. The dedicated
+    ///     window is only closed when at least one other window remains, so a
+    ///     disconnect never leaves the user with zero windows.
+    /// - Returns: the action to apply.
+    nonisolated static func sessionEndAction(
+        dedicatedWindowId: UUID?,
+        dedicatedWindowOwnedByEndingHost: Bool,
+        otherMainWindowCount: Int
+    ) -> SessionEndAction {
+        if let dedicatedWindowId, dedicatedWindowOwnedByEndingHost, otherMainWindowCount >= 1 {
+            return .closeDedicatedWindow(dedicatedWindowId)
+        }
+        return .closeWorkspace
+    }
+
     /// The remote tmux session ended on its own (its last window was killed, or
-    /// it was killed out-of-band) — remove the mirror + connection and close the
-    /// now-dead workspace WITHOUT issuing a kill (the session is already gone).
-    func handleSessionEndedRemotely(host: RemoteTmuxHost, sessionName: String, workspaceId: UUID) {
+    /// it was killed out-of-band) — remove the mirror + connection and either close
+    /// the now-dead workspace or, when the host's dedicated window just lost its
+    /// last session, close that whole window. Never issues a kill (the session is
+    /// already gone).
+    ///
+    /// - Parameter reason: distinguishes a genuine tmux `%exit` from a transport
+    ///   drop. A transport loss (network blip) keeps the host persisted so the next
+    ///   launch re-mirrors it; a genuine exit forgets it.
+    func handleSessionEndedRemotely(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        workspaceId: UUID,
+        reason: RemoteTmuxControlConnection.SessionEndReason
+    ) {
         let key = Self.connectionKey(destination: host.destination, sessionName: sessionName)
         if let mirror = sessionMirrors.removeValue(forKey: key) {
             mirror.detachObserver()
         }
         displayObserverTokens.removeValue(forKey: key)
         connectionsByHostSession.removeValue(forKey: key)?.stop()
-        if !sessionMirrors.values.contains(where: { $0.host.destination == host.destination }) {
-            forgetMirroredHost(host.destination)
+        let hostHasOtherMirrors = sessionMirrors.values.contains(where: { $0.host.destination == host.destination })
+        // The dedicated window for this host, captured before the bindings are torn
+        // down. `nil` once other sessions remain — losing one of several sessions
+        // closes only its workspace, never the shared window.
+        let dedicatedWindowId = hostHasOtherMirrors ? nil : windowIdByHost[host.destination]
+        // Decide the UI action BEFORE tearing down persistence/bindings, so the
+        // persistence decision can depend on whether the dedicated window is
+        // actually closing.
+        //
+        // The mirror was already removed above, so any close path's kill hook finds
+        // no entry and won't re-issue a kill.
+        //
+        // Only close the whole dedicated window when it still exists and every
+        // workspace in it belongs to THIS host (the dead workspace, or another live
+        // mirror for the same host). The user may have moved a local workspace — or
+        // another host's mirror — into it (dedicated windows aren't excluded from
+        // move targets), and a disconnect must never discard unrelated work.
+        // Resolving the manager here also makes the window-count math robust to the
+        // window already being gone (a concurrent user close): the count then
+        // excludes nothing.
+        let dedicatedManager = dedicatedWindowId.flatMap { AppDelegate.shared?.tabManagerFor(windowId: $0) }
+        let dedicatedWindowIsOpen = dedicatedManager != nil
+        // Workspaces owned by the ending host: the just-ended one plus any other
+        // still-live mirrors for the same host (none once hostHasOtherMirrors is
+        // false, but computed generally).
+        let endingHostWorkspaceIds: Set<UUID> = Set(
+            sessionMirrors.values
+                .filter { $0.host.destination == host.destination }
+                .compactMap { $0.mirroredWorkspaceId }
+        ).union([workspaceId])
+        let ownedByEndingHost = dedicatedManager?.tabs.allSatisfy { endingHostWorkspaceIds.contains($0.id) } ?? false
+        let totalMainWindowCount = AppDelegate.shared?.mainWindowContexts.count ?? 0
+        let otherMainWindowCount = max(0, totalMainWindowCount - (dedicatedWindowIsOpen ? 1 : 0))
+        let action = Self.sessionEndAction(
+            dedicatedWindowId: dedicatedWindowIsOpen ? dedicatedWindowId : nil,
+            dedicatedWindowOwnedByEndingHost: ownedByEndingHost,
+            otherMainWindowCount: otherMainWindowCount
+        )
+        if !hostHasOtherMirrors {
+            // Persistence (for restoreMirroredHostsOnLaunch):
+            // - Keep the host persisted only on a transient transport loss that
+            //   either closes the dedicated window, or never had one (the socket
+            //   `remote.tmux.mirror` path) — then relaunch re-mirrors into a fresh
+            //   window with nothing left behind.
+            // - Forget it on a genuine `%exit`, AND on the sole-window degradation
+            //   where the dedicated window survives as a plain local workspace:
+            //   that window now lands in the generic session snapshot, so keeping
+            //   the host would restore it AND re-mirror a duplicate on next launch.
+            let wasDedicated = dedicatedWindowId != nil
+            let closingDedicatedWindow: Bool = {
+                if case .closeDedicatedWindow = action { return true }
+                return false
+            }()
+            let keepPersistedForRelaunch = reason == .transportLost && (!wasDedicated || closingDedicatedWindow)
+            if !keepPersistedForRelaunch {
+                forgetMirroredHost(host.destination)
+            }
+            // Drop the dedicated-window binding (the window is either closing, or
+            // converting to a plain local window — either way it is no longer a
+            // remote mirror). Done before the switch so the window's onClose hook's
+            // handleRemoteWindowClosed finds the binding gone and is a no-op.
             if let windowId = windowIdByHost.removeValue(forKey: host.destination) {
                 hostByWindowId.removeValue(forKey: windowId)
             }
         }
-        // Close the dead mirror workspace. The mirror was already removed above,
-        // so TabManager.closeWorkspace's kill hook finds no entry and won't
-        // re-issue a kill. (closeWorkspace leaves the last workspace in a window
-        // for the window-close path.)
-        if let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
-           let workspace = manager.tabs.first(where: { $0.id == workspaceId }) {
-            manager.closeWorkspace(workspace)
+        #if DEBUG
+        cmuxDebugLog(
+            "remote-tmux: session ended host=\(host.destination) session=\(sessionName) reason=\(reason) " +
+            "hostHasOtherMirrors=\(hostHasOtherMirrors) dedicatedWindowOpen=\(dedicatedWindowIsOpen) " +
+            "ownedByEndingHost=\(ownedByEndingHost) otherWindows=\(otherMainWindowCount) action=\(action)"
+        )
+        #endif
+        switch action {
+        case let .closeDedicatedWindow(windowId):
+            // Tear down the whole dedicated window (true detach UX). Uses
+            // `window.close()` (not `performClose`) so the disconnect never raises
+            // the "close window?" confirmation, and suppresses closed-window history
+            // (a dead-remote window isn't meaningfully restorable). The window's
+            // onClose hook detaches any remaining state; the mirror/connection for
+            // this session were already removed above.
+            AppDelegate.shared?.discardMainWindowWithoutClosedHistory(windowId: windowId)
+        case .closeWorkspace:
+            // Close just the dead workspace. `closeWorkspace` refuses to remove a
+            // window's last workspace (it would leave a windowless state), so if the
+            // dead mirror is the only workspace in its window, add a fresh local
+            // workspace first — that leaves a usable window instead of stranding a
+            // frozen, connection-less remote tab. `inheritWorkingDirectory: false`
+            // avoids inheriting the mirror's remote path; `select: false` keeps the
+            // disconnect from stealing focus (closeWorkspace reselects after the
+            // dead one is removed).
+            if let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+               let workspace = manager.tabs.first(where: { $0.id == workspaceId }) {
+                if manager.tabs.count == 1 {
+                    _ = manager.addWorkspace(inheritWorkingDirectory: false, select: false)
+                }
+                manager.closeWorkspace(workspace)
+            }
         }
     }
 

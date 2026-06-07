@@ -57,8 +57,8 @@ final class RemoteTmuxSessionMirror {
             onTopologyChanged: { [weak self] in
                 self?.rebuild()
             },
-            onExit: { [weak self] in
-                self?.handleConnectionExited()
+            onExit: { [weak self] reason in
+                self?.handleConnectionExited(reason: reason)
             }
         )
         rebuild()
@@ -67,11 +67,12 @@ final class RemoteTmuxSessionMirror {
     /// The remote session ended on its own (e.g. its last tmux window was killed,
     /// or it was killed out-of-band) — hand off to the controller to remove the
     /// mirror and close the now-dead workspace. Deliberate detach/quit/window
-    /// close suppress `onExit`, so this only runs for genuine remote ends.
-    private func handleConnectionExited() {
+    /// close suppress `onExit`, so this only runs for genuine remote ends. `reason`
+    /// distinguishes a real tmux `%exit` from a transport drop (network loss).
+    private func handleConnectionExited(reason: RemoteTmuxControlConnection.SessionEndReason) {
         guard let workspaceId = mirroredWorkspaceId else { return }
         AppDelegate.shared?.remoteTmuxController.handleSessionEndedRemotely(
-            host: host, sessionName: sessionName, workspaceId: workspaceId
+            host: host, sessionName: sessionName, workspaceId: workspaceId, reason: reason
         )
     }
 
@@ -164,6 +165,16 @@ final class RemoteTmuxSessionMirror {
         let livePanes = Set(connection.windowsByID.values.flatMap { $0.paneIDsInOrder })
         cwdByPane = cwdByPane.filter { livePanes.contains($0.key) }
         closeDefaultTabsIfNeeded()
+        // Follow out-of-band tmux window reorders (a second client, or a manual
+        // move-window / a new-window inserted mid-list): the cmux tabs are created
+        // in arrival order and appended, so a non-tail change leaves the strip
+        // stale. Reorder to match tmux's reported order, preserving focus. The
+        // cmux→tmux drag direction is handled by handleMirrorWindowsReordered and
+        // already matches, so this no-ops there.
+        let desiredPanelOrder = connection.windowOrder.compactMap { panelIdByWindow[$0] }
+        if desiredPanelOrder.count > 1 {
+            workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
+        }
     }
 
     /// Creates the in-tab multi-pane renderer the first time a window has more
