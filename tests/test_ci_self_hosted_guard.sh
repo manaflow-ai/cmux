@@ -670,6 +670,22 @@ check_vm_socket_tests_do_not_self_skip() {
   echo "PASS: VM socket tests do not use custom self-skip exceptions"
 }
 
+check_vm_socket_runners_fail_closed_without_test_retries() {
+  local script
+  for script in "$ROOT_DIR/scripts/run-tests-v1.sh" "$ROOT_DIR/scripts/run-tests-v2.sh"; do
+    if grep -n -E "run_test_with_retry|attempts=3|relaunching and retrying" "$script"; then
+      echo "FAIL: $(basename "$script") must fail closed on the first Python VM socket test failure instead of retrying until green"
+      exit 1
+    fi
+    if ! grep -Fq 'if ! python3 "$f"; then' "$script"; then
+      echo "FAIL: $(basename "$script") must execute each Python VM socket test directly so failures are not masked"
+      exit 1
+    fi
+  done
+
+  echo "PASS: VM socket runners fail closed without broad per-test retries"
+}
+
 check_retryable_submodule_checkout() {
   if ! grep -Fq 'attempts="${CMUX_SUBMODULE_RETRY_ATTEMPTS:-5}"' "$ROOT_DIR/scripts/ci/init-submodules-with-retry.sh"; then
     echo "FAIL: submodule retry wrapper must default to at least 5 attempts for transient GitHub connectivity outages"
@@ -1499,6 +1515,7 @@ check_cli_notify_bundled_cli_fails_closed_on_ci
 check_no_swift_test_skip_quarantines
 check_vm_socket_tests_do_not_skip_ctrl_interactive
 check_vm_socket_tests_do_not_self_skip
+check_vm_socket_runners_fail_closed_without_test_retries
 check_tmux_corpus_pr_jobs_do_not_report_skipped_terminal_tests
 check_activation_artifacts_are_required
 check_retryable_submodule_checkout
