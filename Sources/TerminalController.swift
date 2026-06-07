@@ -13391,6 +13391,8 @@ class TerminalController {
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: true)
         case "workspace.group.expand":
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: false)
+        case "notification.dismiss":
+            result = v2MobileNotificationDismiss(params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         default:
@@ -13603,6 +13605,53 @@ class TerminalController {
         for stale in directories.dropLast(keep) {
             try? fileManager.removeItem(at: stale)
         }
+    }
+
+    /// Mark notifications read on the Mac in response to the user dismissing the
+    /// mirrored banner on a paired phone. Accepts either a single `notification_id`
+    /// or a `notification_ids` array; ignores unknown/malformed ids.
+    ///
+    /// Deliberately uses ``TerminalNotificationStore/markRead(id:)`` — NOT
+    /// `remove` — so it mirrors a Mac banner *swipe* (which the Mac's own
+    /// `UNUserNotificationCenterDelegate` handles via `markRead`, keeping the
+    /// entry in the notification list while clearing the banner + unread). This
+    /// is distinct from the socket `notification.dismiss` verb
+    /// (``v2NotificationDismiss(params:)``), which fully `remove`s the entry. The
+    /// resulting `markRead` emits `notification.dismissed` back, a harmless no-op
+    /// for the already-removed phone banner. Carries only opaque UUIDs, never
+    /// terminal content.
+    private func v2MobileNotificationDismiss(params: [String: Any]) -> V2CallResult {
+        var rawIDs: [String] = []
+        if let single = v2OptionalTrimmedRawString(params, "notification_id") {
+            rawIDs.append(single)
+        }
+        if let array = params["notification_ids"] as? [Any] {
+            for value in array {
+                if let string = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !string.isEmpty {
+                    rawIDs.append(string)
+                }
+            }
+        }
+        let ids = rawIDs.compactMap { UUID(uuidString: $0) }
+        guard !ids.isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid notification_id / notification_ids",
+                data: nil
+            )
+        }
+        let store = TerminalNotificationStore.shared
+        // `dismissed` counts notifications that actually transitioned unread→read,
+        // not the number of ids supplied: unknown or already-read ids are no-ops,
+        // so a stale/duplicate phone dismiss reports 0 rather than a misleading hit.
+        let unreadIDs = Set(store.notifications.filter { !$0.isRead }.map(\.id))
+        var dismissed = 0
+        for id in ids where unreadIDs.contains(id) {
+            store.markRead(id: id)
+            dismissed += 1
+        }
+        return .ok(["dismissed": dismissed])
     }
 
     /// The `workspace.action` sub-actions the mobile data plane may invoke.

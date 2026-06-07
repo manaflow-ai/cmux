@@ -66,7 +66,21 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        let ids = Self.cmuxIDs(from: response.notification.request.content.userInfo)
+        let request = response.notification.request
+        // A swipe/clear of a cmux banner delivers the custom dismiss action
+        // (enabled via the `cmux.terminal` category's `.customDismissAction`).
+        // Forward it to the Mac so the desktop banner + store entry clear too.
+        if response.actionIdentifier == UNNotificationDismissActionIdentifier {
+            await pushCoordinator?.handleDismiss(
+                notificationId: Self.notificationID(from: request)
+            )
+            return
+        }
+        // A tap (default action) deep-links to the workspace/terminal AND marks
+        // the notification read on the Mac, mirroring the Mac's own tap path
+        // (which opens + marks read). The two compose: deep-link locally, clear
+        // on the Mac.
+        let ids = Self.cmuxIDs(from: request.content.userInfo)
         let appState = await UIApplication.shared.applicationState
         await analytics?.capture("ios_push_tapped", [
             "has_workspace_id": .bool(ids.workspaceId != nil),
@@ -76,6 +90,9 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         await pushCoordinator?.handleTap(
             workspaceId: ids.workspaceId,
             surfaceId: ids.surfaceId
+        )
+        await pushCoordinator?.handleDismiss(
+            notificationId: Self.notificationID(from: request)
         )
     }
 
@@ -94,5 +111,24 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
     ) -> (workspaceId: String?, surfaceId: String?) {
         guard let cmux = userInfo["cmux"] as? [String: Any] else { return (nil, nil) }
         return (cmux["workspaceId"] as? String, cmux["surfaceId"] as? String)
+    }
+
+    /// The stable Mac-side notification id for a delivered request, or `nil` when
+    /// this push does not carry one.
+    ///
+    /// The `cmux.notificationId` payload key is authoritative: the Mac stamps the
+    /// same value as `apns-collapse-id`, so it equals `request.identifier` for a
+    /// modern push. We deliberately do NOT fall back to a bare `request.identifier`
+    /// when the payload key is absent: a push without `notificationId` (an older
+    /// Mac, or any push that omitted it) has an OS-assigned random identifier that
+    /// matches no Mac notification, so forwarding it would mark the wrong (or no)
+    /// notification read. Returning `nil` degrades cleanly to "no dismiss-sync".
+    private nonisolated static func notificationID(from request: UNNotificationRequest) -> String? {
+        guard let cmux = request.content.userInfo["cmux"] as? [String: Any],
+              let id = (cmux["notificationId"] as? String)?.trimmingCharacters(in: .whitespaces),
+              !id.isEmpty else {
+            return nil
+        }
+        return id
     }
 }

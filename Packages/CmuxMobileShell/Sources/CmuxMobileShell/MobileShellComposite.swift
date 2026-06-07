@@ -40,9 +40,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid"]
+                return ["workspace.updated", "terminal.render_grid", "notification.dismissed"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes"]
+                return ["workspace.updated", "terminal.bytes", "notification.dismissed"]
             }
         }
     }
@@ -403,6 +403,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let deviceRegistry: (any DeviceRegistryRefreshing)?
     private let identityProvider: (any MobileIdentityProviding)?
     private let reachability: any ReachabilityProviding
+    private let deliveredNotificationClearer: any DeliveredNotificationClearing
     private let pairingHintDefaults: UserDefaults
     let clientID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
@@ -568,6 +569,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
         reachability: any ReachabilityProviding = ReachabilityService(),
+        deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
         pairingHintDefaults: UserDefaults = .standard,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
@@ -581,6 +583,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.deviceRegistry = deviceRegistry
         self.identityProvider = identityProvider
         self.reachability = reachability
+        self.deliveredNotificationClearer = deliveredNotificationClearer
         self.pairingHintDefaults = pairingHintDefaults
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
@@ -805,6 +808,50 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             mobileShellLog.error("click forward failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
+    }
+
+    // MARK: - Notification dismiss-sync
+
+    /// Tell the Mac that one or more mirrored notifications were dismissed on
+    /// this phone (a swipe/clear on the delivered banner). The Mac marks them
+    /// read and clears its own banner; its store then emits `notification.dismissed`
+    /// back, which is a harmless no-op for the already-removed phone banner.
+    ///
+    /// Fire-and-forget against the authoritative Mac store. Carries only opaque
+    /// notification UUIDs, never terminal content, so it is safe regardless of
+    /// the Mac's phone-forward hideContent setting.
+    /// - Parameter ids: The stable notification ids the user dismissed.
+    public func dismissNotification(ids: [String]) async {
+        let trimmed = ids
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !trimmed.isEmpty, let client = remoteClient else { return }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "notification.dismiss",
+                params: [
+                    "notification_ids": trimmed,
+                    "client_id": clientID,
+                ]
+            )
+            _ = try await client.sendRequest(request)
+        } catch {
+            mobileShellLog.error("notification dismiss sync failed count=\(trimmed.count, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Clear delivered banners on this phone in response to a Mac-side dismiss
+    /// (`notification.dismissed` peer event). The stable notification id was sent
+    /// to APNs as the `apns-collapse-id`, so the delivered remote notification's
+    /// `request.identifier` equals that id, which is what the injected
+    /// ``DeliveredNotificationClearing`` seam matches on.
+    /// - Parameter ids: The notification ids the Mac dismissed.
+    public func clearDeliveredNotifications(ids: [String]) {
+        let trimmed = ids
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !trimmed.isEmpty else { return }
+        deliveredNotificationClearer.removeDelivered(ids: trimmed)
     }
 
     /// Privileged direct-to-agent feedback round-trip: export the structured
@@ -3803,6 +3850,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // pty-tee. This is the compatibility fallback when the Mac
                     // host does not advertise `terminal.render_grid.v1`.
                     self.handleTerminalBytesEvent(event)
+                } else if event.topic == "notification.dismissed" {
+                    // The Mac dismissed/cleared notifications; clear the matching
+                    // mirrored banners on this phone.
+                    self.handleNotificationDismissedEvent(event)
                 }
             }
             guard let self else { return }
@@ -4424,6 +4475,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
         guard !bytes.isEmpty else { return }
         deliverTerminalBytes(bytes, surfaceID: renderGrid.surfaceID)
+    }
+
+    private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) {
+        guard
+            let json = event.payloadJSON,
+            let payload = MobileNotificationDismissedEvent.decode(json),
+            !payload.ids.isEmpty
+        else {
+            return
+        }
+        clearDeliveredNotifications(ids: payload.ids)
     }
 
     private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {

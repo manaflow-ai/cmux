@@ -17,6 +17,12 @@ export type PushPayload = {
   readonly body: string;
   readonly workspaceId: string | null;
   readonly surfaceId: string | null;
+  /**
+   * Stable Mac-side notification id. Sent to APNs as `apns-collapse-id` and as
+   * `cmux.notificationId` so cross-device dismiss-sync can target the exact
+   * delivered banner. An opaque id, never terminal content.
+   */
+  readonly notificationId: string | null;
   readonly hideContent: boolean;
 };
 
@@ -58,12 +64,14 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
   const text = boundedString(body.body, MAX_PUSH_BODY_CHARS);
   const workspaceId = body.workspaceId == null ? "" : boundedString(body.workspaceId, MAX_PUSH_ID_CHARS);
   const surfaceId = body.surfaceId == null ? "" : boundedString(body.surfaceId, MAX_PUSH_ID_CHARS);
+  const notificationId = body.notificationId == null ? "" : boundedString(body.notificationId, MAX_PUSH_ID_CHARS);
 
   if (title == null) return { ok: false, error: "title_too_long" };
   if (subtitle == null) return { ok: false, error: "subtitle_too_long" };
   if (text == null) return { ok: false, error: "body_too_long" };
   if (workspaceId == null) return { ok: false, error: "workspace_id_too_long" };
   if (surfaceId == null) return { ok: false, error: "surface_id_too_long" };
+  if (notificationId == null) return { ok: false, error: "notification_id_too_long" };
   if (!title && !text) return { ok: false, error: "empty_notification" };
 
   return {
@@ -74,6 +82,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
       body: text,
       workspaceId: workspaceId || null,
       surfaceId: surfaceId || null,
+      notificationId: notificationId || null,
       hideContent: body.hideContent === true,
     },
   };
