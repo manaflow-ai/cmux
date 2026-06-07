@@ -1408,13 +1408,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Resolve the persisted stored id to remove BEFORE disconnecting. When the
         // active Mac is offline the all-devices gate still shows this surface, but
         // `activeTicket` is already nil, so relying on the ticket alone would skip
-        // the store removal and the Mac would reappear on the next launch. Prefer
-        // the ticket id, else the active paired row, else the active partition key
-        // when it is a real (non-synthetic) stored id.
+        // the store removal and the Mac would reappear on the next launch.
+        //
+        // Prefer a REAL stored id over a synthetic `manual-...` one: a legacy host
+        // reconnected via the synthetic-ticket fallback has a `manual-<host>:<port>`
+        // ticket id while the stored paired row (and the active partition key) hold
+        // the real `macDeviceID`. Removing the synthetic id would leave the real row
+        // in storage, so it would reappear on the next launch. Order: the active
+        // paired row's id, else a non-`manual-` active partition key, else a
+        // non-`manual-` ticket id (covers the rare case with no active row).
         let staleMacID = activeTicket?.macDeviceID
-        let persistedMacIDToRemove: String? = staleMacID
-            ?? pairedMacs.first(where: { $0.isActive })?.macDeviceID
-            ?? activeMacDeviceID.flatMap { $0.hasPrefix("manual-") ? nil : $0 }
+        let nonManual: (String?) -> String? = { id in
+            guard let id, !id.isEmpty, !id.hasPrefix("manual-") else { return nil }
+            return id
+        }
+        let persistedMacIDToRemove: String? = pairedMacs.first(where: { $0.isActive })?.macDeviceID
+            ?? nonManual(activeMacDeviceID)
+            ?? nonManual(staleMacID)
         // Capture the active partition key before disconnect clears the active
         // pointer; it may be a `manual-...` key that differs from the ticket's
         // macDeviceID, so drop the partition by the key the aggregated list uses.
