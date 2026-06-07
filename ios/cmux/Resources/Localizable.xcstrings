@@ -800,6 +800,40 @@
         }
       }
     },
+    "mobile.deviceFilter.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Devices"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのデバイス"
+          }
+        }
+      }
+    },
+    "mobile.deviceFilter.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter by device"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスで絞り込む"
+          }
+        }
+      }
+    },
     "mobile.devices.emptyDescription": {
       "extractionState": "manual",
       "localizations": {

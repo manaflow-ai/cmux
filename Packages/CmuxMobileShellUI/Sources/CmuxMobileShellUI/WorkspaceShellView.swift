@@ -55,13 +55,12 @@ struct WorkspaceShellView: View {
     private var stackLayout: some View {
         NavigationStack(path: $compactNavigationPath) {
             WorkspaceListView(
-                workspaces: store.workspaces,
+                deviceSections: store.deviceSections,
                 selectedWorkspaceID: store.selectedWorkspaceID,
-                host: store.connectedHostName,
-                connectionStatus: store.macConnectionStatus,
                 navigationStyle: .push,
-                selectWorkspace: selectWorkspace,
+                selectWorkspace: { id, macID in selectWorkspace(id, onMac: macID) },
                 createWorkspace: createWorkspaceInCompactStack,
+                refreshAllDevices: refreshAllDevices,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
                 store: store,
@@ -108,13 +107,12 @@ struct WorkspaceShellView: View {
     private var splitLayout: some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             WorkspaceListView(
-                workspaces: store.workspaces,
+                deviceSections: store.deviceSections,
                 selectedWorkspaceID: store.selectedWorkspaceID,
-                host: store.connectedHostName,
-                connectionStatus: store.macConnectionStatus,
                 navigationStyle: .sidebar,
-                selectWorkspace: selectWorkspace,
+                selectWorkspace: { id, macID in selectWorkspace(id, onMac: macID) },
                 createWorkspace: store.createWorkspace,
+                refreshAllDevices: refreshAllDevices,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
                 store: store,
@@ -135,12 +133,22 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
+    private func selectWorkspace(_ id: MobileWorkspacePreview.ID, onMac macDeviceID: String) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
-        store.selectedWorkspaceID = id
+        // Carry the source Mac so a same-id collision across Macs resolves to the
+        // tapped section's partition (and retargets the heavy session if needed).
+        store.selectWorkspace(id, onMac: macDeviceID)
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
         }
+    }
+
+    /// Re-pull every paired Mac's workspace list. Backs pull-to-refresh and a
+    /// device-filter tap. Built as an `async` closure literal so it can be passed
+    /// across the list's snapshot boundary without exposing the store to rows.
+    private var refreshAllDevices: () async -> Void {
+        let store = store
+        return { await store.refreshAllPairedMacWorkspaceLists() }
     }
 
     /// Rename/pin closures, present only when the connected Mac advertises the

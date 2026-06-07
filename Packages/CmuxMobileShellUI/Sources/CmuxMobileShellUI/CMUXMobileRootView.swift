@@ -126,7 +126,11 @@ struct CMUXMobileRootView: View {
             RestoringSessionView()
         } else if !isAuthenticated {
             SignInView()
-        } else if store.connectionState != .connected {
+        } else if store.hasNoPairedMacs {
+            // The aggregated all-devices list is the default surface once any Mac
+            // is paired. Only a signed-in user with zero paired Macs (after the
+            // initial load resolves) falls to the pairing flow. Per-Mac
+            // connectivity is now row/section metadata, not a root gate.
             DisconnectedWorkspaceShellView(
                 showAddDevice: showAddDevice,
                 signOut: signOut
