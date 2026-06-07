@@ -56,9 +56,28 @@ import Testing
     @Test func redactsJSONKeyValueSecrets() {
         let samples = [
             (#"{"access_token":"opaque-refresh-token-1234"}"#, #"{"access_token":"<redacted>"}"#, "refresh-token"),
+            (#"{"authToken":"opaque-auth-token-1234"}"#, #"{"authToken":"<redacted>"}"#, "auth-token"),
+            (#"{"refreshToken":"opaque-refresh-token-5678"}"#, #"{"refreshToken":"<redacted>"}"#, "refresh-token"),
+            (#"{"stackAccessToken":"opaque-stack-token-1234"}"#, #"{"stackAccessToken":"<redacted>"}"#, "stack-token"),
             (#"{"password":"hunter2longvalue"}"#, #"{"password":"<redacted>"}"#, "hunter2longvalue"),
             (#"{"auth":"opaque-secret-123"}"#, #"{"auth":"<redacted>"}"#, "opaque-secret"),
             ("{'client_secret': 'oauth secret value'}", "{'client_secret': '<redacted>'}", "oauth secret"),
+        ]
+
+        for (sample, expected, leakedFragment) in samples {
+            let out = scrubber.scrub(sample)
+            #expect(out == expected)
+            #expect(!out.contains(leakedFragment), "value leaked for \(sample): \(out)")
+        }
+    }
+
+    @Test func redactsCamelCaseTokenFields() {
+        let samples = [
+            ("accessToken=opaque-access-token-1234", "accessToken=<redacted>", "access-token"),
+            ("refreshToken: opaque-refresh-token-1234", "refreshToken: <redacted>", "refresh-token"),
+            ("authToken='opaque-auth-token-1234'", "authToken='<redacted>'", "auth-token"),
+            ("stackAccessToken=opaque-stack-token-1234", "stackAccessToken=<redacted>", "stack-token"),
+            ("attachToken=\"opaque-attach-token-1234\"", "attachToken=\"<redacted>\"", "attach-token"),
         ]
 
         for (sample, expected, leakedFragment) in samples {

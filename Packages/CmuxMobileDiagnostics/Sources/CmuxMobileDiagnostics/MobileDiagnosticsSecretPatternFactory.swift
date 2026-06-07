@@ -8,6 +8,9 @@ struct MobileDiagnosticsSecretPatternFactory {
     func makePatterns() -> [(regex: NSRegularExpression, valueGroup: Int)] {
         // Base64url alphabet used by JWTs and most opaque tokens.
         let b64url = "[A-Za-z0-9_-]"
+        let separatedSecretKey = "(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|auth|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)"
+        let camelSecretKey = "(?:[A-Za-z0-9]+)?(?:accessToken|refreshToken|apiKey|authToken|attachToken|clientSecret)"
+        let secretKey = "(?:\(separatedSecretKey)|\(camelSecretKey))"
         let raw: [(String, Int)] = [
             // PEM private-key blocks from terminal output (`OPENSSH PRIVATE KEY`,
             // `RSA PRIVATE KEY`, `EC PRIVATE KEY`, `PRIVATE KEY`, PGP private key
@@ -45,29 +48,27 @@ struct MobileDiagnosticsSecretPatternFactory {
             // Quoted `token=\"...\"` / `password='...'` style values can include
             // spaces. Handle those before the unquoted rule below so the whole
             // quoted value is redacted instead of only its first word.
-            ("(?i)(?:^|[\\s\"'`({\\[,;&?])(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|auth|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b(\\s*[:=]\\s*\")([^\"\\r\\n]{4,})\"",
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?])\(secretKey)\\b(\\s*[:=]\\s*\")([^\"\\r\\n]{4,})\"",
              2),
-            ("(?i)(?:^|[\\s\"'`({\\[,;&?])(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|auth|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b(\\s*[:=]\\s*')([^'\\r\\n]{4,})'",
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?])\(secretKey)\\b(\\s*[:=]\\s*')([^'\\r\\n]{4,})'",
              2),
 
             // JSON or JavaScript object output, e.g.
-            // `"access_token":"..."` or `'password': '...'`.
-            ("(?i)(\"(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|auth|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b\"\\s*:\\s*\")([^\"\\r\\n]{4,})(\")",
+            // `"access_token":"..."`, `"stackAccessToken":"..."`, or
+            // `'password': '...'`.
+            ("(?i)(\"\(secretKey)\\b\"\\s*:\\s*\")([^\"\\r\\n]{4,})(\")",
              2),
-            ("(?i)('(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|auth|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b'\\s*:\\s*')([^'\\r\\n]{4,})(')",
+            ("(?i)('\(secretKey)\\b'\\s*:\\s*')([^'\\r\\n]{4,})(')",
              2),
 
             // `token=...`, `password=...`, `secret=...`, `api[_-]?key=...`,
-            // `access_token=...`, `auth=...` style key/value pairs (query strings,
-            // env dumps, config). The optional non-capturing identifier prefix
-            // (`(?:[A-Za-z0-9]+[_-])*`) lets `API_TOKEN=`, `GITHUB_TOKEN=`,
-            // `DB_PASSWORD=`, `STACK_REFRESH_TOKEN=` match (no `\b` boundary
-            // exists inside an UPPER_SNAKE name), which is the dominant shape in
-            // `env`/`.env`/`printenv` output a terminal snapshot captures. The
-            // trailing `\b` still rejects `tokenizer=` / `mytokenstuff=`. The
-            // value capture group stays group 2. Value runs until whitespace,
-            // quote, or `&`.
-            ("(?i)(?:^|[\\s\"'`({\\[,;&?])(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|auth|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b(\\s*[:=]\\s*[\"']?)([^\\s\"'&]{4,})",
+            // `access_token=...`, `stackAccessToken=...`, `auth=...` style
+            // key/value pairs (query strings, env dumps, config). The prefix
+            // alternatives let `API_TOKEN=`, `STACK_REFRESH_TOKEN=`, and
+            // `stackAccessToken=` match while the trailing `\b` still rejects
+            // `tokenizer=` / `mytokenstuff=`. The value capture group stays
+            // group 2. Value runs until whitespace, quote, or `&`.
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?])\(secretKey)\\b(\\s*[:=]\\s*[\"']?)([^\\s\"'&]{4,})",
              2),
 
             // Connection URLs with userinfo credentials, e.g.
