@@ -158,6 +158,18 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
 
+        /// A name edit waiting for its target row to appear after a reload.
+        private struct PendingInlineEdit {
+            let path: String
+            /// True for a freshly created item (cancel removes it; commit may rename it).
+            let isNewItem: Bool
+            /// True when the edited item is a directory (selects the whole name vs. just the stem).
+            let isDirectory: Bool
+        }
+        private var pendingInlineEdit: PendingInlineEdit?
+        /// True while an inline name field is focused; suppresses reloads that would tear it down.
+        private var isInlineEditing = false
+
         init(
             store: FileExplorerStore,
             state: FileExplorerState,
@@ -232,6 +244,12 @@ struct FileExplorerPanelView: NSViewRepresentable {
         func reloadIfNeeded() {
             guard let outlineView else { return }
 
+            // While the user is typing into an inline name field, do nothing: not even the
+            // visibility/layout pass below, because a relayout lets the keyboard-focus
+            // coordinator re-assert first responder onto the outline view and tear down the
+            // active field editor (this is what made create-then-rename lose focus after ~1s).
+            guard !isInlineEditing else { return }
+
             // Update empty state vs tree visibility
             containerView?.updateVisibility(
                 hasContent: !store.rootPath.isEmpty,
@@ -251,6 +269,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 }
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
             }
+
+            beginPendingInlineEditIfPossible(in: outlineView)
         }
 
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
@@ -281,6 +301,192 @@ struct FileExplorerPanelView: NSViewRepresentable {
                         }
                     }
                 }
+            }
+        }
+
+        // MARK: - File Actions (toolbar + context menu)
+
+        /// Reloads the tree and re-fetches git status (Refresh toolbar button).
+        func refreshTree() {
+            store.reload()
+            store.refreshGitStatus()
+        }
+
+        /// Collapses every folder to the root level (Collapse Folders toolbar button).
+        func collapseAll() {
+            guard let outlineView else { return }
+            store.collapseAll()
+            withProgrammaticOutlineUpdate {
+                outlineView.collapseItem(nil, collapseChildren: true)
+            }
+        }
+
+        /// Creates a uniquely-named file or folder in `directory` (or the toolbar's default
+        /// target when nil), then begins inline editing so the user can name it.
+        func beginCreate(isDirectory: Bool, inDirectory directory: String?) {
+            guard store.canMutate else { return }
+            guard let target = directory ?? store.targetDirectoryForNewItem() else { return }
+            if target != store.rootPath {
+                store.ensureExpanded(path: target)
+            }
+            let base = isDirectory
+                ? String(localized: "fileExplorer.newFolder.defaultName", defaultValue: "untitled folder")
+                : String(localized: "fileExplorer.newFile.defaultName", defaultValue: "untitled")
+            let name = store.uniqueName(base: base, fileExtension: "", in: target)
+            // Suspend watch-driven reloads before touching disk so the create's own FS event
+            // doesn't reload mid-edit and steal the field editor.
+            store.suppressWatcherReloads = true
+            let result = isDirectory
+                ? store.createDirectory(named: name, in: target)
+                : store.createFile(named: name, in: target)
+            switch result {
+            case .success(let newPath):
+                pendingInlineEdit = PendingInlineEdit(path: newPath, isNewItem: true, isDirectory: isDirectory)
+                store.setSelection(path: newPath)
+                store.reload()
+            case .failure(let error):
+                store.suppressWatcherReloads = false
+                presentMutationError(error)
+            }
+        }
+
+        /// Begins inline editing of an existing item's name (context-menu Rename).
+        func beginRename(node: FileExplorerNode) {
+            guard let outlineView, store.canMutate else { return }
+            beginInlineEdit(
+                context: PendingInlineEdit(path: node.path, isNewItem: false, isDirectory: node.isDirectory),
+                in: outlineView
+            )
+        }
+
+        /// Duplicates `node` next to itself and selects the copy.
+        func duplicateNode(_ node: FileExplorerNode) {
+            switch store.duplicate(path: node.path) {
+            case .success(let newPath):
+                store.setSelection(path: newPath)
+                store.reload()
+            case .failure(let error):
+                presentMutationError(error)
+            }
+        }
+
+        /// Confirms, then moves `paths` to the Trash.
+        func confirmAndDelete(paths: [String]) {
+            guard store.canMutate, !paths.isEmpty else { return }
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            if paths.count == 1 {
+                let name = (paths[0] as NSString).lastPathComponent
+                let format = String(localized: "fileExplorer.delete.confirmSingle", defaultValue: "Are you sure you want to move \"%@\" to the Trash?")
+                alert.messageText = String(format: format, name)
+            } else {
+                let format = String(localized: "fileExplorer.delete.confirmMultiple", defaultValue: "Are you sure you want to move these %lld items to the Trash?")
+                alert.messageText = String(format: format, paths.count)
+            }
+            alert.informativeText = String(localized: "fileExplorer.delete.confirmInfo", defaultValue: "You can restore it from the Trash.")
+            alert.addButton(withTitle: String(localized: "fileExplorer.delete.confirmButton", defaultValue: "Move to Trash"))
+            alert.addButton(withTitle: String(localized: "fileExplorer.dialog.cancel", defaultValue: "Cancel"))
+
+            let perform: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+                guard let self, response == .alertFirstButtonReturn else { return }
+                if case .failure(let error) = self.store.moveToTrash(paths: paths) {
+                    self.presentMutationError(error)
+                }
+                self.store.reload()
+            }
+            if let window = outlineView?.window {
+                alert.beginSheetModal(for: window, completionHandler: perform)
+            } else {
+                perform(alert.runModal())
+            }
+        }
+
+        // MARK: - Inline Editing Plumbing
+
+        /// First visible row whose node matches `path`, or nil if it isn't rendered yet.
+        private func row(forPath path: String, in outlineView: NSOutlineView) -> Int? {
+            for row in 0..<outlineView.numberOfRows {
+                if let node = outlineView.item(atRow: row) as? FileExplorerNode, node.path == path {
+                    return row
+                }
+            }
+            return nil
+        }
+
+        /// Applies a pending edit once its row exists; otherwise leaves it pending for the
+        /// next reload (e.g. while a target subfolder is still loading its children).
+        private func beginPendingInlineEditIfPossible(in outlineView: NSOutlineView) {
+            guard let pending = pendingInlineEdit else { return }
+            // Drop the pending edit if the item vanished from disk before we could focus it.
+            if pending.isNewItem, !FileManager.default.fileExists(atPath: pending.path) {
+                pendingInlineEdit = nil
+                return
+            }
+            guard row(forPath: pending.path, in: outlineView) != nil else { return }
+            pendingInlineEdit = nil
+            beginInlineEdit(context: pending, in: outlineView)
+        }
+
+        private func beginInlineEdit(context: PendingInlineEdit, in outlineView: NSOutlineView) {
+            guard let row = row(forPath: context.path, in: outlineView) else { return }
+            isInlineEditing = true
+            store.suppressWatcherReloads = true
+            withProgrammaticOutlineUpdate {
+                outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            }
+            outlineView.scrollRowToVisible(row)
+            guard let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: true) as? FileExplorerCellView else {
+                isInlineEditing = false
+                store.suppressWatcherReloads = false
+                return
+            }
+            cell.onCommitEdit = { [weak self] newName in
+                self?.finishInlineEdit(commit: true, newName: newName, context: context)
+            }
+            cell.onCancelEdit = { [weak self] in
+                self?.finishInlineEdit(commit: false, newName: nil, context: context)
+            }
+            cell.beginEditing(selectingExtension: context.isDirectory)
+        }
+
+        private func finishInlineEdit(commit: Bool, newName: String?, context: PendingInlineEdit) {
+            isInlineEditing = false
+            let trimmed = (newName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let currentName = (context.path as NSString).lastPathComponent
+
+            // Re-enable watch reloads and resync the tree; reload() reflects the rename/discard.
+            defer {
+                store.suppressWatcherReloads = false
+                store.reload()
+            }
+
+            // Cancel, or an empty/unchanged name: discard a brand-new item, keep an existing one.
+            if !commit || trimmed.isEmpty || trimmed == currentName {
+                if context.isNewItem, (!commit || trimmed.isEmpty) {
+                    _ = store.discardJustCreated(path: context.path)
+                }
+                return
+            }
+
+            switch store.rename(path: context.path, to: trimmed) {
+            case .success(let newPath):
+                store.setSelection(path: newPath)
+            case .failure(let error):
+                // Keep a just-created item under its default name rather than orphaning it.
+                presentMutationError(error)
+            }
+        }
+
+        private func presentMutationError(_ error: FileExplorerMutationError) {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = String(localized: "fileExplorer.mutation.errorTitle", defaultValue: "Couldn't complete the action")
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: String(localized: "fileExplorer.dialog.ok", defaultValue: "OK"))
+            if let window = outlineView?.window {
+                alert.beginSheetModal(for: window, completionHandler: nil)
+            } else {
+                alert.runModal()
             }
         }
 
@@ -631,6 +837,28 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
             let isLocal = store.provider is LocalFileExplorerProvider
 
+            if isLocal {
+                let newFileItem = NSMenuItem(
+                    title: String(localized: "fileExplorer.contextMenu.newFile", defaultValue: "New File"),
+                    action: #selector(contextMenuNewFile(_:)),
+                    keyEquivalent: ""
+                )
+                newFileItem.target = self
+                newFileItem.representedObject = node
+                menu.addItem(newFileItem)
+
+                let newFolderItem = NSMenuItem(
+                    title: String(localized: "fileExplorer.contextMenu.newFolder", defaultValue: "New Folder"),
+                    action: #selector(contextMenuNewFolder(_:)),
+                    keyEquivalent: ""
+                )
+                newFolderItem.target = self
+                newFolderItem.representedObject = node
+                menu.addItem(newFolderItem)
+
+                menu.addItem(.separator())
+            }
+
             if !node.isDirectory && isLocal {
                 addFileExplorerExternalOpenItems(
                     to: menu,
@@ -672,6 +900,72 @@ struct FileExplorerPanelView: NSViewRepresentable {
             copyRelItem.target = self
             copyRelItem.representedObject = node
             menu.addItem(copyRelItem)
+
+            if isLocal {
+                menu.addItem(.separator())
+
+                let renameItem = NSMenuItem(
+                    title: String(localized: "fileExplorer.contextMenu.rename", defaultValue: "Rename…"),
+                    action: #selector(contextMenuRename(_:)),
+                    keyEquivalent: ""
+                )
+                renameItem.target = self
+                renameItem.representedObject = node
+                menu.addItem(renameItem)
+
+                let duplicateItem = NSMenuItem(
+                    title: String(localized: "fileExplorer.contextMenu.duplicate", defaultValue: "Duplicate"),
+                    action: #selector(contextMenuDuplicate(_:)),
+                    keyEquivalent: ""
+                )
+                duplicateItem.target = self
+                duplicateItem.representedObject = node
+                menu.addItem(duplicateItem)
+
+                let deleteItem = NSMenuItem(
+                    title: String(localized: "fileExplorer.contextMenu.delete", defaultValue: "Move to Trash"),
+                    action: #selector(contextMenuDelete(_:)),
+                    keyEquivalent: ""
+                )
+                deleteItem.target = self
+                deleteItem.representedObject = node
+                menu.addItem(deleteItem)
+            }
+        }
+
+        @objc private func contextMenuNewFile(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            beginCreate(isDirectory: false, inDirectory: directoryForCreation(relativeTo: node))
+        }
+
+        @objc private func contextMenuNewFolder(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            beginCreate(isDirectory: true, inDirectory: directoryForCreation(relativeTo: node))
+        }
+
+        @objc private func contextMenuRename(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            beginRename(node: node)
+        }
+
+        @objc private func contextMenuDuplicate(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            duplicateNode(node)
+        }
+
+        @objc private func contextMenuDelete(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            // Delete every selected item when the clicked row is part of the selection,
+            // otherwise just the clicked item.
+            let selected = store.selectedPaths
+            let paths = selected.contains(node.path) ? Array(selected) : [node.path]
+            confirmAndDelete(paths: paths)
+        }
+
+        /// New File/New Folder from a context click target a directory: the clicked folder,
+        /// or the parent of a clicked file.
+        private func directoryForCreation(relativeTo node: FileExplorerNode) -> String {
+            node.isDirectory ? node.path : (node.path as NSString).deletingLastPathComponent
         }
 
         @objc private func contextMenuOpenExternally(_ sender: NSMenuItem) {
@@ -769,6 +1063,10 @@ final class FileExplorerContainerView: NSView {
 
         // Header
         headerView.translatesAutoresizingMaskIntoConstraints = false
+        headerView.onNewFile = { [weak coordinator] in coordinator?.beginCreate(isDirectory: false, inDirectory: nil) }
+        headerView.onNewFolder = { [weak coordinator] in coordinator?.beginCreate(isDirectory: true, inDirectory: nil) }
+        headerView.onRefresh = { [weak coordinator] in coordinator?.refreshTree() }
+        headerView.onCollapseAll = { [weak coordinator] in coordinator?.collapseAll() }
         addSubview(headerView)
 
         // Search bar
@@ -1021,6 +1319,7 @@ final class FileExplorerContainerView: NSView {
         currentProviderIsLocal = nextProviderIsLocal
         currentContentRevision = nextContentRevision
         headerView.update(displayPath: store.displayRootPath)
+        headerView.setMutationActionsEnabled(store.canMutate)
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false
             refreshSearchIfNeeded()
@@ -1849,6 +2148,18 @@ final class FileExplorerHeaderView: NSView {
     private var displayPath = ""
     private var quickSearchQuery: String?
 
+    private let actionStack = NSStackView()
+    private var newFileButton: NSButton!
+    private var newFolderButton: NSButton!
+    private var refreshButton: NSButton!
+    private var collapseAllButton: NSButton!
+
+    /// Invoked by the toolbar buttons. Wired by ``FileExplorerContainerView``.
+    var onNewFile: (() -> Void)?
+    var onNewFolder: (() -> Void)?
+    var onRefresh: (() -> Void)?
+    var onCollapseAll: (() -> Void)?
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         setupViews()
@@ -1869,8 +2180,38 @@ final class FileExplorerHeaderView: NSView {
         pathLabel.maximumNumberOfLines = 1
         pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        newFileButton = makeToolbarButton(
+            symbol: "doc.badge.plus",
+            tooltip: String(localized: "fileExplorer.toolbar.newFile", defaultValue: "New File"),
+            action: #selector(handleNewFile)
+        )
+        newFolderButton = makeToolbarButton(
+            symbol: "folder.badge.plus",
+            tooltip: String(localized: "fileExplorer.toolbar.newFolder", defaultValue: "New Folder"),
+            action: #selector(handleNewFolder)
+        )
+        refreshButton = makeToolbarButton(
+            symbol: "arrow.clockwise",
+            tooltip: String(localized: "fileExplorer.toolbar.refresh", defaultValue: "Refresh Explorer"),
+            action: #selector(handleRefresh)
+        )
+        collapseAllButton = makeToolbarButton(
+            symbol: "arrow.down.right.and.arrow.up.left",
+            tooltip: String(localized: "fileExplorer.toolbar.collapseAll", defaultValue: "Collapse Folders"),
+            action: #selector(handleCollapseAll)
+        )
+
+        actionStack.translatesAutoresizingMaskIntoConstraints = false
+        actionStack.orientation = .horizontal
+        actionStack.alignment = .centerY
+        actionStack.spacing = 2
+        actionStack.setContentHuggingPriority(.required, for: .horizontal)
+        actionStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+        [newFileButton, newFolderButton, refreshButton, collapseAllButton].forEach { actionStack.addArrangedSubview($0) }
+
         addSubview(iconView)
         addSubview(pathLabel)
+        addSubview(actionStack)
 
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight),
@@ -1882,10 +2223,46 @@ final class FileExplorerHeaderView: NSView {
 
             pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
             pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            pathLabel.trailingAnchor.constraint(lessThanOrEqualTo: actionStack.leadingAnchor, constant: -8),
+
+            actionStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            actionStack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         applyHeaderState()
     }
+
+    private func makeToolbarButton(symbol: String, tooltip: String, action: Selector) -> NSButton {
+        let button = NSButton()
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.setButtonType(.momentaryChange)
+        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)?
+            .withSymbolConfiguration(config)
+        button.contentTintColor = .secondaryLabelColor
+        button.toolTip = tooltip
+        button.target = self
+        button.action = action
+        button.setAccessibilityIdentifier("FileExplorerToolbar.\(symbol)")
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 20),
+            button.heightAnchor.constraint(equalToConstant: 18),
+        ])
+        return button
+    }
+
+    /// Enables the create buttons only when the provider supports mutation. Refresh and
+    /// Collapse remain available for any root (including read-only SSH).
+    func setMutationActionsEnabled(_ enabled: Bool) {
+        newFileButton.isEnabled = enabled
+        newFolderButton.isEnabled = enabled
+    }
+
+    @objc private func handleNewFile() { onNewFile?() }
+    @objc private func handleNewFolder() { onNewFolder?() }
+    @objc private func handleRefresh() { onRefresh?() }
+    @objc private func handleCollapseAll() { onCollapseAll?() }
 
     func update(displayPath: String) {
         self.displayPath = displayPath
@@ -1919,11 +2296,19 @@ final class FileExplorerHeaderView: NSView {
 final class FileExplorerCellView: NSTableCellView {
     private let iconView = NSImageView()
     private let nameLabel = NSTextField(labelWithString: "")
+    private let statusLabel = NSTextField(labelWithString: "")
     private let loadingIndicator = NSProgressIndicator()
     private var trackingArea: NSTrackingArea?
     var onHover: ((Bool) -> Void)?
     private var nameLabelTrailingToLoadingConstraint: NSLayoutConstraint!
     private var nameLabelTrailingToContainerConstraint: NSLayoutConstraint!
+    private var nameLabelTrailingToStatusConstraint: NSLayoutConstraint!
+
+    /// Called with the field's text when an inline edit is committed (Enter or focus loss).
+    var onCommitEdit: ((String) -> Void)?
+    /// Called when an inline edit is cancelled (Escape).
+    var onCancelEdit: (() -> Void)?
+    private var isEditingName = false
 
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
@@ -1949,6 +2334,15 @@ final class FileExplorerCellView: NSTableCellView {
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.maximumNumberOfLines = 1
 
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.alignment = .center
+        statusLabel.lineBreakMode = .byClipping
+        statusLabel.maximumNumberOfLines = 1
+        statusLabel.isHidden = true
+        statusLabel.setContentHuggingPriority(.required, for: .horizontal)
+        statusLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        statusLabel.setAccessibilityIdentifier("FileExplorerStatusLabel")
+
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         loadingIndicator.style = .spinning
         loadingIndicator.controlSize = .small
@@ -1957,6 +2351,7 @@ final class FileExplorerCellView: NSTableCellView {
 
         addSubview(iconView)
         addSubview(nameLabel)
+        addSubview(statusLabel)
         addSubview(loadingIndicator)
 
         iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: 16)
@@ -1977,6 +2372,9 @@ final class FileExplorerCellView: NSTableCellView {
             loadingIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
             loadingWidthConstraint,
             loadingIndicator.heightAnchor.constraint(equalToConstant: 12),
+
+            statusLabel.trailingAnchor.constraint(equalTo: loadingIndicator.leadingAnchor, constant: -2),
+            statusLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
 
         nameLabelTrailingToLoadingConstraint = nameLabel.trailingAnchor.constraint(
@@ -1987,15 +2385,23 @@ final class FileExplorerCellView: NSTableCellView {
             equalTo: trailingAnchor,
             constant: -2
         )
+        nameLabelTrailingToStatusConstraint = nameLabel.trailingAnchor.constraint(
+            lessThanOrEqualTo: statusLabel.leadingAnchor,
+            constant: -4
+        )
         NSLayoutConstraint.activate([
             nameLabelTrailingToLoadingConstraint,
-            nameLabelTrailingToContainerConstraint
+            nameLabelTrailingToContainerConstraint,
+            nameLabelTrailingToStatusConstraint
         ])
         nameLabelTrailingToLoadingConstraint.isActive = false
+        nameLabelTrailingToStatusConstraint.isActive = false
     }
 
     func configure(with node: FileExplorerNode, gitStatus: GitFileStatus? = nil) {
         assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
+        // Never overwrite the field while the user is typing a name into this reused cell.
+        guard !isEditingName else { return }
         let style = FileExplorerStyle.current
         nameLabel.stringValue = node.name
         nameLabel.font = style.nameFont
@@ -2018,9 +2424,25 @@ final class FileExplorerCellView: NSTableCellView {
         } else {
             let symbolConfig = NSImage.SymbolConfiguration(pointSize: style.iconSize, weight: style.iconWeight)
             if node.isDirectory {
-                iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
+                if style.hidesFolderGlyph {
+                    // Chevron-only folders: the outline disclosure triangle conveys
+                    // the folder, so the leading glyph collapses to zero width.
+                    iconView.image = nil
+                    iconView.contentTintColor = nil
+                    iconWidthConstraint.constant = 0
+                    iconToTextConstraint.constant = 0
+                } else {
+                    iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
+                        .withSymbolConfiguration(symbolConfig)
+                    iconView.contentTintColor = style.folderIconTint
+                }
+            } else if style.usesColorfulFileIcons {
+                let fileIcon = FileExplorerFileIcon.resolve(for: node.name)
+                iconView.image = NSImage(systemSymbolName: fileIcon.symbolName, accessibilityDescription: nil)?
                     .withSymbolConfiguration(symbolConfig)
-                iconView.contentTintColor = style.folderIconTint
+                    ?? NSImage(systemSymbolName: "doc", accessibilityDescription: nil)?
+                    .withSymbolConfiguration(symbolConfig)
+                iconView.contentTintColor = fileIcon.color
             } else {
                 iconView.image = NSImage(systemSymbolName: "doc", accessibilityDescription: nil)?
                     .withSymbolConfiguration(symbolConfig)
@@ -2042,15 +2464,51 @@ final class FileExplorerCellView: NSTableCellView {
             nameLabelTrailingToContainerConstraint.isActive = true
         }
 
+        configureStatusBadge(for: node, gitStatus: gitStatus, style: style)
+
         if let error = node.error {
             nameLabel.textColor = .systemRed
+            nameLabel.alphaValue = 1.0
             nameLabel.toolTip = error
         } else if let gitStatus {
-            nameLabel.textColor = style.gitColor(for: gitStatus)
+            // For the colorful (Cursor-like) style, keep names neutral and use
+            // dimming + the trailing badge to convey git state; other styles
+            // continue to recolor the name text.
+            if style.usesColorfulFileIcons {
+                nameLabel.textColor = .labelColor
+                nameLabel.alphaValue = gitStatus.dimsName ? 0.45 : 1.0
+            } else {
+                nameLabel.textColor = style.gitColor(for: gitStatus)
+                nameLabel.alphaValue = 1.0
+            }
             nameLabel.toolTip = node.path
         } else {
             nameLabel.textColor = .labelColor
+            nameLabel.alphaValue = 1.0
             nameLabel.toolTip = node.path
+        }
+    }
+
+    /// Shows or hides the trailing single-letter git status badge for the
+    /// Cursor-like style. Directories and styles without badge support never
+    /// show it; the badge is also suppressed while the row is loading so it
+    /// does not collide with the spinner.
+    private func configureStatusBadge(
+        for node: FileExplorerNode, gitStatus: GitFileStatus?, style: FileExplorerStyle
+    ) {
+        let letter = (style.showsGitStatusLetter && !node.isDirectory && !node.isLoading)
+            ? gitStatus?.statusLetter
+            : nil
+        if let letter, let gitStatus {
+            statusLabel.stringValue = letter
+            statusLabel.font = .systemFont(ofSize: 10, weight: .semibold)
+            statusLabel.textColor = style.gitColor(for: gitStatus)
+            statusLabel.isHidden = false
+            nameLabelTrailingToStatusConstraint.isActive = true
+        } else {
+            statusLabel.stringValue = ""
+            statusLabel.isHidden = true
+            nameLabelTrailingToStatusConstraint.isActive = false
         }
     }
 
@@ -2075,6 +2533,68 @@ final class FileExplorerCellView: NSTableCellView {
 
     override func mouseExited(with event: NSEvent) {
         onHover?(false)
+    }
+
+    // MARK: - Inline Name Editing
+
+    /// Turns `nameLabel` into a focused, editable text field. When `selectingExtension`
+    /// is false (files), only the name stem is selected so the extension is preserved;
+    /// directories select the whole name.
+    func beginEditing(selectingExtension: Bool) {
+        guard let window else { return }
+        isEditingName = true
+        nameLabel.isEditable = true
+        nameLabel.isSelectable = true
+        nameLabel.isBordered = true
+        nameLabel.bezelStyle = .squareBezel
+        nameLabel.drawsBackground = true
+        nameLabel.backgroundColor = .textBackgroundColor
+        nameLabel.textColor = .labelColor
+        nameLabel.focusRingType = .default
+        nameLabel.delegate = self
+        window.makeFirstResponder(nameLabel)
+        guard let editor = nameLabel.currentEditor() else { return }
+        let full = nameLabel.stringValue as NSString
+        if selectingExtension {
+            editor.selectedRange = NSRange(location: 0, length: full.length)
+        } else {
+            let stem = (nameLabel.stringValue as NSString).deletingPathExtension as NSString
+            editor.selectedRange = NSRange(location: 0, length: stem.length)
+        }
+    }
+
+    /// Restores the field to its non-editable label appearance.
+    private func endEditingChrome() {
+        isEditingName = false
+        nameLabel.delegate = nil
+        nameLabel.isEditable = false
+        nameLabel.isSelectable = false
+        nameLabel.isBordered = false
+        nameLabel.drawsBackground = false
+        nameLabel.focusRingType = .none
+    }
+}
+
+extension FileExplorerCellView: NSTextFieldDelegate {
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard isEditingName else { return false }
+        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+            let cancel = onCancelEdit
+            endEditingChrome()
+            cancel?()
+            return true
+        }
+        return false
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        // `cancelOperation` already tore down editing and fired `onCancelEdit`; bail out so
+        // Escape doesn't also commit. Enter, Tab, and focus loss all commit the typed value.
+        guard isEditingName else { return }
+        let value = nameLabel.stringValue
+        let commit = onCommitEdit
+        endEditingChrome()
+        commit?(value)
     }
 }
 

@@ -27,11 +27,30 @@ enum FileExplorerStyle: Int, CaseIterable {
     var rowHeight: CGFloat {
         switch self {
         case .liquidGlass: return 28
-        case .highDensity: return 20
+        case .highDensity: return 22
         case .terminalStealth: return 24
         case .proStudio: return 32
         case .finder: return 26
         }
+    }
+
+    /// Whether files render with colorful, type-specific glyphs
+    /// (``FileExplorerFileIcon``) instead of a single tinted document icon.
+    /// Enabled for the Cursor-like High-Density style.
+    var usesColorfulFileIcons: Bool {
+        self == .highDensity
+    }
+
+    /// Whether folders rely solely on the outline disclosure chevron and draw
+    /// no folder glyph, matching Cursor's minimal folder chrome.
+    var hidesFolderGlyph: Bool {
+        self == .highDensity
+    }
+
+    /// Whether file rows show a single-letter git status badge (`M`/`A`/etc.)
+    /// on their trailing edge.
+    var showsGitStatusLetter: Bool {
+        self == .highDensity
     }
 
     var indentation: CGFloat {
@@ -157,6 +176,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .deleted: return .systemRed
             case .renamed: return .systemPurple
             case .untracked: return .quaternaryLabelColor
+            case .ignored: return .quaternaryLabelColor
             }
         case .highDensity:
             switch status {
@@ -165,6 +185,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .deleted: return .systemRed
             case .renamed: return .systemBlue
             case .untracked: return .tertiaryLabelColor
+            case .ignored: return .tertiaryLabelColor
             }
         case .terminalStealth:
             switch status {
@@ -173,6 +194,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .deleted: return NSColor(red: 0.8, green: 0.4, blue: 0.4, alpha: 1.0)
             case .renamed: return NSColor(red: 0.5, green: 0.7, blue: 0.9, alpha: 1.0)
             case .untracked: return NSColor(white: 0.5, alpha: 1.0)
+            case .ignored: return NSColor(white: 0.5, alpha: 1.0)
             }
         case .proStudio:
             switch status {
@@ -181,6 +203,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .deleted: return .systemPink
             case .renamed: return .systemCyan
             case .untracked: return .systemGray
+            case .ignored: return .systemGray
             }
         case .finder:
             switch status {
@@ -189,6 +212,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .deleted: return .systemRed
             case .renamed: return .systemBlue
             case .untracked: return .tertiaryLabelColor
+            case .ignored: return .tertiaryLabelColor
             }
         }
     }
@@ -723,6 +747,36 @@ enum FileExplorerError: LocalizedError {
     }
 }
 
+// MARK: - Mutation Errors
+
+/// Failures surfaced when creating, renaming, duplicating, or trashing items in the
+/// local file explorer. SSH-backed roots do not support mutation and return
+/// ``providerUnsupported``.
+enum FileExplorerMutationError: LocalizedError {
+    /// The active provider is not the local filesystem (e.g. an SSH workspace).
+    case providerUnsupported
+    /// The supplied name was empty or contained a path separator.
+    case invalidName
+    /// An item with the requested name already exists in the destination directory.
+    case alreadyExists(name: String)
+    /// A `FileManager` operation threw; the associated value is the system message.
+    case underlying(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .providerUnsupported:
+            return String(localized: "fileExplorer.mutation.error.unsupported", defaultValue: "This action isn't available for remote folders.")
+        case .invalidName:
+            return String(localized: "fileExplorer.mutation.error.invalidName", defaultValue: "Names can't be empty or contain a slash.")
+        case .alreadyExists(let name):
+            let format = String(localized: "fileExplorer.mutation.error.alreadyExists", defaultValue: "An item named \"%@\" already exists.")
+            return String(format: format, name)
+        case .underlying(let message):
+            return message
+        }
+    }
+}
+
 // MARK: - Selection Restoration
 
 enum FileExplorerSelectionRestoration {
@@ -756,6 +810,19 @@ final class FileExplorerStore: ObservableObject {
     private var directoryWatcher: FileWatcher?
     private var directoryWatchTask: Task<Void, Never>?
     private var directoryWatchPath: String?
+
+    /// When true, filesystem-watch events are buffered instead of triggering a reload.
+    /// Set during inline name editing so a background reload doesn't tear down the field
+    /// editor. Clearing it replays a single coalesced reload if any event was missed.
+    var suppressWatcherReloads = false {
+        didSet {
+            guard oldValue, !suppressWatcherReloads, pendingWatcherReload else { return }
+            pendingWatcherReload = false
+            reload()
+            refreshGitStatus()
+        }
+    }
+    private var pendingWatcherReload = false
 
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
@@ -906,6 +973,10 @@ final class FileExplorerStore: ObservableObject {
             directoryWatchTask = Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
+                    if self.suppressWatcherReloads {
+                        self.pendingWatcherReload = true
+                        continue
+                    }
                     self.reload()
                     self.refreshGitStatus()
                 }
@@ -1046,6 +1117,185 @@ final class FileExplorerStore: ObservableObject {
         NSLog("[FileExplorer] hydrateExpandedNodes: \(expandedPaths.count) paths to hydrate")
         #endif
         reload()
+    }
+
+    // MARK: - Mutations (local only)
+
+    /// Whether the current provider supports filesystem mutations. Only the local
+    /// provider can create, rename, duplicate, or trash items; SSH roots are read-only.
+    var canMutate: Bool { provider is LocalFileExplorerProvider }
+
+    /// The directory a toolbar-initiated "New File"/"New Folder" should target: the
+    /// selected directory, the selected file's parent, or the root when nothing is selected.
+    /// Returns `nil` when mutation is unsupported or no root is open.
+    func targetDirectoryForNewItem() -> String? {
+        guard canMutate, !rootPath.isEmpty else { return nil }
+        guard let selectedPath else { return rootPath }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: selectedPath, isDirectory: &isDirectory) else {
+            return rootPath
+        }
+        return isDirectory.boolValue ? selectedPath : (selectedPath as NSString).deletingLastPathComponent
+    }
+
+    /// Returns a name that does not collide with an existing entry in `directory`, appending
+    /// " 2", " 3", … to `base` as needed (e.g. `untitled`, `untitled 2`).
+    func uniqueName(base: String, fileExtension ext: String, in directory: String) -> String {
+        let fm = FileManager.default
+        func compose(_ index: Int) -> String {
+            let stem = index == 0 ? base : "\(base) \(index + 1)"
+            return ext.isEmpty ? stem : "\(stem).\(ext)"
+        }
+        var index = 0
+        while fm.fileExists(atPath: (directory as NSString).appendingPathComponent(compose(index))) {
+            index += 1
+        }
+        return compose(index)
+    }
+
+    /// Marks `path` as logically expanded so a newly created child becomes visible after reload.
+    func ensureExpanded(path: String) {
+        guard canMutate else { return }
+        expandedPaths.insert(path)
+    }
+
+    /// Overrides the navigation selection by path. Survives the next reload because
+    /// the outline view mirrors `selectedPath`/`selectedPaths` during restoration.
+    func setSelection(path: String?) {
+        selectedPath = path
+        selectedPaths = path.map { [$0] } ?? []
+    }
+
+    /// Creates an empty file named `name` inside `directory`. Does not reload; the caller
+    /// drives the reload so it can coordinate inline renaming of the new item.
+    @discardableResult
+    func createFile(named name: String, in directory: String) -> Result<String, FileExplorerMutationError> {
+        guard canMutate else { return .failure(.providerUnsupported) }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("/") else { return .failure(.invalidName) }
+        let path = (directory as NSString).appendingPathComponent(trimmed)
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: path) else { return .failure(.alreadyExists(name: trimmed)) }
+        guard fm.createFile(atPath: path, contents: nil) else {
+            return .failure(.underlying(String(localized: "fileExplorer.mutation.error.createFileFailed", defaultValue: "Couldn't create the file.")))
+        }
+        return .success(path)
+    }
+
+    /// Creates a directory named `name` inside `directory`. Does not reload (see ``createFile(named:in:)``).
+    @discardableResult
+    func createDirectory(named name: String, in directory: String) -> Result<String, FileExplorerMutationError> {
+        guard canMutate else { return .failure(.providerUnsupported) }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("/") else { return .failure(.invalidName) }
+        let path = (directory as NSString).appendingPathComponent(trimmed)
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: path) else { return .failure(.alreadyExists(name: trimmed)) }
+        do {
+            try fm.createDirectory(atPath: path, withIntermediateDirectories: false)
+        } catch {
+            return .failure(.underlying(error.localizedDescription))
+        }
+        return .success(path)
+    }
+
+    /// Renames the item at `path` to `newName` within the same directory, returning the new path.
+    /// Re-points expansion and selection state when a directory is renamed.
+    @discardableResult
+    func rename(path: String, to newName: String) -> Result<String, FileExplorerMutationError> {
+        guard canMutate else { return .failure(.providerUnsupported) }
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("/") else { return .failure(.invalidName) }
+        let directory = (path as NSString).deletingLastPathComponent
+        let destination = (directory as NSString).appendingPathComponent(trimmed)
+        if destination == path { return .success(path) }
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: destination) else { return .failure(.alreadyExists(name: trimmed)) }
+        do {
+            try fm.moveItem(atPath: path, toPath: destination)
+        } catch {
+            return .failure(.underlying(error.localizedDescription))
+        }
+        repathState(from: path, to: destination)
+        return .success(destination)
+    }
+
+    /// Copies the item at `path` next to itself with a " copy" suffix, returning the new path.
+    @discardableResult
+    func duplicate(path: String) -> Result<String, FileExplorerMutationError> {
+        guard canMutate else { return .failure(.providerUnsupported) }
+        let fm = FileManager.default
+        let directory = (path as NSString).deletingLastPathComponent
+        let name = (path as NSString).lastPathComponent
+        let ext = (name as NSString).pathExtension
+        let stem = (name as NSString).deletingPathExtension
+        let copyBase = String(format: String(localized: "fileExplorer.mutation.copySuffix", defaultValue: "%@ copy"), stem)
+        let newName = uniqueName(base: copyBase, fileExtension: ext, in: directory)
+        let destination = (directory as NSString).appendingPathComponent(newName)
+        do {
+            try fm.copyItem(atPath: path, toPath: destination)
+        } catch {
+            return .failure(.underlying(error.localizedDescription))
+        }
+        return .success(destination)
+    }
+
+    /// Moves the given items to the Trash (recoverable from Finder) and clears any
+    /// expansion/selection state that referenced them.
+    @discardableResult
+    func moveToTrash(paths: [String]) -> Result<Void, FileExplorerMutationError> {
+        guard canMutate else { return .failure(.providerUnsupported) }
+        let fm = FileManager.default
+        for path in paths {
+            do {
+                try fm.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil)
+            } catch {
+                return .failure(.underlying(error.localizedDescription))
+            }
+        }
+        for path in paths {
+            expandedPaths = expandedPaths.filter { $0 != path && !$0.hasPrefix(path + "/") }
+        }
+        selectedPaths.subtract(paths)
+        if let selectedPath, paths.contains(selectedPath) { self.selectedPath = nil }
+        return .success(())
+    }
+
+    /// Permanently removes a just-created, still-empty item when the user cancels its
+    /// inline name editing. Unlike ``moveToTrash(paths:)`` this does not use the Trash,
+    /// because the item never existed from the user's perspective.
+    @discardableResult
+    func discardJustCreated(path: String) -> Result<Void, FileExplorerMutationError> {
+        guard canMutate else { return .failure(.providerUnsupported) }
+        do {
+            try FileManager.default.removeItem(atPath: path)
+        } catch {
+            return .failure(.underlying(error.localizedDescription))
+        }
+        repathState(from: path, to: nil)
+        return .success(())
+    }
+
+    /// Clears all logical expansion so the tree collapses to its root items.
+    func collapseAll() {
+        expandedPaths.removeAll()
+        pendingDescendIntoFirstChildPath = nil
+    }
+
+    /// Re-points `expandedPaths` and selection when an item moves from `old` to `new`
+    /// (a directory rename also moves its descendants). Passing `new == nil` drops the state.
+    private func repathState(from old: String, to new: String?) {
+        func remap(_ p: String) -> String? {
+            guard let new else {
+                return (p == old || p.hasPrefix(old + "/")) ? nil : p
+            }
+            if p == old { return new }
+            if p.hasPrefix(old + "/") { return new + String(p.dropFirst(old.count)) }
+            return p
+        }
+        expandedPaths = Set(expandedPaths.compactMap(remap))
+        selectedPaths = Set(selectedPaths.compactMap(remap))
+        selectedPath = selectedPath.flatMap(remap)
     }
 
     // MARK: - Private
@@ -1314,7 +1564,27 @@ final class FileExplorerStore: ObservableObject {
 // MARK: - Git Status
 
 enum GitFileStatus {
-    case modified, added, deleted, renamed, untracked
+    case modified, added, deleted, renamed, untracked, ignored
+
+    /// Single-letter badge shown on the trailing edge of a file row
+    /// (`M`/`A`/`D`/`R`/`U`), matching Cursor's status column. Ignored files
+    /// carry no badge.
+    var statusLetter: String? {
+        switch self {
+        case .modified: return "M"
+        case .added: return "A"
+        case .deleted: return "D"
+        case .renamed: return "R"
+        case .untracked: return "U"
+        case .ignored: return nil
+        }
+    }
+
+    /// Whether the file name should be rendered dimmed (reduced opacity),
+    /// matching Cursor's treatment of git-ignored and untracked files.
+    var dimsName: Bool {
+        self == .ignored || self == .untracked
+    }
 }
 
 /// Runs `git status --porcelain` and parses results into a path-to-status map.
@@ -1323,7 +1593,7 @@ enum GitStatusProvider {
     static func fetchStatus(directory: String) -> [String: GitFileStatus] {
         guard let repoRoot = gitRepoRoot(for: directory) else { return [:] }
         return parseGitStatus(
-            output: runGit(in: repoRoot, arguments: ["status", "--porcelain"]),
+            output: runGit(in: repoRoot, arguments: ["status", "--porcelain", "--ignored"]),
             repoRoot: repoRoot,
             explorerRoot: directory
         )
@@ -1334,7 +1604,7 @@ enum GitStatusProvider {
         identityFile: String?, sshOptions: [String]
     ) -> [String: GitFileStatus] {
         let escapedDir = directory.replacingOccurrences(of: "'", with: "'\\''")
-        let cmd = "cd '\(escapedDir)' 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null && echo '---GIT_STATUS---' && git status --porcelain 2>/dev/null"
+        let cmd = "cd '\(escapedDir)' 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null && echo '---GIT_STATUS---' && git status --porcelain --ignored 2>/dev/null"
         guard let output = runSSH(
             command: cmd, destination: destination,
             port: port, identityFile: identityFile, sshOptions: sshOptions
@@ -1375,6 +1645,7 @@ enum GitStatusProvider {
     }
 
     private static func parseStatusChars(index: Character, workTree: Character) -> GitFileStatus? {
+        if index == "!" && workTree == "!" { return .ignored }
         if index == "?" && workTree == "?" { return .untracked }
         if index == "A" || workTree == "A" { return .added }
         if index == "D" || workTree == "D" { return .deleted }
@@ -1387,7 +1658,12 @@ enum GitStatusProvider {
         absolutePath: String, explorerRoot: String,
         status: GitFileStatus, in map: inout [String: GitFileStatus]
     ) {
-        let dirStatus: GitFileStatus = (status == .untracked) ? .untracked : .modified
+        let dirStatus: GitFileStatus
+        switch status {
+        case .untracked: dirStatus = .untracked
+        case .ignored: dirStatus = .ignored
+        default: dirStatus = .modified
+        }
         var current = (absolutePath as NSString).deletingLastPathComponent
         while current.hasPrefix(explorerRoot) && current != explorerRoot {
             if map[current] == nil {
