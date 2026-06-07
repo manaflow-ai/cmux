@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -39,6 +40,33 @@ func captureStdout(t *testing.T, fn func()) string {
 	}
 	if err := reader.Close(); err != nil {
 		t.Fatalf("close stdout reader: %v", err)
+	}
+	return string(output)
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stderr: %v", err)
+	}
+	os.Stderr = writer
+	defer func() {
+		os.Stderr = original
+	}()
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stderr writer: %v", err)
+	}
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close stderr reader: %v", err)
 	}
 	return string(output)
 }
@@ -779,6 +807,58 @@ func TestCLIBrowserOpenUsesOpenSplitAndWorkspaceEnv(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserOpenAliasWithSurfaceNavigatesExistingSurface(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "new",
+		"--surface", "surface:2",
+		"https://example.com",
+	})
+	if code != 0 {
+		t.Fatalf("browser new with surface should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.navigate" {
+			t.Fatalf("expected browser.navigate for surface-targeted open alias, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["url"]; got != "https://example.com" {
+			t.Fatalf("expected url, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser navigate request")
+	}
+}
+
+func TestCLIBrowserHelpPrintsUsageToStdout(t *testing.T) {
+	output := captureStdout(t, func() {
+		code := runCLI([]string{"browser", "help"})
+		if code != 0 {
+			t.Fatalf("browser help should return 0, got %d", code)
+		}
+	})
+	if !strings.Contains(output, "Usage: cmux browser") {
+		t.Fatalf("browser help should print browser usage, got %q", output)
+	}
+	if !strings.Contains(output, "find,") || !strings.Contains(output, "viewport") {
+		t.Fatalf("browser help should include subcommand hints, got %q", output)
+	}
+}
+
+func TestCLIBrowserRejectsEmptySurfacePrefix(t *testing.T) {
+	sockPath, _ := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "browser", "surface:", "get-url"})
+	if code != 2 {
+		t.Fatalf("browser empty surface prefix should return 2, got %d", code)
+	}
+}
+
 func TestCLIBrowserGetURLUsesCurrentMethodAndSurfaceEnv(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_SURFACE_ID", "env-sf")
@@ -834,6 +914,57 @@ func TestCLIBrowserSnapshotUsesSurfaceEnvAndForwardsOptions(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserFindNthConsumesSelectorAfterIndexFlag(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "find", "nth",
+		"--index", "2",
+		".item", ".title",
+	})
+	if code != 0 {
+		t.Fatalf("browser find nth should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.find.nth" {
+			t.Fatalf("expected browser.find.nth, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["index"]; got != "2" {
+			t.Fatalf("expected index 2, got %v", got)
+		}
+		if got := params["selector"]; got != ".item .title" {
+			t.Fatalf("expected selector to consume all remaining positionals, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser find nth request")
+	}
+}
+
+func TestCLIBrowserFindNthRejectsExtraPositionalsWhenFlagsPrefillKeys(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "surface:2", "find", "nth",
+			"--index", "2",
+			"--selector", ".item",
+			"extra",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser find nth with prefilled keys and extra positional should return 2, got %d", code)
+	}
+	if !strings.Contains(output, `cmux browser: unrecognized extra positional argument "extra"`) {
+		t.Fatalf("expected extra positional error, got %q", output)
+	}
+}
+
 func TestCLIBrowserWaitUsesSurfaceEnvAndForwardsOptions(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_SURFACE_ID", "env-sf")
@@ -871,6 +1002,83 @@ func TestCLIBrowserWaitUsesSurfaceEnvAndForwardsOptions(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserWaitRejectsInvalidTimeout(t *testing.T) {
+	sockPath, _ := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "wait",
+		"--timeout", "later",
+	})
+	if code != 2 {
+		t.Fatalf("browser wait with invalid timeout should return 2, got %d", code)
+	}
+}
+
+func TestCLIBrowserParseErrorsDoNotRequireSocket(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "wait",
+			"--timeout", "later",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser parse error should return 2 before socket lookup, got %d", code)
+	}
+	if !strings.Contains(output, "cmux browser: --timeout must be a number of seconds") {
+		t.Fatalf("expected browser parse error, got %q", output)
+	}
+	if strings.Contains(output, "CMUX_SOCKET_PATH") {
+		t.Fatalf("parse error should not be replaced by socket lookup error, got %q", output)
+	}
+}
+
+func TestCLIBrowserWaitRejectsNegativeTimeout(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "wait",
+			"--timeout", "-5",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser wait with negative timeout should return 2, got %d", code)
+	}
+	if !strings.Contains(output, "cmux browser: --timeout must be a non-negative number of seconds") {
+		t.Fatalf("expected negative timeout error, got %q", output)
+	}
+}
+
+func TestCLIBrowserRejectsMissingNonBooleanFlagValue(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "snapshot",
+			"--max-depth",
+			"--selector", "main",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser missing non-boolean flag value should return 2, got %d", code)
+	}
+	if !strings.Contains(output, "cmux browser: flag --max-depth requires a value") {
+		t.Fatalf("expected missing flag value error, got %q", output)
+	}
+	if strings.Contains(output, "CMUX_SOCKET_PATH") {
+		t.Fatalf("parse error should not be replaced by socket lookup error, got %q", output)
+	}
+}
+
 func TestCLIBrowserAutomationPositionals(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_SURFACE_ID", "env-sf")
@@ -901,6 +1109,39 @@ func TestCLIBrowserAutomationPositionals(t *testing.T) {
 		}
 		if _, ok := params["value"]; ok {
 			t.Fatalf("browser.fill should not send value param: %#v", params)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser fill request")
+	}
+}
+
+func TestCLIBrowserAutomationPositionalsConsumeAfterFlaggedKey(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "fill",
+		"--selector", "input[name=email]",
+		"hello", "world",
+	})
+	if code != 0 {
+		t.Fatalf("browser fill should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.fill" {
+			t.Fatalf("expected browser.fill, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "env-sf" {
+			t.Fatalf("expected surface_id env-sf, got %v", got)
+		}
+		if got := params["selector"]; got != "input[name=email]" {
+			t.Fatalf("expected selector, got %v", got)
+		}
+		if got := params["text"]; got != "hello world" {
+			t.Fatalf("expected text to consume all remaining positionals, got %v", got)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for browser fill request")
@@ -972,6 +1213,480 @@ func TestCLIBrowserEvalUsesPositionalScript(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserDocumentedSurfacePrefixFindRole(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "find", "role", "button", "--name", "Continue",
+	})
+	if code != 0 {
+		t.Fatalf("browser find role should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.find.role" {
+			t.Fatalf("expected browser.find.role, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["role"]; got != "button" {
+			t.Fatalf("expected role button, got %v", got)
+		}
+		if got := params["name"]; got != "Continue" {
+			t.Fatalf("expected name Continue, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser find role request")
+	}
+}
+
+func TestCLIBrowserDocumentedStateSaveUsesPath(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "state", "save", "/tmp/cmux-browser-state.json",
+	})
+	if code != 0 {
+		t.Fatalf("browser state save should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.state.save" {
+			t.Fatalf("expected browser.state.save, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["path"]; got != "/tmp/cmux-browser-state.json" {
+			t.Fatalf("expected path to be forwarded, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser state save request")
+	}
+}
+
+func TestCLIBrowserGenericAdvertisedMethodDispatch(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "viewport", "set", "--width", "1280", "--height", "720",
+	})
+	if code != 0 {
+		t.Fatalf("browser viewport set should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.viewport.set" {
+			t.Fatalf("expected browser.viewport.set, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["width"]; got != "1280" {
+			t.Fatalf("expected width 1280, got %v", got)
+		}
+		if got := params["height"]; got != "720" {
+			t.Fatalf("expected height 720, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser viewport set request")
+	}
+}
+
+func TestCLIBrowserSelectorCommandJoinsRemainingPositionals(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "click", "#root", ".submit",
+	})
+	if code != 0 {
+		t.Fatalf("browser click with multi-word selector should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.click" {
+			t.Fatalf("expected browser.click, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["selector"]; got != "#root .submit" {
+			t.Fatalf("expected joined selector, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser click request")
+	}
+}
+
+func TestCLIBrowserFixedArityRejectsExtraPositionals(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "surface:2", "viewport", "set", "1200", "800", "extra",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser viewport set with extra positional should return 2, got %d", code)
+	}
+	if !strings.Contains(output, `cmux browser: unrecognized extra positional argument "extra"`) {
+		t.Fatalf("expected extra positional error, got %q", output)
+	}
+}
+
+func TestCLIBrowserRejectsJoinLastExtraPositionalsWhenFlagPrefillsKey(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "surface:2", "addstyle", "--style", "body { color: red; }", "extra",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser join-last command with prefilled key and extra positional should return 2, got %d", code)
+	}
+	if !strings.Contains(output, `cmux browser: unrecognized extra positional argument "extra"`) {
+		t.Fatalf("expected extra positional error, got %q", output)
+	}
+}
+
+func TestCLIBrowserRejectsTabTargetExtraPositionals(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "surface:2", "tab", "switch", "surface:1", "extra",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser tab switch with extra positional should return 2, got %d", code)
+	}
+	if !strings.Contains(output, `cmux browser: unrecognized extra positional argument "extra"`) {
+		t.Fatalf("expected extra positional error, got %q", output)
+	}
+}
+
+func TestCLIBrowserTabBareSignTargetDoesNotBecomeIndex(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "tab", "-",
+	})
+	if code != 0 {
+		t.Fatalf("browser tab bare sign target should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.tab.switch" {
+			t.Fatalf("expected browser.tab.switch, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["target_surface_id"]; got != "-" {
+			t.Fatalf("expected target_surface_id -, got %v", got)
+		}
+		if _, ok := params["index"]; ok {
+			t.Fatalf("bare sign should not be sent as index: %#v", params)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser tab switch request")
+	}
+}
+
+func TestCLIBrowserTabShortcutAcceptsNegativeIndex(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "tab", "-3",
+	})
+	if code != 0 {
+		t.Fatalf("browser tab negative index shortcut should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.tab.switch" {
+			t.Fatalf("expected browser.tab.switch, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["index"]; got != "-3" {
+			t.Fatalf("expected index -3, got %v", got)
+		}
+		if _, ok := params["target_surface_id"]; ok {
+			t.Fatalf("negative integer should not be sent as target_surface_id: %#v", params)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser tab switch request")
+	}
+}
+
+func TestCLIBrowserMultiWordCommandIgnoresInterleavedShortFlag(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "get", "-y", "text", "#submit",
+	})
+	if code != 0 {
+		t.Fatalf("browser get text with interleaved short flag should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.get.text" {
+			t.Fatalf("expected browser.get.text, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["selector"]; got != "#submit" {
+			t.Fatalf("expected selector #submit, got %v", got)
+		}
+		if got := params["yes"]; got != true {
+			t.Fatalf("expected yes=true, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser get text request")
+	}
+}
+
+func TestCLIBrowserTabShortFlagDoesNotBecomeTarget(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "tab", "-i",
+	})
+	if code != 0 {
+		t.Fatalf("browser tab short flag should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.tab.list" {
+			t.Fatalf("expected browser.tab.list, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if _, ok := params["target_surface_id"]; ok {
+			t.Fatalf("short flag should not be sent as target_surface_id: %#v", params)
+		}
+		if _, ok := params["index"]; ok {
+			t.Fatalf("short flag should not be sent as index: %#v", params)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser tab list request")
+	}
+}
+
+func TestCLIBrowserTabShortcutIgnoresInterleavedShortFlag(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "tab", "-i", "3",
+	})
+	if code != 0 {
+		t.Fatalf("browser tab shortcut with interleaved short flag should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.tab.switch" {
+			t.Fatalf("expected browser.tab.switch, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["index"]; got != "3" {
+			t.Fatalf("expected index 3, got %v", got)
+		}
+		if got := params["interactive"]; got != true {
+			t.Fatalf("expected interactive=true, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser tab switch request")
+	}
+}
+
+func TestCLIBrowserTabShortcutDoesNotHijackCommandWords(t *testing.T) {
+	for _, word := range []string{"help", "open"} {
+		t.Run(word, func(t *testing.T) {
+			sockPath, _ := startMockV2SocketWithRequestCapture(t)
+
+			var code int
+			output := captureStderr(t, func() {
+				code = runCLI([]string{
+					"--socket", sockPath, "--json",
+					"browser", "surface:2", "tab", word,
+				})
+			})
+			if code != 2 {
+				t.Fatalf("browser tab %s should return 2, got %d", word, code)
+			}
+			expected := fmt.Sprintf(`cmux browser: unrecognized extra positional argument %q`, word)
+			if !strings.Contains(output, expected) {
+				t.Fatalf("expected %q, got %q", expected, output)
+			}
+		})
+	}
+}
+
+func TestCLIBrowserOutDoesNotConsumeShortFlagAsPath(t *testing.T) {
+	sockPath, _ := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath,
+		"browser", "surface:2", "screenshot", "--out", "-i",
+	})
+	if code != 2 {
+		t.Fatalf("browser screenshot --out should reject short flag as path, got %d", code)
+	}
+}
+
+func TestCLIBrowserRejectsOutForNonScreenshotCommands(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "surface:2", "get", "title", "--out", "/tmp/title.txt",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser non-screenshot --out should return 2, got %d", code)
+	}
+	if !strings.Contains(output, "cmux browser: --out is only supported for browser screenshot") {
+		t.Fatalf("expected non-screenshot --out error, got %q", output)
+	}
+}
+
+func TestCLIBrowserRejectsConflictingSurfaceAliases(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "get", "title", "--panel", "surface:1", "--surface", "surface:2",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser conflicting surface aliases should return 2, got %d", code)
+	}
+	if !strings.Contains(output, "conflicting browser options --panel and --surface both set surface_id") {
+		t.Fatalf("expected conflicting surface alias error, got %q", output)
+	}
+}
+
+func TestCLIBrowserRejectsLeadingAndCommandSurfaceFlags(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "--surface", "surface:1", "get", "title", "--surface", "surface:2",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser duplicate leading and command surface flags should return 2, got %d", code)
+	}
+	if !strings.Contains(output, "conflicting browser options leading --surface and --surface both set surface_id") {
+		t.Fatalf("expected duplicate surface flag error, got %q", output)
+	}
+}
+
+func TestCLIBrowserErrorsClearUsesListMethodWithClearParam(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "errors", "clear",
+	})
+	if code != 0 {
+		t.Fatalf("browser errors clear should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.errors.list" {
+			t.Fatalf("expected browser.errors.list, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["clear"]; got != true {
+			t.Fatalf("expected clear=true, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser errors clear request")
+	}
+}
+
+func TestBrowserSubcommandHintOnlyListsTopLevelCommands(t *testing.T) {
+	hint := browserSubcommandHint()
+	if strings.Contains(hint, "find role") || strings.Contains(hint, "storage session set") {
+		t.Fatalf("hint should not include nested browser command entries: %q", hint)
+	}
+	for _, want := range []string{"find", "state", "storage", "viewport"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("hint %q missing top-level command %q", hint, want)
+		}
+	}
+}
+
+func TestCLIBrowserScreenshotOutDecodesPNG(t *testing.T) {
+	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+	sockPath := startMockV2TCPSocketWithResult(t, map[string]any{
+		"png_base64": base64.StdEncoding.EncodeToString(png),
+	})
+	outPath := filepath.Join(t.TempDir(), "page.png")
+
+	output := captureStdout(t, func() {
+		code := runCLI([]string{
+			"--socket", sockPath,
+			"browser", "surface:2", "screenshot", "--out", outPath,
+		})
+		if code != 0 {
+			t.Fatalf("browser screenshot --out should return 0, got %d", code)
+		}
+	})
+
+	if strings.TrimSpace(output) != outPath {
+		t.Fatalf("expected screenshot path on stdout, got %q", output)
+	}
+	got, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read screenshot output: %v", err)
+	}
+	if string(got) != string(png) {
+		t.Fatalf("decoded PNG mismatch: got %v want %v", got, png)
+	}
+}
+
 func TestCLINoArgs(t *testing.T) {
 	code := runCLI([]string{})
 	if code != 2 {
@@ -1028,6 +1743,18 @@ func TestCLIHelpFlag(t *testing.T) {
 	code := runCLI([]string{"--help"})
 	if code != 0 {
 		t.Fatalf("--help should return 0, got %d", code)
+	}
+}
+
+func TestCLIHelpMentionsBrowserHelp(t *testing.T) {
+	output := captureStderr(t, func() {
+		code := runCLI([]string{"--help"})
+		if code != 0 {
+			t.Fatalf("--help should return 0, got %d", code)
+		}
+	})
+	if !strings.Contains(output, "cmux browser help") {
+		t.Fatalf("top-level help should point to browser help, got %q", output)
 	}
 }
 
