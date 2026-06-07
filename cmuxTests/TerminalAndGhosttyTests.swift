@@ -1114,7 +1114,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             "forceRefresh should ignore hidden bootstrap windows and wait for a real UI host."
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -3215,7 +3215,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Missing-surface keyDown should request background surface recreation instead of leaving terminal input dead"
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -3290,7 +3290,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Recovered surface should not replay focus after AppKit focus moves to another responder"
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -3348,7 +3348,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Missing-surface keyDown should not recreate a Ghostty runtime surface after close lifecycle teardown"
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -3435,7 +3435,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Printable key repeat must rely on Ghostty wakeups instead of forcing a synchronous surface refresh per key"
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -3525,7 +3525,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "IME key repeat must rely on Ghostty wakeups instead of forcing a synchronous surface refresh per key"
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -3578,7 +3578,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Restoring panel visibility should force a redraw even when focus recovery is inactive"
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -3631,7 +3631,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Clicking back into the terminal should redraw immediately so the cursor reflects focused input"
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 }
@@ -4656,7 +4656,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         surface.forceRefresh()
         XCTAssertNil(surface.surface, "Force refresh should no-op when runtime surface is nil")
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 

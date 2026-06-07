@@ -136,7 +136,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(debugType.insideSuppressed)
         XCTAssertFalse(debugType.insideAllowsFocus)
 #else
-        throw XCTSkip("Socket command policy snapshot helper is debug-only.")
+        XCTFail("Socket command policy snapshot helper must run in DEBUG")
 #endif
     }
 
@@ -171,7 +171,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             XCTAssertEqual(error["message"] as? String, "surface_id cannot be empty")
         }
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -899,7 +899,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             }
         }
 #else
-        throw XCTSkip("Right sidebar parser helper is debug-only.")
+        XCTFail("Right sidebar parser helper must run in DEBUG")
 #endif
     }
 
@@ -926,7 +926,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             )
         }
 #else
-        throw XCTSkip("Right sidebar focus policy helper is debug-only.")
+        XCTFail("Right sidebar focus policy helper must run in DEBUG")
 #endif
     }
 

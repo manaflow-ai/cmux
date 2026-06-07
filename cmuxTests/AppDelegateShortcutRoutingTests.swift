@@ -4704,7 +4704,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             )
         }
 #else
-        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG builds")
 #endif
     }
 
@@ -6567,7 +6567,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTAssertEqual(pasteboard.string(forType: .string), "user clipboard")
         }
 #else
-        throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")
+        XCTFail("debugRunDispatchEvents is only available in DEBUG")
 #endif
     }
 
@@ -6610,7 +6610,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTAssertEqual(completions, ["first", "second"])
         }
 #else
-        throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")
+        XCTFail("debugRunDispatchEvents is only available in DEBUG")
 #endif
     }
 
@@ -6676,7 +6676,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTAssertEqual(pasteboard.string(forType: .string), "user clipboard")
         }
 #else
-        throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")
+        XCTFail("debugRunDispatchEvents is only available in DEBUG")
 #endif
     }
 
@@ -6728,7 +6728,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTAssertEqual(completions, ["finishing", "active-first", "active-second"])
         }
 #else
-        throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")
+        XCTFail("debugRunDispatchEvents is only available in DEBUG")
 #endif
     }
 

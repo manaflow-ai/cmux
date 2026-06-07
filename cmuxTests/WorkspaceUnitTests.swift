@@ -1684,7 +1684,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertNil(cmuxConfigStore.resolvedAction(id: "first"))
         XCTAssertNotNil(cmuxConfigStore.resolvedAction(id: "second"))
 #else
-        throw XCTSkip("menu selector regression requires DEBUG app test helpers")
+        XCTFail("menu selector regression requires DEBUG app test helpers")
 #endif
     }
 
@@ -4323,7 +4323,7 @@ final class WorkspaceTeardownTests: XCTestCase {
         workspace.debugReconcileTerminalPortalVisibilityForTesting()
         XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 }
@@ -4447,7 +4447,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         XCTAssertNotNil(splitPanel, "Expected split creation to survive a stale inherited surface pointer")
         XCTAssertNil(sourcePanel.surface.surface, "Expected stale surface pointer to be quarantined")
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -4480,7 +4480,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         XCTAssertNotNil(createdPanel, "Expected terminal creation to survive a stale inherited surface pointer")
         XCTAssertNil(sourcePanel.surface.surface, "Expected stale surface pointer to be quarantined")
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 }
@@ -4702,7 +4702,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         leftPanel.hostedView.clearSuppressReparentFocus()
         XCTAssertTrue(leftPanel.surface.debugDesiredFocusState())
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -4727,7 +4727,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertFalse(workspace.debugHasPendingReparentFocusSuppressionsForTesting())
         XCTAssertFalse(panel.hostedView.debugIsSuppressingReparentFocusForTesting())
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 }

@@ -390,6 +390,15 @@ check_no_xctest_quarantines() {
   echo "PASS: workflows do not hide XCTest coverage with -skip-testing"
 }
 
+check_no_debug_xctest_self_skips() {
+  if grep -R -n -E 'throw[[:space:]]+XCTSkip\("([^"]*(DEBUG|Debug-only|debug-only)[^"]*)"\)' "$ROOT_DIR/cmuxTests"; then
+    echo "FAIL: DEBUG-only XCTest regressions must fail closed, not silently skip"
+    exit 1
+  fi
+
+  echo "PASS: DEBUG-only XCTest regressions fail closed instead of skipping"
+}
+
 check_no_swift_test_skip_quarantines() {
   if grep -R -n -E "swift[[:space:]]+test([^|;&]*[[:space:]])--skip([[:space:]]|=)" "$ROOT_DIR/.github/workflows"; then
     echo "FAIL: workflow Swift package tests must not hide coverage with swift test --skip quarantines"
@@ -1051,6 +1060,7 @@ check_xcode_selection
 check_workflow_yaml_parse
 check_release_build_signal
 check_no_xctest_quarantines
+check_no_debug_xctest_self_skips
 check_no_swift_test_skip_quarantines
 check_vm_socket_tests_do_not_skip_ctrl_interactive
 check_vm_socket_tests_do_not_self_skip
