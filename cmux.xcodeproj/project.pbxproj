@@ -418,6 +418,7 @@
 		0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */; };
 		325AF8814443BDA97AC3CC98 /* MobilePairingQRImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */; };
 		A2538FE83AE79539E3BF9248 /* MobilePairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */; };
+		D3F1000000000000000000A2 /* MobilePairingWindowCloseRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3F1000000000000000000A1 /* MobilePairingWindowCloseRoutingTests.swift */; };
 		18A8E29E9BD87E184983527C /* MobilePairingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */; };
 		9916B44C7A9914E172D112D4 /* MobileRouteResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */; };
 		AB57F0C27BECE8EDFC6B2B97 /* MobileTerminalByteTee.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */; };
@@ -1141,6 +1142,7 @@
 		04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingModel.swift"; sourceTree = "<group>"; };
 		B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingQRImageView.swift"; sourceTree = "<group>"; };
 		F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingView.swift"; sourceTree = "<group>"; };
+		D3F1000000000000000000A1 /* MobilePairingWindowCloseRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePairingWindowCloseRoutingTests.swift; sourceTree = "<group>"; };
 		5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingWindowController.swift"; sourceTree = "<group>"; };
 		7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileRouteResolver.swift; sourceTree = "<group>"; };
 		4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalByteTee.swift; sourceTree = "<group>"; };
@@ -2068,6 +2070,7 @@
 				B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */,
 				D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */,
 				A9E010000000000000000005 /* AgentExecutableResolverTests.swift */,
+				D3F1000000000000000000A1 /* MobilePairingWindowCloseRoutingTests.swift */,
 				A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */,
 				A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */,
 				A9E040000000000000000001 /* CodexAppServerSessionTests.swift */,
@@ -3201,6 +3204,7 @@
 				6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */,
 				C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */,
 				9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */,
+				D3F1000000000000000000A2 /* MobilePairingWindowCloseRoutingTests.swift in Sources */,
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,
 				4E5F60720000000000000001 /* NotificationSoundSettingsTests.swift in Sources */,
