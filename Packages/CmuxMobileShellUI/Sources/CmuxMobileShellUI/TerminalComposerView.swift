@@ -15,13 +15,18 @@ struct TerminalComposerView: View {
     @Bindable var store: CMUXMobileShellStore
     @FocusState private var isFieldFocused: Bool
 
+    /// Single-line height shared by the field pill and the round buttons so they
+    /// line up. The field grows taller for multi-line input; the buttons stay
+    /// pinned to the bottom edge.
+    private let controlHeight: CGFloat = 40
+
     private var trimmedIsEmpty: Bool {
         store.terminalInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
         composerSurface
-            .onAppear { isFieldFocused = true }
+            .onAppear { focusField() }
     }
 
     /// On iOS 26 the glass controls float in a `GlassEffectContainer` over the
@@ -46,7 +51,7 @@ struct TerminalComposerView: View {
             } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 36, height: 36)
+                    .frame(width: controlHeight, height: controlHeight)
             }
             .buttonStyle(.plain)
             .foregroundStyle(TerminalPalette.foreground.opacity(0.7))
@@ -65,6 +70,7 @@ struct TerminalComposerView: View {
             .foregroundStyle(TerminalPalette.foreground)
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
+            .frame(minHeight: controlHeight)
             .mobileGlassField(cornerRadius: 20)
             .accessibilityIdentifier("MobileComposerField")
 
@@ -73,7 +79,7 @@ struct TerminalComposerView: View {
             } label: {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 17, weight: .bold))
-                    .frame(width: 36, height: 36)
+                    .frame(width: controlHeight, height: controlHeight)
                     .foregroundStyle(trimmedIsEmpty ? TerminalPalette.foreground.opacity(0.35) : Color.accentColor)
             }
             .buttonStyle(.plain)
@@ -84,6 +90,17 @@ struct TerminalComposerView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    /// Focus the field one runloop after appearing. Setting `@FocusState` inline
+    /// in `onAppear` is unreliable (the field may not be in the window yet);
+    /// deferring lets it take first responder from the terminal input proxy
+    /// while that keyboard is still up, so the keyboard hands over in place
+    /// instead of dropping and re-animating.
+    private func focusField() {
+        Task { @MainActor in
+            isFieldFocused = true
+        }
     }
 
     private func send() {
