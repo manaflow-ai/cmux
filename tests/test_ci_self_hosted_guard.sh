@@ -212,12 +212,20 @@ check_e2e_test_filter_validation() {
     /^[[:space:]]*- name: Validate test filter$/ { saw_validate=1; in_validate=1; next }
     in_validate && /^[[:space:]]*- name:/ { in_validate=0 }
     in_validate && /validate-e2e-test-filter\.sh "\$TEST_FILTER"/ { saw_validator=1 }
+    in_validate && /echo "test_filter=\$normalized" >> "\$GITHUB_OUTPUT"/ { saw_output=1 }
     in_validate && /echo "TEST_FILTER=\$normalized" >> "\$GITHUB_ENV"/ { saw_env=1 }
+    /^[[:space:]]*- name: Install Bun for Feed sidebar tests$/ { in_bun=1; next }
+    in_bun && /^[[:space:]]*- name:/ { in_bun=0 }
+    in_bun && /steps\.validate-filter\.outputs\.test_filter == '\''FeedSidebarUITests'\''/ { saw_feed_class=1 }
+    in_bun && /startsWith\(steps\.validate-filter\.outputs\.test_filter, '\''FeedSidebarUITests\/'\''\)/ { saw_feed_method=1 }
+    /^[[:space:]]*- name: Create virtual display$/ { in_display=1; next }
+    in_display && /^[[:space:]]*- name:/ { in_display=0 }
+    in_display && /steps\.validate-filter\.outputs\.test_filter != '\''DisplayResolutionRegressionUITests'\''/ { saw_display=1 }
     /^[[:space:]]*- name: Initialize submodules with retry$/ { saw_init=1; if (saw_validate) validate_before_init=1 }
     /^[[:space:]]*- name: Select Xcode$/ { saw_select_xcode=1; if (saw_validate) validate_before_xcode=1 }
-    END { exit(saw_validate && saw_validator && saw_env && saw_init && saw_select_xcode && validate_before_xcode && !validate_before_init ? 0 : 1) }
+    END { exit(saw_validate && saw_validator && saw_output && saw_env && saw_feed_class && saw_feed_method && saw_display && saw_init && saw_select_xcode && validate_before_xcode && !validate_before_init ? 0 : 1) }
   ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must validate manual test filters after checkout/submodules and before expensive Xcode setup"
+    echo "FAIL: test-e2e.yml must validate manual test filters after checkout/submodules, expose the normalized selector, and use it for selector-specific setup"
     exit 1
   fi
 

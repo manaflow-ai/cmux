@@ -89,11 +89,13 @@ jobs:
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Validate test filter
+        id: validate-filter
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
         run: |
           set -euo pipefail
           normalized="$(./scripts/ci/validate-e2e-test-filter.sh "$TEST_FILTER")"
+          echo "test_filter=$normalized" >> "$GITHUB_OUTPUT"
           echo "TEST_FILTER=$normalized" >> "$GITHUB_ENV"
           if [ "$normalized" != "$TEST_FILTER" ]; then
             echo "Normalized test filter: $normalized"
@@ -160,11 +162,11 @@ jobs:
           ./scripts/install-rust-ci.sh
 
       - name: Install Bun for Feed sidebar tests
-        if: ${{ inputs.test_filter == 'FeedSidebarUITests' || startsWith(inputs.test_filter, 'FeedSidebarUITests/') }}
+        if: ${{ steps.validate-filter.outputs.test_filter == 'FeedSidebarUITests' || startsWith(steps.validate-filter.outputs.test_filter, 'FeedSidebarUITests/') }}
         run: ./scripts/ci/setup-bun-with-retry.sh 1.3.13
 
       - name: Create virtual display
-        if: ${{ inputs.test_filter != 'DisplayResolutionRegressionUITests' }}
+        if: ${{ steps.validate-filter.outputs.test_filter != 'DisplayResolutionRegressionUITests' }}
         run: |
           set -euo pipefail
           echo "=== Display before ==="
