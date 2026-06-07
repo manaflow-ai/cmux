@@ -49,6 +49,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let hasKnownPairedMacDefaultsKey = "cmux.mobile.hasKnownPairedMac"
 
+    /// Max seconds the launch reconnect may keep the restoring gate
+    /// (``RestoringSessionView``) on screen before resolving to the
+    /// disconnected/add-device UI. A stored Mac whose route went stale makes the
+    /// connect hang on a slow timeout; this caps the visible "Restoring session…"
+    /// window so a returning user is never stuck on it. The connect keeps trying
+    /// in the background, so a later success still flips to the workspaces.
+    private static let storedMacReconnectRestoringDeadlineSeconds: Double = 6
+
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
@@ -923,7 +931,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard generation == storedMacReconnectGeneration else { return false }
         setHasKnownPairedMac(true, generation: generation)
         isReconnectingStoredMac = true
+        // Cap how long the restoring gate stays up: a stored Mac whose route went
+        // stale (Tailscale address changed, or it's offline) makes connectManualHost
+        // hang on a slow connect timeout, and the gate shows RestoringSessionView for
+        // that whole time. After the deadline, resolve the gate so the user reaches
+        // add-device quickly; the connect keeps trying, so a later success still
+        // flips connectionState to .connected and shows the workspaces.
+        let restoringDeadline = Task { [weak self] in
+            // Bounded, cancellable deadline (not a poll) — cancelled the instant the
+            // connect resolves; only caps the restoring-gate window.
+            try? await ContinuousClock().sleep(
+                for: .seconds(Self.storedMacReconnectRestoringDeadlineSeconds)
+            )
+            guard let self, !Task.isCancelled,
+                  generation == self.storedMacReconnectGeneration,
+                  self.connectionState != .connected else { return }
+            self.isReconnectingStoredMac = false
+            self.didFinishStoredMacReconnectAttempt = true
+        }
         await connectManualHost(name: mac.displayName ?? host, host: host, port: port)
+        restoringDeadline.cancel()
         // A newer attempt may have started during the connect; it now owns the flags.
         guard generation == storedMacReconnectGeneration else { return false }
         isReconnectingStoredMac = false
