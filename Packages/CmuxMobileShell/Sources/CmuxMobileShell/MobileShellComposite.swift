@@ -944,6 +944,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             loaded = try await pairedMacStore.loadAll(stackUserID: stackUserID)
         } catch {
             mobileShellLog.error("paired mac store loadAll failed: \(String(describing: error), privacy: .public)")
+            // Mark the initial load resolved even on failure so the root gate can
+            // fall through to the pairing/disconnected flow (the safe state)
+            // instead of stranding a signed-in user on an empty WorkspaceShellView
+            // forever because `hasCompletedInitialPairedMacLoad` never flipped.
+            // The existing partitions (if any) are preserved; only the gate
+            // resolves. A later successful load repopulates `pairedMacs`.
+            if isSignedIn, identityProvider?.currentUserID == stackUserID {
+                hasCompletedInitialPairedMacLoad = true
+            }
             return
         }
         // The await above suspended the main actor; a sign-out or user switch may
@@ -1144,6 +1153,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // never sits on a silently dead surface (input/replay route to the active
         // Mac's partition, which no longer contains the stale selection).
         reanchorSelectionToActiveMacIfStranded()
+        // Re-drive replay for surfaces that registered during the retarget window.
+        // In compact mode the detail (and its terminal surface) can mount and
+        // request replay while the live client was still the OLD Mac, so that
+        // replay resolved against the old partition and was skipped for the new
+        // Mac's surface. After the switch connects, re-request replay for every
+        // registered surface against the now-active client so the terminal is not
+        // left blank until later output/input. No-op when not connected.
+        if connectionState == .connected {
+            resyncTerminalOutput(reason: "retarget", restartEventStream: true)
+        }
         await loadPairedMacs()
     }
 
@@ -2146,11 +2165,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let client = remoteClient,
               let activeMacDeviceID,
               let requestedID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
-        // Route only into the active Mac's partition: terminal.create runs over
-        // the active Mac's `remoteClient`, so a target workspace that is not on
-        // the active Mac (e.g. tapped on a secondary Mac mid-retarget) resolves to
-        // a no-op instead of creating a terminal on the wrong Mac. Same guard the
-        // input/paste paths get from `workspaceID(forTerminalID:)`.
+        // terminal.create runs over the active Mac's `remoteClient`. Use the same
+        // strong predicate the selection-driven send paths use: the selected Mac
+        // must already be the active Mac. During a cross-Mac retarget the detail
+        // can be showing Mac B's workspace while Mac A is still active; under a
+        // workspace-id collision a bare "id in active partition" check would
+        // create on Mac A. Requiring selectedMac == activeMac makes the create a
+        // safe no-op until the retarget completes, then it lands on the right Mac.
+        guard selectedMacDeviceID == activeMacDeviceID else { return }
+        // And the requested workspace must actually be in that (now active) Mac's
+        // partition (a row "+" can pass an explicit id that drifted out of it).
         guard (workspacesByMac[activeMacDeviceID] ?? []).contains(where: { $0.id == requestedID }) else { return }
         let workspaceID = requestedID.rawValue
         let requestedWorkspaceID = requestedID
