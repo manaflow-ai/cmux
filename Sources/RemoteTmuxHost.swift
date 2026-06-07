@@ -7,7 +7,7 @@ import Foundation
 /// every operation against the host (discovery commands, the `tmux -CC`
 /// control client, and one-shot mutations) over a single SSH ControlMaster
 /// socket derived from the destination, so authentication happens once.
-struct RemoteTmuxHost: Sendable, Equatable, Codable, Identifiable {
+struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// The SSH destination: a `~/.ssh/config` alias or `user@host`.
     let destination: String
 
