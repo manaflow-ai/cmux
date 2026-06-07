@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileSupport
 import SwiftUI
