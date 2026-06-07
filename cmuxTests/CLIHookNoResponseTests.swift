@@ -348,6 +348,7 @@ struct CLIHookNoResponseTests {
                 fulfillOnce()
                 return
             }
+            disableSigPipe(on: clientFD)
             defer { Darwin.close(clientFD) }
 
             readLines(from: clientFD) { line in
@@ -399,6 +400,7 @@ struct CLIHookNoResponseTests {
                     fulfillOnce()
                     return
                 }
+                disableSigPipe(on: clientFD)
                 accepted += 1
 
                 DispatchQueue.global(qos: .userInitiated).async {
@@ -431,6 +433,7 @@ struct CLIHookNoResponseTests {
                 handled.signal()
                 return
             }
+            disableSigPipe(on: clientFD)
             handled.signal()
             _ = DispatchSemaphore(value: 0).wait(timeout: .now() + holdFor)
             Darwin.close(clientFD)
@@ -463,6 +466,19 @@ struct CLIHookNoResponseTests {
         let response = line + "\n"
         _ = response.withCString { ptr in
             Darwin.write(fd, ptr, strlen(ptr))
+        }
+    }
+
+    private static func disableSigPipe(on fd: Int32) {
+        var value: Int32 = 1
+        _ = withUnsafePointer(to: &value) { pointer in
+            Darwin.setsockopt(
+                fd,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                pointer,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
         }
     }
 

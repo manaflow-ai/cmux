@@ -65,26 +65,9 @@ ISOLATED_RUNNER_PATTERNS=(
   '\@Test\b'
   '\@Suite\b'
   'assert_executed_tests "$BATCH_LABEL" "$BATCH_LOG" "$BATCH_RESULT"'
-  'Rerunning full $BATCH_LABEL after crash-reported method retries'
-  'run_xctest_batch "$rerun_label" "$rerun_log" "$rerun_result" "$rerun_home" "${ONLY_TESTING_ARGS[@]}"'
-  'assert_executed_tests "$rerun_label" "$rerun_log" "$rerun_result"'
   'reported zero executed tests'
-	  'Retrying ${#CRASH_RETRY_TESTS[@]} crash-reported XCTest methods from $BATCH_LABEL in fresh app-host processes'
-  'in_flight_test = test_identifier'
   'Restarting after unexpected exit, crash, or test timeout'
-  'value = sys.argv[1].removeprefix("cmuxTests/")'
-  'value = value.replace("\\/", "/").replace("\\", "")'
-  'value = f"{test_class}/{test_method}"'
-  'retry_only_testing="cmuxTests/$retry_identifier"'
-  '"-only-testing:$retry_only_testing"'
-  'retry_executed_count="$(executed_test_count "$retry_log" "$retry_result")"'
-  'retry_suite_identifier="$(/usr/bin/python3 -c '\''import re, sys; value = sys.argv[1].removeprefix("cmuxTests/"); match = re.match(r"[A-Za-z_][A-Za-z0-9_]*", value); sys.stdout.write(match.group(0) if match else "")'\'' "$test_identifier")"'
-  'could not derive containing XCTest suite'
-  'retry_suite_only_testing="cmuxTests/$retry_suite_identifier"'
-  'method selector reported zero tests; retrying containing suite'
-  'run_xctest_batch "$retry_suite_label" "$retry_suite_log" "$retry_suite_result" "$retry_suite_home" "-only-testing:$retry_suite_only_testing"'
-  'assert_executed_tests "$retry_suite_label" "$retry_suite_log" "$retry_suite_result"'
-  'PASS $BATCH_LABEL after crash-reported XCTest method retries'
+  'fix the underlying app-host crash instead of retrying it'
   'SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"'
   'SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"'
   'class_hash="$(printf '\''%s'\'' "$test_identifier" | cksum | awk '\''{print $1}'\'')"'
@@ -114,40 +97,16 @@ if grep -Fq -- "-skip-testing" "$ISOLATED_RUNNER"; then
   exit 1
 fi
 
-normalize_retry_identifier() {
-  local test_identifier="$1"
-  local retry_identifier
-  retry_identifier="$(/usr/bin/python3 -c '
-import sys
-
-value = sys.argv[1].removeprefix("cmuxTests/")
-value = value.replace("\\/", "/").replace("\\", "")
-if "/" not in value and "." in value:
-    test_class, test_method = value.split(".", 1)
-    value = f"{test_class}/{test_method}"
-sys.stdout.write(value)
-' "$test_identifier")"
-  printf 'cmuxTests/%s\n' "$retry_identifier"
-}
-
-if [ "$(normalize_retry_identifier 'CLIHookNoResponseTests\/genericLifecycleFeedTelemetryDoesNotWaitForSocketResponse')" != "cmuxTests/CLIHookNoResponseTests/genericLifecycleFeedTelemetryDoesNotWaitForSocketResponse" ]; then
-  echo "FAIL: retry selector normalization must strip XCTest escaped slash backslashes"
-  exit 1
-fi
-
-if [ "$(normalize_retry_identifier 'CLIHookNoResponseTests.genericLifecycleFeedTelemetryDoesNotWaitForSocketResponse')" != "cmuxTests/CLIHookNoResponseTests/genericLifecycleFeedTelemetryDoesNotWaitForSocketResponse" ]; then
-  echo "FAIL: retry selector normalization must convert XCTest dot identifiers to -only-testing paths"
-  exit 1
-fi
-
-derive_retry_suite_identifier() {
-  /usr/bin/python3 -c 'import re, sys; value = sys.argv[1].removeprefix("cmuxTests/"); match = re.match(r"[A-Za-z_][A-Za-z0-9_]*", value); sys.stdout.write(match.group(0) if match else "")' "$1"
-}
-
-if [ "$(derive_retry_suite_identifier 'CLIHookNoResponseTests\/genericLifecycleFeedTelemetryDoesNotWaitForSocketResponse')" != "CLIHookNoResponseTests" ]; then
-  echo "FAIL: retry suite fallback must derive the XCTestCase class from escaped slash identifiers" >&2
-  exit 1
-fi
+for forbidden_pattern in \
+  "crash-retry" \
+  "after crash-reported XCTest method retries" \
+  "method selector reported zero tests; retrying containing suite"
+do
+  if grep -Fq "$forbidden_pattern" "$ISOLATED_RUNNER"; then
+    echo "FAIL: run-cmux-unit-tests-isolated.sh must fail closed on XCTest host crashes, not retry them: $forbidden_pattern"
+    exit 1
+  fi
+done
 
 if ! grep -Fq 'echo "Unit tests failed"' "$DEPOT_WORKFLOW_FILE"; then
   echo "FAIL: test-depot.yml must report nonzero unit-test exits as failures"

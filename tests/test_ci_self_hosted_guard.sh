@@ -1036,6 +1036,8 @@ check_cmux_unit_isolated_runner() {
     'BATCH_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_BATCH_TIMEOUT_SECONDS:-900}"' \
     'Timed out after ${BATCH_TIMEOUT_SECONDS}s running $label; terminating xcodebuild' \
     'FAIL $label timed out after ${BATCH_TIMEOUT_SECONDS}s' \
+    'Restarting after unexpected exit, crash, or test timeout' \
+    'fix the underlying app-host crash instead of retrying it' \
     'tail -n 1200 "$BATCH_LOG"' \
     'exit 124' \
     "All \${#SELECTED_TEST_IDENTIFIERS[@]} selected cmuxTests XCTestCase classes and Swift Testing suites passed in \$SHARD_LABEL batches"
@@ -1050,6 +1052,17 @@ check_cmux_unit_isolated_runner() {
     echo "FAIL: run-cmux-unit-tests-isolated.sh must not skip cmuxTests classes"
     exit 1
   fi
+
+  for forbidden_pattern in \
+    "crash-retry" \
+    "after crash-reported XCTest method retries" \
+    "method selector reported zero tests; retrying containing suite"
+  do
+    if grep -Fq "$forbidden_pattern" "$CMUX_UNIT_ISOLATED_RUNNER"; then
+      echo "FAIL: run-cmux-unit-tests-isolated.sh must fail closed on XCTest host crashes, not retry them: $forbidden_pattern"
+      exit 1
+    fi
+  done
 
   echo "PASS: type-sharded cmux unit-test runner builds once and runs selected XCTestCase classes and Swift Testing suites under an isolated app-host home"
 }
