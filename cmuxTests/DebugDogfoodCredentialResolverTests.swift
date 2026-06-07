@@ -13,16 +13,19 @@ import Testing
 // exist, which is the production guarantee.
 #if DEBUG
 @Suite struct DebugDogfoodCredentialResolverTests {
-    /// Build a resolver whose only file source is `path` returning `contents`,
-    /// so a test never reads the real `~/.secrets` files.
+    /// Build a resolver over an ordered list of `(path, contents)` secret-file
+    /// fakes, so a test never reads the real `~/.secrets` files and the file
+    /// precedence order is deterministic (a plain `[String: String]` would
+    /// iterate in undefined key order).
     private func makeResolver(
         environment: [String: String],
-        files: [String: String] = [:]
+        files: [(path: String, contents: String)] = []
     ) -> DebugDogfoodCredentialResolver {
-        DebugDogfoodCredentialResolver(
+        let table = Dictionary(uniqueKeysWithValues: files.map { ($0.path, $0.contents) })
+        return DebugDogfoodCredentialResolver(
             environment: environment,
-            secretFilePaths: Array(files.keys),
-            readFile: { files[$0] }
+            secretFilePaths: files.map(\.path),
+            readFile: { table[$0] }
         )
     }
 
@@ -63,10 +66,13 @@ import Testing
                 "CMUX_UITEST_STACK_PASSWORD": "agent-pw",
             ],
             files: [
-                "/secrets/cmuxterm-dev.env": """
-                CMUX_DOGFOOD_STACK_EMAIL=lawrence@manaflow.ai
-                CMUX_DOGFOOD_STACK_PASSWORD=dog-pw
-                """,
+                (
+                    "/secrets/cmuxterm-dev.env",
+                    """
+                    CMUX_DOGFOOD_STACK_EMAIL=lawrence@manaflow.ai
+                    CMUX_DOGFOOD_STACK_PASSWORD=dog-pw
+                    """
+                ),
             ]
         )
         #expect(
@@ -82,10 +88,13 @@ import Testing
                 "CMUX_DOGFOOD_STACK_PASSWORD": "env-pw",
             ],
             files: [
-                "/secrets/cmuxterm-dev.env": """
-                CMUX_DOGFOOD_STACK_EMAIL=file@manaflow.ai
-                CMUX_DOGFOOD_STACK_PASSWORD=file-pw
-                """,
+                (
+                    "/secrets/cmuxterm-dev.env",
+                    """
+                    CMUX_DOGFOOD_STACK_EMAIL=file@manaflow.ai
+                    CMUX_DOGFOOD_STACK_PASSWORD=file-pw
+                    """
+                ),
             ]
         )
         #expect(

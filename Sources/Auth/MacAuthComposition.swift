@@ -82,12 +82,16 @@ struct MacAuthComposition {
         // `CMUX_UITEST_STACK_*` into the launch environment; the Mac app needs
         // the same, but a `cmux DEV` opened from Finder / the CMUX Tag Opener
         // does not inherit a shell's environment, so the resolver also reads
-        // `~/.secrets/cmuxterm-dev.env` / `~/.secrets/cmux.env` directly. We
-        // only fill the two cred keys (never the whole file) into the launch
-        // environment when they are absent, so an explicit env injection (a UI
-        // test, `reload.sh --launch`) still wins, and the existing
-        // `CMUXAuthAutoLoginCredentials` + `shouldStartAutoLogin` gate fires
-        // unchanged. Compiled out of release builds.
+        // `~/.secrets/cmuxterm-dev.env` / `~/.secrets/cmux.env` directly. The
+        // resolver runs unconditionally and applies dogfood-account-first
+        // precedence, so on the dog Mac the human dogfood file wins even when an
+        // agent's `CMUX_UITEST_STACK_*` are already in the environment; only the
+        // two resolved cred keys are filled in (never the whole file). When the
+        // only creds are `CMUX_UITEST_STACK_*` env (a CI UI test with no
+        // `~/.secrets` files), the resolver returns that same pair, so the merge
+        // is a no-op. The existing `CMUXAuthAutoLoginCredentials` +
+        // `shouldStartAutoLogin` gate then fires unchanged. Compiled out of
+        // release builds.
         let resolvedEnvironment = Self.environmentWithDogfoodAutoSignIn(environment)
         let launch = AuthLaunchOptions(
             clearAuthRequested: resolvedEnvironment["CMUX_UITEST_CLEAR_AUTH"] == "1",
