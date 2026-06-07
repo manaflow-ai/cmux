@@ -40,17 +40,20 @@ public struct MobileAnalyticsComposition {
     ///   - tokenProvider: The auth token source (production: `AuthCoordinator`).
     ///   - defaults: Persistence for the opt-out flag, the anonymous client id,
     ///     and sessionization. Defaults to `.standard`; inject a suite in tests.
-    ///   - session: The URLSession used by the uploader.
+    ///   - session: The URLSession used by the uploader. Defaults to a
+    ///     short-timeout session (see ``analyticsSession()``) so a hung analytics
+    ///     request cannot keep the emitter's consumer pinned in `upload` for long;
+    ///     pass an explicit session in tests.
     public init(
         apiBaseURL: String,
         tokenProvider: any TokenProviding,
         defaults: UserDefaults = .standard,
-        session: URLSession = .shared
+        session: URLSession? = nil
     ) {
         let uploader = HTTPAnalyticsUploader(
             apiBaseURL: apiBaseURL,
             tokenProvider: AnalyticsTokenProviderBridge(tokenProvider: tokenProvider),
-            session: session
+            session: session ?? Self.analyticsSession()
         )
         let consent = UserDefaultsAnalyticsConsentProvider(defaults: defaults)
         // Resolve the per-install id once, here, at the single point that owns
@@ -71,6 +74,19 @@ public struct MobileAnalyticsComposition {
         }
         self.emitter = emitter
         self.sessionStore = AnalyticsSessionStore(defaults: defaults)
+    }
+
+    /// A short-timeout `URLSession` for analytics uploads.
+    ///
+    /// Telemetry is best-effort, so a stalled request must fail fast rather than
+    /// hold the emitter's consumer in `upload`. A short request timeout bounds the
+    /// single-in-flight-upload intake window described on
+    /// ``CmuxMobileAnalytics/AnalyticsEmitter``.
+    private static func analyticsSession() -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 15
+        config.waitsForConnectivity = false
+        return URLSession(configuration: config)
     }
 
     /// The static device/app super-properties merged onto every event. Sizes and

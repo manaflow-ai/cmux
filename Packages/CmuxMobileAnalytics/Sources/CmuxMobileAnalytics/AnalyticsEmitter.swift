@@ -67,6 +67,20 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     /// the per-event batch-size drain is suppressed, so the consumer is not pinned
     /// in `uploader.upload` on every arriving event during a slow/hanging upload.
     /// Retries are then driven only by the periodic cadence barrier and `flush()`.
+    ///
+    /// ### Memory bound under outage (and the one residual)
+    ///
+    /// Steady-state backlog is hard-bounded: `pending` is capped at
+    /// ``maxPendingEvents`` (drop-oldest), and this gate keeps the consumer from
+    /// re-entering `upload` per event so the `AsyncStream` does not accumulate
+    /// across a long outage. The one residual: a *single* in-flight `upload`/
+    /// `identify` that hangs still accepts stream intake until it returns, since
+    /// `capture` keeps yielding. That window is bounded by the uploader session's
+    /// `timeoutIntervalForRequest` (set short in the composition) times the fire
+    /// rate — tens of KB of small dictionaries at worst, then this gate takes
+    /// over. A *hard* per-yield cap would require splitting the barrier channel
+    /// from the event channel (so dropping events can never drop a `flush()`
+    /// barrier and deadlock flush); that is deferred, not done on the hot path.
     private var uploadOutageOpen = false
 
     /// Creates an emitter and begins consuming submitted events.
