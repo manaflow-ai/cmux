@@ -137,6 +137,7 @@ final class cmuxUITests: XCTestCase {
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
         assertVisibleText("Workspace 3", in: app)
+        assertTerminalRow(1, label: "workspace: Workspace 3", in: app)
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
