@@ -137,10 +137,9 @@ final class cmuxUITests: XCTestCase {
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
         assertVisibleText("Workspace 3", in: app)
-        assertTerminalRow(1, label: "workspace: Workspace 3", in: app)
+        assertTerminalCount(1, in: "workspace-3", on: server, timeout: 45)
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
-        tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
+        tapTerminalPickerMenuItem("MobileNewTerminalMenuItem", in: app)
         assertTerminalCount(2, in: "workspace-3", on: server, timeout: 45)
     }
 
@@ -660,9 +659,34 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        tap(app.buttons["MobileTerminalDropdown"], in: app, file: file, line: line)
-        tap(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app, file: file, line: line)
+        tapTerminalPickerMenuItem("MobileTerminalMenuItem-terminal-tui", in: app, file: file, line: line)
         assertTerminalRow(0, label: "LAZYGIT", in: app, file: file, line: line)
+    }
+
+    @MainActor
+    private func tapTerminalPickerMenuItem(
+        _ identifier: String,
+        in app: XCUIApplication,
+        timeout: TimeInterval = 12,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let item = app.buttons[identifier]
+        let dropdown = app.buttons["MobileTerminalDropdown"]
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if item.exists {
+                tap(item, in: app, file: file, line: line)
+                return
+            }
+            tap(dropdown, in: app, file: file, line: line)
+            if item.waitForExistence(timeout: 2) {
+                tap(item, in: app, file: file, line: line)
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTAssertTrue(item.exists, "Expected terminal picker item \(identifier) to exist", file: file, line: line)
     }
 
     @MainActor
