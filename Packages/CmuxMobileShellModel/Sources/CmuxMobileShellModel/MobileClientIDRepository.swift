@@ -33,12 +33,25 @@ public struct MobileClientIDRepository: Sendable {
     /// Returns the persisted UUID string, creating and persisting a new one on
     /// first access (or when the stored value is not a valid UUID).
     public var clientID: String {
+        resolveClientID().id
+    }
+
+    /// The client identifier together with whether this read created it.
+    ///
+    /// The `created` flag is `true` only on the very first resolution on an
+    /// install (the install/first-launch proxy). Callers that emit an
+    /// `ios_app_first_launch` analytics event use this instead of having the
+    /// emitter injected into this `Sendable` value type, keeping the repository a
+    /// pure return-a-value type.
+    ///
+    /// - Returns: A tuple of the stable `id` and whether it was just `created`.
+    public func resolveClientID() -> (id: String, created: Bool) {
         if let existing = defaults.string(forKey: Self.defaultsKey),
            UUID(uuidString: existing) != nil {
-            return existing
+            return (existing, false)
         }
         let created = UUID().uuidString
         defaults.set(created, forKey: Self.defaultsKey)
-        return created
+        return (created, true)
     }
 }

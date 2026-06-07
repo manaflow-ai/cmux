@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import CmuxAuthRuntime
 import CmuxMobileSupport
@@ -12,6 +13,7 @@ import AppKit
 
 struct SignInView: View {
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.analytics) private var analytics
     @State private var email = ""
     @State private var code = ""
     @State private var showCodeEntry = false
@@ -243,6 +245,7 @@ struct SignInView: View {
 
     private func sendCode(autofocusCodeOnSuccess: Bool) async {
         error = nil
+        analytics.capture("ios_sign_in_started", ["method": .string("email_code")])
         do {
             try await authManager.sendCode(to: email)
             guard !authManager.isAuthenticated else {
@@ -255,6 +258,10 @@ struct SignInView: View {
         } catch {
             shouldAutofocusCode = false
             self.error = detailedErrorMessage(error)
+            analytics.capture("ios_sign_in_failed", [
+                "method": .string("email_code"),
+                "failure_reason": .string(Self.signInFailureReason(error)),
+            ])
         }
     }
 
@@ -265,6 +272,10 @@ struct SignInView: View {
         } catch {
             self.error = detailedErrorMessage(error)
             code = ""
+            analytics.capture("ios_sign_in_failed", [
+                "method": .string("email_code"),
+                "failure_reason": .string(Self.signInFailureReason(error)),
+            ])
         }
     }
 
@@ -272,16 +283,23 @@ struct SignInView: View {
         error = nil
         isAppleSigningIn = true
         defer { isAppleSigningIn = false }
+        analytics.capture("ios_sign_in_started", ["method": .string("apple")])
         do {
             try await authManager.signInWithApple()
         } catch {
             if case AuthError.cancelled = error {
+                analytics.capture("ios_sign_in_cancelled", ["method": .string("apple")])
                 return
             }
             if let stackError = error as? StackAuthErrorProtocol, stackError.code == "oauth_cancelled" {
+                analytics.capture("ios_sign_in_cancelled", ["method": .string("apple")])
                 return
             }
             self.error = detailedErrorMessage(error)
+            analytics.capture("ios_sign_in_failed", [
+                "method": .string("apple"),
+                "failure_reason": .string(Self.signInFailureReason(error)),
+            ])
         }
     }
 
@@ -289,17 +307,46 @@ struct SignInView: View {
         error = nil
         isGoogleSigningIn = true
         defer { isGoogleSigningIn = false }
+        analytics.capture("ios_sign_in_started", ["method": .string("google")])
         do {
             try await authManager.signInWithGoogle()
         } catch {
             if case AuthError.cancelled = error {
+                analytics.capture("ios_sign_in_cancelled", ["method": .string("google")])
                 return
             }
             if let stackError = error as? StackAuthErrorProtocol, stackError.code == "oauth_cancelled" {
+                analytics.capture("ios_sign_in_cancelled", ["method": .string("google")])
                 return
             }
             self.error = detailedErrorMessage(error)
+            analytics.capture("ios_sign_in_failed", [
+                "method": .string("google"),
+                "failure_reason": .string(Self.signInFailureReason(error)),
+            ])
         }
+    }
+
+    /// Maps a sign-in error to the `ios_sign_in_failed` `failure_reason` enum
+    /// (enums only — never the error text or the user's email).
+    private static func signInFailureReason(_ error: Error) -> String {
+        if let stackError = error as? StackAuthErrorProtocol {
+            switch stackError.code {
+            case "VERIFICATION_CODE_ERROR", "INVALID_OTP", "INVALID_TOTP_CODE":
+                return "invalid_code"
+            case "OTP_EXPIRED":
+                return "code_expired"
+            case "RATE_LIMIT":
+                return "rate_limit"
+            default:
+                return "oauth_error"
+            }
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return "network"
+        }
+        return "other"
     }
 
     private func errorText(_ message: String) -> some View {
