@@ -16,10 +16,16 @@ struct WorkspaceDetailContainer: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
 
     private var workspace: MobileWorkspacePreview? {
-        if let workspaceID {
-            return store.workspaces.first { $0.id == workspaceID } ?? store.selectedWorkspace
+        guard let workspaceID else { return store.selectedWorkspace }
+        // The detail is always pushed for the selected workspace, so when the
+        // routed id is the current selection, resolve through the store's
+        // mac-scoped `selectedWorkspace`. A bare `store.workspaces.first { id }`
+        // would pick the first partition under a cross-Mac id collision and open
+        // the wrong Mac's detail; preferring the scoped selection avoids that.
+        if store.selectedWorkspaceID == workspaceID, let selected = store.selectedWorkspace {
+            return selected
         }
-        return store.selectedWorkspace
+        return store.workspaces.first { $0.id == workspaceID } ?? store.selectedWorkspace
     }
 
     var body: some View {

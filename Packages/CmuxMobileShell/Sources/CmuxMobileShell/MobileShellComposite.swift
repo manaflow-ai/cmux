@@ -1157,6 +1157,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             mobileShellLog.error("paired mac store remove failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
+        // Drop the forgotten Mac's partition so it disappears from the aggregated
+        // list and stops keeping `hasNoPairedMacs` false.
+        forgetMacPartition(macDeviceID)
         await loadPairedMacs()
     }
 
@@ -1285,7 +1288,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Backs the "Rescan QR" action.
     public func disconnectAndForgetActiveMac() {
         let staleMacID = activeTicket?.macDeviceID
+        // Capture the active partition key before disconnect clears the active
+        // pointer; it may be a `manual-...` key that differs from the ticket's
+        // macDeviceID, so drop the partition by the key the aggregated list uses.
+        let staleActivePartitionKey = activeMacDeviceID
         disconnectLiveConnection()
+        // Drop the forgotten Mac's partition so Rescan QR returns the user to the
+        // pairing flow instead of leaving its stale workspaces in the list.
+        if let staleActivePartitionKey {
+            forgetMacPartition(staleActivePartitionKey)
+        }
         // Forgetting the active Mac clears the restoring hint so the next launch
         // (and the current disconnected view) shows add-device immediately. Bump
         // the reconnect generation first so an in-flight reconnect can't re-set the
@@ -3344,6 +3356,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macStatusByMac.removeValue(forKey: macDeviceID)
         macDisplayNameByMac.removeValue(forKey: macDeviceID)
         macOrder.removeAll { $0 == macDeviceID }
+    }
+
+    /// Drop a forgotten Mac's partition and re-anchor selection off it.
+    ///
+    /// Forgetting a Mac must remove its workspaces from the aggregated list, not
+    /// just its paired-Mac store row: otherwise ``deviceSections`` keeps showing
+    /// the forgotten Mac's last-known workspaces and ``hasNoPairedMacs`` stays
+    /// `false` (so the root gate never falls back to pairing). If the forgotten
+    /// Mac was the active or selected Mac, the active pointer and selection are
+    /// cleared and re-anchored to a remaining partition so the detail view never
+    /// sits on a dropped Mac's workspace.
+    private func forgetMacPartition(_ macDeviceID: String) {
+        let wasActive = activeMacDeviceID == macDeviceID
+        let wasSelected = selectedMacDeviceID == macDeviceID
+        removeMacPartition(macDeviceID)
+        if wasActive {
+            activeMacDeviceID = nil
+        }
+        guard wasSelected || wasActive else { return }
+        // Re-anchor onto a remaining Mac's first workspace, or clear selection
+        // entirely when nothing is left (the gate then routes to pairing).
+        if let nextMac = macOrder.first(where: { !(workspacesByMac[$0]?.isEmpty ?? true) }) {
+            selectedMacDeviceID = nextMac
+            selectedWorkspaceID = workspacesByMac[nextMac]?.first?.id
+        } else {
+            selectedMacDeviceID = nil
+            selectedWorkspaceID = nil
+        }
     }
 
     private func applyPreviewTicket(_ ticket: CmxAttachTicket, route: CmxAttachRoute) {

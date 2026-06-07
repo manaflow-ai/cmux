@@ -70,6 +70,14 @@ struct WorkspaceListView: View {
     var body: some View {
         List {
             ForEach(visibleSections) { section in
+                // Rename/pin send over the single heavy session's `remoteClient`,
+                // which is always the active Mac. Offering those actions on a
+                // non-active or unreachable section would route the mutation to
+                // the wrong Mac (or, under a cross-Mac id collision, mutate the
+                // active Mac's workspace). Phase 1 scopes the affordance to the
+                // active+reachable section; tap a Mac's workspace to activate it
+                // before renaming/pinning. Live secondary actions are Phase 2.
+                let sectionAllowsActions = section.isActive && section.isReachable
                 Section {
                     ForEach(section.workspaces) { workspace in
                         WorkspaceNavigationRow(
@@ -79,8 +87,8 @@ struct WorkspaceListView: View {
                             isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
                             navigationStyle: navigationStyle,
                             selectWorkspace: selectWorkspace,
-                            renameWorkspace: renameWorkspace,
-                            setPinned: setPinned
+                            renameWorkspace: sectionAllowsActions ? renameWorkspace : nil,
+                            setPinned: sectionAllowsActions ? setPinned : nil
                         )
                         .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
                         .listRowSeparator(.hidden)

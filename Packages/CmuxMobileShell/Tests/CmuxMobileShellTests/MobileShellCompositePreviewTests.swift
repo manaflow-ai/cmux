@@ -236,6 +236,35 @@ import Testing
         #expect(store.workspaces.contains { $0.sourceMacDeviceID == "preview-mac" })
     }
 
+    @Test func forgettingMacDropsItsPartitionAndReanchorsSelection() async {
+        let store = MobileShellComposite(workspaces: twoMacWorkspaces())
+        // Select a workspace on mac-b so forgetting mac-b must re-anchor.
+        store.selectWorkspace("ws-b1", onMac: "mac-b")
+        #expect(store.selectedMacDeviceID == "mac-b")
+
+        await store.forgetMac(macDeviceID: "mac-b")
+
+        // mac-b's workspaces are gone from the aggregated list and its section.
+        #expect(store.workspaces.allSatisfy { $0.sourceMacDeviceID == "mac-a" })
+        #expect(store.deviceSections.map(\.deviceID) == ["mac-a"])
+        // Selection re-anchored onto a remaining Mac, not stranded on the dropped one.
+        #expect(store.selectedMacDeviceID == "mac-a")
+        #expect(store.selectedWorkspace?.sourceMacDeviceID == "mac-a")
+    }
+
+    @Test func forgettingLastMacClearsSelectionForPairingGate() async {
+        let store = MobileShellComposite(workspaces: twoMacWorkspaces())
+        await store.forgetMac(macDeviceID: "mac-a")
+        await store.forgetMac(macDeviceID: "mac-b")
+
+        // No partitions left: the aggregated list is empty and selection cleared,
+        // so the root gate can fall through to pairing once the load resolves.
+        #expect(store.workspaces.isEmpty)
+        #expect(store.selectedWorkspaceID == nil)
+        #expect(store.selectedMacDeviceID == nil)
+        #expect(store.hasNoPairedMacs == true)
+    }
+
     @Test func activeMacReconnectRouteSkipsUnsupportedLoopbackRoute() throws {
         let loopback = try hostPortRoute(
             kind: .debugLoopback,
