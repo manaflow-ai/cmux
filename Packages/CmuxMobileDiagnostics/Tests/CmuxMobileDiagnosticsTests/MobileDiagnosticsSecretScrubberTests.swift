@@ -230,6 +230,9 @@ import Testing
             "AWS_SECRET=plainsecret456",
             "PRIVATE_KEY=opaquePrivateKeyMaterial123",
             "JWT_PRIVATE_KEY=opaqueJwtPrivateKeyMaterial123",
+            "aws_access_key_id = AKIAIOSFODNN7EXAMPLE",
+            "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            "aws_session_token = opaqueAwsSessionToken123456",
         ] {
             let out = scrubber.scrub(sample)
             #expect(out.contains("<redacted>"), "expected redaction for \(sample), got \(out)")
@@ -238,6 +241,9 @@ import Testing
             #expect(!out.contains("opaquevalue9999"))
             #expect(!out.contains("opaquePrivateKeyMaterial"))
             #expect(!out.contains("opaqueJwtPrivateKeyMaterial"))
+            #expect(!out.contains("AKIAIOSFODNN7EXAMPLE"))
+            #expect(!out.contains("wJalrXUtnFEMI"))
+            #expect(!out.contains("opaqueAwsSessionToken"))
         }
     }
 
