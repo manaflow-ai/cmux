@@ -2962,6 +2962,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// unique within a Mac, so an unscoped scan could otherwise mis-route.
     private func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
         guard let activeMacDeviceID else { return nil }
+        // Mid-retarget the mounted surface belongs to the just-selected (not-yet-
+        // active) Mac, while `remoteClient` is still the old active Mac's. Drop the
+        // send in that window (the same tradeoff `activeSelectedSendTarget` makes
+        // for the selection-keyed paths); after the switch settles selection equals
+        // the active Mac and the post-switch resync re-drives replay. Outside a
+        // retarget reconcile/reanchor keep these equal, so this is a no-op guard.
+        // Belt-and-suspenders for an across-Mac terminal-id collision, which is
+        // effectively unreachable because Mac surface ids are UUIDs.
+        if let selectedMacDeviceID, selectedMacDeviceID != activeMacDeviceID { return nil }
         for workspace in workspacesByMac[activeMacDeviceID] ?? [] {
             if workspace.terminals.contains(where: { $0.id.rawValue == terminalID }) {
                 return workspace.id
