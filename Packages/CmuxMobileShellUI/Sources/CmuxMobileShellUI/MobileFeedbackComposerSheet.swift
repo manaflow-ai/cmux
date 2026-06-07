@@ -28,10 +28,14 @@ struct MobileFeedbackComposerSheet: View {
         message.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var messageCodeUnitCount: Int {
+        Self.serverMessageCodeUnitCount(message)
+    }
+
     private var canSubmit: Bool {
         isValidEmail(email) &&
             trimmedMessage.isEmpty == false &&
-            message.count <= MobileFeedbackSettings.maxMessageLength &&
+            messageCodeUnitCount <= MobileFeedbackSettings.maxMessageLength &&
             diagnosticsReport != nil &&
             isSubmitting == false &&
             isPreparingPhotos == false &&
@@ -146,8 +150,8 @@ struct MobileFeedbackComposerSheet: View {
             } header: {
                 Text(L10n.string("mobile.feedback.message", defaultValue: "Message"))
             } footer: {
-                Text("\(message.count)/\(MobileFeedbackSettings.maxMessageLength)")
-                    .foregroundStyle(message.count > MobileFeedbackSettings.maxMessageLength ? .red : .secondary)
+                Text("\(messageCodeUnitCount)/\(MobileFeedbackSettings.maxMessageLength)")
+                    .foregroundStyle(messageCodeUnitCount > MobileFeedbackSettings.maxMessageLength ? .red : .secondary)
             }
 
             Section {
@@ -393,7 +397,7 @@ struct MobileFeedbackComposerSheet: View {
             return
         }
 
-        guard message.count <= MobileFeedbackSettings.maxMessageLength else {
+        guard Self.serverMessageCodeUnitCount(normalizedMessage) <= MobileFeedbackSettings.maxMessageLength else {
             submissionErrorMessage = L10n.string(
                 "mobile.feedback.messageTooLong",
                 defaultValue: "Your message is too long."
@@ -445,6 +449,10 @@ struct MobileFeedbackComposerSheet: View {
             return nil
         }
         return value
+    }
+
+    static func serverMessageCodeUnitCount(_ value: String) -> Int {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).utf16.count
     }
 
     private func userFacingErrorMessage(for error: Error) -> String {

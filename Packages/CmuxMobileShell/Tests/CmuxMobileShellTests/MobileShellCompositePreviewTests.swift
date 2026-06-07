@@ -324,6 +324,7 @@ import Testing
         let forgetTask = store.disconnectAndForgetActiveMac()
         await forgetTask?.value
 
+        #expect(store.pairedMacs.isEmpty)
         let remaining = try await pairedMacStore.loadAll(stackUserID: "user-1")
         #expect(remaining.isEmpty)
     }

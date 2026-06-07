@@ -642,7 +642,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.
-    private static let outputQueue = DispatchQueue(
+    nonisolated private static let outputQueue = DispatchQueue(
         label: "dev.cmux.GhosttySurfaceView.output",
         qos: .userInitiated
     )
@@ -2654,19 +2654,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     /// "What the user sees": the visible viewport text of every on-screen
-    /// terminal surface, for the DEV "Copy Debug Logs" action so a bug report
-    /// pairs the on-screen content with the debug log. Reads the VIEWPORT
-    /// (visible grid only, not scrollback) via libghostty.
-    public static func visibleTerminalSnapshot() -> String {
+    /// terminal surface, for diagnostics reports so a bug report pairs the
+    /// on-screen content with the logs. Reads the VIEWPORT (visible grid only,
+    /// not scrollback) via libghostty.
+    @MainActor
+    public static func visibleTerminalSnapshot() async -> String {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
         // Collect the main-actor state + surface pointers first, then read the
         // viewport text on the serial output queue. `ghostty_surface_read_text`
         // takes the same surface lock as `process_output` (which runs off-main);
-        // reading it on the MAIN thread here contends that lock during a render
-        // storm and stalls the present — tapping Copy Debug Logs would itself
-        // blank the terminal. The output queue is never concurrent with
-        // `process_output`, so the read can't wedge. No `main.sync` runs on that
-        // queue, so this `.sync` cannot deadlock.
+        // waiting for that queue on the main actor would stall diagnostics during
+        // a render storm. The bounded wait below runs in a detached task instead.
         var pending: [VisibleSnapshotRequest] = []
         for view in registeredSurfaceViews.values.compactMap(\.value) {
             guard view.window != nil, !view.isHidden, view.alpha > 0.01,
@@ -2677,15 +2675,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if pending.isEmpty {
             return "===== visible terminal: (no on-screen surface) ====="
         }
+        return await visibleTerminalSnapshotText(for: pending)
+    }
+
+    nonisolated private static func visibleTerminalSnapshotText(for pending: [VisibleSnapshotRequest]) async -> String {
+        await Task.detached(priority: .utility) {
+            Self.visibleTerminalSnapshotTextSync(for: pending)
+        }.value
+    }
+
+    nonisolated private static func visibleTerminalSnapshotTextSync(for pending: [VisibleSnapshotRequest]) -> String {
         // Read on the output queue, but bound the wait. If a render wedge has the
         // queue stuck mid-`process_output`, a plain `.sync` here would freeze the
-        // whole app exactly when the user taps Copy Debug Logs to capture that
-        // bug. Time out and ship the logs without the snapshot instead.
+        // diagnostics task exactly when the user needs to capture that bug. Time
+        // out and ship the logs without the snapshot instead.
         let holder = VisibleSnapshotHolder()
-        // This synchronous DEV-only "Copy Debug Logs" path reads the viewport off
-        // the serial output queue and must give up after a deadline if a render
-        // wedge holds it; an actor/await cannot express the bounded synchronous
-        // wait the synchronous caller needs.
+        // This synchronous helper reads the viewport off the serial output queue
+        // and must give up after a deadline if a render wedge holds it.
         // carve-out justification: one-shot cross-queue completion signal with a
         // bounded wait, not a lock guarding shared state.
         let done = DispatchSemaphore(value: 0)

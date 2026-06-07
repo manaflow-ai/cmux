@@ -15,5 +15,11 @@ import Testing
         #expect(MobileFeedbackComposerSheet.normalizedInitialEmail("   ") == nil)
         #expect(MobileFeedbackComposerSheet.normalizedInitialEmail(nil) == nil)
     }
+
+    @Test func feedbackMessageLengthMatchesServerCodeUnits() {
+        #expect(MobileFeedbackComposerSheet.serverMessageCodeUnitCount("hello") == 5)
+        #expect(MobileFeedbackComposerSheet.serverMessageCodeUnitCount("  hello  ") == 5)
+        #expect(MobileFeedbackComposerSheet.serverMessageCodeUnitCount("😀") == 2)
+    }
 #endif
 }

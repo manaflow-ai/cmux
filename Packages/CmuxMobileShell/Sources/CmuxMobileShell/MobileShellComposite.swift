@@ -1246,6 +1246,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hasKnownPairedMac = false
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
+        if let staleMacID {
+            pairedMacs.removeAll { $0.macDeviceID == staleMacID }
+        }
         if staleMacID == nil,
            pairedMacStore != nil,
            generationToForgetIfStoreReadIsInFlight > 0 {

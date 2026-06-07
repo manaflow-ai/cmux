@@ -484,7 +484,7 @@ struct WorkspaceDetailView: View {
     /// visible terminal, then scrubbed).
     @MainActor
     private func buildDiagnosticsReport() async -> MobileDiagnosticsReport {
-        let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
+        let terminalText = await GhosttySurfaceView.visibleTerminalSnapshot()
         let liveState = diagnosticsLiveState
         let immediateEventLines = await store.diagnosticsImmediateEventLinesForReport()
         let environment = MobileDiagnosticsEnvironment.current()

@@ -40,6 +40,19 @@ import Testing
         )
     }
 
+    @Test func redactsCLIFlagSecrets() {
+        let password = scrubber.scrub("deploy --password=hunter2secret")
+        let token = scrubber.scrub("curl --token abcdefghijklmnop https://example.test")
+        let apiKey = scrubber.scrub("tool --api-key 'api-key-secret-1234'")
+
+        #expect(password == "deploy --password=<redacted>")
+        #expect(token == "curl --token <redacted> https://example.test")
+        #expect(apiKey == "tool --api-key '<redacted>'")
+        #expect(!password.contains("hunter2secret"))
+        #expect(!token.contains("abcdefghijklmnop"))
+        #expect(!apiKey.contains("api-key-secret"))
+    }
+
     @Test func redactsQuotedKeyValueSecretsContainingSpaces() {
         let samples = [
             ("PASSWORD='correct horse battery staple'", "PASSWORD='<redacted>'", "horse battery"),

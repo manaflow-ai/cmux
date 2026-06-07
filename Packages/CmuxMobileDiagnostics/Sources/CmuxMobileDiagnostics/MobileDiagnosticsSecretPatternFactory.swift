@@ -121,6 +121,11 @@ struct MobileDiagnosticsSecretPatternFactory {
             ("(?i)('\(secretKey)\\b'\\s*:\\s*')([^'\\r\\n]{4,})(')",
              2),
 
+            // CLI flags in shell history and copied command output:
+            // `--password=value`, `--token value`, `--api-key 'value'`.
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?#])(--\(secretKey)\\b(?:\\s*=\\s*|\\s+)[\"']?)([^\\s\"'&;]{4,})",
+             2),
+
             // `token=...`, `password=...`, `secret=...`, `api[_-]?key=...`,
             // `access_token=...`, `stackAccessToken=...`, `auth=...` style
             // key/value pairs (query strings, env dumps, config). The prefix
