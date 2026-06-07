@@ -216,6 +216,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         proc.arguments = [
             "-framework", "Foundation",
             "-framework", "CoreGraphics",
+            "-framework", "AppKit",
             "-o", helperBinaryPath,
             sourceURL.path,
         ]

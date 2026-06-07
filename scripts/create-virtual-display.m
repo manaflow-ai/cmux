@@ -3,11 +3,12 @@
 // The display stays alive as long as this process runs and can optionally churn
 // through multiple display modes after a start signal file appears.
 //
-// Build: clang -framework Foundation -framework CoreGraphics -o create-virtual-display create-virtual-display.m
+// Build: clang -framework Foundation -framework CoreGraphics -framework AppKit -o create-virtual-display create-virtual-display.m
 // Usage: ./create-virtual-display &
 
 #import <Foundation/Foundation.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <AppKit/AppKit.h>
 #import <unistd.h>
 #import <objc/runtime.h>
 
@@ -86,9 +87,26 @@ static BOOL displayIsOnline(CGDirectDisplayID displayID) {
     return found;
 }
 
-static BOOL waitForOnlineDisplay(CGDirectDisplayID displayID) {
+static CGDirectDisplayID screenDisplayID(NSScreen *screen) {
+    NSNumber *screenNumber = screen.deviceDescription[@"NSScreenNumber"];
+    if (!screenNumber) {
+        return 0;
+    }
+    return (CGDirectDisplayID)screenNumber.unsignedIntValue;
+}
+
+static BOOL displayHasAppKitScreen(CGDirectDisplayID displayID) {
+    for (NSScreen *screen in NSScreen.screens) {
+        if (screenDisplayID(screen) == displayID) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+static BOOL waitForReadyDisplay(CGDirectDisplayID displayID) {
     for (int attempt = 0; attempt < 1800; attempt += 1) {
-        if (displayIsOnline(displayID)) {
+        if (displayIsOnline(displayID) && displayHasAppKitScreen(displayID)) {
             return YES;
         }
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
@@ -266,10 +284,10 @@ int main(int argc, const char *argv[]) {
             return 1;
         }
 
-        printf("Virtual display allocated: displayID=%u, waiting for online state\n", display.displayID);
+        printf("Virtual display allocated: displayID=%u, waiting for online AppKit screen\n", display.displayID);
         fflush(stdout);
-        if (!waitForOnlineDisplay(display.displayID)) {
-            fprintf(stderr, "ERROR: Virtual display %u was not reported online after settings were applied\n", display.displayID);
+        if (!waitForReadyDisplay(display.displayID)) {
+            fprintf(stderr, "ERROR: Virtual display %u was not visible to CoreGraphics and AppKit after settings were applied\n", display.displayID);
             return 1;
         }
 

@@ -1488,6 +1488,7 @@ jobs:
 
           # Build display helper
           clang -framework Foundation -framework CoreGraphics \
+            -framework AppKit \
             -o "$HELPER_PATH" scripts/create-virtual-display.m
 
           # Find the app binary
