@@ -110,6 +110,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
+        func ghosttySurfaceViewDidFailToPasteImageTooLarge(_ surfaceView: GhosttySurfaceView) {
+            // The pasted image was too large to send even after compressing to
+            // JPEG, so nothing was uploaded. Surface a transient notice so the
+            // paste doesn't appear to silently do nothing.
+            Task { @MainActor [weak store] in
+                store?.reportPasteImageTooLarge()
+            }
+        }
+
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
             // Report our natural grid to the Mac and pin our render to the
             // effective grid it returns (the smallest across every attached
