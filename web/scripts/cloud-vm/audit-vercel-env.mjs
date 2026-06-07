@@ -2,6 +2,7 @@
 import {
   forbiddenRuntimeEnvKeys,
   legacyCloudVmEnvKeys,
+  nonBlankRequiredRuntimeEnvKeys,
   parseBoolean,
   parseWebDirAndTarget,
   pullProductionEnv,
@@ -17,7 +18,11 @@ try {
   const env = pullProductionEnv(project);
   const keys = Object.keys(env).sort();
   const present = new Set(keys);
-  const missingRequired = requiredRuntimeEnvKeys.filter((key) => !present.has(key));
+  const nonBlankRequired = new Set(nonBlankRequiredRuntimeEnvKeys);
+  const missingRequired = requiredRuntimeEnvKeys.filter((key) => {
+    if (!present.has(key)) return true;
+    return nonBlankRequired.has(key) && !hasNonBlankEnvValue(env, key);
+  });
   const missingRecommended = recommendedRuntimeEnvKeys.filter((key) => !present.has(key));
   const forbiddenPresent = forbiddenRuntimeEnvKeys.filter((key) => present.has(key));
   const legacyCloudVmPresent = legacyCloudVmEnvKeys.filter((key) => present.has(key));
@@ -39,4 +44,9 @@ try {
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
+}
+
+function hasNonBlankEnvValue(env, key) {
+  const value = env[key];
+  return typeof value === "string" && value.trim().length > 0;
 }

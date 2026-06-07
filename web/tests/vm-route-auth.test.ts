@@ -145,6 +145,7 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(await response.json()).toEqual({
       id: "provider-vm-1",
       provider: "freestyle",
@@ -164,6 +165,33 @@ describe("VM REST auth", () => {
     }));
     expect(listTeams).not.toHaveBeenCalled();
     expect(runVmWorkflow).toHaveBeenCalled();
+  });
+
+  test("authenticated credential endpoint responses are not cacheable", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      host: "vm-ssh.example.com",
+      port: 22,
+      username: "vm+cmux",
+      credential: { kind: "password", value: "short-lived-secret" },
+    });
+
+    const response = await sshRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-1/ssh-endpoint", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+      }),
+      { params: Promise.resolve({ id: "provider-vm-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toEqual({
+      host: "vm-ssh.example.com",
+      port: 22,
+      username: "vm+cmux",
+      credential: { kind: "password", value: "short-lived-secret" },
+    });
   });
 
   test("passes configured plan active VM limits into the create workflow", async () => {
