@@ -1118,23 +1118,23 @@ check_ios_simulator_tests_require_nonzero_execution() {
   echo "PASS: test-ios.yml rejects zero-test simulator runs"
 }
 
-check_ios_simulator_cleanup_passthrough_rejects_skips() {
+check_ios_simulator_tests_fail_closed_after_xcodebuild_status() {
   if ! awk '
     /^[[:space:]]*- name: Run iOS simulator tests$/ { in_step=1; next }
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
-    in_step && /selected_tests_passed_despite_xcodebuild_status\(\)/ { saw_function=1 }
-    in_step && /Test Suite '\''Selected tests'\'' passed\|Test Suite '\''cmuxUITests'\'' passed/ { saw_suite_pass=1 }
-    in_step && /Executed \[1-9\]\[0-9\]\* tests, with 0 failures/ { saw_zero_failure_guard=1 }
-    in_step && /Test Suite '\''\.\*'\'' failed\|Test Case '\''\.\*'\'' failed\|Assertion Failure\|Failing tests:/ { saw_failure_reject=1 }
-    in_step && /Test Case '\''\.\*'\'' skipped\|with \[1-9\]\[0-9\]\* skipped\|\[1-9\]\[0-9\]\* skips\?/ { saw_skip_reject=1 }
-    in_step && /selected_tests_passed_despite_xcodebuild_status "\$LOG_PATH"/ { saw_call=1 }
-    END { exit(saw_function && saw_suite_pass && saw_zero_failure_guard && saw_failure_reject && saw_skip_reject && saw_call ? 0 : 1) }
+    in_step && /selected_tests_passed_despite_xcodebuild_status\(\)/ { saw_mask_function=1 }
+    in_step && /treating this as a runner cleanup failure/ { saw_mask_message=1 }
+    in_step && /status="\$\{PIPESTATUS\[0\]\}"/ { saw_status=1 }
+    in_step && /Detected Xcode simulator launch failure, retrying on a clean simulator/ { saw_prelaunch_retry=1 }
+    in_step && /iOS simulator xcodebuild failed; failing instead of treating post-XCTest cleanup as success/ { saw_fail_closed_message=1 }
+    in_step && /exit "\$status"/ { saw_exit=1 }
+    END { exit(!saw_mask_function && !saw_mask_message && saw_status && saw_prelaunch_retry && saw_fail_closed_message && saw_exit ? 0 : 1) }
   ' "$TEST_IOS_FILE"; then
-    echo "FAIL: test-ios.yml must not treat nonzero xcodebuild cleanup exits as success when selected iOS tests skipped"
+    echo "FAIL: test-ios.yml must fail closed on nonzero xcodebuild after XCTest starts while still allowing one clean-simulator retry for pre-test launch transport failures"
     exit 1
   fi
 
-  echo "PASS: test-ios.yml cleanup pass-through rejects skipped selected iOS tests"
+  echo "PASS: test-ios.yml fails closed on nonzero xcodebuild after XCTest starts"
 }
 
 check_ios_mobile_package_tests_require_nonzero_execution() {
@@ -1516,7 +1516,7 @@ check_xcodebuild_unit_step_requires_nonzero_execution "$TERMINAL_CORPUS_NIGHTLY_
 check_xcodebuild_unit_step_rejects_expected_failures "$CI_FILE" "Run unit tests"
 check_xcodebuild_unit_step_rejects_expected_failures "$COMPAT_FILE" "Run unit tests"
 check_ios_mobile_package_tests_require_nonzero_execution
-check_ios_simulator_cleanup_passthrough_rejects_skips
+check_ios_simulator_tests_fail_closed_after_xcodebuild_status
 check_tests_deriveddata_cache
 check_cached_deriveddata_prunes_module_caches
 check_ui_regression_budget
