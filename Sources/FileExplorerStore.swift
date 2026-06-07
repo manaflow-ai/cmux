@@ -1210,9 +1210,23 @@ final class FileExplorerStore: ObservableObject {
         let destination = (directory as NSString).appendingPathComponent(trimmed)
         if destination == path { return .success(path) }
         let fm = FileManager.default
-        guard !fm.fileExists(atPath: destination) else { return .failure(.alreadyExists(name: trimmed)) }
+        // A case-only rename (e.g. Readme.md -> README.md) resolves to the same file on a
+        // case-insensitive volume, so fileExists(destination) is true even though it's valid.
+        let oldName = (path as NSString).lastPathComponent
+        let isCaseOnlyRename = trimmed != oldName && trimmed.lowercased() == oldName.lowercased()
+        guard isCaseOnlyRename || !fm.fileExists(atPath: destination) else {
+            return .failure(.alreadyExists(name: trimmed))
+        }
         do {
-            try fm.moveItem(atPath: path, toPath: destination)
+            if isCaseOnlyRename {
+                // Two-step move through a temp name so case-only renames also succeed on
+                // case-insensitive filesystems, which reject a direct same-name move.
+                let tempPath = (directory as NSString).appendingPathComponent(".cmux-rename-\(trimmed)")
+                try fm.moveItem(atPath: path, toPath: tempPath)
+                try fm.moveItem(atPath: tempPath, toPath: destination)
+            } else {
+                try fm.moveItem(atPath: path, toPath: destination)
+            }
         } catch {
             return .failure(.underlying(error.localizedDescription))
         }
@@ -1246,13 +1260,20 @@ final class FileExplorerStore: ObservableObject {
     func moveToTrash(paths: [String]) -> Result<Void, FileExplorerMutationError> {
         guard canMutate else { return .failure(.providerUnsupported) }
         let fm = FileManager.default
-        for path in paths {
+        // Drop any path nested under another selected path: trashing the ancestor already
+        // removes the descendant, whose path would then no longer exist and fail the move.
+        let roots = paths.sorted().reduce(into: [String]()) { acc, path in
+            if let ancestor = acc.last, path == ancestor || path.hasPrefix(ancestor + "/") { return }
+            acc.append(path)
+        }
+        for path in roots {
             do {
                 try fm.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil)
             } catch {
                 return .failure(.underlying(error.localizedDescription))
             }
         }
+        // Clear state for every originally-selected path, including the nested ones.
         for path in paths {
             expandedPaths = expandedPaths.filter { $0 != path && !$0.hasPrefix(path + "/") }
         }
