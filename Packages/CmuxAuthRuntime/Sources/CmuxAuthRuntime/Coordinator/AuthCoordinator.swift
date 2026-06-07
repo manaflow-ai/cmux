@@ -463,7 +463,7 @@ public final class AuthCoordinator {
             return
         }
         do {
-            try await client.signOutIfCurrent(
+            try await signOutIfCurrent(
                 accessToken: revocationAccessToken,
                 refreshToken: revocationRefreshToken
             )
@@ -474,6 +474,16 @@ public final class AuthCoordinator {
         if let signOutError {
             recordAuthError(signOutError)
         }
+    }
+
+    private func signOutIfCurrent(accessToken expectedAccessToken: String?, refreshToken expectedRefreshToken: String?) async throws {
+        let currentAccessToken = await client.accessToken()
+        let currentRefreshToken = await client.refreshToken()
+        guard currentAccessToken == expectedAccessToken,
+              currentRefreshToken == expectedRefreshToken else {
+            return
+        }
+        try await client.signOut()
     }
 
     // MARK: - Tokens
