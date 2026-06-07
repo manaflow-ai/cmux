@@ -455,6 +455,20 @@ check_ssh_fish_shell_regression_fails_closed_on_ci() {
   echo "PASS: SSH fish shell regression fails closed on hosted CI"
 }
 
+check_settings_frame_clamping_fails_closed_on_ci() {
+  local file="$ROOT_DIR/cmuxTests/SettingsWindowPresenterTests.swift"
+  if ! grep -Fq "hosted CI must exercise Settings frame clamping" "$file"; then
+    echo "FAIL: Settings frame clamping regression must fail closed on hosted CI when NSScreen is unavailable"
+    exit 1
+  fi
+  if ! grep -Fq 'environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true"' "$file"; then
+    echo "FAIL: Settings frame clamping regression must explicitly distinguish hosted CI from local screen availability skips"
+    exit 1
+  fi
+
+  echo "PASS: Settings frame clamping regression fails closed on hosted CI"
+}
+
 check_no_swift_test_skip_quarantines() {
   if grep -R -n -E "swift[[:space:]]+test([^|;&]*[[:space:]])--skip([[:space:]]|=)" "$ROOT_DIR/.github/workflows"; then
     echo "FAIL: workflow Swift package tests must not hide coverage with swift test --skip quarantines"
@@ -1147,6 +1161,7 @@ check_no_debug_xctest_self_skips
 check_port_scanner_fd_regression_fails_closed_on_ci
 check_cmux_config_icon_fixture_fails_closed
 check_ssh_fish_shell_regression_fails_closed_on_ci
+check_settings_frame_clamping_fails_closed_on_ci
 check_no_swift_test_skip_quarantines
 check_vm_socket_tests_do_not_skip_ctrl_interactive
 check_vm_socket_tests_do_not_self_skip
