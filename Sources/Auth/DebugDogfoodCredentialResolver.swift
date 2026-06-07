@@ -37,8 +37,11 @@ import Foundation
 /// `init`, so tests drive every precedence branch without touching the real
 /// filesystem or `~/.secrets`.
 struct DebugDogfoodCredentialResolver {
-    /// A resolved email/password pair, plus which source it came from (for
-    /// non-secret diagnostics; the password is never surfaced here).
+    /// A resolved email/password pair.
+    ///
+    /// Kept nested in this file under the file-organization carve-out for small,
+    /// closely-bound helpers: two stored fields plus synthesized `Equatable`, no
+    /// meaningful body, used only by this resolver and its tests.
     struct ResolvedCredentials: Equatable {
         let email: String
         let password: String
@@ -87,6 +90,10 @@ struct DebugDogfoodCredentialResolver {
     }
 
     /// The credential-key pair an account uses in env vars and secret files.
+    ///
+    /// Kept nested under the file-organization carve-out for small, closely-bound
+    /// helpers: a private two-case enum with two computed key strings, used only
+    /// inside this resolver.
     private enum Account {
         case dogfood
         case uitest
