@@ -177,6 +177,10 @@ struct WorkspaceDetailView: View {
         }
         .foregroundStyle(TerminalPalette.foreground)
         .accessibilityIdentifier("MobileTerminalDropdown")
+        .accessibilityLabel(
+            selectedTerminal?.name
+                ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal")
+        )
         .accessibilityValue(host)
         .popover(isPresented: $isTerminalPickerPresented, arrowEdge: .top) {
             terminalPickerPopoverContent

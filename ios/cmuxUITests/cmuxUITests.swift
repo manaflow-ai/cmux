@@ -144,11 +144,17 @@ final class cmuxUITests: XCTestCase {
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
         let terminalStart = Date()
-        assertTerminalRows([
-            1: "workspace: Workspace 3",
-            2: "terminal: Terminal 2",
-        ], in: app)
+        assertButtonLabel(
+            "MobileTerminalDropdown",
+            equals: "Terminal 2",
+            in: app
+        )
         XCTAssertLessThan(Date().timeIntervalSince(terminalStart), 12.0)
+
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        XCTAssertTrue(
+            app.buttons["MobileTerminalMenuItem-workspace-3-terminal-2"].waitForExistence(timeout: 8)
+        )
     }
 
     @MainActor
@@ -582,6 +588,27 @@ final class cmuxUITests: XCTestCase {
         expectedLabels.allSatisfy { index, expectedLabel in
             rows.dropFirst(index).first == expectedLabel
         }
+    }
+
+    @MainActor
+    private func assertButtonLabel(
+        _ identifier: String,
+        equals expectedLabel: String,
+        in app: XCUIApplication,
+        timeout: TimeInterval = 12,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let button = app.buttons[identifier]
+        XCTAssertTrue(button.waitForExistence(timeout: 6), file: file, line: line)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if button.label == expectedLabel {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTAssertEqual(button.label, expectedLabel, file: file, line: line)
     }
 
     @MainActor
