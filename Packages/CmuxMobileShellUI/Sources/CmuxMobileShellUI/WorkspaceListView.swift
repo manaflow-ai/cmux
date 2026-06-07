@@ -8,21 +8,38 @@ import SwiftUI
 import AppKit
 #endif
 
+/// The aggregated all-devices workspace list, grouped by source Mac.
+///
+/// Renders one `List` with a section per paired Mac (header = device name +
+/// status dot; the offline group reuses ``MobileMacConnectionStatusRow``), a
+/// device filter that composes with search, and a pull-to-refresh that re-pulls
+/// every Mac's list. Sections and rows receive value snapshots
+/// (``MobileWorkspaceDeviceSection``) plus action closures only, so nothing below
+/// the list holds the shell store (the snapshot-boundary rule). The store is
+/// forwarded solely into the Settings sheet, which sits above the list content.
 struct WorkspaceListView: View {
-    let workspaces: [MobileWorkspacePreview]
+    /// Value snapshots of the aggregated list, grouped by source Mac.
+    let deviceSections: [MobileWorkspaceDeviceSection]
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
-    let host: String
-    let connectionStatus: MobileMacConnectionStatus
+    /// The source Mac of the current selection, so the sidebar highlights only
+    /// the selected row under a cross-Mac workspace-id collision (ids are unique
+    /// only within a Mac).
+    var selectedMacDeviceID: String?
     let navigationStyle: WorkspaceNavigationStyle
-    let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
+    /// Select a workspace by `(workspaceID, sourceMacDeviceID)` so a tap resolves
+    /// to the right Mac's partition under a cross-Mac id collision.
+    let selectWorkspace: (MobileWorkspacePreview.ID, String) -> Void
     let createWorkspace: () -> Void
+    /// Re-pull every paired Mac's list (pull-to-refresh / filter change).
+    var refreshAllDevices: (() async -> Void)?
     /// Optional: when present, the toolbar shows a "settings" menu offering
     /// "Rescan QR" (disconnect + re-pair) and "Sign out". When nil (e.g.
     /// previews), the menu is hidden.
     var rescanQR: (() -> Void)?
     var signOut: (() -> Void)?
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
-    /// `nil` in previews.
+    /// `nil` in previews. Held only to seed the Settings sheet, which is above
+    /// the list content; rows/sections never see it.
     var store: CMUXMobileShellStore?
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
@@ -31,56 +48,72 @@ struct WorkspaceListView: View {
     /// a Pin/Unpin context-menu action and pinned workspaces sort to the top.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     @State private var searchText = ""
+    @State private var deviceFilter: WorkspaceDeviceFilter = .all
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
 
-    /// Workspaces after search filtering, pinned ones first (stable within each
-    /// group so the Mac's order is otherwise preserved).
-    private var filteredWorkspaces: [MobileWorkspacePreview] {
+    /// Sections after the device filter and search, with pinned workspaces first
+    /// within each Mac.
+    ///
+    /// With an active search query, sections whose workspaces don't match are
+    /// dropped. With no query, an unreachable section with no cached workspaces is
+    /// retained (as an empty grayed section) so an offline paired Mac is still
+    /// visible rather than collapsing the list to an empty shell; a reachable
+    /// section with genuinely no workspaces is still dropped.
+    private var visibleSections: [MobileWorkspaceDeviceSection] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matches: [MobileWorkspacePreview]
-        if query.isEmpty {
-            matches = workspaces
-        } else {
-            matches = workspaces.filter { workspace in
-                workspace.name.localizedCaseInsensitiveContains(query)
-                    || workspace.previewLine.localizedCaseInsensitiveContains(query)
-                    || workspace.terminals.contains { $0.name.localizedCaseInsensitiveContains(query) }
+        return deviceSections.compactMap { section -> MobileWorkspaceDeviceSection? in
+            guard deviceFilter.matches(deviceID: section.deviceID) else { return nil }
+            let matches = Self.filteredWorkspaces(section.workspaces, query: query)
+            if matches.isEmpty {
+                // Keep an offline/unreachable Mac visible when not searching, so
+                // the user sees the grayed device instead of an empty list.
+                guard query.isEmpty, !section.isReachable else { return nil }
+                var emptyOffline = section
+                emptyOffline.workspaces = []
+                return emptyOffline
             }
+            var filtered = section
+            filtered.workspaces = matches
+            return filtered
         }
-        return matches.enumerated()
-            .sorted { lhs, rhs in
-                if lhs.element.isPinned != rhs.element.isPinned {
-                    return lhs.element.isPinned
-                }
-                return lhs.offset < rhs.offset
-            }
-            .map(\.element)
+    }
+
+    /// The connected host name for the active Mac, for the per-row host detail.
+    private var activeHostName: String {
+        deviceSections.first(where: \.isActive)?.displayName ?? ""
     }
 
     var body: some View {
         List {
-            if connectionStatus != .connected {
+            ForEach(visibleSections) { section in
+                // Rename/pin send over the single heavy session's `remoteClient`,
+                // which is always the active Mac. Offering those actions on a
+                // non-active or unreachable section would route the mutation to
+                // the wrong Mac (or, under a cross-Mac id collision, mutate the
+                // active Mac's workspace). Phase 1 scopes the affordance to the
+                // active+reachable section; tap a Mac's workspace to activate it
+                // before renaming/pinning. Live secondary actions are Phase 2.
+                let sectionAllowsActions = section.isActive && section.isReachable
                 Section {
-                    MobileMacConnectionStatusRow(host: host, status: connectionStatus)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                    ForEach(section.workspaces) { workspace in
+                        WorkspaceNavigationRow(
+                            workspace: workspace,
+                            host: section.displayName,
+                            connectionStatus: section.status,
+                            isSelected: navigationStyle == .sidebar
+                                && selectedWorkspaceID == workspace.id
+                                && selectedMacDeviceID == section.deviceID,
+                            navigationStyle: navigationStyle,
+                            selectWorkspace: selectWorkspace,
+                            renameWorkspace: sectionAllowsActions ? renameWorkspace : nil,
+                            setPinned: sectionAllowsActions ? setPinned : nil
+                        )
+                        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
                         .listRowSeparator(.hidden)
-                }
-            }
-            Section {
-                ForEach(filteredWorkspaces) { workspace in
-                    WorkspaceNavigationRow(
-                        workspace: workspace,
-                        host: host,
-                        connectionStatus: connectionStatus,
-                        isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
-                        navigationStyle: navigationStyle,
-                        selectWorkspace: selectWorkspace,
-                        renameWorkspace: renameWorkspace,
-                        setPinned: setPinned
-                    )
-                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
-                    .listRowSeparator(.hidden)
+                    }
+                } header: {
+                    sectionHeader(for: section)
                 }
             }
         }
@@ -88,15 +121,24 @@ struct WorkspaceListView: View {
         .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
         .mobileInlineNavigationTitle()
         .searchable(text: $searchText)
+        .refreshable {
+            await refreshAllDevices?()
+        }
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .topBarLeading) {
                 settingsMenu
             }
             ToolbarItem(placement: .topBarTrailing) {
-                newWorkspaceButton
+                HStack(spacing: 2) {
+                    deviceFilterMenu
+                    newWorkspaceButton
+                }
             }
             #else
+            ToolbarItem {
+                deviceFilterMenu
+            }
             ToolbarItem {
                 newWorkspaceButton
             }
@@ -109,7 +151,7 @@ struct WorkspaceListView: View {
         }
         .sheet(isPresented: $showingSettings) {
             MobileSettingsView(
-                connectedHostName: host,
+                connectedHostName: activeHostName,
                 rescanQR: rescanQR,
                 signOut: signOut,
                 store: store
@@ -118,12 +160,103 @@ struct WorkspaceListView: View {
         #endif
     }
 
+    @ViewBuilder
+    private func sectionHeader(for section: MobileWorkspaceDeviceSection) -> some View {
+        if section.isReachable {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(section.status.tintColor)
+                    .frame(width: 8, height: 8)
+                Text(section.displayName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+            .padding(.vertical, 2)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("MobileDeviceSectionHeader-\(section.deviceID)")
+        } else {
+            // Offline / reconnecting Macs reuse the richer status row so the
+            // user sees why the section is grayed, not just a dimmed name.
+            MobileMacConnectionStatusRow(host: section.displayName, status: section.status)
+                .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                .accessibilityIdentifier("MobileDeviceSectionHeader-\(section.deviceID)")
+        }
+    }
+
+    /// Whether New Workspace can create on a Mac the user is actually viewing.
+    ///
+    /// New Workspace creates over the active heavy session (always the active
+    /// Mac), so it requires an active + reachable Mac (disabled on an offline-only
+    /// shell). It also requires that active Mac to be visible under the current
+    /// device filter: when filtered to a different (e.g. offline) device, creating
+    /// on the hidden active Mac would silently add a workspace the user can't see,
+    /// so the button is disabled until they switch the filter to All or that Mac.
+    private var canCreateWorkspace: Bool {
+        deviceSections.contains { section in
+            section.isActive && section.isReachable && deviceFilter.matches(deviceID: section.deviceID)
+        }
+    }
+
     private var newWorkspaceButton: some View {
         Button(action: createWorkspace) {
             Image(systemName: "plus")
         }
+        .disabled(!canCreateWorkspace)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
+    }
+
+    /// Filter the aggregated list to one Mac (or all). Replaces the old "switch
+    /// the active Mac in Settings" model: the user picks which Mac's workspaces
+    /// to view in one place, and tapping a workspace handles activation.
+    private var deviceFilterMenu: some View {
+        Menu {
+            Button {
+                setDeviceFilter(.all)
+            } label: {
+                filterLabel(
+                    title: L10n.string("mobile.deviceFilter.all", defaultValue: "All Devices"),
+                    isSelected: deviceFilter == .all
+                )
+            }
+            .accessibilityIdentifier("MobileDeviceFilterAll")
+
+            if !deviceSections.isEmpty {
+                Divider()
+                ForEach(deviceSections) { section in
+                    Button {
+                        setDeviceFilter(.device(section.deviceID))
+                    } label: {
+                        filterLabel(
+                            title: section.displayName,
+                            isSelected: deviceFilter == .device(section.deviceID)
+                        )
+                    }
+                    .accessibilityIdentifier("MobileDeviceFilter-\(section.deviceID)")
+                }
+            }
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+        }
+        .accessibilityLabel(L10n.string("mobile.deviceFilter.label", defaultValue: "Filter by device"))
+        .accessibilityIdentifier("MobileDeviceFilterMenu")
+    }
+
+    @ViewBuilder
+    private func filterLabel(title: String, isSelected: Bool) -> some View {
+        if isSelected {
+            Label(title, systemImage: "checkmark")
+        } else {
+            Text(title)
+        }
+    }
+
+    private func setDeviceFilter(_ filter: WorkspaceDeviceFilter) {
+        deviceFilter = filter
+        // Tapping a device in the filter is a freshness intent: re-pull every
+        // Mac's list so the chosen device shows current state.
+        Task { await refreshAllDevices?() }
     }
 
     private var settingsMenu: some View {
@@ -176,5 +309,31 @@ struct WorkspaceListView: View {
         .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
         .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
         #endif
+    }
+
+    /// Workspaces matching the search query, pinned ones first (stable within
+    /// each group so the Mac's order is otherwise preserved).
+    private static func filteredWorkspaces(
+        _ workspaces: [MobileWorkspacePreview],
+        query: String
+    ) -> [MobileWorkspacePreview] {
+        let matches: [MobileWorkspacePreview]
+        if query.isEmpty {
+            matches = workspaces
+        } else {
+            matches = workspaces.filter { workspace in
+                workspace.name.localizedCaseInsensitiveContains(query)
+                    || workspace.previewLine.localizedCaseInsensitiveContains(query)
+                    || workspace.terminals.contains { $0.name.localizedCaseInsensitiveContains(query) }
+            }
+        }
+        return matches.enumerated()
+            .sorted { lhs, rhs in
+                if lhs.element.isPinned != rhs.element.isPinned {
+                    return lhs.element.isPinned
+                }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
     }
 }

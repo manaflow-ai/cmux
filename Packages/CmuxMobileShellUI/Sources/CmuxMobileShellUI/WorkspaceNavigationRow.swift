@@ -8,7 +8,9 @@ struct WorkspaceNavigationRow: View {
     let connectionStatus: MobileMacConnectionStatus
     let isSelected: Bool
     let navigationStyle: WorkspaceNavigationStyle
-    let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
+    /// Select this workspace, carrying its source Mac so selection resolves to
+    /// the right partition under a cross-Mac id collision.
+    let selectWorkspace: (MobileWorkspacePreview.ID, String) -> Void
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
@@ -26,11 +28,11 @@ struct WorkspaceNavigationRow: View {
                     WorkspaceRow(workspace: workspace, host: host, connectionStatus: connectionStatus, isSelected: false)
                 }
                 .simultaneousGesture(TapGesture().onEnded {
-                    selectWorkspace(workspace.id)
+                    selectWorkspace(workspace.id, workspace.sourceMacDeviceID)
                 })
             case .sidebar:
                 Button {
-                    selectWorkspace(workspace.id)
+                    selectWorkspace(workspace.id, workspace.sourceMacDeviceID)
                 } label: {
                     WorkspaceRow(workspace: workspace, host: host, connectionStatus: connectionStatus, isSelected: isSelected)
                 }

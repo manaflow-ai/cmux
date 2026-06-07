@@ -121,6 +121,13 @@ struct CMUXMobileRootView: View {
         } else if !isAuthenticated {
             SignInView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
+            // Transient cold-launch / active-reconnect window for a returning,
+            // previously-paired user (kept ahead of the list gate). Once the
+            // first stored-Mac reconnect attempt resolves and we are not actively
+            // reconnecting, `shouldShowRestoringStoredMac` is false and a user
+            // with paired Macs falls through to the aggregated list below (with
+            // the active Mac grayed if it is still down), rather than being held
+            // on this view. So this never swallows the all-devices list.
             if store.hasKnownPairedMac || store.isReconnectingStoredMac {
                 // We know a Mac is being reconnected: it is honest to say so.
                 RestoringSessionView()
@@ -130,7 +137,13 @@ struct CMUXMobileRootView: View {
                 // yet know if there is a session to restore.
                 MobilePairedMacDeterminingView()
             }
-        } else if store.connectionState != .connected {
+        } else if store.hasNoPairedMacs {
+            // The aggregated all-devices list is the default surface once any Mac
+            // is paired. Only a signed-in user with zero paired Macs (after the
+            // initial load resolves) falls to the pairing flow. Per-Mac
+            // connectivity is now row/section metadata, not a root gate, so an
+            // offline active Mac no longer routes here while other Macs have
+            // workspaces to show.
             DisconnectedWorkspaceShellView(
                 showAddDevice: showAddDevice,
                 signOut: signOut

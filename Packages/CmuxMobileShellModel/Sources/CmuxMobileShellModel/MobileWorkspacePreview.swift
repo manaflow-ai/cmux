@@ -26,6 +26,11 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     }
 
     /// The workspace's stable identifier.
+    ///
+    /// Identifiers are only guaranteed unique **within** a single Mac. Two paired
+    /// Macs can surface colliding ids (synthetic preview ids especially), so any
+    /// lookup that spans the aggregated multi-Mac list must scope by
+    /// ``sourceMacDeviceID`` as well, never by ``id`` alone.
     public var id: ID
     /// The workspace's user-facing display name.
     public var name: String
@@ -34,6 +39,17 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var isPinned: Bool
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
+    /// Stable identifier of the paired Mac this workspace was sourced from.
+    ///
+    /// Tags each workspace with its owning device so the aggregated all-devices
+    /// list can group by Mac and route input/replay/viewport to the correct
+    /// Mac's client. Empty for synthetic preview workspaces with no real device.
+    public var sourceMacDeviceID: String
+    /// Human-readable name of the paired Mac this workspace was sourced from.
+    ///
+    /// Drives the per-Mac section header in the aggregated list. Falls back to
+    /// the device id, or a generic label, when the Mac advertised no name.
+    public var sourceMacDisplayName: String
 
     /// Creates a workspace preview.
     /// - Parameters:
@@ -41,10 +57,23 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - name: The workspace's user-facing display name.
     ///   - isPinned: Whether the workspace is pinned on the Mac. Defaults to `false`.
     ///   - terminals: The terminals contained in the workspace, in display order.
-    public init(id: ID, name: String, isPinned: Bool = false, terminals: [MobileTerminalPreview]) {
+    ///   - sourceMacDeviceID: Stable identifier of the owning paired Mac. Empty
+    ///     for synthetic preview workspaces with no real device. Defaults to `""`.
+    ///   - sourceMacDisplayName: Human-readable name of the owning paired Mac.
+    ///     Defaults to `""`.
+    public init(
+        id: ID,
+        name: String,
+        isPinned: Bool = false,
+        terminals: [MobileTerminalPreview],
+        sourceMacDeviceID: String = "",
+        sourceMacDisplayName: String = ""
+    ) {
         self.id = id
         self.name = name
         self.isPinned = isPinned
         self.terminals = terminals
+        self.sourceMacDeviceID = sourceMacDeviceID
+        self.sourceMacDisplayName = sourceMacDisplayName
     }
 }

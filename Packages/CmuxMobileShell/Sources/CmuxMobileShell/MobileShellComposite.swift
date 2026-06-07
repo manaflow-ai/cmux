@@ -107,7 +107,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
-    public private(set) var macConnectionStatus: MobileMacConnectionStatus
+    /// The live heavy-session health of the **active** Mac (the one the live
+    /// render-grid/input pipeline targets), kept for back-compat with the
+    /// recovery banner and detail chrome. Mirrored into the active Mac's entry of
+    /// ``macStatusByMac`` so the grouped list shows the same status on that Mac's
+    /// section. Per-Mac status for the others comes from ``macStatus(forMacDeviceID:)``.
+    public private(set) var macConnectionStatus: MobileMacConnectionStatus {
+        didSet {
+            if let activeMacDeviceID {
+                macStatusByMac[activeMacDeviceID] = macConnectionStatus
+            }
+        }
+    }
     public private(set) var connectedHostName: String
     public private(set) var connectionError: String?
     public private(set) var activeTicket: CmxAttachTicket?
@@ -164,7 +175,80 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return Self.attachTicketIsUnexpired(activeTicket, now: runtime?.now() ?? Date())
     }
     public var pairingCode: String
-    public var workspaces: [MobileWorkspacePreview]
+
+    // MARK: - Aggregated multi-Mac workspace partitions
+
+    /// Workspaces partitioned by the paired Mac they were sourced from.
+    ///
+    /// The aggregated all-devices list is the union of every paired Mac's
+    /// workspaces. Each Mac owns its own partition, so a workspace-list refresh
+    /// for one Mac (the live heavy session, or a transient `workspace.list`)
+    /// must replace **only that Mac's partition** and never clobber the others.
+    private var workspacesByMac: [String: [MobileWorkspacePreview]] = [:]
+
+    /// Per-Mac connectivity, surfaced as row/section metadata in the list.
+    ///
+    /// Only the active (heavy-session) Mac advances through `.reconnecting`; the
+    /// others are `.connected` when a recent `workspace.list` succeeded and
+    /// `.unavailable` when the Mac was unreachable on the last refresh.
+    private var macStatusByMac: [String: MobileMacConnectionStatus] = [:]
+
+    /// Stable display order of Mac device ids in the aggregated list.
+    ///
+    /// Preserves first-seen order so the flattened ``workspaces`` and the
+    /// grouped UI sections do not reshuffle as partitions update.
+    private var macOrder: [String] = []
+
+    /// Display names for Mac device ids, for the per-Mac section headers.
+    private var macDisplayNameByMac: [String: String] = [:]
+
+    /// The paired Mac the live heavy session (render-grid + input + replay +
+    /// viewport + liveness watchdog) currently targets.
+    ///
+    /// `remoteClient` is always this Mac's client. Routing resolves a surface to
+    /// its owning Mac and only touches `remoteClient` when that Mac is this one,
+    /// so input/replay/viewport can never reach a different Mac's session.
+    private var activeMacDeviceID: String?
+
+    /// The aggregated, device-ordered union of every paired Mac's workspaces.
+    ///
+    /// Derived from ``workspacesByMac`` in ``macOrder`` so consumers (the list,
+    /// selection, lookups) see one stable flattened view. Writes go through the
+    /// partition-scoped setters, never this projection.
+    public var workspaces: [MobileWorkspacePreview] {
+        macOrder.flatMap { workspacesByMac[$0] ?? [] }
+    }
+
+    /// Value snapshots of the aggregated list, grouped by source Mac.
+    ///
+    /// Each section carries the device identity, display name, connectivity
+    /// status, active flag, and that Mac's workspaces, with no reference back to
+    /// this store. The grouped list view binds to these snapshots so its rows and
+    /// section headers stay below the list's snapshot boundary. Ordered by
+    /// ``macOrder`` (first-seen), then any paired Mac not yet partitioned, so
+    /// sections do not reshuffle as partitions update. A section is emitted for
+    /// every such Mac — including a paired-but-offline Mac with no cached
+    /// workspaces (an empty grayed section) — so an offline cold launch shows the
+    /// device rather than an empty shell. A forgotten Mac is removed from both
+    /// ``macOrder`` and ``pairedMacs``, so it still drops out.
+    public var deviceSections: [MobileWorkspaceDeviceSection] {
+        // Paired Macs not yet in macOrder (a cold launch before the first refresh
+        // marks them) still get a grayed section so the user sees the device.
+        let extraPairedMacIDs = pairedMacs
+            .map(\.macDeviceID)
+            .filter { !macOrder.contains($0) && $0 != PreviewMobileHost.deviceID }
+        let orderedMacIDs = macOrder + extraPairedMacIDs
+        return orderedMacIDs.map { macID in
+            MobileWorkspaceDeviceSection(
+                deviceID: macID,
+                displayName: macDisplayName(forMacDeviceID: macID),
+                status: macStatus(forMacDeviceID: macID),
+                isActive: macID == activeMacDeviceID,
+                workspaces: workspacesByMac[macID] ?? []
+            )
+        }
+    }
+
     /// Whether the connected Mac advertises the `workspace.actions.v1` capability
     /// (rename/pin over the mobile RPC). `false` until host status is read, and
     /// for older Macs that lack the handler, so the UI can hide rename/pin rather
@@ -173,9 +257,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var terminalInputText: String
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
+            reconcileSelectedMacForSelectedWorkspace(previousMacDeviceID: selectedMacDeviceID)
             syncSelectedTerminalForWorkspace()
         }
     }
+
+    /// The paired Mac that owns the currently selected workspace.
+    ///
+    /// Selection is `(macDeviceID, workspaceID)`: because workspace ids are only
+    /// unique within a Mac, the selected Mac disambiguates which partition the
+    /// selection lives in and which Mac the heavy session must target. Kept in
+    /// sync by the ``selectedWorkspaceID`` `didSet`; changing it retargets the
+    /// heavy session to the new Mac.
+    public private(set) var selectedMacDeviceID: String?
+
     public var selectedTerminalID: MobileTerminalPreview.ID?
 
     /// Surface IDs whose next window attach must NOT grab the keyboard.
@@ -245,6 +340,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
+    /// In-flight on-demand refresh of the non-active Macs' list partitions via
+    /// transient `workspace.list` clients. Coalesced (one at a time) and
+    /// cancelled on sign-out so a slow fan-out can never write a stale partition.
+    private var allMacsWorkspaceListRefreshTask: Task<Void, Never>?
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
@@ -266,9 +365,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return .workspaces
     }
 
+    /// Whether the local synthetic create paths are valid (no real backend).
+    ///
+    /// ``createWorkspace`` / ``createTerminal`` synthesize a local workspace only
+    /// when there is no real session to create against. Two cases qualify: a
+    /// runtime-less store (SwiftUI previews, tests, the `preview()` factory), and
+    /// the production legacy preview-host pairing-code path that makes the
+    /// synthetic preview Mac the active device. A real session that is merely
+    /// disconnected (`runtime != nil`, active Mac dropped or a real device) is
+    /// **excluded**, so creation there is a no-op instead of injecting a fake
+    /// preview workspace into the signed-in user's real device list.
+    private var isPreviewHostActive: Bool {
+        runtime == nil || activeMacDeviceID == PreviewMobileHost.deviceID
+    }
+
     public var selectedWorkspace: MobileWorkspacePreview? {
         guard let selectedWorkspaceID else {
             return workspaces.first
+        }
+        // Resolve inside the selected Mac's partition first, since workspace ids
+        // are only unique within a Mac and two Macs can collide. Fall back to a
+        // cross-Mac match, then to the first workspace, so a selection that has
+        // not yet been mac-tagged (or a drifted selection) still resolves.
+        if let selectedMacDeviceID,
+           let workspace = workspacesByMac[selectedMacDeviceID]?
+            .first(where: { $0.id == selectedWorkspaceID }) {
+            return workspace
         }
         return workspaces.first { $0.id == selectedWorkspaceID } ?? workspaces.first
     }
@@ -282,6 +404,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return terminal
         }
         return selectedWorkspace.preferredTerminal
+    }
+
+    /// The selection-keyed send target `(workspace, terminal)`, but **only** when
+    /// the selected workspace's Mac is the active heavy-session Mac.
+    ///
+    /// The composer/paste paths route by current selection rather than by a
+    /// surface id, so during a heavy-session retarget (selection on Mac B,
+    /// `remoteClient` still A's) they could otherwise send B's ids to A's client.
+    /// This returns `nil` in that window, making such a send a safe no-op until
+    /// the retarget completes, the same routing safety the surface-keyed paths
+    /// get from ``workspaceID(forTerminalID:)``.
+    private var activeSelectedSendTarget: (workspaceID: MobileWorkspacePreview.ID, terminalID: MobileTerminalPreview.ID)? {
+        guard let activeMacDeviceID, selectedMacDeviceID == activeMacDeviceID else { return nil }
+        guard let workspace = workspacesByMac[activeMacDeviceID]?
+            .first(where: { $0.id == selectedWorkspaceID }) ?? workspacesByMac[activeMacDeviceID]?.first else {
+            return nil
+        }
+        let terminalID: MobileTerminalPreview.ID
+        if let selectedTerminalID,
+           workspace.terminals.contains(where: { $0.id == selectedTerminalID }) {
+            terminalID = selectedTerminalID
+        } else if let preferred = workspace.preferredTerminal?.id {
+            terminalID = preferred
+        } else {
+            return nil
+        }
+        return (workspace.id, terminalID)
     }
 
     public init(
@@ -321,11 +470,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.macConnectionStatus = connectionState == .connected ? .connected : .unavailable
         self.connectedHostName = connectedHostName
         self.pairingCode = pairingCode
-        self.workspaces = workspaces
         self.terminalInputText = ""
         self.connectionError = nil
         self.activeTicket = nil
         self.activeRoute = nil
+        // `didSet` does not fire for the in-init assignment below, so seed the
+        // partitions first and set the selected Mac explicitly to keep selection
+        // consistent with the aggregated list from construction.
+        let seed = Self.partitions(from: workspaces)
+        self.workspacesByMac = seed.workspacesByMac
+        self.macOrder = seed.macOrder
+        self.macDisplayNameByMac = seed.displayNames
+        self.macStatusByMac = [:]
+        self.activeMacDeviceID = nil
+        self.selectedMacDeviceID = workspaces.first?.sourceMacDeviceID
         self.selectedWorkspaceID = workspaces.first?.id
         self.selectedTerminalID = workspaces.first?.terminals.first?.id
         self.remoteClient = nil
@@ -355,6 +513,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
+        allMacsWorkspaceListRefreshTask?.cancel()
         if let remoteClient {
             Task { await remoteClient.disconnect() }
         }
@@ -368,10 +527,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let wasSignedIn = isSignedIn
         isSignedIn = true
         connectionError = nil
-        // Fire only on the signed-out→signed-in edge (this is called on every
-        // auth-state sync), so identify + the sign-in-completed funnel event are
-        // emitted once per sign-in.
+        // Both the analytics sign-in funnel and the all-devices bootstrap fire only
+        // on the signed-out→signed-in edge (this is called on every auth-state sync).
         guard !wasSignedIn else { return }
+        // Analytics: identify + the sign-in-completed funnel event, once per sign-in.
         if let userID = identityProvider?.currentUserID {
             // Merge the pre-auth anonymous funnel (keyed on the install client id)
             // into the authenticated profile.
@@ -381,7 +540,48 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         analytics.capture("ios_sign_in_completed", [
             "is_new_user": .bool(false),
         ])
+        // Bootstrap the aggregated all-devices list on the first sign-in of this
+        // session, independent of any foreground/reconnect path. This loads the
+        // paired Macs (which sets `hasCompletedInitialPairedMacLoad`, so the root
+        // gate can tell empty from still-loading) and pulls the non-active Macs'
+        // lists so they appear grayed-or-live immediately. Idempotent: coalesced
+        // by `refreshAllPairedMacWorkspaceLists`.
+        //
+        // Claim this sign-in's generation. `signOut` bumps it, so a bootstrap that
+        // started for a now-signed-out session bails before it can flip the
+        // initial-load gate (whose reset `signOut` performed). Without this the
+        // bootstrap's `loadPairedMacs` could take its `!isSignedIn` path and set
+        // `hasCompletedInitialPairedMacLoad = true` after sign-out, making the next
+        // sign-in evaluate `hasNoPairedMacs` before the new user's load resolves.
+        signInBootstrapGeneration &+= 1
+        let generation = signInBootstrapGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard generation == self.signInBootstrapGeneration, self.isSignedIn else { return }
+            // loadPairedMacs first so `hasCompletedInitialPairedMacLoad` is set
+            // even when no runtime/store is available to fan out the refresh,
+            // letting the gate resolve empty-vs-loading on every path.
+            await self.loadPairedMacs()
+            guard generation == self.signInBootstrapGeneration, self.isSignedIn else { return }
+            await self.refreshAllPairedMacWorkspaceLists()
+        }
     }
+
+    /// Monotonic generation for the ``signIn`` bootstrap task, bumped by
+    /// ``signOut`` so a bootstrap from a now-signed-out session cannot resolve the
+    /// initial-load gate for the next session.
+    private var signInBootstrapGeneration = 0
+
+    /// The real stored `macDeviceID` of a paired Mac currently being reconnected
+    /// or switched to, so ``setActiveMac`` keys the live partition by the stored id
+    /// even when a legacy host's synthetic ticket carries a `manual-...` id.
+    ///
+    /// Set by ``switchToMac`` / ``reconnectActiveMacIfAvailable`` around their
+    /// ``connectManualHost`` call and consumed (cleared) by ``setActiveMac``. `nil`
+    /// for first-time pairing / manual-host add / preview, which then key by the
+    /// ticket as before. A transient rather than a threaded parameter so the public
+    /// ``connectManualHost`` signature (used by the manual-add UI) is unchanged.
+    private var pendingKnownActiveMacDeviceID: String?
 
     public func signOut() {
         // Reset analytics identity to anonymous on the signed-in→signed-out edge
@@ -405,6 +605,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Drop the cached paired Macs so the next signed-in user never sees the
         // previous user's hosts in the switcher.
         pairedMacs = []
+        // Re-arm the empty-vs-loading gate so the next sign-in re-resolves it, and
+        // bump the sign-in bootstrap generation so an in-flight bootstrap from this
+        // session can't flip the gate back to resolved after this reset.
+        hasCompletedInitialPairedMacLoad = false
+        signInBootstrapGeneration &+= 1
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the forget path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
@@ -412,18 +617,52 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
+        // Drop any queued heavy-session retarget so a pending switch can't fire
+        // for the previous user after sign-out (the drain re-guards on pairedMacs).
+        pendingHeavySessionTarget = nil
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
+        allMacsWorkspaceListRefreshTask?.cancel()
+        allMacsWorkspaceListRefreshTask = nil
         rawTerminalInputBuffer.clear()
         reportedViewportSizesByTerminalKey = [:]
-        workspaces = PreviewMobileHost.workspaces
-        selectedWorkspaceID = workspaces.first?.id
-        selectedTerminalID = workspaces.first?.terminals.first?.id
+        // Drop every Mac's partition so a shared device never shows the previous
+        // user's aggregated list. In a runtime-less SwiftUI preview, reseed the
+        // synthetic preview host so previews still render content. In a production
+        // session, clear to empty: reseeding the preview partition would survive
+        // into the next user's signed-in session (the preview workspaces would
+        // appear as a fake device section AND keep `hasNoPairedMacs` false, both
+        // wrong for a real account).
+        if runtime == nil {
+            let seed = Self.partitions(from: PreviewMobileHost.workspaces)
+            workspacesByMac = seed.workspacesByMac
+            macOrder = seed.macOrder
+            macDisplayNameByMac = seed.displayNames
+            macStatusByMac = [:]
+            selectedMacDeviceID = PreviewMobileHost.workspaces.first?.sourceMacDeviceID
+            selectedWorkspaceID = PreviewMobileHost.workspaces.first?.id
+            selectedTerminalID = PreviewMobileHost.workspaces.first?.terminals.first?.id
+        } else {
+            workspacesByMac = [:]
+            macOrder = []
+            macDisplayNameByMac = [:]
+            macStatusByMac = [:]
+            selectedMacDeviceID = nil
+            selectedWorkspaceID = nil
+            selectedTerminalID = nil
+        }
+        activeMacDeviceID = nil
     }
 
     public func resumeForegroundRefresh() {
         startObservingNetworkPathChanges()
         resyncTerminalOutput(reason: "foreground", restartEventStream: true)
+        // Refresh the other Macs' list partitions on foreground so the
+        // aggregated all-devices list reflects work done on those Macs while the
+        // phone was backgrounded. The active Mac is refreshed by the live session.
+        Task { @MainActor [weak self] in
+            await self?.refreshAllPairedMacWorkspaceLists()
+        }
     }
 
     /// Forward a scroll gesture to the Mac's real surface. libghostty does the
@@ -496,6 +735,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func renameWorkspace(id: MobileWorkspacePreview.ID, title: String) async {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let client = remoteClient else { return }
+        // workspace.action runs over the active Mac's client; only act on a
+        // workspace that is in the active Mac's partition so a stale/non-active id
+        // (or a cross-Mac id collision) can't mutate the wrong Mac's workspace.
+        guard workspaceIsOnActiveMac(id) else { return }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "workspace.action",
@@ -523,6 +766,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///   - pinned: `true` to pin, `false` to unpin.
     public func setWorkspacePinned(id: MobileWorkspacePreview.ID, _ pinned: Bool) async {
         guard let client = remoteClient else { return }
+        // Same active-Mac routing guard as `renameWorkspace`.
+        guard workspaceIsOnActiveMac(id) else { return }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "workspace.action",
@@ -653,10 +898,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         activeRoute = nil
         connectedHostName = PreviewMobileHost.hostName
         guard isCurrentPairingAttempt(attemptID) else { return }
+        // The synthetic preview host owns the seeded preview-Mac partition, so
+        // make it the active Mac and ensure that partition is populated (it may
+        // have been cleared by a prior teardown). This keeps the preview create
+        // paths routing into a real partition.
+        activeMacDeviceID = PreviewMobileHost.deviceID
+        if workspacesByMac[PreviewMobileHost.deviceID]?.isEmpty ?? true {
+            setWorkspaces(
+                PreviewMobileHost.workspaces,
+                forMac: PreviewMobileHost.deviceID,
+                displayName: PreviewMobileHost.hostName
+            )
+        }
+        selectedMacDeviceID = PreviewMobileHost.deviceID
         connectionState = .connected
         markMacConnectionHealthy()
         if selectedWorkspaceID == nil {
-            selectedWorkspaceID = workspaces.first?.id
+            selectedWorkspaceID = workspacesByMac[PreviewMobileHost.deviceID]?.first?.id
         }
         syncSelectedTerminalForWorkspace()
     }
@@ -799,6 +1057,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard generation == storedMacReconnectGeneration else { return false }
         setHasKnownPairedMac(true, generation: generation)
         isReconnectingStoredMac = true
+        // Carry the real stored id so a legacy synthetic-ticket fallback still keys
+        // the live partition by macDeviceID (matching pairedMacs / refresh / forget).
+        pendingKnownActiveMacDeviceID = mac.macDeviceID
         await connectManualHost(name: mac.displayName ?? host, host: host, port: port)
         // A newer attempt may have started during the connect; it now owns the flags.
         guard generation == storedMacReconnectGeneration else { return false }
@@ -853,6 +1114,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let pairedMacStore, isSignedIn,
               let stackUserID = identityProvider?.currentUserID else {
             pairedMacs = []
+            // No store / not signed in / no Stack user is a resolved "no Macs"
+            // state, so the gate may now distinguish empty from still-loading.
+            hasCompletedInitialPairedMacLoad = true
             return
         }
         let loaded: [MobilePairedMac]
@@ -860,6 +1124,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             loaded = try await pairedMacStore.loadAll(stackUserID: stackUserID)
         } catch {
             mobileShellLog.error("paired mac store loadAll failed: \(String(describing: error), privacy: .public)")
+            // Mark the initial load resolved even on failure so the root gate can
+            // fall through to the pairing/disconnected flow (the safe state)
+            // instead of stranding a signed-in user on an empty WorkspaceShellView
+            // forever because `hasCompletedInitialPairedMacLoad` never flipped.
+            // The existing partitions (if any) are preserved; only the gate
+            // resolves. A later successful load repopulates `pairedMacs`.
+            if isSignedIn, identityProvider?.currentUserID == stackUserID {
+                hasCompletedInitialPairedMacLoad = true
+            }
             return
         }
         // The await above suspended the main actor; a sign-out or user switch may
@@ -870,6 +1143,156 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         pairedMacs = loaded
+        // Seed display names for paired Macs so a not-yet-partitioned (offline)
+        // Mac's grayed section shows its real name instead of the bare device id.
+        for mac in loaded {
+            if macDisplayNameByMac[mac.macDeviceID] == nil,
+               let name = mac.displayName, !name.isEmpty {
+                macDisplayNameByMac[mac.macDeviceID] = name
+            }
+        }
+        hasCompletedInitialPairedMacLoad = true
+    }
+
+    /// Refresh the list partition of every **non-active** paired Mac on demand.
+    ///
+    /// The aggregated list is the union of every paired Mac's workspaces. The
+    /// active Mac's partition is kept live by the heavy render-grid session, so
+    /// it is excluded here. For each other reachable Mac this mints a fresh attach
+    /// ticket, spins a transient ``MobileCoreRPCClient`` (no render-grid
+    /// subscription), calls `workspace.list`, maps + tags the result into that
+    /// Mac's partition, marks it `.connected`, then disconnects the transient
+    /// client. An unreachable Mac is marked `.unavailable` and keeps its
+    /// last-known partition (grayed) rather than disappearing.
+    ///
+    /// Phase 1 only: live secondary subscriptions are Phase 2. Coalesced (one
+    /// fan-out at a time) and cancelled on sign-out. Each partition write is
+    /// re-guarded after its `await` against sign-out / user-switch / mac-removal.
+    public func refreshAllPairedMacWorkspaceLists() async {
+        guard runtime != nil, pairedMacStore != nil, isSignedIn else { return }
+        guard allMacsWorkspaceListRefreshTask == nil else { return }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.runAllPairedMacWorkspaceListRefresh()
+        }
+        allMacsWorkspaceListRefreshTask = task
+        defer { allMacsWorkspaceListRefreshTask = nil }
+        await task.value
+    }
+
+    private func runAllPairedMacWorkspaceListRefresh() async {
+        await loadPairedMacs()
+        guard let runtime, isSignedIn else { return }
+        let stackUserID = identityProvider?.currentUserID
+        let activeMac = activeMacDeviceID
+        // Skip the active Mac (its partition is kept fresh by the live session)
+        // and the synthetic preview Mac (no real route to dial).
+        let targets = pairedMacs.filter { mac in
+            mac.macDeviceID != activeMac && mac.macDeviceID != PreviewMobileHost.deviceID
+        }
+        guard !targets.isEmpty else { return }
+        let supportedKinds = runtime.supportedRouteKinds
+        await withTaskGroup(of: MacWorkspaceListRefreshOutcome?.self) { group in
+            for mac in targets {
+                group.addTask { [weak self] in
+                    await self?.fetchWorkspaceList(for: mac, supportedKinds: supportedKinds)
+                }
+            }
+            for await outcome in group {
+                guard let outcome else { continue }
+                // Re-guard after the awaited fetch: a sign-out / user switch /
+                // forget may have run, so never write a partition for a Mac that
+                // is no longer the signed-in user's, or after sign-out.
+                guard isSignedIn,
+                      identityProvider?.currentUserID == stackUserID,
+                      pairedMacs.contains(where: { $0.macDeviceID == outcome.macDeviceID }),
+                      outcome.macDeviceID != activeMacDeviceID else { continue }
+                switch outcome.result {
+                case let .workspaces(workspaces):
+                    setWorkspaces(workspaces, forMac: outcome.macDeviceID, displayName: outcome.displayName)
+                    macStatusByMac[outcome.macDeviceID] = .connected
+                case .unavailable:
+                    // Keep the last-known partition; just gray the section.
+                    if !macOrder.contains(outcome.macDeviceID) {
+                        macOrder.append(outcome.macDeviceID)
+                    }
+                    macDisplayNameByMac[outcome.macDeviceID] = outcome.displayName
+                    macStatusByMac[outcome.macDeviceID] = .unavailable
+                }
+            }
+        }
+    }
+
+    /// One-shot transient `workspace.list` against a single paired Mac, with no
+    /// render-grid subscription. Returns the mapped workspaces on success or an
+    /// `.unavailable` marker on any failure; always disconnects the transient
+    /// client before returning.
+    private func fetchWorkspaceList(
+        for mac: MobilePairedMac,
+        supportedKinds: [CmxAttachTransportKind]
+    ) async -> MacWorkspaceListRefreshOutcome? {
+        guard let runtime else { return nil }
+        let displayName = mac.displayName ?? mac.macDeviceID
+        guard let (host, port) = Self.firstReconnectHostPortRoute(mac.routes, supportedKinds: supportedKinds),
+              let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host),
+              let route = try? Self.manualHostRoute(host: normalizedHost, port: port),
+              MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
+            return MacWorkspaceListRefreshOutcome(
+                macDeviceID: mac.macDeviceID,
+                displayName: displayName,
+                result: .unavailable
+            )
+        }
+        let ticket: CmxAttachTicket
+        do {
+            // Use the same fallback-aware mint `connectManualHost` uses: a legacy
+            // Mac that returns `method_not_found` for `mobile.attach_ticket.create`
+            // falls back to a synthetic manual ticket that still authorizes the
+            // authenticated `workspace.list` below. Calling the raw
+            // `requestManualAttachTicket` here would mark every such legacy Mac
+            // `.unavailable` and never surface its workspaces.
+            ticket = try await manualHostTicket(name: displayName, host: normalizedHost, port: port)
+        } catch {
+            mobileShellLog.info("secondary mac ticket mint failed mac=\(mac.macDeviceID, privacy: .public): \(String(describing: error), privacy: .private)")
+            return MacWorkspaceListRefreshOutcome(
+                macDeviceID: mac.macDeviceID,
+                displayName: displayName,
+                result: .unavailable
+            )
+        }
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        defer { Task { await client.disconnect() } }
+        do {
+            let resultData = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
+                timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
+            )
+            let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+            let workspaces = response.workspaces.map { remote in
+                MobileWorkspacePreview(
+                    remote: remote,
+                    sourceMacDeviceID: mac.macDeviceID,
+                    sourceMacDisplayName: displayName
+                )
+            }
+            return MacWorkspaceListRefreshOutcome(
+                macDeviceID: mac.macDeviceID,
+                displayName: displayName,
+                result: .workspaces(workspaces)
+            )
+        } catch {
+            mobileShellLog.info("secondary mac workspace.list failed mac=\(mac.macDeviceID, privacy: .public): \(String(describing: error), privacy: .private)")
+            return MacWorkspaceListRefreshOutcome(
+                macDeviceID: mac.macDeviceID,
+                displayName: displayName,
+                result: .unavailable
+            )
+        }
     }
 
     /// Switch the live connection to `macDeviceID`, persisting it as the active
@@ -885,6 +1308,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let pairedMacStore,
               let target = pairedMacs.first(where: { $0.macDeviceID == macDeviceID }) else { return }
         if target.isActive, connectionState == .connected { return }
+        // `isSwitchingHeavySession` is owned by `drainPendingHeavySessionTargets`
+        // (the only caller that should manage concurrent retargets); a direct
+        // call here is sequential by the actor and does not need to set it.
         // The currently-active Mac to fall back to if the switch fails.
         let previousActive = pairedMacs.first { $0.isActive && $0.macDeviceID != macDeviceID }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
@@ -895,6 +1321,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .public)")
             return
         }
+        // Carry the real stored id so a legacy synthetic-ticket fallback still keys
+        // the live partition by macDeviceID (matching pairedMacs / refresh / forget).
+        pendingKnownActiveMacDeviceID = macDeviceID
         await connectManualHost(name: target.displayName ?? host, host: host, port: port)
         // Persist the active row only if the live connection is to THIS Mac's
         // route. A different switch tapped while this connect was in flight
@@ -915,7 +1344,46 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // the user is not left stranded on a failed switch.
             _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
         }
+        // After a failed switch to an offline Mac the selection may still point at
+        // the unreachable target while the heavy session is back on a different
+        // (active) Mac. Re-anchor selection onto the active Mac so the detail view
+        // never sits on a silently dead surface (input/replay route to the active
+        // Mac's partition, which no longer contains the stale selection).
+        reanchorSelectionToActiveMacIfStranded()
+        // Re-drive replay for surfaces that registered during the retarget window.
+        // In compact mode the detail (and its terminal surface) can mount and
+        // request replay while the live client was still the OLD Mac, so that
+        // replay resolved against the old partition and was skipped for the new
+        // Mac's surface. After the switch connects, re-request replay for every
+        // registered surface against the now-active client so the terminal is not
+        // left blank until later output/input. No-op when not connected.
+        if connectionState == .connected {
+            resyncTerminalOutput(reason: "retarget", restartEventStream: true)
+        }
         await loadPairedMacs()
+    }
+
+    /// If the current selection points at a Mac other than the active one and the
+    /// selected workspace is no longer routable (its Mac is not the active Mac),
+    /// move the selection onto the active Mac's selected/first workspace.
+    ///
+    /// Guards against the failed-switch-to-offline-Mac case where selection is
+    /// left on the unreachable target while the heavy session reconnected to a
+    /// different Mac, which would otherwise present a dead terminal.
+    private func reanchorSelectionToActiveMacIfStranded() {
+        // A newer target is queued: let the drain switch to it rather than
+        // yanking selection back to the just-completed Mac (which would make a
+        // slow earlier switch win over the user's latest tap).
+        guard pendingHeavySessionTarget == nil else { return }
+        guard let activeMacDeviceID else { return }
+        guard selectedMacDeviceID != activeMacDeviceID else { return }
+        let activePartition = workspacesByMac[activeMacDeviceID] ?? []
+        guard !activePartition.isEmpty else { return }
+        selectedMacDeviceID = activeMacDeviceID
+        // Assigning selectedWorkspaceID re-runs reconcile, but it now resolves to
+        // the active Mac (the id is in the active partition), so it is a no-op
+        // retarget rather than a loop.
+        selectedWorkspaceID = activePartition.first?.id
     }
 
     /// Forget `macDeviceID`. Always removes the selected stored row by its real
@@ -933,6 +1401,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             mobileShellLog.error("paired mac store remove failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
+        // Drop the forgotten Mac's partition so it disappears from the aggregated
+        // list and stops keeping `hasNoPairedMacs` false.
+        forgetMacPartition(macDeviceID)
         await loadPairedMacs()
     }
 
@@ -1071,8 +1542,53 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// active so reconnect-on-launch is a no-op until the user pairs again).
     /// Backs the "Rescan QR" action.
     public func disconnectAndForgetActiveMac() {
+        // Resolve the persisted stored id to remove BEFORE disconnecting. When the
+        // active Mac is offline the all-devices gate still shows this surface, but
+        // `activeTicket` is already nil, so relying on the ticket alone would skip
+        // the store removal and the Mac would reappear on the next launch.
+        //
+        // Prefer a REAL stored id over a synthetic `manual-...` one: a legacy host
+        // reconnected via the synthetic-ticket fallback has a `manual-<host>:<port>`
+        // ticket id while the stored paired row (and the active partition key) hold
+        // the real `macDeviceID`. Removing the synthetic id would leave the real row
+        // in storage, so it would reappear on the next launch. Order: the active
+        // paired row's id, else a non-`manual-` active partition key, else a
+        // non-`manual-` ticket id (covers the rare case with no active row).
         let staleMacID = activeTicket?.macDeviceID
+        let nonManual: (String?) -> String? = { id in
+            guard let id, !id.isEmpty, !id.hasPrefix("manual-") else { return nil }
+            return id
+        }
+        let persistedMacIDToRemove: String? = pairedMacs.first(where: { $0.isActive })?.macDeviceID
+            ?? nonManual(activeMacDeviceID)
+            ?? nonManual(staleMacID)
+        // Capture the active partition key before disconnect clears the active
+        // pointer; it may be a `manual-...` key that differs from the ticket's
+        // macDeviceID, so drop the partition by the key the aggregated list uses.
+        let staleActivePartitionKey = activeMacDeviceID
         disconnectLiveConnection()
+        // Drop the forgotten Mac's partition so Rescan QR returns the user to the
+        // pairing flow instead of leaving its stale workspaces in the list.
+        if let staleActivePartitionKey {
+            forgetMacPartition(staleActivePartitionKey)
+        }
+        // When the active Mac was ALREADY offline, `clearRemoteConnectionContext`
+        // had nulled `activeMacDeviceID` but intentionally kept its (grayed)
+        // partition, so `staleActivePartitionKey` is nil and the loop above never
+        // drops it. Also drop the resolved persisted id's partition so the offline
+        // active Mac's cached workspaces don't survive Rescan and keep
+        // `hasNoPairedMacs` false. No-op when it equals the key already dropped.
+        if let persistedMacIDToRemove, persistedMacIDToRemove != staleActivePartitionKey {
+            forgetMacPartition(persistedMacIDToRemove)
+        }
+        // Drop the forgotten Mac from the in-memory pairedMacs immediately. The
+        // store removal below is fire-and-forget (no reload), and `hasNoPairedMacs`
+        // checks `pairedMacs.isEmpty`, so without this Rescan QR would leave the
+        // last paired Mac in memory and the gate would never fall to the pairing
+        // flow. Remove the active row (this forgets the active Mac) and any row
+        // whose id matches the resolved persisted id, for robustness when the
+        // active row is not flagged isActive (e.g. an offline active Mac).
+        pairedMacs.removeAll { $0.isActive || $0.macDeviceID == persistedMacIDToRemove }
         // Forgetting the active Mac clears the restoring hint so the next launch
         // (and the current disconnected view) shows add-device immediately. Bump
         // the reconnect generation first so an in-flight reconnect can't re-set the
@@ -1081,7 +1597,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hasKnownPairedMac = false
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
-        if let pairedMacStore, let macID = staleMacID {
+        if let pairedMacStore, let macID = persistedMacIDToRemove {
             // Fire-and-forget: forgetting the persisted mac is cleanup that must
             // not block the synchronous disconnect UI state update above.
             Task {
@@ -1183,6 +1699,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket: probeTicket,
             allowsStackAuthFallback: true
         )
+        // This is a one-shot probe client for the ticket mint; tear down its
+        // transport/read loop before returning or throwing. The all-devices
+        // refresh mints a ticket per non-active Mac on every sign-in/foreground/
+        // pull, so a leaked probe client per Mac per refresh would accumulate
+        // persistent transports. (The workspace.list client below is likewise
+        // explicitly disconnected.)
+        defer { Task { await client.disconnect() } }
         let resultData = try await client.sendRequest(
             MobileCoreRPCClient.requestData(
                 method: "mobile.attach_ticket.create",
@@ -1209,7 +1732,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
-        let nextIndex = workspaces.count + 1
+        // Synthetic create only for the preview host (no real session). A real
+        // session that is merely disconnected (remoteClient nil, activeMac dropped
+        // or a real Mac) must NOT mint a fake preview workspace into the user's
+        // real device list; the all-devices gate can show this surface while
+        // disconnected, so creation is a no-op until a reachable Mac is active.
+        guard isPreviewHostActive else { return }
+        let macID = PreviewMobileHost.deviceID
+        let displayName = macDisplayNameByMac[macID] ?? PreviewMobileHost.hostName
+        var partition = workspacesByMac[macID] ?? []
+        let nextIndex = partition.count + 1
         let workspace = MobileWorkspacePreview(
             id: .init(rawValue: "workspace-\(nextIndex)"),
             name: L10n.workspaceName(index: nextIndex),
@@ -1218,9 +1750,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     id: .init(rawValue: "workspace-\(nextIndex)-terminal-1"),
                     name: L10n.terminalName(index: 1)
                 ),
-            ]
+            ],
+            sourceMacDeviceID: macID,
+            sourceMacDisplayName: displayName
         )
-        workspaces.append(workspace)
+        partition.append(workspace)
+        setWorkspaces(partition, forMac: macID, displayName: displayName)
+        selectedMacDeviceID = macID
         selectedWorkspaceID = workspace.id
         selectedTerminalID = workspace.terminals.first?.id
         suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
@@ -1250,16 +1786,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
-        guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == targetWorkspaceID }) else {
+        // Synthetic create only for the preview host (see createWorkspace): a real
+        // disconnected session must not fabricate terminals into a real list.
+        guard isPreviewHostActive else { return }
+        let macID = PreviewMobileHost.deviceID
+        let displayName = macDisplayNameByMac[macID] ?? PreviewMobileHost.hostName
+        var partition = workspacesByMac[macID] ?? []
+        guard let workspaceIndex = partition.firstIndex(where: { $0.id == targetWorkspaceID }) else {
             return
         }
+        selectedMacDeviceID = macID
         selectedWorkspaceID = targetWorkspaceID
-        let terminalIndex = workspaces[workspaceIndex].terminals.count + 1
+        let terminalIndex = partition[workspaceIndex].terminals.count + 1
         let terminal = MobileTerminalPreview(
-            id: .init(rawValue: "\(workspaces[workspaceIndex].id.rawValue)-terminal-\(terminalIndex)"),
+            id: .init(rawValue: "\(partition[workspaceIndex].id.rawValue)-terminal-\(terminalIndex)"),
             name: L10n.terminalName(index: terminalIndex)
         )
-        workspaces[workspaceIndex].terminals.append(terminal)
+        partition[workspaceIndex].terminals.append(terminal)
+        setWorkspaces(partition, forMac: macID, displayName: displayName)
         selectedTerminalID = terminal.id
         suppressTerminalAutoFocusOnNextAttach(for: terminal.id)
     }
@@ -1323,6 +1867,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         setSelectedWorkspaceID(id)
     }
 
+    /// Select a workspace by its `(macDeviceID, workspaceID)` pair.
+    ///
+    /// The aggregated list groups by Mac and workspace ids are only unique within
+    /// a Mac, so a row tap carries its section's device id to disambiguate a
+    /// same-id collision across Macs. Pinning the Mac first makes the
+    /// ``selectedWorkspaceID`` `didSet` reconcile to the intended partition and
+    /// retarget the heavy session to that Mac when needed.
+    /// - Parameters:
+    ///   - workspaceID: The tapped workspace's identifier.
+    ///   - macDeviceID: The source Mac of the section the workspace was tapped in.
+    public func selectWorkspace(
+        _ workspaceID: MobileWorkspacePreview.ID,
+        onMac macDeviceID: String
+    ) {
+        // Pin the owning Mac before the id so reconcile resolves to this Mac's
+        // partition even when another Mac exposes the same workspace id.
+        if (workspacesByMac[macDeviceID] ?? []).contains(where: { $0.id == workspaceID }) {
+            selectedMacDeviceID = macDeviceID
+        }
+        selectedWorkspaceID = workspaceID
+    }
+
     public func sendTerminalInput() {
         Task { @MainActor [weak self] in
             await self?.submitTerminalInput()
@@ -1352,13 +1918,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #if DEBUG
         mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
         #endif
-        guard let workspaceID = selectedWorkspace?.id,
-              let terminalID = selectedTerminalID else {
+        // Route by the active Mac's selection only, so a composer keystroke during
+        // a heavy-session retarget never enqueues another Mac's ids.
+        guard let target = activeSelectedSendTarget else {
             #if DEBUG
             mobileShellLog.info("skip raw terminal input enqueue selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
             #endif
             return
         }
+        let workspaceID = target.workspaceID
+        let terminalID = target.terminalID
         switch rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
@@ -1390,11 +1959,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     public func submitTerminalRawInput(_ text: String) async {
         guard !text.isEmpty else { return }
-        guard let workspaceID = selectedWorkspace?.id,
-              let terminalID = selectedTerminalID else {
-            return
-        }
-        await submitTerminalRawInput(text, workspaceID: workspaceID, terminalID: terminalID)
+        guard let target = activeSelectedSendTarget else { return }
+        await submitTerminalRawInput(text, workspaceID: target.workspaceID, terminalID: target.terminalID)
     }
 
     /// Raw-bytes overload. The libghostty render path on iOS uses this
@@ -1409,12 +1975,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let text = String(data: data, encoding: .utf8) else {
             return
         }
-        let workspaceCandidate = workspaces.first(where: { workspace in
-            workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
-        })
-        guard let workspace = workspaceCandidate else { return }
+        // Route only into the active Mac's partition: a surface that is not on
+        // the active Mac resolves to nil and the input is dropped rather than
+        // sent to the wrong Mac's client.
+        guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
         let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
-        await submitTerminalRawInput(text, workspaceID: workspace.id, terminalID: terminalID)
+        await submitTerminalRawInput(text, workspaceID: workspaceID, terminalID: terminalID)
     }
 
     private func submitTerminalRawInput(
@@ -1502,6 +2068,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
                     guard generation == connectionGeneration, isSignedIn else { return }
                     replaceRemoteClient(with: client)
+                    setActiveMac(from: ticket)
                     startTerminalRefreshPolling()
                     connectionError = nil
                     await persistPairedMacFromTicket(ticket)
@@ -1666,11 +2233,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
     }
 
+    /// Tear down the live heavy session (active client, terminal-output
+    /// tracking, render-grid listener + watchdog) while **keeping every Mac's
+    /// list partition intact**.
+    ///
+    /// This is the heavy-session-vs-list split: the active Mac's last-known
+    /// workspaces stay in the aggregated list, grayed `.unavailable`, instead of
+    /// vanishing. Other Macs' partitions are untouched. Used by every
+    /// connect-failure / disconnect / retarget path; only ``signOut`` drops the
+    /// partitions wholesale.
     private func clearRemoteConnectionContext() {
         connectionGeneration = UUID()
         cancelRemoteOperationTasks()
         clearActiveConnectionContext()
+        // Gray the active Mac's section before dropping the active-Mac pointer,
+        // so its last-known partition is shown as unavailable, not removed.
+        if let activeMacDeviceID {
+            macStatusByMac[activeMacDeviceID] = .unavailable
+        }
         macConnectionStatus = .unavailable
+        activeMacDeviceID = nil
+        // A failed/torn-down connect never reached setActiveMac, so drop the
+        // pending known-mac id rather than letting it leak into a later connect.
+        pendingKnownActiveMacDeviceID = nil
         replaceRemoteClient(with: nil)
         rawTerminalInputBuffer.clear()
     }
@@ -1881,6 +2466,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func createRemoteWorkspace() async {
         guard let client = remoteClient else { return }
+        // workspace.create runs over the active Mac's `remoteClient`. Block only a
+        // genuine cross-Mac retarget window: selection pinned to a DIFFERENT Mac
+        // than the active one (tap on Mac B while the client is still A's). A nil
+        // selection is allowed, so the first workspace can be created on a
+        // connected-but-empty Mac (empty list -> nil selection -> nil selectedMac).
+        if let selectedMacDeviceID, selectedMacDeviceID != activeMacDeviceID { return }
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
@@ -1912,8 +2503,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func createRemoteTerminal(in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil) async {
         guard let client = remoteClient,
-              let workspaceID = (explicitWorkspaceID ?? selectedWorkspace?.id)?.rawValue else { return }
-        let requestedWorkspaceID = MobileWorkspacePreview.ID(rawValue: workspaceID)
+              let activeMacDeviceID,
+              let requestedID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
+        // terminal.create runs over the active Mac's `remoteClient`. Block a
+        // genuine cross-Mac retarget window: selection pinned to a DIFFERENT Mac
+        // than the active one (viewing Mac B's workspace while the client is still
+        // A's), so under a workspace-id collision the create can't land on Mac A.
+        // A nil selection is allowed (the explicit-id partition check below is the
+        // real routing gate).
+        if let selectedMacDeviceID, selectedMacDeviceID != activeMacDeviceID { return }
+        // The requested workspace must actually be in the active Mac's partition (a
+        // row "+" can pass an explicit id that is not on the active Mac); this is
+        // the authoritative routing check that keeps the create on the right Mac.
+        guard (workspacesByMac[activeMacDeviceID] ?? []).contains(where: { $0.id == requestedID }) else { return }
+        let workspaceID = requestedID.rawValue
+        let requestedWorkspaceID = requestedID
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
@@ -1941,14 +2545,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func sendRemoteTerminalInput(_ text: String) async {
-        guard let workspaceID = selectedWorkspace?.id,
-              let terminalID = selectedTerminalID else {
+        guard let target = activeSelectedSendTarget else {
             #if DEBUG
             mobileShellLog.info("skip remote terminal input selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
             #endif
             return
         }
-        await sendRemoteTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+        await sendRemoteTerminalInput(text, workspaceID: target.workspaceID, terminalID: target.terminalID)
     }
 
     private func sendRemoteTerminalInput(
@@ -2006,16 +2609,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///     sanitizes it and defaults to `png` for anything unrecognized.
     public func submitTerminalPasteImage(_ data: Data, format: String) async {
         guard !data.isEmpty else { return }
-        guard let workspaceID = selectedWorkspace?.id,
-              let terminalID = selectedTerminalID else {
-            return
-        }
+        // Paste routes by the active Mac's selection only, so a pasted image
+        // during a retarget never lands on a different Mac's client.
+        guard let target = activeSelectedSendTarget else { return }
         guard remoteClient != nil else { return }
         await sendRemoteTerminalPasteImage(
             data,
             format: format,
-            workspaceID: workspaceID,
-            terminalID: terminalID
+            workspaceID: target.workspaceID,
+            terminalID: target.terminalID
         )
     }
 
@@ -2583,13 +3185,45 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Resolve a surface id to its workspace **only within the active Mac's
+    /// partition**, the routing safety chokepoint.
+    ///
+    /// Every heavy-session send path (input, paste, scroll, click, viewport,
+    /// replay) resolves its surface through this and bails on `nil`. Because the
+    /// live `remoteClient` is always the active Mac's client and this scans only
+    /// the active Mac's partition, a foreign or stale surface (e.g. another Mac's
+    /// surface still mounted during a retarget, or a same-id collision) resolves
+    /// to `nil` and the send becomes a safe no-op instead of dispatching a
+    /// foreign `workspace_id` to the wrong Mac's client. Surface ids are only
+    /// unique within a Mac, so an unscoped scan could otherwise mis-route.
     private func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
-        for workspace in workspaces {
+        guard let activeMacDeviceID else { return nil }
+        // Mid-retarget the mounted surface belongs to the just-selected (not-yet-
+        // active) Mac, while `remoteClient` is still the old active Mac's. Drop the
+        // send in that window (the same tradeoff `activeSelectedSendTarget` makes
+        // for the selection-keyed paths); after the switch settles selection equals
+        // the active Mac and the post-switch resync re-drives replay. Outside a
+        // retarget reconcile/reanchor keep these equal, so this is a no-op guard.
+        // Belt-and-suspenders for an across-Mac terminal-id collision, which is
+        // effectively unreachable because Mac surface ids are UUIDs.
+        if let selectedMacDeviceID, selectedMacDeviceID != activeMacDeviceID { return nil }
+        for workspace in workspacesByMac[activeMacDeviceID] ?? [] {
             if workspace.terminals.contains(where: { $0.id.rawValue == terminalID }) {
                 return workspace.id
             }
         }
         return nil
+    }
+
+    /// Whether `workspaceID` is in the active Mac's partition.
+    ///
+    /// The routing chokepoint for workspace-scoped actions (rename, pin) that send
+    /// over the active Mac's `remoteClient`: a workspace not on the active Mac (a
+    /// non-active section, or a cross-Mac id collision) returns `false`, so the
+    /// action is a safe no-op instead of mutating the wrong Mac's workspace.
+    private func workspaceIsOnActiveMac(_ workspaceID: MobileWorkspacePreview.ID) -> Bool {
+        guard let activeMacDeviceID else { return false }
+        return (workspacesByMac[activeMacDeviceID] ?? []).contains { $0.id == workspaceID }
     }
 
     private func handleTerminalRenderGridEvent(_ event: MobileEventEnvelope) {
@@ -2691,14 +3325,131 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedWorkspaceID = id
     }
 
+    // MARK: - Workspace partitions (per source Mac)
+
+    /// Group a flat workspace list into per-Mac partitions plus a stable device
+    /// order and display-name map.
+    ///
+    /// Used to seed the store from preview/test fixtures. Workspaces with the
+    /// same ``MobileWorkspacePreview/sourceMacDeviceID`` land in one partition;
+    /// device order follows first appearance so the derived ``workspaces`` keeps
+    /// a stable, non-reshuffling order.
+    private static func partitions(
+        from workspaces: [MobileWorkspacePreview]
+    ) -> (
+        workspacesByMac: [String: [MobileWorkspacePreview]],
+        macOrder: [String],
+        displayNames: [String: String]
+    ) {
+        var byMac: [String: [MobileWorkspacePreview]] = [:]
+        var order: [String] = []
+        var names: [String: String] = [:]
+        for workspace in workspaces {
+            let macID = workspace.sourceMacDeviceID
+            if byMac[macID] == nil {
+                order.append(macID)
+            }
+            byMac[macID, default: []].append(workspace)
+            if names[macID] == nil, !workspace.sourceMacDisplayName.isEmpty {
+                names[macID] = workspace.sourceMacDisplayName
+            }
+        }
+        return (byMac, order, names)
+    }
+
+    /// Replace a single Mac's partition, registering it in ``macOrder`` and
+    /// ``macDisplayNameByMac`` if newly seen. This is the only sanctioned write
+    /// onto the aggregated list: scoping every workspace-list result to its
+    /// producing Mac is what stops one Mac's refresh from clobbering another's
+    /// partition (the #1 correctness risk of the aggregated model).
+    private func setWorkspaces(
+        _ macWorkspaces: [MobileWorkspacePreview],
+        forMac macDeviceID: String,
+        displayName: String?
+    ) {
+        if workspacesByMac[macDeviceID] == nil, !macOrder.contains(macDeviceID) {
+            macOrder.append(macDeviceID)
+        }
+        workspacesByMac[macDeviceID] = macWorkspaces
+        if let displayName, !displayName.isEmpty {
+            macDisplayNameByMac[macDeviceID] = displayName
+        } else if macDisplayNameByMac[macDeviceID] == nil,
+                  let firstName = macWorkspaces.first?.sourceMacDisplayName,
+                  !firstName.isEmpty {
+            macDisplayNameByMac[macDeviceID] = firstName
+        }
+    }
+
+    /// The display name for a Mac in the grouped list, falling back to the
+    /// device id when no name was advertised.
+    public func macDisplayName(forMacDeviceID macDeviceID: String) -> String {
+        macDisplayNameByMac[macDeviceID] ?? macDeviceID
+    }
+
+    /// The list-section connectivity status for a Mac.
+    ///
+    /// The active Mac mirrors ``macConnectionStatus``; others reflect their last
+    /// `workspace.list` refresh (`.connected` on success, `.unavailable` when
+    /// unreachable). Defaults to `.unavailable` for a Mac not yet refreshed.
+    public func macStatus(forMacDeviceID macDeviceID: String) -> MobileMacConnectionStatus {
+        macStatusByMac[macDeviceID] ?? .unavailable
+    }
+
+    /// Whether the first ``loadPairedMacs`` after sign-in has resolved.
+    ///
+    /// Gates ``hasNoPairedMacs`` so an already-paired user's cold launch (Stack
+    /// restored, but the paired-Mac load and reconnect still in flight) does not
+    /// momentarily report "no Macs" and flash the pairing screen before the
+    /// aggregated list appears. Reset on sign-out.
+    public private(set) var hasCompletedInitialPairedMacLoad: Bool = false
+
+    /// Whether this device has zero paired Macs, gating the root view between the
+    /// aggregated list and the pairing/empty surface.
+    ///
+    /// Reports `false` until ``hasCompletedInitialPairedMacLoad`` is set, so a
+    /// restored-but-not-yet-loaded session shows the list path (which renders a
+    /// neutral loading surface) instead of flashing pairing. After the initial
+    /// load it is `true` only when no **real** partition holds workspaces, no Mac
+    /// is in the switcher, and no heavy session is live.
+    ///
+    /// The synthetic preview-Mac partition is excluded from the partition check in
+    /// a production session (`runtime != nil`): ``signOut`` reseeds that partition,
+    /// so counting it would keep this `false` after a real re-sign-in with no
+    /// paired Macs and trap the user out of pairing. In a runtime-less SwiftUI
+    /// preview the preview partition is the only content, so it keeps this `false`
+    /// and previews still show the list.
+    public var hasNoPairedMacs: Bool {
+        guard hasCompletedInitialPairedMacLoad else { return false }
+        let hasRealPartition: Bool
+        if runtime == nil {
+            hasRealPartition = !workspacesByMac.isEmpty
+        } else {
+            // Ignore the synthetic preview partition in a production session.
+            hasRealPartition = workspacesByMac.keys.contains { $0 != PreviewMobileHost.deviceID }
+        }
+        return !hasRealPartition && pairedMacs.isEmpty && activeMacDeviceID == nil
+    }
+
+    /// Apply a workspace-list response for the **active** Mac's partition only.
+    ///
+    /// Every wholesale list write funnels here and is scoped to
+    /// ``activeMacDeviceID`` so it can never overwrite another Mac's partition.
+    /// `mergeExistingWorkspaces` merges into the active Mac's existing partition
+    /// (used by create paths that return a partial list).
     private func applyRemoteWorkspaceList(
         _ response: MobileSyncWorkspaceListResponse,
         preferActiveTicketTarget: Bool = false,
         mergeExistingWorkspaces: Bool = false
     ) {
-        let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
+        guard let activeMacDeviceID else { return }
+        let displayName = macDisplayNameByMac[activeMacDeviceID] ?? connectedHostName
+        let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(
+            from: response,
+            forMac: activeMacDeviceID,
+            displayName: displayName
+        )
         if mergeExistingWorkspaces {
-            var mergedWorkspaces = workspaces
+            var mergedWorkspaces = workspacesByMac[activeMacDeviceID] ?? []
             for remoteWorkspace in remoteWorkspaces {
                 if let existingIndex = mergedWorkspaces.firstIndex(where: { $0.id == remoteWorkspace.id }) {
                     mergedWorkspaces[existingIndex] = remoteWorkspace
@@ -2706,32 +3457,53 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     mergedWorkspaces.append(remoteWorkspace)
                 }
             }
-            workspaces = mergedWorkspaces
+            setWorkspaces(mergedWorkspaces, forMac: activeMacDeviceID, displayName: displayName)
         } else {
-            workspaces = remoteWorkspaces
+            setWorkspaces(remoteWorkspaces, forMac: activeMacDeviceID, displayName: displayName)
         }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
         }
+        // A selection still present in the active Mac's refreshed partition is
+        // kept; otherwise re-anchor to the Mac's selected/first workspace.
         if let selectedWorkspaceID,
-           workspaces.contains(where: { $0.id == selectedWorkspaceID }) {
+           selectedMacDeviceID == activeMacDeviceID,
+           (workspacesByMac[activeMacDeviceID] ?? []).contains(where: { $0.id == selectedWorkspaceID }) {
             syncSelectedTerminalForWorkspace()
             return
         }
+        // Only re-anchor selection to the active Mac when nothing valid is
+        // selected, so refreshing the active Mac never yanks the user off a
+        // workspace they have selected on a different Mac.
+        let selectionIsValid = selectedMacDeviceID
+            .flatMap { workspacesByMac[$0] }?
+            .contains(where: { $0.id == selectedWorkspaceID }) ?? false
+        if selectionIsValid { return }
+        selectedMacDeviceID = activeMacDeviceID
         setSelectedWorkspaceID(
             response.workspaces.first(where: \.isSelected)
                 .map { MobileWorkspacePreview.ID(rawValue: $0.id) }
-                ?? workspaces.first?.id
+                ?? workspacesByMac[activeMacDeviceID]?.first?.id
         )
         syncSelectedTerminalForWorkspace()
     }
 
+    /// Map a workspace-list response into previews tagged with `macDeviceID`,
+    /// preserving per-terminal viewport-fit snapshots from that Mac's existing
+    /// partition so a list refresh does not reset live render state.
     private func remoteWorkspacesPreservingSnapshots(
-        from response: MobileSyncWorkspaceListResponse
+        from response: MobileSyncWorkspaceListResponse,
+        forMac macDeviceID: String,
+        displayName: String
     ) -> [MobileWorkspacePreview] {
-        response.workspaces.map { remoteWorkspace in
-            var workspace = MobileWorkspacePreview(remote: remoteWorkspace)
-            guard let existingWorkspace = workspaces.first(where: { $0.id == workspace.id }) else {
+        let existing = workspacesByMac[macDeviceID] ?? []
+        return response.workspaces.map { remoteWorkspace in
+            var workspace = MobileWorkspacePreview(
+                remote: remoteWorkspace,
+                sourceMacDeviceID: macDeviceID,
+                sourceMacDisplayName: displayName
+            )
+            guard let existingWorkspace = existing.first(where: { $0.id == workspace.id }) else {
                 return workspace
             }
             workspace.terminals = workspace.terminals.map { remoteTerminal in
@@ -2746,14 +3518,97 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Keep ``selectedMacDeviceID`` consistent with ``selectedWorkspaceID`` and
+    /// retarget the heavy session when the selected Mac changes.
+    ///
+    /// Resolves which Mac owns the selected workspace. When that differs from the
+    /// previously selected Mac, the heavy render-grid session must move to the
+    /// new Mac, so the live connection is reconnected to it (Phase 1: the active
+    /// Mac is reconnected on demand; live secondary subscriptions are Phase 2).
+    private func reconcileSelectedMacForSelectedWorkspace(previousMacDeviceID: String?) {
+        guard let selectedWorkspaceID else {
+            selectedMacDeviceID = nil
+            return
+        }
+        // Prefer the previously selected Mac if it still owns the id (avoids
+        // hopping Macs on a same-id collision), else find the owning partition.
+        let resolvedMac: String?
+        if let previousMacDeviceID,
+           (workspacesByMac[previousMacDeviceID] ?? []).contains(where: { $0.id == selectedWorkspaceID }) {
+            resolvedMac = previousMacDeviceID
+        } else {
+            resolvedMac = macOrder.first { macID in
+                (workspacesByMac[macID] ?? []).contains(where: { $0.id == selectedWorkspaceID })
+            }
+        }
+        guard let resolvedMac else { return }
+        selectedMacDeviceID = resolvedMac
+        retargetHeavySessionIfNeeded(toMacDeviceID: resolvedMac)
+    }
+
+    /// Move the live heavy session to `macDeviceID` when the selection lands on a
+    /// Mac other than the currently active one.
+    ///
+    /// Phase 1 keeps exactly one render-grid stream. Switching the selected Mac
+    /// reconnects the single live client to the new Mac (reusing the paired-Mac
+    /// reconnect path), which tears down the old Mac's stream without touching
+    /// any other Mac's list partition. A no-op when the selection is on the
+    /// active Mac, when there is no `runtime` (preview), or when no
+    /// `pairedMacStore` is available to reconnect through.
+    private func retargetHeavySessionIfNeeded(toMacDeviceID macDeviceID: String) {
+        guard runtime != nil, pairedMacStore != nil else { return }
+        guard macDeviceID != activeMacDeviceID else { return }
+        guard macDeviceID != PreviewMobileHost.deviceID else { return }
+        // Record the latest requested target. A switch already in flight will
+        // drain this on completion, so the user's most recent tap wins instead of
+        // being dropped (tap Mac B, then Mac C before B connects -> end on C).
+        pendingHeavySessionTarget = macDeviceID
+        guard !isSwitchingHeavySession else { return }
+        isSwitchingHeavySession = true
+        Task { @MainActor [weak self] in
+            await self?.drainPendingHeavySessionTargets()
+        }
+    }
+
+    /// Switch to the latest requested Mac, then keep switching while newer targets
+    /// arrive, so concurrent selections collapse to the last one. Owns the
+    /// ``isSwitchingHeavySession`` flag for the whole drain (``switchToMac`` no
+    /// longer manages it) so a later tap during a switch supersedes the earlier
+    /// one rather than racing a per-call `defer`.
+    private func drainPendingHeavySessionTargets() async {
+        defer { isSwitchingHeavySession = false }
+        while let target = pendingHeavySessionTarget {
+            pendingHeavySessionTarget = nil
+            // Skip if the selection moved back to the now-active Mac while we
+            // looped, or the target vanished (e.g. forgotten) meanwhile.
+            guard target != activeMacDeviceID,
+                  pairedMacs.contains(where: { $0.macDeviceID == target }) else { continue }
+            await switchToMac(macDeviceID: target)
+        }
+    }
+
+    /// True while a heavy-session retarget drain is in flight, so a
+    /// selection-driven reconcile records a pending target instead of stacking a
+    /// second concurrent switch.
+    private var isSwitchingHeavySession = false
+
+    /// The most recently requested heavy-session target Mac, set by a selection
+    /// reconcile and drained by ``drainPendingHeavySessionTargets``. The latest
+    /// write wins, so the user's last device tap is the one that connects.
+    private var pendingHeavySessionTarget: String?
+
     private func selectActiveTicketTargetIfAvailable() -> Bool {
         guard let activeTicket else {
             return false
         }
+        // The attach ticket's target lives on the active Mac, so scope the lookup
+        // and selection to that Mac's partition.
         let ticketWorkspaceID = MobileWorkspacePreview.ID(rawValue: activeTicket.workspaceID)
-        guard let workspace = workspaces.first(where: { $0.id == ticketWorkspaceID }) else {
+        let partition = activeMacDeviceID.flatMap { workspacesByMac[$0] } ?? workspaces
+        guard let workspace = partition.first(where: { $0.id == ticketWorkspaceID }) else {
             return false
         }
+        selectedMacDeviceID = activeMacDeviceID
         setSelectedWorkspaceID(ticketWorkspaceID)
         if let ticketTerminalID = activeTicket.terminalID.map(MobileTerminalPreview.ID.init(rawValue:)),
            workspace.terminals.contains(where: { $0.id == ticketTerminalID }) {
@@ -2943,9 +3798,121 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return left.priority < right.priority
     }
 
+    /// The stable partition key for an attach ticket's Mac.
+    ///
+    /// Real pairings carry a device id; manual/synthetic tickets carry a
+    /// `manual-...` placeholder. Either way it is non-empty and unique enough to
+    /// partition the aggregated list, so it doubles as the partition key.
+    private static func macPartitionKey(for ticket: CmxAttachTicket) -> String {
+        ticket.macDeviceID.isEmpty ? "manual-\(ticket.workspaceID)" : ticket.macDeviceID
+    }
+
+    /// Resolve the active partition key, preferring a known stored Mac id over the
+    /// ticket-derived one.
+    ///
+    /// A stored Mac always has a stable real `macDeviceID` from pairing, but on
+    /// reconnect a legacy host that lacks `mobile.attach_ticket.create` falls back
+    /// to a synthetic `manual-<host>:<port>` ticket. Keying the active partition by
+    /// the synthetic ticket id then diverges from the `pairedMacs` row (the
+    /// secondary refresh, switch, and forget all use the real id), duplicating the
+    /// Mac across two sections. Threading the known stored id keeps the live
+    /// partition under the same key everything else uses. First-time pairing /
+    /// manual-host / preview pass `nil` and fall back to the ticket-derived key.
+    /// - Parameters:
+    ///   - knownMacDeviceID: The real stored `macDeviceID` of the reconnecting /
+    ///     switching paired Mac, or `nil` for a first-time / manual / preview
+    ///     connection.
+    ///   - ticket: The attach ticket the connection was established with.
+    /// - Returns: The partition key to use for the active Mac.
+    static func activePartitionKey(
+        knownMacDeviceID: String?,
+        ticket: CmxAttachTicket
+    ) -> String {
+        if let knownMacDeviceID, !knownMacDeviceID.isEmpty, !knownMacDeviceID.hasPrefix("manual-") {
+            return knownMacDeviceID
+        }
+        return macPartitionKey(for: ticket)
+    }
+
+    /// Promote `ticket`'s Mac to the active (heavy-session) Mac and record its
+    /// display name, so subsequent ``applyRemoteWorkspaceList`` calls write that
+    /// Mac's partition and selection tags resolve to it.
+    ///
+    /// - Parameters:
+    ///   - ticket: The attach ticket the connection was established with.
+    ///   - knownMacDeviceID: The real stored `macDeviceID` when reconnecting or
+    ///     switching a known paired Mac, so a legacy synthetic-ticket fallback
+    ///     does not partition the live session under a `manual-...` id that
+    ///     diverges from the `pairedMacs` row. `nil` for first-time/manual/preview.
+    private func setActiveMac(from ticket: CmxAttachTicket, knownMacDeviceID: String? = nil) {
+        // Prefer an explicit argument, else the transient set by the stored-Mac
+        // reconnect/switch paths; clear the transient so it never leaks into a
+        // later first-time/manual connect.
+        let resolvedKnownID = knownMacDeviceID ?? pendingKnownActiveMacDeviceID
+        pendingKnownActiveMacDeviceID = nil
+        let macID = Self.activePartitionKey(knownMacDeviceID: resolvedKnownID, ticket: ticket)
+        let displayName = ticket.macDisplayName ?? ticket.macDeviceID
+        // Drop the synthetic preview-host partition the moment a real Mac becomes
+        // active: the seeded preview workspaces are not a real device and must not
+        // linger in the aggregated list alongside live Macs.
+        if macID != PreviewMobileHost.deviceID {
+            removeMacPartition(PreviewMobileHost.deviceID)
+            if selectedMacDeviceID == PreviewMobileHost.deviceID {
+                selectedMacDeviceID = nil
+            }
+        }
+        activeMacDeviceID = macID
+        if !macOrder.contains(macID) {
+            macOrder.append(macID)
+        }
+        if !displayName.isEmpty {
+            macDisplayNameByMac[macID] = displayName
+        }
+        macStatusByMac[macID] = macConnectionStatus
+    }
+
+    /// Drop a Mac's partition and its order/name/status bookkeeping entirely.
+    private func removeMacPartition(_ macDeviceID: String) {
+        workspacesByMac.removeValue(forKey: macDeviceID)
+        macStatusByMac.removeValue(forKey: macDeviceID)
+        macDisplayNameByMac.removeValue(forKey: macDeviceID)
+        macOrder.removeAll { $0 == macDeviceID }
+    }
+
+    /// Drop a forgotten Mac's partition and re-anchor selection off it.
+    ///
+    /// Forgetting a Mac must remove its workspaces from the aggregated list, not
+    /// just its paired-Mac store row: otherwise ``deviceSections`` keeps showing
+    /// the forgotten Mac's last-known workspaces and ``hasNoPairedMacs`` stays
+    /// `false` (so the root gate never falls back to pairing). If the forgotten
+    /// Mac was the active or selected Mac, the active pointer and selection are
+    /// cleared and re-anchored to a remaining partition so the detail view never
+    /// sits on a dropped Mac's workspace.
+    private func forgetMacPartition(_ macDeviceID: String) {
+        let wasActive = activeMacDeviceID == macDeviceID
+        let wasSelected = selectedMacDeviceID == macDeviceID
+        removeMacPartition(macDeviceID)
+        if wasActive {
+            activeMacDeviceID = nil
+        }
+        guard wasSelected || wasActive else { return }
+        // Re-anchor onto a remaining Mac's first workspace, or clear selection
+        // entirely when nothing is left (the gate then routes to pairing).
+        if let nextMac = macOrder.first(where: { !(workspacesByMac[$0]?.isEmpty ?? true) }) {
+            selectedMacDeviceID = nextMac
+            selectedWorkspaceID = workspacesByMac[nextMac]?.first?.id
+        } else {
+            selectedMacDeviceID = nil
+            selectedWorkspaceID = nil
+        }
+    }
+
     private func applyPreviewTicket(_ ticket: CmxAttachTicket, route: CmxAttachRoute) {
         let terminalID = ticket.terminalID ?? "attached-terminal"
-        workspaces = [
+        let macID = Self.macPartitionKey(for: ticket)
+        let displayName = ticket.macDisplayName ?? ticket.macDeviceID
+        activeMacDeviceID = macID
+        let previewWorkspaces = [
             MobileWorkspacePreview(
                 id: .init(rawValue: ticket.workspaceID),
                 name: L10n.string("mobile.preview.attachedWorkspaceName", defaultValue: "Attached Workspace"),
@@ -2954,11 +3921,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         id: .init(rawValue: terminalID),
                         name: L10n.string("mobile.preview.attachedTerminalName", defaultValue: "Attached Terminal")
                     ),
-                ]
+                ],
+                sourceMacDeviceID: macID,
+                sourceMacDisplayName: displayName
             ),
         ]
-        selectedWorkspaceID = workspaces.first?.id
-        selectedTerminalID = workspaces.first?.terminals.first?.id
+        setWorkspaces(previewWorkspaces, forMac: macID, displayName: displayName)
+        selectedMacDeviceID = macID
+        selectedWorkspaceID = previewWorkspaces.first?.id
+        selectedTerminalID = previewWorkspaces.first?.terminals.first?.id
     }
 }
 
