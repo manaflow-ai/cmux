@@ -1748,6 +1748,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplaySurfaceIDsInFlight = []
         terminalOutputTransport = .rawBytes
         supportsWorkspaceActions = false
+        // Clear paste support too, so a reconnect to an older host cannot send
+        // `terminal.paste` on a stale `true` before the next status probe lands.
+        supportsTerminalPaste = false
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
