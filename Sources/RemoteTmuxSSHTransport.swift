@@ -174,18 +174,32 @@ actor RemoteTmuxSSHTransport {
         let outRead = Task.detached { Self.drain(fd: outFD) }
         let errRead = Task.detached { Self.drain(fd: errFD) }
 
+        // Install the termination handler BEFORE launching, then launch inside the
+        // continuation. If `run()` and the handler assignment were separate steps, a
+        // process that exits in the window between them would terminate before the
+        // handler is installed — and Foundation does not invoke a terminationHandler
+        // assigned after the process has already ended, so the continuation would
+        // never resume and the caller would hang until its timeout. This matters for
+        // the fast auth-failure exits the `cmux ssh-tmux` flow classifies.
+        let exitCode: Int32
         do {
-            try process.run()
+            exitCode = try await withCheckedThrowingContinuation { continuation in
+                process.terminationHandler = { proc in
+                    continuation.resume(returning: proc.terminationStatus)
+                }
+                do {
+                    try process.run()
+                } catch {
+                    // The process never started, so the handler will not fire; resume
+                    // exactly once here with the launch failure.
+                    process.terminationHandler = nil
+                    continuation.resume(throwing: RemoteTmuxError.launchFailed(error.localizedDescription))
+                }
+            }
         } catch {
             outRead.cancel()
             errRead.cancel()
-            throw RemoteTmuxError.launchFailed(error.localizedDescription)
-        }
-
-        let exitCode: Int32 = await withCheckedContinuation { continuation in
-            process.terminationHandler = { proc in
-                continuation.resume(returning: proc.terminationStatus)
-            }
+            throw error
         }
 
         let outData = await outRead.value
