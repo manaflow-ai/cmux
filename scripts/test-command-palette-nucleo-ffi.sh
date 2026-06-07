@@ -53,3 +53,8 @@ if ! grep -q 'BENCH cmd+p nucleo-ffi' "${LOG_PATH}"; then
   echo "error: CommandPaletteNucleoFFITests did not emit benchmark output" >&2
   exit 1
 fi
+
+if grep -E "Test Case '.*CommandPalette(NucleoFFI|SearchEngine).*' skipped|CommandPalette(NucleoFFI|SearchEngine).*skipped" "${LOG_PATH}"; then
+  echo "error: focused nucleo FFI lane skipped selected XCTest coverage" >&2
+  exit 1
+fi

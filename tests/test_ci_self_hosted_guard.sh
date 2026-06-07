@@ -683,6 +683,11 @@ check_command_palette_nucleo_ffi_coverage() {
     exit 1
   fi
 
+  if ! grep -Fq "focused nucleo FFI lane skipped selected XCTest coverage" "$script"; then
+    echo "FAIL: test-command-palette-nucleo-ffi.sh must fail if selected FFI-backed XCTest coverage skips"
+    exit 1
+  fi
+
   for method in \
     testNucleoResolvedSearchMatchesReturnFullFinalResultSetWhenUnbounded \
     testNucleoEmptyResultsFallBackToSwiftSingleEditMatching \
