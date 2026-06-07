@@ -12109,7 +12109,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // here would swallow the first stroke and leave the second one
             // orphaned, breaking that keystroke for the focused terminal/browser
             // input.
-            guard action != .showHideAllWindows && action != .globalSearch else { return false }
+            // exitBrowserFocusMode has no generic dispatcher: BrowserPanel handles
+            // it directly while focus mode is active. Arming its chord prefix in the
+            // generic preflight (the default Escape, or a custom chord, while focus
+            // mode is off) would swallow the first stroke with nothing to consume it.
+            guard action != .showHideAllWindows && action != .globalSearch && action != .exitBrowserFocusMode else { return false }
             guard !action.isBrowserContentShortcut else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }

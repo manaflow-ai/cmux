@@ -376,6 +376,8 @@ public final class RecorderHostButton: NSButton {
             return String(localized: "shortcut.key.space", defaultValue: "Space")
         case "\r":
             return "↩"
+        case "escape":
+            return "⎋"
         case "media.brightnessDown":
             return String(localized: "shortcut.key.mediaBrightnessDown", defaultValue: "Brightness Down")
         case "media.brightnessUp":

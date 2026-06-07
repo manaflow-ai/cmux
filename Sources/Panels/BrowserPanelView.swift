@@ -767,8 +767,10 @@ struct BrowserPanelView: View {
         let format = String(localized: "browser.focusMode.helpWithShortcut.format", defaultValue: "%@ (%@)")
         if panel.isBrowserFocusModeActive {
             let title = String(localized: "browser.focusMode.exit.help", defaultValue: "Exit browser focus mode")
-            // Active: show the double-Escape exit hint.
-            return String(format: format, title, browserFocusModeShortcutHint)
+            // Active: show the configured exit shortcut, if one is bound.
+            let exitHint = browserFocusModeShortcutHint
+            guard !exitHint.isEmpty else { return title }
+            return String(format: format, title, exitHint)
         }
         let title = String(localized: "browser.focusMode.enter.help", defaultValue: "Enter browser focus mode")
         // Inactive: show the configured enter shortcut, if one is bound.
@@ -777,7 +779,11 @@ struct BrowserPanelView: View {
     }
 
     private var browserFocusModeShortcutHint: String {
-        String(localized: "browser.focusMode.shortcutHint", defaultValue: "Esc Esc")
+        // Reflect the configured exit binding (default: the ⎋ ⎋ chord) so the hint
+        // stays correct when the user rebinds Exit Browser Focus Mode. Empty when
+        // unbound (no keyboard exit), so callers omit the hint instead of lying.
+        let exit = KeyboardShortcutSettings.shortcut(for: .exitBrowserFocusMode)
+        return exit.isUnbound ? "" : exit.displayString
     }
 
     private var browserFocusModeEnterShortcutHint: String? {
@@ -786,9 +792,21 @@ struct BrowserPanelView: View {
         return shortcut.displayString
     }
 
+    private var browserFocusModeArmedText: String {
+        // Armed only happens for a chord exit binding; name the key the user
+        // must press again (default ⎋) so the pill matches a rebound exit.
+        let exit = KeyboardShortcutSettings.shortcut(for: .exitBrowserFocusMode)
+        if exit.hasChord, let second = exit.secondStroke {
+            let format = String(localized: "browser.focusMode.armedWithKey.format", defaultValue: "%@ again to exit")
+            return String(format: format, second.displayString)
+        }
+        return String(localized: "browser.focusMode.armed", defaultValue: "Esc again to exit")
+    }
+
     private var shouldShowBrowserFocusModeShortcutHint: Bool {
         panel.isBrowserFocusModeActive &&
             panel.canToggleBrowserFocusMode &&
+            !browserFocusModeShortcutHint.isEmpty &&
             (ShortcutHintDebugSettings.alwaysShowHints() || focusModeShortcutHintMonitor.isModifierPressed)
     }
 
@@ -1378,7 +1396,7 @@ struct BrowserPanelView: View {
                 if panel.isBrowserFocusModeActive {
                     Text(
                         panel.isBrowserFocusModeExitArmed
-                            ? String(localized: "browser.focusMode.armed", defaultValue: "Esc again to exit")
+                            ? browserFocusModeArmedText
                             : String(localized: "browser.focusMode.active", defaultValue: "Focus Mode")
                     )
                     .font(.system(size: 11, weight: .semibold))

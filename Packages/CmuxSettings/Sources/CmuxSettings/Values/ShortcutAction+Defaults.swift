@@ -91,7 +91,25 @@ extension ShortcutAction {
         case .toggleBrowserDeveloperTools: return ShortcutStroke(key: "i", command: true, option: true)
         case .showBrowserJavaScriptConsole: return ShortcutStroke(key: "c", command: true, option: true)
         case .toggleBrowserFocusMode: return ShortcutStroke(key: "\r", command: true, option: true)
+        // The packaged `defaultStroke` is a single `ShortcutStroke?` and cannot
+        // express the double-Escape chord; the authoritative chord default lives
+        // in the app target's `KeyboardShortcutSettings.defaultShortcut`.
+        case .exitBrowserFocusMode: return nil
         case .toggleReactGrab: return ShortcutStroke(key: "g", command: true, shift: true)
+        }
+    }
+
+    /// The full default binding for this action, chord-capable. Most actions have
+    /// a single-stroke default (wrapped from `defaultStroke`); actions whose
+    /// default is a two-stroke chord override here.
+    public var defaultShortcut: StoredShortcut? {
+        switch self {
+        case .exitBrowserFocusMode:
+            // Double-Escape: first Escape forwards to the page and arms exit; the
+            // second within the freshness window exits. Rebindable to any key/chord.
+            return StoredShortcut(first: ShortcutStroke(key: "escape"), second: ShortcutStroke(key: "escape"))
+        default:
+            return defaultStroke.map { StoredShortcut(first: $0) }
         }
     }
 }

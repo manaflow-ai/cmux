@@ -168,6 +168,37 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    func testExitBrowserFocusModeDefaultsToEscapeChordAndMatchesEscape() throws {
+        let exit = KeyboardShortcutSettings.Action.exitBrowserFocusMode
+
+        // Scoped to browser panels, like the enter shortcut.
+        XCTAssertEqual(exit.shortcutContext, .browserPanel)
+
+        // Default is the double-Escape chord.
+        let shortcut = exit.defaultShortcut
+        XCTAssertTrue(shortcut.hasChord)
+        let escapeStroke = ShortcutStroke(key: "escape", command: false, shift: false, option: false, control: false)
+        XCTAssertEqual(shortcut.firstStroke, escapeStroke)
+        XCTAssertEqual(shortcut.secondStroke, escapeStroke)
+
+        // The Escape stroke matches a real keyCode-53 key event (proves Escape is
+        // now part of the shortcut key vocabulary) and not an unrelated key.
+        let escapeEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+        XCTAssertTrue(escapeStroke.matches(event: escapeEvent))
+
+        let letterAEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "a",
+            charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0))
+        XCTAssertFalse(escapeStroke.matches(event: letterAEvent))
+
+        // The Escape glyph renders as ⎋ so the Settings row and toolbar hint show it.
+        XCTAssertTrue(shortcut.displayString.contains("⎋"))
+    }
+
     func testMarkdownZoomIsScopedToFocusedMarkdownPanelAndDoesNotCollideWithBrowserZoom() {
         for action in [
             KeyboardShortcutSettings.Action.markdownZoomIn,

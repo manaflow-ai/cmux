@@ -7741,25 +7741,34 @@ extension BrowserPanel {
             return .inactive
         }
 
-        let flags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        let isPlainEscape = flags.isEmpty && event.keyCode == 53
-        guard isPlainEscape else {
+        // The exit gesture is whatever the user has bound to `exitBrowserFocusMode`
+        // (default: the double-Escape chord). A single-stroke binding exits on one
+        // press; a chord arms on the first stroke and exits on the second within the
+        // freshness window. We match here using the default layout provider.
+        let exitShortcut = KeyboardShortcutSettings.shortcut(for: .exitBrowserFocusMode)
+        let firstStroke: ShortcutStroke? = exitShortcut.isUnbound ? nil : exitShortcut.firstStroke
+        let secondStroke: ShortcutStroke? = exitShortcut.hasChord ? exitShortcut.secondStroke : nil
+        let firstStrokeMatches = firstStroke?.matches(event: event) ?? false
+        let secondStrokeMatches = secondStroke?.matches(event: event) ?? false
+        // Forwarding the arming press to the page is Escape-specific, so page-side
+        // Escape handling (closing menus, clearing selections) still runs.
+        let firstStrokeIsEscape = firstStroke?.key.lowercased() == "escape"
+
+        guard firstStrokeMatches || secondStrokeMatches else {
             lastBrowserFocusModePlainEscapeEventFingerprint = nil
-            clearBrowserFocusModeEscapeArms(reason: "\(reason).nonEscape")
+            clearBrowserFocusModeEscapeArms(reason: "\(reason).nonExitKey")
             return isBrowserFocusModeActive ? .forwardToWebView : .inactive
         }
 
         guard isBrowserFocusModeActive else {
             lastBrowserFocusModePlainEscapeEventFingerprint = nil
-            clearBrowserFocusModeEscapeArms(reason: "\(reason).inactiveEscape")
+            clearBrowserFocusModeEscapeArms(reason: "\(reason).inactiveExitKey")
             return .inactive
         }
 
         guard !event.isARepeat else {
 #if DEBUG
-            cmuxDebugLog("browser.focusMode.escape.repeat panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+            cmuxDebugLog("browser.focusMode.exit.repeat panel=\(id.uuidString.prefix(5)) reason=\(reason)")
 #endif
             return .consume
         }
@@ -7767,30 +7776,37 @@ extension BrowserPanel {
         let eventFingerprint = BrowserFocusModePlainEscapeEventFingerprint(event)
         if lastBrowserFocusModePlainEscapeEventFingerprint == eventFingerprint {
 #if DEBUG
-            cmuxDebugLog("browser.focusMode.escape.duplicate panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+            cmuxDebugLog("browser.focusMode.exit.duplicate panel=\(id.uuidString.prefix(5)) reason=\(reason)")
 #endif
             return .consume
         }
         lastBrowserFocusModePlainEscapeEventFingerprint = eventFingerprint
 
-        if isBrowserFocusModeExitArmed {
-            if browserFocusModeEscapeArmIsFresh(for: event) {
-                clearBrowserFocusMode(reason: "\(reason).escapeExit")
-                return .consume
-            }
-
-            browserFocusModeExitArmedAt = event.timestamp
-#if DEBUG
-            cmuxDebugLog("browser.focusMode.escape.rearm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
-#endif
-            return .forwardToWebView
+        // Single-stroke binding: one press exits.
+        guard exitShortcut.hasChord else {
+            clearBrowserFocusMode(reason: "\(reason).exit")
+            return .consume
         }
 
-        isBrowserFocusModeExitArmed = true
-        browserFocusModeExitArmedAt = event.timestamp
+        // Chord binding: second stroke within the freshness window exits.
+        if isBrowserFocusModeExitArmed, secondStrokeMatches, browserFocusModeEscapeArmIsFresh(for: event) {
+            clearBrowserFocusMode(reason: "\(reason).exit")
+            return .consume
+        }
+
+        // First stroke arms the exit. Forward to the page only for Escape so the
+        // page still gets its own first-Escape handling; consume other arming keys.
+        if firstStrokeMatches {
+            isBrowserFocusModeExitArmed = true
+            browserFocusModeExitArmedAt = event.timestamp
 #if DEBUG
-        cmuxDebugLog("browser.focusMode.escape.arm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+            cmuxDebugLog("browser.focusMode.exit.arm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
 #endif
+            return firstStrokeIsEscape ? .forwardToWebView : .consume
+        }
+
+        // Second stroke arrived without a fresh arm; reset and pass through.
+        clearBrowserFocusModeEscapeArms(reason: "\(reason).exitSecondWithoutArm")
         return .forwardToWebView
     }
 
