@@ -1,6 +1,6 @@
 import Testing
 
-@testable import CmuxMobileAnalytics
+@testable import CMUXMobileCore
 
 @Suite struct ConnectionOutageThrottleTests {
     @Test func firstDropEmitsLost() {

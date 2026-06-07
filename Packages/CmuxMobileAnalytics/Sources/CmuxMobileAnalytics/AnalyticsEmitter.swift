@@ -63,6 +63,11 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     private var barriers: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var consumerTask: Task<Void, Never>?
     private var cadenceTask: Task<Void, Never>?
+    /// Whether the last upload attempt returned `.retry`. While an outage is open
+    /// the per-event batch-size drain is suppressed, so the consumer is not pinned
+    /// in `uploader.upload` on every arriving event during a slow/hanging upload.
+    /// Retries are then driven only by the periodic cadence barrier and `flush()`.
+    private var uploadOutageOpen = false
 
     /// Creates an emitter and begins consuming submitted events.
     ///
@@ -151,7 +156,12 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
             case let .event(name, properties, timestamp):
                 appendEvent(name: name, properties: properties, timestamp: timestamp)
                 startCadenceIfNeeded()
-                if pending.count >= flushBatchSize {
+                // Suppress the per-event drain while an outage is open: otherwise a
+                // slow/hanging upload would re-enter `drain()` on every arriving
+                // event and pin the consumer in `await uploader.upload`, letting the
+                // unbounded stream backlog grow with outage duration even though
+                // `pending` is capped. The cadence barrier + `flush()` still retry.
+                if pending.count >= flushBatchSize && !uploadOutageOpen {
                     await drain()
                 }
             case let .identify(userID, alias, properties):
@@ -247,9 +257,13 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
                 // Remove exactly the events we attempted; events appended during
                 // the await stay queued for the next pass.
                 pending.removeFirst(min(batch.count, pending.count))
+                uploadOutageOpen = false
             case .retry:
                 // Leave the buffer intact; the cadence barrier or the next flush
-                // retries. Stop draining now to avoid a tight failure loop.
+                // retries. Stop draining now to avoid a tight failure loop, and
+                // mark the outage so per-event drains are suppressed until upload
+                // recovers (bounding the stream intake during the outage).
+                uploadOutageOpen = true
                 return
             }
         }

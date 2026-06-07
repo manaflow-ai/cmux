@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// Pure decision logic that collapses connection-state edges into at most one
 /// `ios_connection_lost` per outage and one `ios_connection_recovered` per
