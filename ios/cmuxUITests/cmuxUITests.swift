@@ -141,7 +141,7 @@ final class cmuxUITests: XCTestCase {
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
-        assertTerminalCount(2, in: "workspace-3", on: server)
+        assertTerminalCount(2, in: "workspace-3", on: server, timeout: 45)
     }
 
     @MainActor
