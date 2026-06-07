@@ -1107,10 +1107,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = terminal.id
     }
 
+    /// Select a terminal without changing keyboard autofocus behavior.
+    /// - Parameter id: The terminal id to select, or `nil` to clear selection.
     public func selectTerminal(_ id: MobileTerminalPreview.ID?) {
         selectedTerminalID = id
     }
 
+    /// Select a terminal from non-typing chrome such as the terminal picker.
+    ///
+    /// The next mounted surface for this id suppresses automatic keyboard focus,
+    /// so choosing a terminal from chrome does not reopen the software keyboard.
+    /// - Parameter id: The terminal id selected from chrome, or `nil` to clear selection.
     public func selectTerminalFromChrome(_ id: MobileTerminalPreview.ID?) {
         if let id {
             terminalAutoFocusSuppressionIDs.insert(id)
@@ -1118,10 +1125,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = id
     }
 
+    /// Whether a newly mounted terminal surface should focus its hidden input.
+    /// - Parameter surfaceID: The string id of the terminal surface being mounted.
+    /// - Returns: `false` once after ``selectTerminalFromChrome(_:)`` selected the surface; otherwise `true`.
     public func shouldAutoFocusTerminalSurface(_ surfaceID: String) -> Bool {
         !terminalAutoFocusSuppressionIDs.contains(MobileTerminalPreview.ID(rawValue: surfaceID))
     }
 
+    /// Consume the one-shot autofocus suppression for a mounted terminal surface.
+    /// - Parameter surfaceID: The string id of the terminal surface that appeared.
     public func consumeTerminalAutoFocusSuppression(for surfaceID: String) {
         terminalAutoFocusSuppressionIDs.remove(MobileTerminalPreview.ID(rawValue: surfaceID))
     }
