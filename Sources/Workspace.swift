@@ -497,6 +497,11 @@ extension Workspace {
                !directory.isEmpty {
                 return directory
             }
+            if let agentPanel = panel as? AgentSessionPanel,
+               let agentDirectory = agentPanel.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !agentDirectory.isEmpty {
+                return agentDirectory
+            }
             if let restorableDirectory = effectiveRestorableAgent?.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !restorableDirectory.isEmpty {
                 return restorableDirectory
@@ -540,6 +545,7 @@ extension Workspace {
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?
+        let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?
         switch panel.panelType {
         case .terminal:
@@ -611,6 +617,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            agentSessionSnapshot = nil
             projectSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
@@ -635,6 +642,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            agentSessionSnapshot = nil
             projectSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
@@ -643,6 +651,7 @@ extension Workspace {
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            agentSessionSnapshot = nil
             projectSnapshot = nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
@@ -651,6 +660,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
             rightSidebarToolSnapshot = nil
+            agentSessionSnapshot = nil
             projectSnapshot = nil
         case .rightSidebarTool:
             guard let toolPanel = panel as? RightSidebarToolPanel else { return nil }
@@ -659,6 +669,20 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
+            agentSessionSnapshot = nil
+            projectSnapshot = nil
+        case .agentSession:
+            guard let agentPanel = panel as? AgentSessionPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            agentSessionSnapshot = SessionAgentSessionPanelSnapshot(
+                rendererKind: agentPanel.rendererKind,
+                providerID: agentPanel.currentProviderID,
+                workingDirectory: directory
+            )
             projectSnapshot = nil
         case .project:
             guard let projectPanel = panel as? ProjectPanel else { return nil }
@@ -674,6 +698,7 @@ extension Workspace {
                 selectedSchemeName: projectPanel.selectedSchemeName,
                 selectedConfigurationName: projectPanel.selectedConfigurationName
             )
+            agentSessionSnapshot = nil
         case .extensionBrowser:
             return nil
         }
@@ -697,6 +722,7 @@ extension Workspace {
             markdown: markdownSnapshot,
             filePreview: filePreviewSnapshot,
             rightSidebarTool: rightSidebarToolSnapshot,
+            agentSession: agentSessionSnapshot,
             project: projectSnapshot
         )
     }
@@ -1861,6 +1887,19 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: toolPanel.id)
             return toolPanel.id
+        case .agentSession:
+            guard let agentSession = snapshot.agentSession,
+                  let agentPanel = newAgentSessionSurface(
+                    inPane: paneId,
+                    providerID: agentSession.providerID,
+                    rendererKind: agentSession.rendererKind,
+                    workingDirectory: agentSession.workingDirectory ?? snapshot.directory,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: agentPanel.id)
+            return agentPanel.id
         case .project:
             guard let projectPath = snapshot.project?.projectPath,
                   let projectPanel = newProjectSurface(
@@ -10357,8 +10396,23 @@ final class Workspace: Identifiable, ObservableObject {
     /// Mapping from bonsplit TabID to our Panel instances
     @Published var panels: [UUID: any Panel] = [:]
 
+    /// Monotonic counter bumped only when the spatial (left-to-right, top-to-bottom)
+    /// order of panels changes without the panel *set* changing — i.e. a pure
+    /// drag-reorder of tabs within or across panes. Membership changes already
+    /// fire `$panels`; pure reorders mutate only `bonsplitController` state, which
+    /// is not `@Published`, so observers (e.g. the mobile workspace-list observer)
+    /// would otherwise never learn about a reorder. We gate the bump on an actual
+    /// change of `orderedPanelIds` so that divider drags and selection-only events
+    /// (which also flow through `didChangeGeometry`) do not fire `objectWillChange`.
+    @Published var paneLayoutVersion: Int = 0
+
+    /// Snapshot of `orderedPanelIds` from the last geometry notification, used to
+    /// gate `paneLayoutVersion` bumps to genuine reorder events.
+    private var lastOrderedPanelIds: [UUID] = []
+
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
+    private var agentSessionPanelCallbackIds: Set<UUID> = []
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
@@ -10387,6 +10441,27 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         return panelIdFromSurfaceId(tab.id)
+    }
+
+    /// Panel ids in bonsplit's spatial order: depth-first over the split tree
+    /// (left/top child before right/bottom child), and within each pane in tab
+    /// order. This is the on-screen left-to-right, top-to-bottom ordering and is
+    /// the single source of truth for serializing panels (e.g. the mobile
+    /// terminal list) and for detecting reorders. Any panels not currently in
+    /// bonsplit are appended in a stable id order so the list never drops a panel.
+    var orderedPanelIds: [UUID] {
+        var result: [UUID] = []
+        var seen = Set<UUID>()
+        for tabId in bonsplitController.allTabIds {
+            guard let panelId = panelIdFromSurfaceId(tabId), panels[panelId] != nil else { continue }
+            guard seen.insert(panelId).inserted else { continue }
+            result.append(panelId)
+        }
+        let orphans = panels.keys
+            .filter { !seen.contains($0) }
+            .sorted { $0.uuidString < $1.uuidString }
+        result.append(contentsOf: orphans)
+        return result
     }
 
     /// The currently focused terminal panel (if any)
@@ -10686,6 +10761,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let markdown = "markdown"
         static let filePreview = "filePreview"
         static let rightSidebarTool = "rightSidebarTool"
+        static let agentSession = "agentSession"
         static let project = "project"
         static let extensionBrowser = "extensionBrowser"
     }
@@ -11592,6 +11668,37 @@ final class Workspace: Identifiable, ObservableObject {
         panelSubscriptions[filePreviewPanel.id] = subscription
     }
 
+    private func installAgentSessionPanelSubscription(_ agentPanel: AgentSessionPanel) {
+        agentPanel.onDisplayStateChanged = { [weak self, weak agentPanel] newTitle, isDirty in
+            guard let self,
+                  let agentPanel,
+                  let tabId = self.surfaceIdFromPanelId(agentPanel.id) else { return }
+            guard let existing = self.bonsplitController.tab(tabId) else { return }
+
+            if self.panelTitles[agentPanel.id] != newTitle {
+                self.panelTitles[agentPanel.id] = newTitle
+            }
+            let resolvedTitle = self.resolvedPanelTitle(panelId: agentPanel.id, fallback: newTitle)
+            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+            let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
+            guard titleUpdate != nil || dirtyUpdate != nil else { return }
+            self.bonsplitController.updateTab(
+                tabId,
+                title: titleUpdate,
+                hasCustomTitle: self.panelCustomTitles[agentPanel.id] != nil,
+                isDirty: dirtyUpdate
+            )
+        }
+        agentSessionPanelCallbackIds.insert(agentPanel.id)
+    }
+
+    func discardAgentSessionPanelSubscription(panelId: UUID, panel: (any Panel)?) {
+        if let agentPanel = panel as? AgentSessionPanel {
+            agentPanel.onDisplayStateChanged = nil
+        }
+        agentSessionPanelCallbackIds.remove(panelId)
+    }
+
     private func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
         guard let target = remoteDisplayTarget else { return nil }
         return BrowserRemoteWorkspaceStatus(
@@ -11668,6 +11775,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.filePreview
         case .rightSidebarTool:
             return SurfaceKind.rightSidebarTool
+        case .agentSession:
+            return SurfaceKind.agentSession
         case .project:
             return SurfaceKind.project
         case .extensionBrowser:
@@ -14505,6 +14614,8 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         startupEnvironment: [String: String] = [:],
+        autoRefreshMetadata: Bool = true,
+        preserveFocusWhenUnfocused: Bool = true,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false
     ) -> TerminalPanel? {
@@ -14588,20 +14699,151 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(newTabId)
             newPanel.focus()
             applyTabSelection(tabId: newTabId, inPane: paneId)
-        } else {
+        } else if preserveFocusWhenUnfocused || owningTabManager?.selectedTabId == id {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
                 splitPanelId: newPanel.id,
                 previousHostedView: previousHostedView
             )
+        } else {
+            clearNonFocusSplitFocusReassert()
+        }
+
+        if autoRefreshMetadata {
+            owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+                workspaceId: id,
+                panelId: newPanel.id,
+                reason: "surfaceCreate"
+            )
+        }
+        return newPanel
+    }
+
+    /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
+    @discardableResult
+    func respawnTerminalSurface(
+        panelId: UUID,
+        command: String,
+        workingDirectory: String? = nil,
+        tmuxStartCommand: String? = nil,
+        focus: Bool? = nil
+    ) -> TerminalPanel? {
+        guard let oldPanel = terminalPanel(for: panelId),
+              let tabId = surfaceIdFromPanelId(panelId),
+              let paneId = paneId(forPanelId: panelId) else {
+            return nil
+        }
+
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCommand.isEmpty else { return nil }
+
+        let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        let requestedWorkingDirectory: String? = {
+            if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !workingDirectory.isEmpty {
+                return workingDirectory
+            }
+            if let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !panelDirectory.isEmpty {
+                return panelDirectory
+            }
+            if let requestedWorkingDirectory = oldPanel.requestedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !requestedWorkingDirectory.isEmpty {
+                return requestedWorkingDirectory
+            }
+            let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            return workspaceDirectory.isEmpty ? nil : workspaceDirectory
+        }()
+        let selectedInPane = bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+        let paneWasFocused = bonsplitController.focusedPaneId == paneId
+        let shouldFocus = focus ?? (selectedInPane && paneWasFocused)
+        let customTitle = panelCustomTitles[panelId]
+        let wasPinned = pinnedPanelIds.contains(panelId)
+        let startCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let replacementTmuxStartCommand = (startCommand?.isEmpty == false) ? startCommand : trimmedCommand
+        let focusPlacement = oldPanel.surface.focusPlacement
+        let launchContext = oldPanel.surface.launchContext
+        let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
+        let additionalEnvironment = oldPanel.surface.respawnAdditionalEnvironment
+
+        oldPanel.unfocus()
+        oldPanel.hostedView.setVisibleInUI(false)
+        TerminalWindowPortalRegistry.detach(hostedView: oldPanel.hostedView)
+        oldPanel.surface.beginPortalCloseLifecycle(reason: "terminal.respawn")
+
+        discardClosedPanelLifecycleState(
+            panelId: panelId,
+            tabId: tabId,
+            paneId: paneId,
+            panel: oldPanel,
+            origin: "terminal_respawn",
+            closePanel: false,
+            publishSurfaceClosedEvent: false,
+            clearSurfaceNotifications: false,
+            requestTransferredRemoteCleanup: true,
+            cleanupControllerSurfaceState: false
+        )
+        TerminalSurfaceRegistry.shared.unregister(oldPanel.surface)
+        oldPanel.surface.teardownSurface()
+
+        let replacementPanel = TerminalPanel(
+            id: panelId,
+            workspaceId: id,
+            context: launchContext,
+            configTemplate: inheritedConfig,
+            workingDirectory: requestedWorkingDirectory,
+            portOrdinal: portOrdinal,
+            initialCommand: trimmedCommand,
+            tmuxStartCommand: replacementTmuxStartCommand,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
+            additionalEnvironment: additionalEnvironment,
+            focusPlacement: focusPlacement
+        )
+        configureNewTerminalPanel(replacementPanel)
+        panels[panelId] = replacementPanel
+        panelTitles[panelId] = replacementPanel.displayTitle
+        if let customTitle {
+            panelCustomTitles[panelId] = customTitle
+        }
+        if wasPinned {
+            pinnedPanelIds.insert(panelId)
+        }
+        surfaceIdToPanelId[tabId] = panelId
+        seedTerminalInheritanceFontPoints(panelId: panelId, configTemplate: inheritedConfig)
+
+        let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: replacementPanel.displayTitle)
+        bonsplitController.updateTab(
+            tabId,
+            title: resolvedTitle,
+            icon: .some(replacementPanel.displayIcon),
+            iconImageData: .some(nil),
+            kind: .some(SurfaceKind.terminal),
+            hasCustomTitle: customTitle != nil,
+            isDirty: replacementPanel.isDirty,
+            showsNotificationBadge: false,
+            isLoading: false,
+            isPinned: wasPinned
+        )
+
+        if shouldFocus {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(tabId)
+            focusPanel(panelId)
+        } else if selectedInPane {
+            bonsplitController.selectTab(tabId)
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        } else {
+            replacementPanel.unfocus()
         }
 
         owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: id,
-            panelId: newPanel.id,
-            reason: "surfaceCreate"
+            panelId: panelId,
+            reason: "terminalRespawn"
         )
-        return newPanel
+        scheduleTerminalGeometryReconcile()
+        scheduleFocusReconcile()
+        return replacementPanel
     }
 
     private func remoteTerminalStartupCommand() -> String? {
@@ -15303,6 +15545,76 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func newAgentSessionSurface(
+        inPane paneId: PaneID,
+        providerID: AgentSessionProviderID = .codex,
+        rendererKind: AgentSessionRendererKind,
+        workingDirectory: String? = nil,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> AgentSessionPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        let directory = workingDirectory ?? currentDirectory
+
+        let agentPanel = AgentSessionPanel(
+            workspaceId: id,
+            rendererKind: rendererKind,
+            initialProviderID: providerID,
+            workingDirectory: directory
+        )
+        panels[agentPanel.id] = agentPanel
+        panelTitles[agentPanel.id] = agentPanel.displayTitle
+        if !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            panelDirectories[agentPanel.id] = directory
+        }
+
+        guard let newTabId = bonsplitController.createTab(
+            title: agentPanel.displayTitle,
+            icon: agentPanel.displayIcon,
+            kind: SurfaceKind.agentSession,
+            isDirty: agentPanel.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: agentPanel.id)
+            panelTitles.removeValue(forKey: agentPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = agentPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(
+            agentPanel.id,
+            paneId: paneId,
+            kind: "agent_session",
+            origin: "agent_session_tab",
+            focused: shouldFocusNewTab
+        )
+
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            agentPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: agentPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installAgentSessionPanelSubscription(agentPanel)
+
+        return agentPanel
+    }
+
+    @discardableResult
     func splitPaneWithFilePreview(
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
@@ -15949,6 +16261,10 @@ final class Workspace: Identifiable, ObservableObject {
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
+            if let agentPanel = detached.panel as? AgentSessionPanel {
+                agentPanel.onDisplayStateChanged = nil
+                agentSessionPanelCallbackIds.remove(detached.panelId)
+            }
 #if DEBUG
             cmuxDebugLog(
                 "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
@@ -16005,6 +16321,12 @@ final class Workspace: Identifiable, ObservableObject {
         if let filePreviewPanel = detached.panel as? FilePreviewPanel,
            panelSubscriptions[filePreviewPanel.id] == nil {
             installFilePreviewPanelSubscription(filePreviewPanel)
+        }
+        if let agentPanel = detached.panel as? AgentSessionPanel {
+            agentPanel.updateWorkspaceId(id)
+            if !agentSessionPanelCallbackIds.contains(agentPanel.id) {
+                installAgentSessionPanelSubscription(agentPanel)
+            }
         }
         let didAdoptWorkspaceRemoteTracking = shouldAdoptDetachedWorkspaceRemoteTracking(detached)
         if didAdoptWorkspaceRemoteTracking,
@@ -19388,6 +19710,17 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         tmuxLayoutSnapshot = snapshot
+        // Every order/membership mutation (same-pane reorder, cross-pane move,
+        // split, close) routes through here. A pure reorder mutates only
+        // bonsplit's internal state, which is not `@Published`, so observers
+        // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
+        // sequence actually changed, so divider drags and selection-only events
+        // (also routed here) do not fire `objectWillChange` app-wide.
+        let currentOrder = orderedPanelIds
+        if currentOrder != lastOrderedPanelIds {
+            lastOrderedPanelIds = currentOrder
+            paneLayoutVersion &+= 1
+        }
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()

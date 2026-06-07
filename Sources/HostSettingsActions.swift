@@ -1,4 +1,5 @@
 import AppKit
+import CMUXMobileCore
 import CmuxSettingsUI
 import Foundation
 import OSLog
@@ -139,6 +140,10 @@ final class HostSettingsActions: SettingsHostActions {
         window.orderFrontRegardless()
     }
 
+    func openMobilePairingWindow() {
+        MobilePairingWindowController.shared.show()
+    }
+
     private func existingConfigWindow() -> NSWindow? {
         if let configWindow, configWindow.isVisible || configWindow.isMiniaturized {
             return configWindow
@@ -148,8 +153,8 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
-    func previewNotificationSound() {
-        NSSound(named: NSSound.Name("Glass"))?.play()
+    func previewNotificationSound(value: String, customFilePath: String) {
+        NotificationSoundSettings.previewSound(value: value, customFilePath: customFilePath)
     }
 
     func browserHistoryEntryCount() -> Int? {
@@ -198,6 +203,100 @@ final class HostSettingsActions: SettingsHostActions {
         CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
     }
 
+    func mobilePairingStatus() -> MobilePairingStatusSnapshot? {
+        Self.mobilePairingSnapshot(from: MobileHostService.shared.statusSnapshot())
+    }
+
+    func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot> {
+        AsyncStream { continuation in
+            // Bridge the notification through a Sendable `Void` signal stream so
+            // the non-Sendable `Notification` never crosses into the MainActor
+            // drain task. Mirrors `UserDefaultsSettingsStore.values(for:)`.
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = MobileHostStatusObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: .mobileHostStatusDidChange,
+                    object: nil,
+                    queue: nil
+                ) { _ in
+                    signalContinuation.yield(())
+                }
+            )
+            let drainTask = Task { @MainActor in
+                // Seed with the current status, then forward every change.
+                continuation.yield(Self.mobilePairingSnapshot(from: MobileHostService.shared.statusSnapshot()))
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    continuation.yield(Self.mobilePairingSnapshot(from: MobileHostService.shared.statusSnapshot()))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
+    }
+
+    /// Maps the host's ``MobileHostServiceStatus`` into the settings package's
+    /// Foundation-only ``MobilePairingStatusSnapshot``. Static so the status
+    /// stream's forwarding task does not retain this host bridge.
+    private static func mobilePairingSnapshot(from status: MobileHostServiceStatus) -> MobilePairingStatusSnapshot {
+        let routes = status.routes.compactMap { route -> MobilePairingRoute? in
+            guard case let .hostPort(host, port) = route.endpoint else { return nil }
+            return MobilePairingRoute(
+                id: route.id,
+                kindLabel: routeKindLabel(route.kind),
+                host: host,
+                port: port
+            )
+        }
+        return MobilePairingStatusSnapshot(
+            isRunning: status.isRunning,
+            configuredPort: status.configuredPort,
+            boundPort: status.port,
+            usesEphemeralFallback: status.usesEphemeralFallback,
+            activeConnectionCount: status.activeConnectionCount,
+            routes: routes
+        )
+    }
+
+    func mobilePairingDefaultDisplayName() -> String {
+        // The Mac's system name, the pairing name used when no override is set.
+        // Stable across override edits, so the placeholder never goes stale.
+        Host.current().localizedName ?? ""
+    }
+
+    func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult {
+        switch await MobileHostService.shared.applyConfiguredPort(port) {
+        case .applied(let bound):
+            return .applied(port: bound)
+        case .portInUse:
+            return .portInUse(requestedPort: port)
+        case .savedWhileDisabled:
+            return .savedForLater(port: port)
+        case .invalid:
+            return .invalid(requestedPort: port)
+        }
+    }
+
+    /// Localized transport label for a pairing route shown in diagnostics.
+    private static func routeKindLabel(_ kind: CmxAttachTransportKind) -> String {
+        switch kind {
+        case .tailscale:
+            return String(localized: "settings.mobile.route.tailscale", defaultValue: "Tailscale")
+        case .debugLoopback:
+            return String(localized: "settings.mobile.route.loopback", defaultValue: "Loopback")
+        case .iroh:
+            return String(localized: "settings.mobile.route.iroh", defaultValue: "Iroh")
+        case .websocket:
+            return String(localized: "settings.mobile.route.websocket", defaultValue: "WebSocket")
+        }
+    }
+
     /// Writes a clamped font-size value to cmux's editable Ghostty config and
     /// triggers a live reload so open windows re-render at the new size.
     ///
@@ -216,6 +315,23 @@ final class HostSettingsActions: SettingsHostActions {
         }
         GhosttyApp.shared.reloadConfiguration(source: reloadSource)
         return true
+    }
+}
+
+/// Wraps the opaque observer returned by `NotificationCenter.addObserver` so the
+/// `@Sendable` stream-termination closure can hold it for removal. Objective-C
+/// doesn't model `Sendable`; the token is immutable and only hands the opaque
+/// observer back to NotificationCenter's thread-safe removal API. CmuxSettings
+/// has an identical internal token, which isn't `public`, so it's duplicated.
+final class MobileHostStatusObserverToken: @unchecked Sendable {
+    private let token: NSObjectProtocol
+
+    init(_ token: NSObjectProtocol) {
+        self.token = token
+    }
+
+    func remove() {
+        NotificationCenter.default.removeObserver(token)
     }
 }
 

@@ -40,6 +40,11 @@ struct cmuxApp: App {
     /// through it via the `@LiveSetting` property wrapper.
     private let settingsRuntime: SettingsRuntime
 
+    /// The de-singletonized auth graph (shared AuthCoordinator + the macOS
+    /// hosted-browser sign-in flow). Constructed once at app launch and
+    /// injected into AppDelegate and the auth-consuming services.
+    private let authComposition: MacAuthComposition
+
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
@@ -109,6 +114,8 @@ struct cmuxApp: App {
             saveSecret: { try socketPasswordStore.savePassword($0) },
             backupTimestamp: secretMigrationTimestamp
         )
+        let authComposition = MacAuthComposition()
+        self.authComposition = authComposition
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: UserDefaultsSettingsStore(
@@ -118,7 +125,10 @@ struct cmuxApp: App {
             jsonStore: JSONConfigStore(fileURL: configFileURL),
             secretStore: secretStore,
             errorLog: SettingsErrorLog(),
-            accountFlow: HostAccountFlow(authManager: .shared),
+            accountFlow: HostAccountFlow(
+                coordinator: authComposition.coordinator,
+                browserSignIn: authComposition.browserSignIn
+            ),
             hostActions: HostSettingsActions(configFileURL: configFileURL)
         )
 
@@ -202,7 +212,13 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         StartupBreadcrumbLog.append("app.init.delegate.configure.begin")
-        appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState, settingsRuntime: settingsRuntime)
+        appDelegate.configure(
+            tabManager: tabManager,
+            notificationStore: notificationStore,
+            sidebarState: sidebarState,
+            settingsRuntime: settingsRuntime,
+            auth: authComposition
+        )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
 
@@ -509,6 +525,11 @@ struct cmuxApp: App {
                 Button("New Tab With Large Scrollback") {
                     appDelegate.openDebugScrollbackTab(nil)
                 }
+
+                AgentSessionDebugMenuButtons(
+                    openReact: { appDelegate.openDebugAgentSessionReact(nil) },
+                    openSolid: { appDelegate.openDebugAgentSessionSolid(nil) }
+                )
 
                 Button("Open Workspaces for All Workspace Colors") {
                     appDelegate.openDebugColorComparisonWorkspaces(nil)
@@ -5440,78 +5461,6 @@ enum CmuxUITestCapture {
     }
 }
 
-enum CmuxRuntimeDebugCapture {
-    private struct Configuration {
-        let baseURL: URL
-        let token: String
-        let sessionID: String
-    }
-
-    private static let configuration: Configuration? = {
-        let env = ProcessInfo.processInfo.environment
-        guard let baseURLString = env["CMUX_RUNTIME_DEBUG_BASE_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let baseURL = URL(string: baseURLString),
-              let token = env["CMUX_RUNTIME_DEBUG_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !token.isEmpty,
-              let sessionID = env["CMUX_RUNTIME_DEBUG_SESSION_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !sessionID.isEmpty else {
-            return nil
-        }
-        return Configuration(baseURL: baseURL, token: token, sessionID: sessionID)
-    }()
-
-    private static let lock = NSLock()
-    private static var sequence: Int = 0
-
-    static func logIfConfigured(
-        hypothesisID: String,
-        source: String,
-        name: String,
-        expected: String? = nil,
-        actual: String? = nil,
-        data: [String: Any] = [:]
-    ) {
-        guard let configuration else { return }
-
-        var payload: [String: Any] = [
-            "session_id": configuration.sessionID,
-            "hypothesis_id": hypothesisID,
-            "service": "cmux-macos",
-            "source": source,
-            "name": name,
-            "ts": ISO8601DateFormatter().string(from: Date()),
-            "mono_ms": ProcessInfo.processInfo.systemUptime * 1000,
-            "seq": nextSequence(),
-            "data": data
-        ]
-        if let expected {
-            payload["expected"] = expected
-        }
-        if let actual {
-            payload["actual"] = actual
-        }
-
-        guard JSONSerialization.isValidJSONObject(payload),
-              let requestBody = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
-            return
-        }
-
-        var request = URLRequest(url: configuration.baseURL.appendingPathComponent("api/logs"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(configuration.token, forHTTPHeaderField: "X-Debug-Token")
-        request.httpBody = requestBody
-
-        URLSession.shared.dataTask(with: request).resume()
-    }
-
-    private static func nextSequence() -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        sequence += 1
-        return sequence
-    }
-}
 func openCmuxSettingsFileInEditor() {
     let url = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
     PreferredEditorSettings.open(url)

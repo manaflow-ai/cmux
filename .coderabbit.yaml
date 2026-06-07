@@ -11,8 +11,11 @@ knowledge_base:
 
 reviews:
   profile: assertive
-  request_changes_workflow: true
+  request_changes_workflow: false
   path_instructions:
+    - path: "**/*"
+      instructions: |
+        Apply `.github/review-bot-rules/source-control-artifacts.md` during review. Flag local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, and broad scratch directories that enter source control without a deliberate product, docs, fixture, build, or release reason.
     - path: "**/*.swift"
       instructions: |
         Apply the cmux custom Swift lint rules in `.github/review-bot-rules/` during review. Treat those files as the source of truth. Focus on production Swift changes and ignore test-only scaffolding unless it makes production behavior worse.
@@ -101,3 +104,7 @@ reviews:
         mode: error
         instructions: |
           For Swift changes that add or materially change standalone cmux-owned windows, fail when the diff violates `.github/review-bot-rules/swift-auxiliary-window-close-shortcuts.md`: user-visible NSWindow, NSPanel, NSWindowController, SwiftUI Window, or WindowGroup code without a stable cmux.* identifier and shared close-shortcut ownership through cmuxAuxiliaryWindowIdentifiers. Pass for main workspace windows, terminal panes, tabs, sheets, popovers, menus, test-only fixtures, and existing unregistered windows not worsened by the PR. If the deterministic CI script already catches the literal assignment, mention scripts/lint_auxiliary_window_close_shortcuts.py; otherwise explain the broader review-only pattern.
+      - name: "cmux source artifacts"
+        mode: error
+        instructions: |
+          For every changed path, fail when the diff violates `.github/review-bot-rules/source-control-artifacts.md`: local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, DerivedData, package-manager downloads, or broad scratch directories enter source control without a deliberate product, docs, fixture, build, release, or test-system reason. Pass for intentional source files, configs, localization catalogs, review rules, durable docs assets, required fixtures, and artifact removals or ignore-only cleanup.

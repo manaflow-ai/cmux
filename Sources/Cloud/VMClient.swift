@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import Foundation
 
 enum VMClientError: Error, CustomStringConvertible {
@@ -266,18 +267,31 @@ enum VMAttachEndpoint {
 }
 
 /// Talks to the manaflow cloud VM backend at `/api/vm/*`. Stack Auth tokens come from
-/// `AuthManager.shared`; the HTTP base URL from `AuthEnvironment.vmAPIBaseURL`.
+/// the injected `AuthCoordinator`; the HTTP base URL from `AuthEnvironment.vmAPIBaseURL`.
 ///
 /// All methods are `async throws` and run off the main actor.
 actor VMClient {
-    static let shared = VMClient()
+    /// Set once by `bootstrap(auth:)` during app startup (AppDelegate
+    /// `configure`), before any socket/CLI path can reach the cloud VM client.
+    /// Main-actor isolated so every read goes through a compiler-checked hop.
+    @MainActor private(set) static var shared: VMClient!
+
+    /// Build the shared client with its injected auth dependency. Call once at
+    /// the composition root.
+    @MainActor
+    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared) {
+        shared = VMClient(session: session, auth: auth)
+    }
+
     private static let createTimeoutSeconds: TimeInterval = 16 * 60
     private static let attachTimeoutSeconds: TimeInterval = 16 * 60
 
     private let session: URLSession
+    private let auth: AuthCoordinator
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, auth: AuthCoordinator) {
         self.session = session
+        self.auth = auth
     }
 
     func list() async throws -> [VMSummary] {
@@ -425,11 +439,11 @@ actor VMClient {
 
         let tokens: (accessToken: String, refreshToken: String)
         do {
-            tokens = try await AuthManager.shared.currentTokens()
+            tokens = try await auth.currentTokens()
         } catch {
             throw VMClientError.notSignedIn
         }
-        let teamID = await AuthManager.shared.resolvedTeamID
+        let teamID = await auth.resolvedTeamID
 
         guard var url = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
             throw VMClientError.malformedResponse("bad vmAPIBaseURL")
