@@ -3,7 +3,7 @@
 /// The interpreter records the call shape; a host runtime executes it. The
 /// `cmux` case maps onto cmux's socket command dispatcher (`method` + string
 /// arguments), giving interpreted buttons the breadth of the cmux CLI.
-public enum ActionCommand: Sendable, Equatable {
+public enum ActionCommand: Codable, Sendable, Equatable {
     /// A cmux command: a dispatcher method plus named string params, e.g.
     /// `cmux("workspace.select", workspace_id: w.id)` →
     /// `.cmux("workspace.select", ["workspace_id": "<uuid>"])`. Maps directly

@@ -580,6 +580,14 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             argumentNeedles: ["opencode", "opencode-ai", "open-code", "oh-my-openagent"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
+            id: "omp",
+            displayName: "OMP",
+            assetName: nil,
+            launchKinds: ["omp"],
+            directBasenames: ["omp"],
+            argumentNeedles: ["@oh-my-pi/pi-coding-agent"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
             id: "pi",
             displayName: "Pi",
             assetName: "AgentIcons/Pi",

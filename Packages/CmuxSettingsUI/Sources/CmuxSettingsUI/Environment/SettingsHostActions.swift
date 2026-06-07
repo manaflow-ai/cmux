@@ -53,9 +53,14 @@ public protocol SettingsHostActions: AnyObject {
     /// window scene so the package can't open it directly.
     func openTerminalConfigWindow()
 
+    /// Opens the iOS pairing window, which shows a scannable QR code for
+    /// pairing an iPhone with this Mac. The host owns the window so the
+    /// package can't open it directly.
+    func openMobilePairingWindow()
+
     /// Plays the currently configured notification sound so the user
     /// can preview it from the Settings UI.
-    func previewNotificationSound()
+    func previewNotificationSound(value: String, customFilePath: String)
 
     /// Returns the current number of saved browser-history entries, or
     /// `nil` if the host hasn't loaded the history store yet. The
@@ -98,10 +103,62 @@ public protocol SettingsHostActions: AnyObject {
     /// Formats a point size for display next to a font-size slider
     /// (e.g. `12`, `13.5`), trimming trailing zeros.
     func formattedFontSize(_ points: Double) -> String
+
+    /// The current status of the Mac-side iOS pairing host (the actual bound
+    /// port, whether it fell back from the configured port, the active iOS
+    /// connection count, the effective display name, and the routes the phone
+    /// can reach this Mac on), or `nil` when the host has not started the
+    /// mobile service yet (or in previews/tests). The Mobile section renders
+    /// the bound-port indicator and diagnostics from this.
+    ///
+    /// Backed by host-app runtime state, so it lives here rather than in the
+    /// catalog. See ``mobilePairingStatusUpdates()`` for live refresh.
+    func mobilePairingStatus() -> MobilePairingStatusSnapshot?
+
+    /// A stream that yields a fresh ``MobilePairingStatusSnapshot`` whenever the
+    /// pairing host's status changes (listener bound/stopped, bound port
+    /// changed, connection count changed). The Mobile section subscribes so the
+    /// bound-port indicator and connection count stay live without polling.
+    func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot>
+
+    /// The Mac's system name (e.g. `Host.current().localizedName`) used as the
+    /// iOS pairing display name when the user sets no override. The Mobile
+    /// section shows it as the display-name field placeholder. Empty when
+    /// unavailable (previews/tests). This is a stable host value, not derived
+    /// from the override, so the placeholder never goes stale as the override
+    /// is edited.
+    func mobilePairingDefaultDisplayName() -> String
+
+    /// Applies an explicitly-requested iOS pairing port, checking availability
+    /// first so a port already in use leaves the running listener untouched. The
+    /// Mobile section calls this from its **Apply** button and renders the
+    /// returned ``MobilePairingPortApplyResult`` as inline feedback; the live
+    /// status stream then reflects the actual bound port.
+    ///
+    /// `async` because the availability check probes a real bind.
+    func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult
 }
 
 public extension SettingsHostActions {
+    func openMobilePairingWindow() {}
+
     func browserHistoryEntryCount() -> Int? { nil }
+
+    /// Default: no status, for hosts without a live mobile service (previews/tests).
+    func mobilePairingStatus() -> MobilePairingStatusSnapshot? { nil }
+
+    /// Default: an immediately-finished stream, for hosts without a live mobile service.
+    func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot> {
+        AsyncStream { $0.finish() }
+    }
+
+    /// Default: empty, for hosts that cannot resolve the Mac's system name.
+    func mobilePairingDefaultDisplayName() -> String { "" }
+
+    /// Default: save-for-later, for hosts without a live mobile service (previews/tests).
+    func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult {
+        (1...65535).contains(port) ? .savedForLater(port: port) : .invalid(requestedPort: port)
+    }
 
     func sidebarFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 12.5, minimum: 10, maximum: 20, defaultValue: 12.5)
@@ -141,6 +198,9 @@ public final class NoopSettingsHostActions: SettingsHostActions {
     public func openBrowserImportFlow() {}
     public func requestNotificationAuthorization() {}
     public func openTerminalConfigWindow() {}
-    public func previewNotificationSound() {}
+    public func openMobilePairingWindow() {}
+    /// No-op notification sound preview used by tests, previews, and
+    /// package-only settings hosts.
+    public func previewNotificationSound(value: String, customFilePath: String) {}
     public func browserHistoryEntryCount() -> Int? { nil }
 }

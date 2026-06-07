@@ -1,8 +1,9 @@
 # CmuxSettings
 
-Strongly-typed, migratable settings storage for cmux. Zero non-Foundation
-dependencies. Modern Swift 6 throughout: actors, `AsyncStream`, value-typed
-keys, dependency injection. No locks, no KVO, no `@Published`.
+Strongly-typed, migratable settings storage for cmux. Depends only on
+Foundation and `CmuxFileWatch` (for config-file reload watching). Modern
+Swift 6 throughout: actors, `AsyncStream`, value-typed keys, dependency
+injection. No locks, no KVO, no `@Published`.
 
 Settings live in one of two stores:
 

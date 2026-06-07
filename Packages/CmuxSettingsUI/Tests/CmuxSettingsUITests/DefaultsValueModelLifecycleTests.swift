@@ -70,4 +70,24 @@ import Testing
         }
         #expect(flag.didTerminate)
     }
+
+    @Test func setUpdatesCurrentBeforeObservationRoundTrip() {
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: "defaults-value-model-optimistic-set")!
+        )
+        let key = SettingCatalog().betaFeatures.extensions
+        let (stream, _) = AsyncStream<Bool>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            makeStream: { stream }
+        )
+
+        #expect(model.current == false)
+        model.set(true)
+        #expect(model.current == true)
+
+        model.reset()
+        #expect(model.current == false)
+    }
 }

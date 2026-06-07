@@ -78,7 +78,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "focusTextBoxOnNewTerminals": false,
   //   "agentHibernation": {
   //     "enabled": false,
-  //     "idleSeconds": 3600,
+  //     "idleSeconds": 5,
   //     "maxLiveTerminals": 12
   //   },
   //   "textBoxMaxLines": 10

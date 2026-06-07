@@ -67,4 +67,13 @@ import Testing
         #expect(UpdateStateModel.normalizedDetectedUpdateVersion(from: "  1.2.3 ") == "1.2.3")
         #expect(UpdateStateModel.normalizedDetectedUpdateVersion(from: "   ") == nil)
     }
+
+    @Test func developmentBundleIdentifiersSuppressPublicUpdates() {
+        #expect(isDevelopmentUpdateBundleIdentifier("com.cmuxterm.app.debug"))
+        #expect(isDevelopmentUpdateBundleIdentifier("com.cmuxterm.app.debug.v06414.localfix"))
+        #expect(isDevelopmentUpdateBundleIdentifier("com.cmuxterm.app.staging"))
+        #expect(isDevelopmentUpdateBundleIdentifier("com.cmuxterm.app.staging.qa"))
+        #expect(!isDevelopmentUpdateBundleIdentifier("com.cmuxterm.app"))
+        #expect(!isDevelopmentUpdateBundleIdentifier(nil))
+    }
 }

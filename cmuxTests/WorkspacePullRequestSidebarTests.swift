@@ -440,42 +440,6 @@ private func gitIndexUInt32Field<T: BinaryInteger>(_ value: T) -> UInt32 {
     UInt32(truncatingIfNeeded: UInt64(truncatingIfNeeded: value))
 }
 
-final class GitRepositorySearchRootStopTests: XCTestCase {
-    func testRootParentVariantsStopRepositorySearch() {
-        let rootURL = URL(fileURLWithPath: "/")
-
-        XCTAssertTrue(
-            TabManager.shouldStopGitRepositorySearch(
-                currentURL: rootURL,
-                parentURL: URL(fileURLWithPath: "/")
-            )
-        )
-        XCTAssertTrue(
-            TabManager.shouldStopGitRepositorySearch(
-                currentURL: rootURL,
-                parentURL: URL(fileURLWithPath: "/..")
-            ),
-            "Older Foundation versions can report /.. as the parent of /; repository search must still stop at root."
-        )
-        XCTAssertTrue(
-            TabManager.shouldStopGitRepositorySearch(
-                currentURL: URL(fileURLWithPath: "/.."),
-                parentURL: URL(fileURLWithPath: "/../..")
-            ),
-            "Repository search should also stop if an older Foundation URL has already escaped above root."
-        )
-    }
-
-    func testNonRootParentDoesNotStopRepositorySearch() {
-        XCTAssertFalse(
-            TabManager.shouldStopGitRepositorySearch(
-                currentURL: URL(fileURLWithPath: "/tmp/cmux-4520-nongit"),
-                parentURL: URL(fileURLWithPath: "/tmp")
-            )
-        )
-    }
-}
-
 @MainActor
 final class WorkspacePullRequestSidebarTests: XCTestCase {
     func testSidebarPullRequestsIgnoreStaleWorkspaceLevelCacheWithoutPanelState() throws {
@@ -1031,6 +995,14 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             "Refreshing a tracked detached-HEAD repo after checkout must restore branch metadata."
         )
     }
+
+    // Removed testBackgroundGitMetadataFallbackContinuesWithinOversizedWorkspace:
+    // it asserted the branch's batched/cursor git-metadata polling
+    // (backgroundGitMetadataPollBatchLimit), which main's refactor replaced with
+    // a full sweep (refreshTrackedWorkspaceGitMetadata now returns Void). Git
+    // metadata behavior is covered by CmuxGit/GitMetadataServiceTests; restoring
+    // the batched throttle + this test is a deliberate follow-up if mobile-host
+    // scale needs it.
 
     func testUnrelatedDefaultsChangeDoesNotRestartGitMetadataRefreshes() throws {
         let defaults = UserDefaults.standard
@@ -1599,45 +1571,12 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testGitMetadataWatcherIncludesSubmoduleHeadAndRefs() throws {
-        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-sidebar-gitlink-watch-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        let submoduleURL = repoURL.appendingPathComponent("vendor/lib", isDirectory: true)
-        let indexedCommit = String(repeating: "1", count: 40)
-        try FileManager.default.createDirectory(at: submoduleURL, withIntermediateDirectories: true)
-        try writeMinimalGitRepository(at: repoURL)
-        try writeMinimalGitRepository(at: submoduleURL, headCommit: indexedCommit)
-        try writeGitIndexVersion2Entry(
-            at: repoURL,
-            trackedPath: "vendor/lib",
-            mode: 0o160000,
-            size: 0,
-            signatureByte: 0x77,
-            objectIDBytes: gitObjectIDBytes(indexedCommit)
-        )
-        defer {
-            try? FileManager.default.removeItem(at: repoURL)
-        }
-
-        let watchedPaths = TabManager.workspaceGitMetadataWatchedPathsForTesting(directory: repoURL.path)
-        XCTAssertTrue(
-            watchedPaths.contains(submoduleURL.appendingPathComponent(".git/HEAD").path),
-            "Submodule HEAD must be watched so detached HEAD changes refresh parent sidebar dirty state immediately."
-        )
-        XCTAssertTrue(
-            watchedPaths.contains(submoduleURL.appendingPathComponent(".git/refs").path),
-            "Submodule refs must be watched so branch checkout/ref updates refresh parent sidebar dirty state immediately."
-        )
-    }
-
-    // The watcher's leading-edge coalescing (a sustained FSEvents burst yields
-    // one refresh per window rather than waiting for the repo to go quiet) is now
-    // verified deterministically in CmuxWorkspaceGit's package tests
-    // (WorkspaceGitMetadataWatcherTests.burstCoalescesAndThrottleRearms), with an
-    // injected clock and no real waiting, instead of the previous timing-based
-    // semaphore storm helper.
+    // Git-metadata resolution, watched-path derivation (including submodule
+    // gitlinks), and remote-slug parsing now live in the CmuxGit package and are
+    // unit-tested there (CmuxGitTests: GitMetadataServiceTests / GitConfigIncludeTests).
+    // The watcher's leading-edge coalescing is verified in CmuxFileWatch's package
+    // tests (RecursivePathWatcherTests) with an injected clock and no real waiting.
+    // The tests below keep exercising the end-to-end refresh path through TabManager.
 
     func testModeOnlyTrackedChangesMarkSidebarDirty() throws {
         let defaults = UserDefaults.standard

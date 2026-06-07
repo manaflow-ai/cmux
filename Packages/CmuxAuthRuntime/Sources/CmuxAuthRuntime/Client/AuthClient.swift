@@ -1,0 +1,65 @@
+public import CMUXAuthCore
+import Foundation
+
+/// The auth backend seam the ``AuthCoordinator`` drives.
+///
+/// Abstracts every Stack Auth operation the coordinator needs so it can be
+/// tested with an in-memory fake. The production conformer is
+/// ``StackAuthClient``, which wraps `StackClientApp`. Construct it once at the
+/// app composition root with injected config and inject it as `any AuthClient`.
+public protocol AuthClient: Sendable {
+    /// The current Stack access token, or `nil` when there is no live session.
+    func accessToken() async -> String?
+
+    /// The current Stack refresh token, or `nil` when there is no live session.
+    func refreshToken() async -> String?
+
+    /// Force-mint a fresh access token from the stored refresh token, bypassing
+    /// the cached-token freshness check.
+    ///
+    /// Call this after the server has rejected the current access token: a normal
+    /// ``accessToken()`` would hand back the same still-"fresh enough" token and
+    /// the rejection would repeat. Returns `nil` when no new token could be
+    /// obtained (a transient failure, or the refresh token was definitively
+    /// rejected and cleared). The caller distinguishes the two by checking
+    /// ``refreshToken()`` afterward: a surviving refresh token means the failure
+    /// was transient and the caller should retry rather than sign out.
+    /// - Returns: A freshly minted access token, or `nil` when none was obtained.
+    func forceRefreshAccessToken() async -> String?
+
+    /// Fetch the signed-in user, returning `nil` when no user is present.
+    ///
+    /// - Parameter throwOnMissing: When `true`, the client throws on token
+    ///   validation failure instead of returning `nil`, so the coordinator can
+    ///   distinguish "no session" from "session validation failed".
+    /// - Returns: The mapped current user value, if any.
+    func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser?
+
+    /// List the teams the signed-in user belongs to.
+    /// - Returns: The user's teams; empty when no user is signed in.
+    func listTeams() async throws -> [CMUXAuthTeam]
+
+    /// Send a magic-link email and return the opaque nonce to combine with the
+    /// user-entered code.
+    /// - Parameters:
+    ///   - email: The recipient email address.
+    ///   - callbackURL: The auth callback URL the link should target.
+    /// - Returns: The nonce to compose with the entered code at verification.
+    func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String
+
+    /// Complete a magic-link sign-in with the composed code (`code` + `nonce`).
+    func signInWithMagicLink(code: String) async throws
+
+    /// Sign in with an email/password credential.
+    func signInWithCredential(email: String, password: String) async throws
+
+    /// Sign in with an OAuth provider (e.g. `"apple"`, `"google"`), presenting
+    /// from the supplied anchor.
+    /// - Parameters:
+    ///   - provider: The provider identifier.
+    ///   - anchor: The presentation-anchor provider for the auth UI.
+    func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws
+
+    /// Clear the persisted Stack session (tokens) for the current device.
+    func signOut() async throws
+}

@@ -5,6 +5,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case app
     case terminal
     case textBox
+    case mobile
     case sidebarAppearance
     case betaFeatures
     case automation
@@ -28,6 +29,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.terminal", defaultValue: "Terminal")
         case .textBox:
             return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
+        case .mobile:
+            return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .workspaceColors:
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
@@ -61,6 +64,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "terminal"
         case .textBox:
             return "textformat"
+        case .mobile:
+            return "iphone"
         case .workspaceColors:
             return "paintpalette"
         case .sidebarAppearance:
@@ -94,6 +99,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
         case .textBox:
             return "\(title) textbox text box rich input prompt beta new terminal workspace split tab focus height"
+        case .mobile:
+            return "\(title) ios iphone ipad mobile pairing local network sync"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:

@@ -37,25 +37,39 @@ public struct SwiftViewInterpreter: Sendable {
     /// folding). Cache the result and feed it to ``evaluate(_:state:)`` when
     /// only the live data changes, so a host that re-renders on a timer does
     /// not re-parse unchanged source every frame.
+    ///
+    /// Runs on a dedicated large-stack worker thread: `swift-syntax`'s
+    /// recursive-descent parse recurses with source nesting and untrusted
+    /// authored sidebars can nest arbitrarily deep, so a 16 MB stack absorbs
+    /// realistic depth without overflowing the (small) caller stack.
     public func parse(_ source: String) -> ParsedProgram {
-        let parsed = Parser.parse(source: source)
-        let file = (try? OperatorTable.standardOperators.foldAll(parsed))?
-            .as(SourceFileSyntax.self) ?? parsed
-        return ParsedProgram(file: file)
+        onLargeStack {
+            let parsed = Parser.parse(source: source)
+            let file = (try? OperatorTable.standardOperators.foldAll(parsed))?
+                .as(SourceFileSyntax.self) ?? parsed
+            return ParsedProgram(file: file)
+        }
     }
 
     /// Interprets an already-parsed ``ParsedProgram``'s first top-level
     /// expression against an environment seeded with `state`. Returns `nil`
     /// when nothing supported is found.
+    ///
+    /// Runs the tree-walk on a dedicated large-stack worker thread (the walker
+    /// recurses with view nesting); the per-``Environment`` ``RecursionBudget``
+    /// backstops genuinely unbounded interpreter recursion (e.g. mutually
+    /// recursive view helpers).
     public func evaluate(_ program: ParsedProgram, state: [String: SwiftValue] = [:]) -> RenderNode? {
-        let env = Environment(values: state)
-        registerFunctions(program.file.statements, env)
-        for item in program.file.statements {
-            if let expr = item.item.as(ExprSyntax.self), let node = evalView(expr, env) {
-                return node
+        onLargeStack {
+            let env = Environment(values: state)
+            self.registerFunctions(program.file.statements, env)
+            for item in program.file.statements {
+                if let expr = item.item.as(ExprSyntax.self), let node = self.evalView(expr, env) {
+                    return node
+                }
             }
+            return nil
         }
-        return nil
     }
 
     /// Parses `source` and interprets the first top-level expression against
@@ -66,6 +80,24 @@ public struct SwiftViewInterpreter: Sendable {
     /// data, call ``parse(_:)`` once and reuse the ``ParsedProgram``.
     public func evaluate(_ source: String, state: [String: SwiftValue] = [:]) -> RenderNode? {
         evaluate(parse(source), state: state)
+    }
+
+    /// Runs `work` on a dedicated 16 MB-stack worker thread and returns its
+    /// result, so deep recursive-descent parsing and tree-walking do not
+    /// overflow the (small) caller stack.
+    private func onLargeStack<T: Sendable>(_ work: @escaping @Sendable () -> T) -> T {
+        // `box` is written once on the worker and read only after the join
+        // signal below, so the unchecked Sendable is safe.
+        let box = LargeStackResultBox<T>()
+        let done = DispatchSemaphore(value: 0) // one-shot thread-join signal, not a state lock.
+        let worker = Thread {
+            box.value = work()
+            done.signal()
+        }
+        worker.stackSize = 16 * 1024 * 1024
+        worker.start()
+        done.wait()
+        return box.value!
     }
 
     /// Registers any `func` declarations in `items` into `env` so value and
@@ -85,6 +117,9 @@ public struct SwiftViewInterpreter: Sendable {
     // MARK: - View expressions
 
     private func evalView(_ expr: ExprSyntax, _ env: Environment) -> RenderNode? {
+        env.budget.enter()
+        defer { env.budget.leave() }
+        guard !env.budget.exceeded else { return nil }
         guard let call = expr.as(FunctionCallExprSyntax.self) else { return nil }
         return evalCall(call, env)
     }
@@ -97,6 +132,19 @@ public struct SwiftViewInterpreter: Sendable {
             // closure as the node's action so rich rows can run commands.
             if name == "onTapGesture", let closure = call.trailingClosure {
                 node.action = parseAction(closure, env)
+                return node
+            }
+            // Child-bearing modifiers carry their trailing closure's views as a
+            // subtree (`.overlay { ... }`, `.background { ... }`, `.mask { ... }`,
+            // `.safeAreaInset(edge:) { ... }`), so arbitrary nested content
+            // composes, not just colors.
+            let childBearing: Set<String> = ["overlay", "background", "mask", "safeAreaInset", "contextMenu"]
+            if childBearing.contains(name), let closure = call.trailingClosure {
+                node.modifiers.append(RenderModifier(
+                    name: name,
+                    args: modifierArgs(call.arguments, env),
+                    children: evalItems(closure.statements, env)
+                ))
                 return node
             }
             node.modifiers.append(RenderModifier(name: name, args: modifierArgs(call.arguments, env)))
@@ -130,6 +178,12 @@ public struct SwiftViewInterpreter: Sendable {
             let name = call.arguments.first(where: { $0.label?.text == "systemName" })?.expression
                 ?? call.arguments.first?.expression
             return RenderNode(kind: .image, systemName: name.flatMap { exprString($0, env) })
+        case "Label":
+            return RenderNode(
+                kind: .label,
+                text: stringArgument(call.arguments, env) ?? labeledStringArgument("title", call.arguments, env) ?? "",
+                systemName: labeledStringArgument("systemImage", call.arguments, env)
+            )
         case "Spacer":
             return RenderNode(kind: .spacer)
         case "Divider":
@@ -140,19 +194,97 @@ public struct SwiftViewInterpreter: Sendable {
             return RenderNode(kind: .capsule)
         case "Circle":
             return RenderNode(kind: .circle)
+        case "Ellipse":
+            return RenderNode(kind: .ellipse)
+        case "UnevenRoundedRectangle":
+            return RenderNode(kind: .unevenRoundedRectangle, cornerRadius: doubleArgument(named: "cornerRadius", call.arguments, env)
+                ?? doubleArgument(named: "topLeadingRadius", call.arguments, env))
         case "RoundedRectangle":
             return RenderNode(kind: .roundedRectangle, cornerRadius: doubleArgument(named: "cornerRadius", call.arguments, env))
-        case "VStack", "HStack", "ZStack":
-            let kind: RenderNode.Kind = ref.baseName.text == "VStack" ? .vstack
-                : ref.baseName.text == "HStack" ? .hstack : .zstack
+        case "VStack", "HStack", "ZStack", "LazyVStack", "LazyHStack":
+            let kind: RenderNode.Kind
+            switch ref.baseName.text {
+            case "VStack": kind = .vstack
+            case "HStack": kind = .hstack
+            case "ZStack": kind = .zstack
+            case "LazyVStack": kind = .lazyVStack
+            default: kind = .lazyHStack
+            }
             let children = call.trailingClosure.map { evalItems($0.statements, env) } ?? []
             return RenderNode(kind: kind, spacing: doubleArgument(named: "spacing", call.arguments, env), children: children)
+        case "LinearGradient":
+            return RenderNode(kind: .linearGradient, colors: gradientColors(call, env),
+                              points: [gradientUnitPoint("startPoint", call), gradientUnitPoint("endPoint", call)])
+        case "RadialGradient":
+            return RenderNode(kind: .radialGradient, colors: gradientColors(call, env),
+                              points: [gradientUnitPoint("center", call)])
+        case "AngularGradient":
+            return RenderNode(kind: .angularGradient, colors: gradientColors(call, env),
+                              points: [gradientUnitPoint("center", call)])
+        case "AnyView":
+            // Type-erasure wrapper: render the wrapped view.
+            if let inner = call.arguments.first(where: { $0.label == nil })?.expression {
+                return evalView(inner, env)
+            }
+            return call.trailingClosure.flatMap { evalItems($0.statements, env).first }
+        case "Group":
+            return RenderNode(kind: .group, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "EmptyView":
+            return RenderNode(kind: .group)
+        case "List":
+            return RenderNode(kind: .list, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "Section":
+            // `Section("Header") { ... }` / `Section { ... }`: the leading
+            // string literal (if any) becomes the header above the content.
+            return RenderNode(
+                kind: .section,
+                text: stringArgument(call.arguments, env),
+                children: call.trailingClosure.map { evalItems($0.statements, env) } ?? []
+            )
+        case "Grid":
+            return RenderNode(kind: .grid, spacing: doubleArgument(named: "spacing", call.arguments, env),
+                              children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "GridRow":
+            return RenderNode(kind: .gridRow, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "LazyVGrid":
+            return RenderNode(kind: .lazyVGrid, spacing: doubleArgument(named: "spacing", call.arguments, env),
+                              children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "LazyHGrid":
+            return RenderNode(kind: .lazyHGrid, spacing: doubleArgument(named: "spacing", call.arguments, env),
+                              children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "ViewThatFits":
+            return RenderNode(kind: .viewThatFits, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "ProgressView":
+            return RenderNode(
+                kind: .progressView,
+                text: stringArgument(call.arguments, env),
+                value: progressValue(call, env)
+            )
+        case "Gauge":
+            return RenderNode(
+                kind: .gauge,
+                text: labeledStringArgument("label", call.arguments, env) ?? stringArgument(call.arguments, env),
+                // Same total-relative normalization as ProgressView: the
+                // rendered Gauge(value:) is 0...1.
+                value: progressValue(call, env)
+            )
+        case "Menu":
+            return RenderNode(
+                kind: .menu,
+                text: stringArgument(call.arguments, env) ?? labeledStringArgument("title", call.arguments, env) ?? "",
+                children: call.trailingClosure.map { evalItems($0.statements, env) } ?? []
+            )
         case "HSplitView":
             return RenderNode(kind: .hsplit, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
         case "ScrollView":
-            // The sidebar already scrolls; treat ScrollView as a passthrough
-            // vertical container so authored ScrollViews render correctly.
-            return RenderNode(kind: .vstack, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+            let children = call.trailingClosure.map { evalItems($0.statements, env) } ?? []
+            // A horizontal scroll view nests usefully inside the vertically
+            // scrolling sidebar; a vertical one would double-scroll, so it stays
+            // a passthrough vertical container.
+            if scrollViewIsHorizontal(call, env) {
+                return RenderNode(kind: .hscroll, children: children)
+            }
+            return RenderNode(kind: .vstack, children: children)
         case "Reorderable":
             return evalReorderable(call, env)
         default:
@@ -171,6 +303,9 @@ public struct SwiftViewInterpreter: Sendable {
     // MARK: - ViewBuilder statements
 
     private func evalItems(_ items: CodeBlockItemListSyntax, _ env: Environment) -> [RenderNode] {
+        env.budget.enter()
+        defer { env.budget.leave() }
+        guard !env.budget.exceeded else { return [] }
         registerFunctions(items, env)
         var out: [RenderNode] = []
         for item in items {
@@ -181,6 +316,8 @@ public struct SwiftViewInterpreter: Sendable {
                 out += evalFor(loop, env)
             } else if let ifExpr = ifExpression(node) {
                 out += evalIf(ifExpr, env)
+            } else if let switchExpr = switchExpression(node) {
+                out += evalSwitch(switchExpr, env)
             } else if let ret = node.as(ReturnStmtSyntax.self), let expr = ret.expression {
                 // A view helper with an explicit `return SomeView` (or
                 // `return ForEach(...) { }`) renders its returned expression,
@@ -211,6 +348,50 @@ public struct SwiftViewInterpreter: Sendable {
         return nil
     }
 
+    /// Extracts gradient color stops from a `colors: [...]` argument, or from a
+    /// nested `gradient: Gradient(colors: [...])`. Each stop is a hex/token
+    /// string the bridge resolves via the color palette.
+    private func gradientColors(_ call: FunctionCallExprSyntax, _ env: Environment) -> [String] {
+        var arrayExpr = call.arguments.first(where: { $0.label?.text == "colors" })?.expression
+        if arrayExpr == nil,
+           let gradient = call.arguments.first(where: { $0.label?.text == "gradient" })?.expression.as(FunctionCallExprSyntax.self) {
+            arrayExpr = gradient.arguments.first(where: { $0.label?.text == "colors" })?.expression
+        }
+        guard let array = arrayExpr?.as(ArrayExprSyntax.self) else { return [] }
+        return array.elements.map { element in
+            if let literal = element.expression.as(StringLiteralExprSyntax.self) {
+                return expressions.evalString(literal, env)
+            }
+            if let member = element.expression.as(MemberAccessExprSyntax.self) {
+                return member.declName.baseName.text // `.red` -> "red"
+            }
+            return exprString(element.expression, env) ?? element.expression.trimmedDescription
+        }
+    }
+
+    /// A gradient `UnitPoint` argument as a bare token (`.top` -> "top").
+    private func gradientUnitPoint(_ label: String, _ call: FunctionCallExprSyntax) -> String {
+        guard let expr = call.arguments.first(where: { $0.label?.text == label })?.expression else { return "" }
+        if let member = expr.as(MemberAccessExprSyntax.self) { return member.declName.baseName.text }
+        return expr.trimmedDescription
+    }
+
+    /// Normalized `ProgressView` fraction (0...1) from `value:`/`total:`, or nil
+    /// for the indeterminate form.
+    private func progressValue(_ call: FunctionCallExprSyntax, _ env: Environment) -> Double? {
+        guard let value = doubleArgument(named: "value", call.arguments, env) else { return nil }
+        let total = doubleArgument(named: "total", call.arguments, env) ?? 1
+        guard total != 0 else { return nil }
+        return max(0, min(1, value / total))
+    }
+
+    /// Whether a `ScrollView(...)` declares a horizontal axis. Inspects the
+    /// leading unlabeled `axes` argument's source for `.horizontal`.
+    private func scrollViewIsHorizontal(_ call: FunctionCallExprSyntax, _ env: Environment) -> Bool {
+        guard let axes = call.arguments.first(where: { $0.label == nil })?.expression else { return false }
+        return axes.trimmedDescription.contains("horizontal")
+    }
+
     /// Evaluates `Reorderable(data, move: "method", id: "field") { item in row }`
     /// into a `.reorderable` node: one rendered row per item plus a
     /// ``ReorderSpec`` carrying the item ids and the drop command.
@@ -222,7 +403,7 @@ public struct SwiftViewInterpreter: Sendable {
         let idField = labeledStringArgument("id", call.arguments, env) ?? "id"
         let idParam = labeledStringArgument("idParam", call.arguments, env) ?? "workspace_id"
         let indexParam = labeledStringArgument("indexParam", call.arguments, env) ?? "index"
-        let paramName = closureParameterName(closure)
+        let paramName = closureParameterNames(closure).first
 
         var rows: [RenderNode] = []
         var ids: [String] = []
@@ -257,26 +438,35 @@ public struct SwiftViewInterpreter: Sendable {
               let sequence = expressions.eval(sequenceExpr, env),
               let values = sequence.iterationValues,
               let closure = call.trailingClosure else { return [] }
-        let name = closureParameterName(closure)
+        let names = closureParameterNames(closure)
         var out: [RenderNode] = []
         for value in values {
             let scope = env.makeChild()
-            if let name { scope.define(name, value) }
-            scope.define("$0", value)
+            if names.count >= 2 {
+                // Two-param form, e.g. `ForEach(Array(xs.enumerated()), id: \.offset)
+                // { index, item in }`: destructure the pair's "0"/"1" members.
+                scope.define(names[0], value.member("0") ?? value)
+                scope.define(names[1], value.member("1") ?? value)
+                scope.define("$0", value.member("0") ?? value)
+                scope.define("$1", value.member("1") ?? value)
+            } else {
+                if let name = names.first { scope.define(name, value) }
+                scope.define("$0", value)
+            }
             out += evalItems(closure.statements, scope)
         }
         return out
     }
 
-    private func closureParameterName(_ closure: ClosureExprSyntax) -> String? {
-        guard let parameterClause = closure.signature?.parameterClause else { return nil }
+    private func closureParameterNames(_ closure: ClosureExprSyntax) -> [String] {
+        guard let parameterClause = closure.signature?.parameterClause else { return [] }
         if case let .simpleInput(list) = parameterClause {
-            return list.first?.name.text
+            return list.map { $0.name.text }
         }
         if case let .parameterClause(clause) = parameterClause {
-            return clause.parameters.first?.firstName.text
+            return clause.parameters.map { $0.firstName.text }
         }
-        return nil
+        return []
     }
 
     /// Captures the commands in a `Button` action closure (currently
@@ -316,6 +506,48 @@ public struct SwiftViewInterpreter: Sendable {
         return ButtonAction(commands: commands)
     }
 
+    /// Extracts a `switch` from a code-block item (bare or wrapped in an
+    /// `ExpressionStmtSyntax`).
+    private func switchExpression(_ node: CodeBlockItemSyntax.Item) -> SwitchExprSyntax? {
+        if let s = node.as(SwitchExprSyntax.self) { return s }
+        if let stmt = node.as(ExpressionStmtSyntax.self) { return stmt.expression.as(SwitchExprSyntax.self) }
+        if let expr = node.as(ExprSyntax.self) { return expr.as(SwitchExprSyntax.self) }
+        return nil
+    }
+
+    /// Evaluates a view-position `switch`: the first matching (or `default`)
+    /// case's statements are rendered.
+    private func evalSwitch(_ switchExpr: SwitchExprSyntax, _ env: Environment) -> [RenderNode] {
+        let subject = expressions.eval(switchExpr.subject, env)
+        for caseSyntax in switchExpr.cases {
+            guard let switchCase = caseSyntax.as(SwitchCaseSyntax.self) else { continue }
+            if switchCaseMatches(switchCase.label, subject, env) {
+                return evalItems(switchCase.statements, env.makeChild())
+            }
+        }
+        return []
+    }
+
+    /// Whether a `switch` case label matches `subject` (literal/`.member`
+    /// patterns; `default` always matches).
+    private func switchCaseMatches(_ label: SwitchCaseSyntax.Label, _ subject: SwiftValue?, _ env: Environment) -> Bool {
+        switch label {
+        case .default:
+            return true
+        case let .case(caseLabel):
+            for item in caseLabel.caseItems {
+                if let pattern = item.pattern.as(ExpressionPatternSyntax.self) {
+                    if let member = pattern.expression.as(MemberAccessExprSyntax.self), member.base == nil,
+                       case let .string(value)? = subject, member.declName.baseName.text == value {
+                        return true // `.running` matches subject string "running"
+                    }
+                    if expressions.eval(pattern.expression, env) == subject { return true }
+                }
+            }
+            return false
+        }
+    }
+
     private func evalFor(_ loop: ForStmtSyntax, _ env: Environment) -> [RenderNode] {
         guard let name = loop.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
               let sequence = expressions.eval(loop.sequence, env),
@@ -330,12 +562,11 @@ public struct SwiftViewInterpreter: Sendable {
     }
 
     private func evalIf(_ ifExpr: IfExprSyntax, _ env: Environment) -> [RenderNode] {
-        let taken = ifExpr.conditions.allSatisfy { element in
-            guard let expr = element.condition.as(ExprSyntax.self) else { return false }
-            return expressions.eval(expr, env)?.isTruthy ?? false
-        }
-        if taken {
-            return evalItems(ifExpr.body.statements, env.makeChild())
+        // The then-branch runs in a child scope so `if let x = …` bindings are
+        // visible to it.
+        let scope = env.makeChild()
+        if conditionsPass(ifExpr.conditions, scope) {
+            return evalItems(ifExpr.body.statements, scope)
         }
         guard let elseBody = ifExpr.elseBody else { return [] }
         if let block = elseBody.as(CodeBlockSyntax.self) {
@@ -345,6 +576,32 @@ public struct SwiftViewInterpreter: Sendable {
             return evalIf(elseIf, env)
         }
         return []
+    }
+
+    /// Evaluates an `if`/`guard` condition list against `scope`, binding any
+    /// `let name = expr` (or shorthand `let name`) optional bindings into
+    /// `scope` when non-nil. Returns false if any condition fails.
+    private func conditionsPass(_ conditions: ConditionElementListSyntax, _ scope: Environment) -> Bool {
+        for element in conditions {
+            if let binding = element.condition.as(OptionalBindingConditionSyntax.self) {
+                let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
+                let resolved: SwiftValue?
+                if let initializer = binding.initializer?.value {
+                    resolved = expressions.eval(initializer, scope)
+                } else if let name {
+                    resolved = scope.lookup(name) // shorthand `if let name`
+                } else {
+                    resolved = nil
+                }
+                guard let value = resolved else { return false }
+                if let name { scope.define(name, value) }
+            } else if let expr = element.condition.as(ExprSyntax.self) {
+                if !(expressions.eval(expr, scope)?.isTruthy ?? false) { return false }
+            } else {
+                return false
+            }
+        }
+        return true
     }
 
     private func applyBinding(_ decl: VariableDeclSyntax, _ env: Environment) {
@@ -401,4 +658,12 @@ public struct SwiftViewInterpreter: Sendable {
         let taken = expressions.eval(ternary.condition, env)?.isTruthy ?? false
         return resolveTernaryBranch(taken ? ternary.thenExpression : ternary.elseExpression, env)
     }
+}
+
+/// One-shot result holder for ``SwiftViewInterpreter``'s large-stack worker:
+/// written once on the worker thread, read on the caller only after the join
+/// signal. Safe to mark `@unchecked Sendable` because access is serialized by
+/// the join, not by concurrent sharing.
+private final class LargeStackResultBox<T>: @unchecked Sendable {
+    var value: T?
 }

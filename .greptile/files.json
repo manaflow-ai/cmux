@@ -56,6 +56,11 @@
       "scope": ["**/*.swift"]
     },
     {
+      "path": ".github/review-bot-rules/source-control-artifacts.md",
+      "description": "Source-of-truth cmux review rule for local/generated artifacts that should not enter source control.",
+      "scope": ["**/*"]
+    },
+    {
       "path": "CLAUDE.md",
       "description": "Repo-local guidance for cmux Swift, SwiftUI, testing, shortcut, localization, and no-sleep policies.",
       "scope": ["**/*.swift", "**/Package.swift", "cmux.xcodeproj/**"]

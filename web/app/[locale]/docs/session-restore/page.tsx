@@ -44,6 +44,7 @@ export default function SessionRestorePage() {
 cmux hooks setup codex
 cmux hooks setup grok
 cmux hooks setup antigravity
+cmux hooks setup omp
 cmux hooks setup --agent opencode`}</CodeBlock>
       <p>{t("setupBehavior")}</p>
 
@@ -93,6 +94,12 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
             <td>Pi</td>
             <td><code>pi</code></td>
             <td><code>pi --session &lt;id&gt;</code></td>
+            <td>{t("none")}</td>
+          </tr>
+          <tr>
+            <td>OMP</td>
+            <td><code>omp</code></td>
+            <td><code>omp --session &lt;id&gt;</code></td>
             <td>{t("none")}</td>
           </tr>
           <tr>

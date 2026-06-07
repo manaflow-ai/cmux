@@ -1818,6 +1818,20 @@ struct ShortcutStroke: Equatable, Hashable {
         eventKeyCode: UInt16
     ) -> String {
         let lowered = eventCharacter.lowercased()
+
+        // "+" -> "=" and "_" -> "-" are normalized regardless of Shift. On US
+        // layouts these symbols only exist as Shift variants, so the Shift gate
+        // below historically sufficed. On European layouts (German QWERTZ, French
+        // AZERTY, Nordic) "+" and "-" are dedicated keys typed WITHOUT Shift, so a
+        // bare "+"/"_" can only originate from such a key. Mapping them to their
+        // base zoom key ("=", "-") unconditionally is therefore safe (no shortcut
+        // key is ever stored as "+"/"_") and is what makes Cmd zoom work there.
+        switch lowered {
+        case "+": return "="
+        case "_": return "-"
+        default: break
+        }
+
         guard applyShiftSymbolNormalization else { return lowered }
 
         switch lowered {
@@ -1830,8 +1844,6 @@ struct ShortcutStroke: Equatable, Hashable {
         case "\"": return "'"
         case "|": return "\\"
         case "~": return "`"
-        case "+": return "="
-        case "_": return "-"
         case "!": return eventKeyCode == 18 ? "1" : lowered // kVK_ANSI_1
         case "@": return eventKeyCode == 19 ? "2" : lowered // kVK_ANSI_2
         case "#": return eventKeyCode == 20 ? "3" : lowered // kVK_ANSI_3

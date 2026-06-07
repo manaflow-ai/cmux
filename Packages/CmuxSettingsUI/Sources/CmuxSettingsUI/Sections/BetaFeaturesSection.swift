@@ -2,18 +2,20 @@ import CmuxSettings
 import SwiftUI
 
 /// **Beta Features** section — a warning note followed by the
-/// experimental toggles: `Feed`, `Dock`, and `Extensions`. Each toggle
-/// gates an unstable feature that is off by default.
+/// experimental toggles. Each toggle gates an unstable feature that is
+/// off by default.
 @MainActor
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
     @State private var dock: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
+    @State private var customSidebars: DefaultsValueModel<Bool>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
+        _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
     }
 
     public var body: some View {
@@ -29,6 +31,8 @@ public struct BetaFeaturesSection: View {
                 dockRow
                 SettingsCardDivider()
                 extensionsRow
+                SettingsCardDivider()
+                customSidebarsRow
             }
         }
     }
@@ -81,6 +85,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaExtensionsToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var customSidebarsRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:customSidebars",
+            String(localized: "settings.betaFeatures.customSidebars", defaultValue: "Custom Sidebars"),
+            subtitle: customSidebars.current
+                ? String(localized: "settings.betaFeatures.customSidebars.subtitleOn", defaultValue: "Lists your sidebars from ~/.config/cmux/sidebars in the sidebar picker, rendered in an isolated helper process.")
+                : String(localized: "settings.betaFeatures.customSidebars.subtitleOff", defaultValue: "Hides custom sidebars from the sidebar picker until you enable them here.")
+        ) {
+            Toggle("", isOn: Binding(get: { customSidebars.current }, set: { customSidebars.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaCustomSidebarsToggle")
         }
     }
 }

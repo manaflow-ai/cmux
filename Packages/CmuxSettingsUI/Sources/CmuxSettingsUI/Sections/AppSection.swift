@@ -680,7 +680,7 @@ public struct AppSection: View {
                     }
                     .labelsHidden()
                     Button {
-                        hostActions.previewNotificationSound()
+                        hostActions.previewNotificationSound(value: model.current, customFilePath: customFile.current)
                     } label: {
                         Image(systemName: "play.fill")
                             .font(.system(size: 9))

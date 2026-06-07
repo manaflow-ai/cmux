@@ -8,6 +8,8 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     override var safeAreaRect: NSRect { bounds }
     override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
     override var mouseDownCanMoveWindow: Bool { false }
+    override var fittingSize: NSSize { CmuxMainWindow.minimumContentSize }
+    override var intrinsicContentSize: NSSize { CmuxMainWindow.minimumContentSize }
 
     /// Lets a click on an interactive titlebar control (the sidebar toggle, the
     /// right-sidebar mode bar, the session-index header controls, etc.) both
@@ -52,6 +54,21 @@ func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
 
 @MainActor
 final class CmuxMainWindow: NSWindow {
+    static var minimumContentSize: NSSize {
+        NSSize(
+            width: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
+            height: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+        )
+    }
+
+    static func standardFrame(forDefaultFrame defaultFrame: NSRect) -> NSRect {
+        let minimumSize = minimumContentSize
+        var frame = defaultFrame
+        frame.size.width = max(frame.size.width, minimumSize.width)
+        frame.size.height = max(frame.size.height, minimumSize.height)
+        return frame
+    }
+
     private var isSoftHiddenForVisibilityController = false
 
     func setSoftHiddenForVisibilityController(_ isSoftHidden: Bool) {

@@ -30,98 +30,48 @@ public struct CustomSidebarView: View {
     ///     window titlebar accessory and fades into the host's top mask when
     ///     scrolled, instead of underlapping it. Defaults to
     ///     ``CustomSidebarContentInsets/zero``.
+    ///   - interpreter: The interpreter the `.swift` source renders through.
+    ///     Defaults to the in-process implementation; the app injects an
+    ///     out-of-process, crash-isolating ``SidebarInterpreting`` so an
+    ///     interpreter fault from an untrusted sidebar can't crash the host.
     public init(
         fileURL: URL,
         dataContext: [String: SwiftValue],
         dispatch: SidebarActionDispatch,
-        contentInsets: CustomSidebarContentInsets = .zero
+        contentInsets: CustomSidebarContentInsets = .zero,
+        interpreter: any SidebarInterpreting = InProcessSidebarInterpreter()
     ) {
-        _model = State(initialValue: CustomSidebarModel(fileURL: fileURL))
+        _model = State(initialValue: CustomSidebarModel(fileURL: fileURL, interpreter: interpreter))
         self.dataContext = dataContext
         self.dispatch = dispatch
         self.contentInsets = contentInsets
     }
 
     public var body: some View {
-        content
-            .environment(\.sidebarActionDispatch, dispatch)
-            .environment(\.customSidebarContentInsets, contentInsets)
-            .onAppear { model.start() }
-            .onDisappear { model.stop() }
+        // The pure presentation is shared with the out-of-process render
+        // worker (see CustomSidebarContentView), so the two paths can't drift.
+        CustomSidebarContentView(
+            state: model.state,
+            swiftRender: model.swiftRender,
+            hasRenderedSwift: model.hasRenderedSwift,
+            dispatch: dispatch,
+            contentInsets: contentInsets
+        )
+        .onAppear { model.start() }
+        .onDisappear { model.stop() }
+        // Re-interpret whenever the live data changes or the source
+        // reloads. `.task(id:)` cancels the prior render, so a superseded
+        // tick's result is discarded rather than published stale.
+        .task(id: SwiftRenderTrigger(sourceRevision: model.sourceRevision, dataContext: dataContext)) {
+            await model.renderSwift(dataContext: dataContext)
+        }
     }
+}
 
-    @ViewBuilder
-    private var content: some View {
-        switch model.state {
-        case .missing:
-            scrollWrap(
-                Text(String(localized: "sidebar.custom.missing", defaultValue: "Sidebar file is empty or missing."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            )
-        case let .json(document):
-            // Route JSON node actions through the same host dispatch the
-            // interpreted path uses, so taps in a declarative sidebar run
-            // instead of being silently dropped.
-            scrollWrap(DSLSidebarRenderer(node: document.root) { action in
-                dispatch.run(action.buttonAction)
-            })
-        case .swiftSource:
-            // The model caches the parsed AST and re-evaluates only against
-            // `dataContext`, so live workspace state still drives re-renders
-            // without re-parsing the source on every tick.
-            if let node = model.renderNode(dataContext: dataContext) {
-                // A split root owns its own per-column scrolling and fills the
-                // sidebar height, so it is not wrapped in the outer ScrollView.
-                if node.kind == .hsplit {
-                    RenderNodeView(node: node)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    scrollWrap(RenderNodeView(node: node))
-                }
-            } else {
-                scrollWrap(errorView(String(localized: "sidebar.custom.noView", defaultValue: "No supported SwiftUI view found.")))
-            }
-        case let .failed(message):
-            scrollWrap(errorView(message))
-        }
-    }
-
-    /// Wraps non-split content in the scrolling container with host-owned
-    /// outer insets (authors control inner spacing).
-    ///
-    /// The top/bottom `safeAreaInset`s reserve the titlebar-accessory and
-    /// footer bands so content rests below the chrome and scrolls up into the
-    /// host's edge-fade mask rather than clipping against it. This mirrors the
-    /// default workspace sidebar's scroll treatment.
-    private func scrollWrap(_ view: some View) -> some View {
-        ScrollView {
-            view
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 16)
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            Color.clear.frame(height: contentInsets.top).allowsHitTesting(false)
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            Color.clear.frame(height: contentInsets.bottom).allowsHitTesting(false)
-        }
-    }
-
-    private func errorView(_ message: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(
-                String(localized: "sidebar.custom.error", defaultValue: "Sidebar error"),
-                systemImage: "exclamationmark.triangle.fill"
-            )
-            .font(.caption.bold())
-            .foregroundStyle(.orange)
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
+/// The value the sidebar's interpret `.task(id:)` keys on. It changes when the
+/// loaded source reloads (`sourceRevision`) or the live `dataContext` changes,
+/// re-running the render. `Equatable` is enough for `.task(id:)`.
+private struct SwiftRenderTrigger: Equatable {
+    let sourceRevision: Int
+    let dataContext: [String: SwiftValue]
 }

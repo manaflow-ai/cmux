@@ -7,11 +7,30 @@ export type FileTreeRefreshSource = {
 export type FileTreeRefreshPlan =
   | {
       addedPaths: string[];
+      requiresFullGitStatus: boolean;
+      sourceFollowsPrevious: boolean;
       kind: "append";
     }
   | {
       kind: "reset";
     };
+
+export type FileTreeGitStatusSource = {
+  gitStatus: readonly unknown[];
+  gitStatusPatch?: unknown;
+  statsChanged?: boolean;
+};
+
+export type PierreFileTreeGitStatusModel = {
+  applyGitStatusPatch?: (patch: unknown) => void;
+  setGitStatus: (gitStatus: readonly unknown[]) => void;
+};
+
+export type PierreFileTreeSelectionModel = {
+  getItem?: (path: string) => { select: () => void } | null;
+  scrollToPath: (path: string, options: { focus: boolean; offset: "nearest" }) => void;
+  selectOnlyPath?: (path: string) => void;
+};
 
 export function planPierreFileTreeRefresh(
   previousSource: FileTreeRefreshSource | null | undefined,
@@ -24,7 +43,8 @@ export function planPierreFileTreeRefresh(
 
   const previousPathCount = previousSource.pathCount ?? previousSource.paths?.length ?? 0;
   const sourcePathCount = source.pathCount ?? paths.length;
-  const canAppend = source.previousSource === previousSource || isPathPrefix(previousSource, source);
+  const sourceFollowsPrevious = source.previousSource === previousSource;
+  const canAppend = sourceFollowsPrevious || isPathPrefix(previousSource, source);
 
   if (!canAppend || sourcePathCount < previousPathCount) {
     return { kind: "reset" };
@@ -32,8 +52,40 @@ export function planPierreFileTreeRefresh(
 
   return {
     addedPaths: paths.slice(previousPathCount, sourcePathCount),
+    requiresFullGitStatus: !sourceFollowsPrevious,
+    sourceFollowsPrevious,
     kind: "append",
   };
+}
+
+export function applyPierreFileTreeGitStatus(
+  model: PierreFileTreeGitStatusModel,
+  source: FileTreeGitStatusSource,
+  resetTree: boolean,
+): void {
+  if (resetTree) {
+    model.setGitStatus(source.gitStatus);
+    return;
+  }
+  if (source.gitStatusPatch && typeof model.applyGitStatusPatch === "function") {
+    model.applyGitStatusPatch(source.gitStatusPatch);
+    return;
+  }
+  if (source.statsChanged === true || source.gitStatusPatch) {
+    model.setGitStatus(source.gitStatus);
+  }
+}
+
+export function selectPierreFileTreePath(model: PierreFileTreeSelectionModel, selectedPath: string): void {
+  if (!selectedPath) {
+    return;
+  }
+  if (typeof model.selectOnlyPath === "function") {
+    model.selectOnlyPath(selectedPath);
+  } else {
+    model.getItem?.(selectedPath)?.select();
+  }
+  model.scrollToPath(selectedPath, { focus: false, offset: "nearest" });
 }
 
 function isPathPrefix(previousSource: FileTreeRefreshSource, nextSource: FileTreeRefreshSource): boolean {

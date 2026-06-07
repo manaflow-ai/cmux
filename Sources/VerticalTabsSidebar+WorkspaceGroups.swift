@@ -90,6 +90,7 @@ extension VerticalTabsSidebar {
             showsShortcutHint: showsHintForAnchor,
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
+            fontScale: settings.sidebarFontScale,
             cwdContextMenuItems: cwdContextMenuItems,
             newWorkspacePlacement: newWorkspacePlacement,
             rowSpacing: tabRowSpacing,

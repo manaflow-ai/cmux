@@ -26,6 +26,37 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.14": {
+    title:
+      "iPhone Companion App (Beta), Cross-Window Workspace Drag, Out-of-Process Custom Sidebars",
+    features: [
+      {
+        title: "iPhone Companion App (Beta)",
+        description:
+          "Pair an iPhone with your Mac from the new Mobile Connect window and attach to your terminals from your phone, with opt-in forwarding of terminal notifications. The iOS beta ships on TestFlight as cmux BETA.",
+      },
+      {
+        title: "Cross-Window Workspace Drag",
+        description:
+          "Drag a workspace out of one window's sidebar and drop it into another window's sidebar to move it, including grouped workspaces.",
+      },
+      {
+        title: "Out-of-Process Custom Sidebars",
+        description:
+          "Custom sidebar extensions now run in their own process with an isolated interpreter, so a broken sidebar can't hang or crash cmux, and the interpreter covers a broader set of SwiftUI primitives.",
+      },
+      {
+        title: "Browser Polish",
+        description:
+          "The omnibar selects the whole URL on the first focusing click (Chrome parity), browser chrome scales with the tab bar font size, a typing beachball with large histories is fixed, and hidden panes no longer stop actively-playing audio or video.",
+      },
+      {
+        title: "Agent Session Fixes",
+        description:
+          "Claude resume keeps cmux hooks attached so notifications and status tracking survive resumes, Agent Hibernation works for node-backed Claude sessions, and Codex resume preserves CODEX_HOME and pane order.",
+      },
+    ],
+  },
   "0.64.13": {
     title:
       "Browser Focus Mode, SSH Agent Forwarding, Custom Sidebars (Beta), Major Stability Fixes",

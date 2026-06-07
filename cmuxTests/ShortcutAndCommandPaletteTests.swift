@@ -824,6 +824,44 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
     }
 }
 
+final class CommandPaletteAuthCommandTests: XCTestCase {
+    func testSignedOutContextShowsSignInCommandOnly() {
+        var context = ContentView.CommandPaletteContextSnapshot()
+        context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, false)
+        context.setBool(ContentView.CommandPaletteContextKeys.authWorking, false)
+
+        let visibleCommandIds = visibleAuthCommandIds(context)
+
+        XCTAssertEqual(visibleCommandIds, [ContentView.commandPaletteAuthSignInCommandId])
+    }
+
+    func testSignedInContextShowsSignOutCommandOnly() {
+        var context = ContentView.CommandPaletteContextSnapshot()
+        context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, true)
+        context.setBool(ContentView.CommandPaletteContextKeys.authWorking, false)
+
+        let visibleCommandIds = visibleAuthCommandIds(context)
+
+        XCTAssertEqual(visibleCommandIds, [ContentView.commandPaletteAuthSignOutCommandId])
+    }
+
+    func testWorkingAuthContextHidesSignInAndSignOutCommands() {
+        for signedIn in [false, true] {
+            var context = ContentView.CommandPaletteContextSnapshot()
+            context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, signedIn)
+            context.setBool(ContentView.CommandPaletteContextKeys.authWorking, true)
+
+            XCTAssertTrue(visibleAuthCommandIds(context).isEmpty)
+        }
+    }
+
+    private func visibleAuthCommandIds(_ context: ContentView.CommandPaletteContextSnapshot) -> [String] {
+        ContentView.commandPaletteAuthCommandContributions()
+            .filter { $0.when(context) }
+            .map(\.commandId)
+    }
+}
+
 
 final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     func testFirstEntryPinsToTopAnchor() {

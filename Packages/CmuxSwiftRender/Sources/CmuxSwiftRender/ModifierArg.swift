@@ -1,7 +1,7 @@
 /// One argument of a ``RenderModifier``: an optional label and a resolved
 /// string value (evaluated where possible, else the source token like
 /// `.infinity` or `.leading`).
-public struct ModifierArg: Sendable, Equatable {
+public struct ModifierArg: Codable, Sendable, Equatable {
     public let label: String?
     public let value: String
 

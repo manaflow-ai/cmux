@@ -60,6 +60,15 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showUpdateFound(with appcastItem: SUAppcastItem,
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        let bundleIdentifier = Bundle.main.bundleIdentifier
+        if isDevelopmentUpdateBundleIdentifier(bundleIdentifier) {
+            log.append("show update found suppressed for dev build: \(appcastItem.displayVersionString) (bundle=\(bundleIdentifier ?? "nil"))")
+            model.clearDetectedUpdate()
+            reply(.dismiss)
+            setState(.idle)
+            return
+        }
+
         log.append("show update found: \(appcastItem.displayVersionString)")
         setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)))
     }

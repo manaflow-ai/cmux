@@ -14,7 +14,7 @@ import SwiftSyntax
 /// let program = interpreter.parse(source)        // parse once
 /// let node = interpreter.evaluate(program, state: liveData)  // cheap re-eval
 /// ```
-public struct ParsedProgram {
+public struct ParsedProgram: Sendable {
     /// The folded syntax tree the interpreter walks.
     let file: SourceFileSyntax
 

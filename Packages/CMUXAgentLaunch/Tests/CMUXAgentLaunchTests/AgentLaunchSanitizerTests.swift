@@ -413,6 +413,49 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Drops OMP session selectors without replaying prompts")
+    func dropsOmpSessionSelectorsWithoutReplayingPrompts() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "omp",
+                    "-r",
+                    "old-session",
+                    "--model",
+                    "anthropic/claude-sonnet-4-5",
+                    "initial prompt should not replay",
+                ],
+                launcher: "omp",
+                fallbackKind: "omp"
+            ) == [
+                "omp",
+                "--model",
+                "anthropic/claude-sonnet-4-5",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["omp", "--resume=old-session", "--theme", "dark"],
+                launcher: "omp",
+                fallbackKind: "omp"
+            ) == ["omp", "--theme", "dark"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["omp", "--session", "old-session", "--model", "anthropic/claude-sonnet-4-5"],
+                launcher: "omp",
+                fallbackKind: "omp"
+            ) == ["omp", "--model", "anthropic/claude-sonnet-4-5"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["omp", "--session=old-session", "--theme", "dark"],
+                launcher: "omp",
+                fallbackKind: "omp"
+            ) == ["omp", "--theme", "dark"]
+        )
+    }
+
     @Test("Rejects noninteractive Antigravity launches")
     func rejectsNoninteractiveAntigravityLaunches() {
         #expect(

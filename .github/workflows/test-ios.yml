@@ -1,0 +1,260 @@
+name: iOS simulator tests
+
+on:
+  pull_request:
+    paths:
+      - "ios/**"
+      - "Packages/CMUXAuthCore/**"
+      - "Packages/CMUXMobileCore/**"
+      - "Packages/CmuxAuthRuntime/**"
+      - "Packages/CmuxMobile*/**"
+      - "Packages/CMUXMobile*/**"
+      - "Sources/Mobile/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/**"
+      - "scripts/lint-ios-package-conventions.sh"
+      - ".github/workflows/test-ios.yml"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or SHA to test
+        required: false
+        default: ""
+      test_filter:
+        description: "UI test class or class/method, for example cmuxUITests/testSignInPairingAndWorkspaceShell"
+        required: false
+        default: ""
+      device_family:
+        description: "Simulator family"
+        required: false
+        default: "both"
+        type: choice
+        options:
+          - both
+          - iphone
+          - ipad
+
+permissions:
+  contents: read
+
+jobs:
+  detect-ios-changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      should_run: ${{ steps.detect.outputs.should_run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+
+      - name: Detect iOS changes
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
+          if grep -Eq '^(ios/|Packages/CMUXAuthCore/|Packages/CMUXMobileCore/|Packages/CmuxAuthRuntime/|Packages/CmuxMobile[^/]*/|Packages/CMUXMobile[^/]*/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No iOS-owned files changed; skipping iOS tests."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  package-conventions-lint:
+    needs: detect-ios-changes
+    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Lint iOS package conventions
+        run: |
+          # Mechanical enforcement of the modular-refactor conventions over the
+          # iOS line (no singletons / Combine / locks / timer hacks / KVO /
+          # namespace-enums). Exits non-zero on any unjustified ERROR; sanctioned
+          # exceptions carry a lint:allow / TRANSITIONAL / carve-out marker.
+          ./scripts/lint-ios-package-conventions.sh
+
+  mobile-core-package:
+    needs: detect-ios-changes
+    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -z "$XCODE_APP" ]; then
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+            XCODE_DIR="$XCODE_APP/Contents/Developer"
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+
+      - name: Run CMUXMobileCore package tests
+        run: |
+          swift test --package-path Packages/CMUXMobileCore
+
+  ios-simulator:
+    needs: detect-ios-changes
+    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
+    runs-on: macos-26
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [iphone, ipad]
+    steps:
+      - name: Skip unrequested family
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family }}
+        run: |
+          echo "Skipping ${{ matrix.family }}"
+
+      - name: Checkout
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select Xcode
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -z "$XCODE_APP" ]; then
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+            XCODE_DIR="$XCODE_APP/Contents/Developer"
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+
+      - name: Provision GhosttyKit
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          # Downloads the prebuilt GhosttyKit.xcframework pinned in
+          # scripts/ghosttykit-checksums.txt for the current ghostty SHA, or
+          # falls back to a from-source build. The iOS app links GhosttyKit via
+          # a local-path binaryTarget, so it must exist before package resolve.
+          ./scripts/install-zig-ci.sh
+          ./scripts/ensure-ghosttykit.sh
+
+      - name: Pick simulator
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        env:
+          DEVICE_FAMILY: ${{ matrix.family }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/simulator.env
+          import json
+          import os
+          import subprocess
+
+          family = os.environ["DEVICE_FAMILY"]
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          devices = [
+              device
+              for runtimes in data.get("devices", {}).values()
+              for device in runtimes
+              if device.get("isAvailable", True)
+          ]
+          prefix = "iPad" if family == "ipad" else "iPhone"
+          preferred = ["iPad Pro 13-inch (M4)", "iPad Air 13-inch (M3)"] if family == "ipad" else ["iPhone 17", "iPhone 16"]
+          selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
+          selected = selected or next(d for d in devices if d.get("name", "").startswith(prefix))
+          print(f"SIMULATOR_ID={selected['udid']}")
+          print(f"SIMULATOR_NAME={selected['name']}")
+          PY
+          cat /tmp/simulator.env
+          cat /tmp/simulator.env >> "$GITHUB_ENV"
+
+      - name: Resolve packages
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          xcodebuild -workspace ios/cmux.xcworkspace \
+            -scheme cmux-ios \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath /tmp/cmux-ios-${{ matrix.family }} \
+            -resolvePackageDependencies
+
+      - name: Run iOS simulator tests
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        env:
+          TEST_FILTER: ${{ inputs.test_filter }}
+        run: |
+          set -euo pipefail
+          XCODEBUILD_ARGS=(
+            -workspace ios/cmux.xcworkspace
+            -scheme cmux-ios
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
+            -derivedDataPath /tmp/cmux-ios-${{ matrix.family }}
+          )
+          if [ -n "${TEST_FILTER:-}" ]; then
+            XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
+          fi
+          XCODEBUILD_ARGS+=(test)
+          selected_tests_passed_despite_xcodebuild_status() {
+            local log_path="$1"
+            grep -Eq "Test Suite 'Selected tests' passed|Test Suite 'cmuxUITests' passed" "$log_path" &&
+              grep -Eq "Executed [1-9][0-9]* tests, with 0 failures \\(0 unexpected\\)" "$log_path" &&
+              ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)" "$log_path"
+          }
+          for attempt in 1 2; do
+            LOG_PATH="/tmp/cmux-ios-${{ matrix.family }}-attempt-${attempt}.log"
+            echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
+            xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
+            xcrun simctl erase "$SIMULATOR_ID"
+            xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
+            xcrun simctl bootstatus "$SIMULATOR_ID" -b
+            if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
+              exit 0
+            fi
+            status="${PIPESTATUS[0]}"
+            if selected_tests_passed_despite_xcodebuild_status "$LOG_PATH"; then
+              echo "xcodebuild exited $status after XCTest reported the selected tests passed with zero failures; treating this as a runner cleanup failure."
+              exit 0
+            fi
+            if [ "$attempt" -lt 2 ] && grep -Eq "Timed out while launching application via Xcode|Failed to send signal 19|DTXMessage" "$LOG_PATH"; then
+              echo "Detected Xcode simulator launch failure, retrying on a clean simulator."
+              continue
+            fi
+            exit "$status"
+          done

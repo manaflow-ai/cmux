@@ -1,94 +1,57 @@
 import CMUXAuthCore
+import CmuxAuthRuntime
 import CmuxSettingsUI
-import Combine
 import Foundation
-import SwiftUI
 
-/// Adapts the legacy `AuthManager` + `AuthSettingsStore` to the
-/// package's `AccountFlow` protocol so the new `CmuxSettingsUI`
-/// `AccountSection` can drive sign-in / sign-out / refresh without
-/// depending on `CMUXAuthCore`.
+/// Adapts the shared ``CmuxAuthRuntime/AuthCoordinator`` and the macOS
+/// ``HostBrowserSignInFlow`` to the `CmuxSettingsUI` `AccountFlow` protocol so
+/// the `AccountSection` can drive sign-in / sign-out / team selection without
+/// depending on the auth packages.
 ///
-/// Lifecycle: this is constructed once at app launch alongside the
-/// `SettingsRuntime` and bridges `AuthManager`'s `@Published`
-/// properties into `@Observable`-compatible state by subscribing in
-/// `init`. The class itself is `@MainActor` because every read /
-/// write hops to the main actor.
+/// A pure projection: every property reads through the coordinator's (or the
+/// browser flow's) `@Observable` storage, so SwiftUI views that read this
+/// adapter in `body` re-render when the underlying auth state changes.
 @MainActor
-@Observable
 final class HostAccountFlow: AccountFlow {
-    private(set) var currentIdentity: AccountIdentity?
-    private(set) var availableTeams: [AccountTeamSummary] = []
-    var selectedTeamID: String? {
-        didSet {
-            guard selectedTeamID != oldValue else { return }
-            authManager.selectedTeamID = selectedTeamID
-        }
+    private let coordinator: AuthCoordinator
+    private let browserSignIn: HostBrowserSignInFlow
+
+    init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
+        self.coordinator = coordinator
+        self.browserSignIn = browserSignIn
     }
-    private(set) var isWorkingOnAuth: Bool = false
 
-    private let authManager: AuthManager
-    @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
+    var currentIdentity: AccountIdentity? {
+        Self.identity(from: coordinator.currentUser)
+    }
 
-    init(authManager: AuthManager) {
-        self.authManager = authManager
-        self.currentIdentity = Self.identity(from: authManager.currentUser)
-        self.availableTeams = authManager.availableTeams.map { team in
+    var availableTeams: [AccountTeamSummary] {
+        coordinator.availableTeams.map { team in
             AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
         }
-        self.selectedTeamID = authManager.selectedTeamID
-        self.isWorkingOnAuth = authManager.isLoading || authManager.isRestoringSession
+    }
 
-        authManager.$currentUser
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] user in
-                self?.currentIdentity = Self.identity(from: user)
-            }
-            .store(in: &cancellables)
+    var selectedTeamID: String? {
+        get { coordinator.selectedTeamID }
+        set { coordinator.selectedTeamID = newValue }
+    }
 
-        authManager.$availableTeams
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] teams in
-                self?.availableTeams = teams.map { team in
-                    AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
-                }
-            }
-            .store(in: &cancellables)
-
-        authManager.$selectedTeamID
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] newValue in
-                guard let self else { return }
-                if self.selectedTeamID != newValue {
-                    self.selectedTeamID = newValue
-                }
-            }
-            .store(in: &cancellables)
-
-        authManager.$isLoading
-            .combineLatest(authManager.$isRestoringSession)
-            .map { $0 || $1 }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] busy in
-                self?.isWorkingOnAuth = busy
-            }
-            .store(in: &cancellables)
+    var isWorkingOnAuth: Bool {
+        coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isSigningIn
     }
 
     func startSignIn() {
-        authManager.beginSignIn()
+        browserSignIn.beginSignIn()
     }
 
     func signOut() async {
-        await authManager.signOut()
+        await browserSignIn.signOut()
     }
 
     func refreshCurrentUser() async {
-        // AuthManager.refreshSession is private; the public refresh
-        // path is `beginSignIn()` (browser flow) for full re-auth.
-        // For now refresh is a no-op; if the cached user is stale,
-        // the user can sign in again. If we surface a public refresh
-        // in AuthManager later, route it here.
+        // The coordinator refreshes the user on sign-in and session restore;
+        // there is no cheaper public refresh path. If the cached identity is
+        // stale the user signs in again (full browser round trip).
     }
 
     private static func identity(from user: CMUXAuthUser?) -> AccountIdentity? {
