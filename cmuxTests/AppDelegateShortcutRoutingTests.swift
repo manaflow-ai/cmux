@@ -152,11 +152,7 @@ private struct TextBoxMentionFileIndexCache {
     ) -> [TextBoxMentionSuggestion] {
         pruneExpired(now: now)
         let index = fileIndex(rootDirectory: rootDirectory, now: now, scanFiles: scanFiles)
-        var matches = index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
-        if matches.isEmpty && !query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let refreshed = refreshFileIndex(rootDirectory: rootDirectory, now: now, scanFiles: scanFiles)
-            matches = refreshed.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
-        }
+        let matches = index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
         return matches
             .map { $0.suggestion(trigger: query.trigger) }
     }
@@ -5950,7 +5946,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[@Sources/TextBoxInput.swift](") == true)
     }
 
-    func testTextBoxMentionFileSuggestionsRefreshCachedMisses() {
+    func testTextBoxMentionFileSuggestionsDoNotSynchronouslyRefreshCachedMisses() {
         var cache = TextBoxMentionFileIndexCache()
         let root = "/tmp/cmux-textbox-mentions-refresh"
         let rootURL = URL(fileURLWithPath: root, isDirectory: true)
@@ -5987,7 +5983,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(oldSuggestions.first?.title, "@old-file.txt")
         XCTAssertEqual(scanCount, 1)
 
-        let newSuggestions = cache.suggestions(
+        let immediateMissSuggestions = cache.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
                 range: NSRange(location: 0, length: 8),
@@ -5998,8 +5994,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             now: now.addingTimeInterval(0.1),
             scanFiles: scanFiles
         )
-        XCTAssertEqual(newSuggestions.first?.title, "@new-file.txt")
-        XCTAssertEqual(scanCount, 2)
+        XCTAssertTrue(immediateMissSuggestions.isEmpty)
+        XCTAssertEqual(scanCount, 1)
 
         let refreshedSuggestions = cache.suggestions(
             for: TextBoxMentionQuery(
@@ -6013,7 +6009,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             scanFiles: scanFiles
         )
         XCTAssertEqual(refreshedSuggestions.first?.title, "@new-file.txt")
-        XCTAssertEqual(scanCount, 3)
+        XCTAssertEqual(scanCount, 2)
     }
 
     func testTextBoxMentionFileSuggestionsEvictLeastRecentlyUsedRoots() {
