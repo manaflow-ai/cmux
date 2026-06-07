@@ -510,17 +510,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         allMacsWorkspaceListRefreshTask = nil
         rawTerminalInputBuffer.clear()
         reportedViewportSizesByTerminalKey = [:]
-        // Drop every Mac's partition and reseed the synthetic preview host, so a
-        // shared device never shows the previous user's aggregated list.
-        let seed = Self.partitions(from: PreviewMobileHost.workspaces)
-        workspacesByMac = seed.workspacesByMac
-        macOrder = seed.macOrder
-        macDisplayNameByMac = seed.displayNames
-        macStatusByMac = [:]
+        // Drop every Mac's partition so a shared device never shows the previous
+        // user's aggregated list. In a runtime-less SwiftUI preview, reseed the
+        // synthetic preview host so previews still render content. In a production
+        // session, clear to empty: reseeding the preview partition would survive
+        // into the next user's signed-in session (the preview workspaces would
+        // appear as a fake device section AND keep `hasNoPairedMacs` false, both
+        // wrong for a real account).
+        if runtime == nil {
+            let seed = Self.partitions(from: PreviewMobileHost.workspaces)
+            workspacesByMac = seed.workspacesByMac
+            macOrder = seed.macOrder
+            macDisplayNameByMac = seed.displayNames
+            macStatusByMac = [:]
+            selectedMacDeviceID = PreviewMobileHost.workspaces.first?.sourceMacDeviceID
+            selectedWorkspaceID = PreviewMobileHost.workspaces.first?.id
+            selectedTerminalID = PreviewMobileHost.workspaces.first?.terminals.first?.id
+        } else {
+            workspacesByMac = [:]
+            macOrder = []
+            macDisplayNameByMac = [:]
+            macStatusByMac = [:]
+            selectedMacDeviceID = nil
+            selectedWorkspaceID = nil
+            selectedTerminalID = nil
+        }
         activeMacDeviceID = nil
-        selectedMacDeviceID = PreviewMobileHost.workspaces.first?.sourceMacDeviceID
-        selectedWorkspaceID = PreviewMobileHost.workspaces.first?.id
-        selectedTerminalID = PreviewMobileHost.workspaces.first?.terminals.first?.id
     }
 
     public func resumeForegroundRefresh() {
@@ -3101,12 +3116,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Reports `false` until ``hasCompletedInitialPairedMacLoad`` is set, so a
     /// restored-but-not-yet-loaded session shows the list path (which renders a
     /// neutral loading surface) instead of flashing pairing. After the initial
-    /// load it is `true` only when no partition holds workspaces, no Mac is in
-    /// the switcher, and no heavy session is live. The synthetic preview-Mac
-    /// partition (no `runtime`) keeps it `false` so SwiftUI previews show the list.
+    /// load it is `true` only when no **real** partition holds workspaces, no Mac
+    /// is in the switcher, and no heavy session is live.
+    ///
+    /// The synthetic preview-Mac partition is excluded from the partition check in
+    /// a production session (`runtime != nil`): ``signOut`` reseeds that partition,
+    /// so counting it would keep this `false` after a real re-sign-in with no
+    /// paired Macs and trap the user out of pairing. In a runtime-less SwiftUI
+    /// preview the preview partition is the only content, so it keeps this `false`
+    /// and previews still show the list.
     public var hasNoPairedMacs: Bool {
         guard hasCompletedInitialPairedMacLoad else { return false }
-        return workspacesByMac.isEmpty && pairedMacs.isEmpty && activeMacDeviceID == nil
+        let hasRealPartition: Bool
+        if runtime == nil {
+            hasRealPartition = !workspacesByMac.isEmpty
+        } else {
+            // Ignore the synthetic preview partition in a production session.
+            hasRealPartition = workspacesByMac.keys.contains { $0 != PreviewMobileHost.deviceID }
+        }
+        return !hasRealPartition && pairedMacs.isEmpty && activeMacDeviceID == nil
     }
 
     /// Apply a workspace-list response for the **active** Mac's partition only.
