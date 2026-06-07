@@ -28,6 +28,14 @@ public final class MobilePushCoordinator {
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let enabledKey = "cmux.notifications.pushEnabled"
 
+    /// APNs `aps.category` the web sets on every cmux terminal push (see
+    /// `CMUX_APNS_CATEGORY` in `web/services/apns/payload.ts`). The matching
+    /// ``UNNotificationCategory`` registered below carries
+    /// `.customDismissAction`, so a swipe/clear delivers
+    /// `UNNotificationDismissActionIdentifier` to the app and we can forward the
+    /// dismiss to the Mac. Keep these two ids in sync.
+    public static let dismissSyncCategoryIdentifier = "cmux.terminal"
+
     @ObservationIgnored private weak var store: CMUXMobileShellStore?
 
     /// A tap whose navigation could not complete yet. On a cold launch the
@@ -86,11 +94,23 @@ public final class MobilePushCoordinator {
         applyPendingDeeplinkIfReady()
     }
 
-    /// Install the notification-center delegate and, if already opted in,
-    /// re-assert remote registration so a rotated token re-uploads. Call once at
-    /// launch from the AppDelegate.
+    /// Install the notification-center delegate, register the dismiss-sync
+    /// notification category, and, if already opted in, re-assert remote
+    /// registration so a rotated token re-uploads. Call once at launch from the
+    /// AppDelegate.
     public func configure(delegate: any UNUserNotificationCenterDelegate) {
-        UNUserNotificationCenter.current().delegate = delegate
+        let center = UNUserNotificationCenter.current()
+        center.delegate = delegate
+        // The category must carry `.customDismissAction` so a swipe/clear of a
+        // cmux banner delivers `UNNotificationDismissActionIdentifier` to the
+        // delegate; that is what lets us tell the Mac the user dismissed it.
+        let dismissSyncCategory = UNNotificationCategory(
+            identifier: Self.dismissSyncCategoryIdentifier,
+            actions: [],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+        center.setNotificationCategories([dismissSyncCategory])
         if isEnabled {
             UIApplication.shared.registerForRemoteNotifications()
         }
@@ -228,6 +248,19 @@ public final class MobilePushCoordinator {
             "resolved_workspace": .bool(pending.workspaceId != nil),
             "resolved_surface": .bool(pending.surfaceId != nil),
         ])
+    }
+
+    /// Forward a phone-side notification dismissal to the paired Mac so it marks
+    /// the notification read and clears its own banner. Fire-and-forget over the
+    /// attach channel; carries only the opaque notification id, never content.
+    /// - Parameter notificationId: The stable id of the dismissed notification.
+    ///   For a remote push this is `request.identifier` (the `apns-collapse-id`),
+    ///   with `cmux.notificationId` as a fallback.
+    public func handleDismiss(notificationId: String?) async {
+        guard let store,
+              let notificationId,
+              !notificationId.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        await store.dismissNotification(ids: [notificationId])
     }
 }
 #endif

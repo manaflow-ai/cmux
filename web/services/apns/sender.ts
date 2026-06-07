@@ -104,6 +104,10 @@ export async function sendApnsNotification(
   if (targets.length === 0) return [];
   const jwt = providerToken(config);
   const body = Buffer.from(JSON.stringify(buildApnsPayload(input)));
+  // The delivered banner's identifier (the lever for Mac→iOS dismiss) IS the
+  // apns-collapse-id when set. APNs caps it at 64 bytes; a UUID is 36, but guard
+  // anyway so an over-long id degrades to "no collapse" instead of a 400.
+  const collapseId = collapseIdFor(input.notificationId);
 
   const byHost = new Map<string, ApnsTarget[]>();
   for (const t of targets) {
@@ -113,12 +117,19 @@ export async function sendApnsNotification(
 
   const results = await Promise.all(
     [...byHost.entries()].map(([host, hostTargets]) =>
-      sendHostGroup(transport, host, hostTargets, jwt, body, timeoutMs).catch(() =>
+      sendHostGroup(transport, host, hostTargets, jwt, body, timeoutMs, collapseId).catch(() =>
         connectionErrorResults(hostTargets),
       ),
     ),
   );
   return results.flat();
+}
+
+/** A valid (≤64-byte) apns-collapse-id for the notification id, or undefined. */
+function collapseIdFor(notificationId: string | null | undefined): string | undefined {
+  const id = notificationId?.trim();
+  if (!id) return undefined;
+  return Buffer.byteLength(id, "utf8") <= 64 ? id : undefined;
 }
 
 function connectionErrorResults(hostTargets: readonly ApnsTarget[]): ApnsSendResult[] {
@@ -137,6 +148,7 @@ async function sendHostGroup(
   jwt: string,
   body: Buffer,
   timeoutMs: number,
+  collapseId: string | undefined,
 ): Promise<ApnsSendResult[]> {
   let client: ApnsHttp2Session | null = null;
   try {
@@ -146,7 +158,9 @@ async function sendHostGroup(
     const connError: Promise<null> = new Promise((resolve) => {
       connectedClient.once("error", () => resolve(null));
     });
-    return await Promise.all(hostTargets.map((t) => sendOne(connectedClient, jwt, t, body, timeoutMs, connError)));
+    return await Promise.all(
+      hostTargets.map((t) => sendOne(connectedClient, jwt, t, body, timeoutMs, connError, collapseId)),
+    );
   } catch {
     return connectionErrorResults(hostTargets);
   } finally {
@@ -161,6 +175,7 @@ function sendOne(
   body: Buffer,
   timeoutMs: number,
   connError: Promise<null>,
+  collapseId: string | undefined,
 ): Promise<ApnsSendResult> {
   return new Promise<ApnsSendResult>((resolve) => {
     let settled = false;
@@ -173,7 +188,7 @@ function sendOne(
 
     let req: http2.ClientHttp2Stream;
     try {
-      req = client.request({
+      const headers: http2.OutgoingHttpHeaders = {
         ":method": "POST",
         ":path": `/3/device/${target.deviceToken}`,
         "apns-topic": target.bundleId,
@@ -181,7 +196,12 @@ function sendOne(
         authorization: `bearer ${jwt}`,
         "content-type": "application/json",
         "content-length": String(body.length),
-      });
+      };
+      // Sets the delivered notification's identifier on iOS, so a later
+      // notification.dismissed event can clear this exact banner. Also collapses
+      // repeated updates for the same notification into one.
+      if (collapseId) headers["apns-collapse-id"] = collapseId;
+      req = client.request(headers);
     } catch (err) {
       finish(0, err instanceof Error ? err.message : "request_error");
       return;

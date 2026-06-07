@@ -108,6 +108,7 @@ final class PhonePushClient {
             body: notification.body,
             workspaceId: notification.tabId.uuidString,
             surfaceId: notification.surfaceId?.uuidString,
+            notificationId: notification.id.uuidString,
             hideContent: hideContent
         )
         Task { await send(payload) }
@@ -119,6 +120,11 @@ final class PhonePushClient {
         let body: String
         let workspaceId: String
         let surfaceId: String?
+        /// Stable notification id (the Mac store ``TerminalNotification/id``).
+        /// Travels to APNs as both an `apns-collapse-id` (so a later Mac→iOS
+        /// dismiss can target the delivered banner) and `cmux.notificationId`
+        /// (so an iOS swipe can tell the Mac which notification was dismissed).
+        let notificationId: String
         let hideContent: Bool
     }
 
@@ -147,6 +153,8 @@ final class PhonePushClient {
             "subtitle": payload.hideContent ? "" : payload.subtitle,
             "body": payload.hideContent ? "New terminal activity" : payload.body,
             "workspaceId": payload.workspaceId,
+            // Opaque UUID, not content: safe to send even when hideContent is on.
+            "notificationId": payload.notificationId,
             "hideContent": payload.hideContent,
         ]
         if let surfaceId = payload.surfaceId { bodyDict["surfaceId"] = surfaceId }
