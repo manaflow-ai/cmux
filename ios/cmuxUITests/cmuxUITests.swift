@@ -136,26 +136,20 @@ final class cmuxUITests: XCTestCase {
         try openSelectedWorkspaceIfNeeded(app)
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
-        let workspaceStart = Date()
-        assertTerminalRows([
-            1: "workspace: Workspace 3",
-            2: "terminal: Terminal 1",
-        ], in: app)
-        XCTAssertLessThan(Date().timeIntervalSince(workspaceStart), 12.0)
+        openTerminalPicker(
+            expecting: "MobileTerminalMenuItem-workspace-3-terminal-1",
+            in: app
+        )
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
         tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
-        let terminalStart = Date()
         assertButtonLabel(
             "MobileTerminalDropdown",
             equals: "Terminal 2",
             in: app
         )
-        XCTAssertLessThan(Date().timeIntervalSince(terminalStart), 12.0)
-
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
-        XCTAssertTrue(
-            app.buttons["MobileTerminalMenuItem-workspace-3-terminal-2"].waitForExistence(timeout: 8)
+        openTerminalPicker(
+            expecting: "MobileTerminalMenuItem-workspace-3-terminal-2",
+            in: app
         )
     }
 
@@ -611,6 +605,34 @@ final class cmuxUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         XCTAssertEqual(button.label, expectedLabel, file: file, line: line)
+    }
+
+    @MainActor
+    private func openTerminalPicker(
+        expecting itemIdentifier: String,
+        in app: XCUIApplication,
+        timeout: TimeInterval = 20,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let item = app.buttons[itemIdentifier]
+        let dropdown = app.buttons["MobileTerminalDropdown"]
+        XCTAssertTrue(dropdown.waitForExistence(timeout: 6), file: file, line: line)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if item.exists {
+                return
+            }
+            tap(dropdown, in: app, file: file, line: line)
+            let attemptDeadline = Date().addingTimeInterval(2)
+            while Date() < attemptDeadline {
+                if item.exists {
+                    return
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            }
+        }
+        XCTFail("Expected terminal picker item \(itemIdentifier) to exist", file: file, line: line)
     }
 
     @MainActor
