@@ -2110,8 +2110,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func createRemoteTerminal(in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil) async {
         guard let client = remoteClient,
-              let workspaceID = (explicitWorkspaceID ?? selectedWorkspace?.id)?.rawValue else { return }
-        let requestedWorkspaceID = MobileWorkspacePreview.ID(rawValue: workspaceID)
+              let activeMacDeviceID,
+              let requestedID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
+        // Route only into the active Mac's partition: terminal.create runs over
+        // the active Mac's `remoteClient`, so a target workspace that is not on
+        // the active Mac (e.g. tapped on a secondary Mac mid-retarget) resolves to
+        // a no-op instead of creating a terminal on the wrong Mac. Same guard the
+        // input/paste paths get from `workspaceID(forTerminalID:)`.
+        guard (workspacesByMac[activeMacDeviceID] ?? []).contains(where: { $0.id == requestedID }) else { return }
+        let workspaceID = requestedID.rawValue
+        let requestedWorkspaceID = requestedID
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(

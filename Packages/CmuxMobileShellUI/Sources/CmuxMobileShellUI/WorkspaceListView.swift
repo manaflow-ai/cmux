@@ -21,6 +21,10 @@ struct WorkspaceListView: View {
     /// Value snapshots of the aggregated list, grouped by source Mac.
     let deviceSections: [MobileWorkspaceDeviceSection]
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
+    /// The source Mac of the current selection, so the sidebar highlights only
+    /// the selected row under a cross-Mac workspace-id collision (ids are unique
+    /// only within a Mac).
+    var selectedMacDeviceID: String?
     let navigationStyle: WorkspaceNavigationStyle
     /// Select a workspace by `(workspaceID, sourceMacDeviceID)` so a tap resolves
     /// to the right Mac's partition under a cross-Mac id collision.
@@ -84,7 +88,9 @@ struct WorkspaceListView: View {
                             workspace: workspace,
                             host: section.displayName,
                             connectionStatus: section.status,
-                            isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
+                            isSelected: navigationStyle == .sidebar
+                                && selectedWorkspaceID == workspace.id
+                                && selectedMacDeviceID == section.deviceID,
                             navigationStyle: navigationStyle,
                             selectWorkspace: selectWorkspace,
                             renameWorkspace: sectionAllowsActions ? renameWorkspace : nil,

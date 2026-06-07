@@ -57,6 +57,7 @@ struct WorkspaceShellView: View {
             WorkspaceListView(
                 deviceSections: store.deviceSections,
                 selectedWorkspaceID: store.selectedWorkspaceID,
+                selectedMacDeviceID: store.selectedMacDeviceID,
                 navigationStyle: .push,
                 selectWorkspace: { id, macID in selectWorkspace(id, onMac: macID) },
                 createWorkspace: createWorkspaceInCompactStack,
@@ -109,6 +110,7 @@ struct WorkspaceShellView: View {
             WorkspaceListView(
                 deviceSections: store.deviceSections,
                 selectedWorkspaceID: store.selectedWorkspaceID,
+                selectedMacDeviceID: store.selectedMacDeviceID,
                 navigationStyle: .sidebar,
                 selectWorkspace: { id, macID in selectWorkspace(id, onMac: macID) },
                 createWorkspace: store.createWorkspace,
