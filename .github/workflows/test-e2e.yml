@@ -173,6 +173,7 @@ jobs:
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
           echo ""
           clang -framework Foundation -framework CoreGraphics \
+            -framework AppKit \
             -o /tmp/create-virtual-display scripts/create-virtual-display.m
           VDISPLAY_READY="$RUNNER_TEMP/cmux-virtual-display.ready"
           VDISPLAY_ID_PATH="$RUNNER_TEMP/cmux-virtual-display.id"
@@ -297,6 +298,7 @@ jobs:
             trap 'rm -f "$MANIFEST_PATH"' EXIT
 
             clang -framework Foundation -framework CoreGraphics \
+              -framework AppKit \
               -o "$HELPER_PATH" scripts/create-virtual-display.m
 
             printf '%s\n' "{\"helperBinaryPath\":\"$HELPER_PATH\"}" > "$MANIFEST_PATH"

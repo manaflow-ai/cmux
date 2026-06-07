@@ -954,6 +954,7 @@ jobs:
         run: |
           set -euo pipefail
           clang -framework Foundation -framework CoreGraphics \
+            -framework AppKit \
             -o /tmp/create-virtual-display scripts/create-virtual-display.m
           VDISPLAY_READY="${RUNNER_TEMP:-/tmp}/cmux-build-lag-virtual-display.ready"
           VDISPLAY_ID_PATH="${RUNNER_TEMP:-/tmp}/cmux-build-lag-virtual-display.id"

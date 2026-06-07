@@ -237,6 +237,7 @@ jobs:
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
           echo ""
           clang -framework Foundation -framework CoreGraphics \
+            -framework AppKit \
             -o /tmp/create-virtual-display scripts/create-virtual-display.m
           VDISPLAY_READY="${RUNNER_TEMP:-/tmp}/cmux-compat-virtual-display.ready"
           VDISPLAY_ID_PATH="${RUNNER_TEMP:-/tmp}/cmux-compat-virtual-display.id"
