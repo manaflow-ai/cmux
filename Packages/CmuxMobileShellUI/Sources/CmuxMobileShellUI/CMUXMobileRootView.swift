@@ -121,7 +121,15 @@ struct CMUXMobileRootView: View {
         } else if !isAuthenticated {
             SignInView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
-            RestoringSessionView()
+            if store.hasKnownPairedMac || store.isReconnectingStoredMac {
+                // We know a Mac is being reconnected: it is honest to say so.
+                RestoringSessionView()
+            } else {
+                // Still determining whether a paired Mac exists (install predating
+                // the hint, or a fresh sign-in): a neutral spinner, since we do not
+                // yet know if there is a session to restore.
+                MobilePairedMacDeterminingView()
+            }
         } else if store.connectionState != .connected {
             DisconnectedWorkspaceShellView(
                 showAddDevice: showAddDevice,
