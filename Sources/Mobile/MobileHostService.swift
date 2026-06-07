@@ -753,6 +753,45 @@ final class MobileHostService {
         return makeStatus(routes: routes)
     }
 
+    /// Emits the current ``MobileHostServiceStatus`` immediately, then a fresh
+    /// snapshot every time the listener or active-connection set changes (driven by
+    /// `.mobileHostStatusDidChange`). The in-app pairing window consumes this to flip
+    /// from "waiting" to "connected" the instant a phone attaches; it is the same
+    /// signal that backs the Mobile settings connection count. The stream ends when
+    /// the consumer cancels its task.
+    func statusUpdates() -> AsyncStream<MobileHostServiceStatus> {
+        AsyncStream { continuation in
+            // Bridge the notification through a Sendable `Void` signal so the
+            // non-Sendable `Notification` never crosses into the MainActor drain.
+            // Mirrors `HostSettingsActions.mobilePairingStatusUpdates()`.
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = MobileHostStatusObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: .mobileHostStatusDidChange,
+                    object: nil,
+                    queue: nil
+                ) { _ in
+                    signalContinuation.yield(())
+                }
+            )
+            let drainTask = Task { @MainActor in
+                continuation.yield(MobileHostService.shared.statusSnapshot())
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    continuation.yield(MobileHostService.shared.statusSnapshot())
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
+    }
+
     /// Starts the pairing listener (if enabled and not already bound) and
     /// resolves once it can mint attach tickets, so the in-app pairing window
     /// can render a QR code without polling the listener state machine.
