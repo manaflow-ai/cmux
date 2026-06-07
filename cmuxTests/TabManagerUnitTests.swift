@@ -71,6 +71,21 @@ private func restoreUserDefaultForTabManagerTests(_ value: Any?, key: String) {
     }
 }
 
+private func pageAudioMuteUnavailableError(
+    file: StaticString = #filePath,
+    line: UInt = #line
+) -> Error {
+    let message = "WKWebView page-audio mute selector is unavailable"
+    let environment = ProcessInfo.processInfo.environment
+    if environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true" {
+        XCTFail("\(message); hosted CI must exercise browser audio mute coverage", file: file, line: line)
+        return NSError(domain: "cmux.tests", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: message,
+        ])
+    }
+    return XCTSkip(message)
+}
+
 private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
     private let metadata: GitWorkspaceMetadata
     private var callCount = 0
@@ -2447,7 +2462,7 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             )
         )
         guard browserPanel.setMuted(true) else {
-            throw XCTSkip("WKWebView page-audio mute selector is unavailable")
+            throw pageAudioMuteUnavailableError()
         }
 
         let duplicate = try XCTUnwrap(workspace.duplicateBrowserToRight(panelId: browserPanel.id, focus: false))
@@ -2466,7 +2481,7 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         let browserPanel = try XCTUnwrap(workspace.newBrowserSurface(inPane: paneId, focus: true))
         let tabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(browserPanel.id))
         guard browserPanel.setMuted(false) else {
-            throw XCTSkip("WKWebView page-audio mute selector is unavailable")
+            throw pageAudioMuteUnavailableError()
         }
 
         let initialTab = try XCTUnwrap(workspace.bonsplitController.tab(tabId))
