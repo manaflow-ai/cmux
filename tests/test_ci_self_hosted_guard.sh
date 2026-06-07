@@ -723,6 +723,40 @@ check_tests_deriveddata_cache() {
   echo "PASS: tests-core caches explicit DerivedData and unit-tests shards class-selected app-host runs"
 }
 
+check_cached_deriveddata_prunes_module_caches() {
+  local script="$ROOT_DIR/scripts/ci/prune-deriveddata-module-cache.sh"
+  if [ ! -x "$script" ]; then
+    echo "FAIL: prune-deriveddata-module-cache.sh must be executable because workflows invoke it directly"
+    exit 1
+  fi
+
+  for pattern in \
+    'ModuleCache.noindex' \
+    'SDKStatCaches.noindex' \
+    'find "$derived_data_path"'
+  do
+    if ! grep -Fq "$pattern" "$script"; then
+      echo "FAIL: prune-deriveddata-module-cache.sh missing required cache-prune pattern: $pattern"
+      exit 1
+    fi
+  done
+
+  for path in \
+    .ci-derived-data/unit-tests \
+    .ci-derived-data/tests \
+    .ci-derived-data/build \
+    build-universal \
+    .ci-derived-data/ui-regressions
+  do
+    if ! grep -Fq "scripts/ci/prune-deriveddata-module-cache.sh $path" "$CI_FILE"; then
+      echo "FAIL: ci.yml must prune restored Xcode module caches for $path after restoring cached DerivedData"
+      exit 1
+    fi
+  done
+
+  echo "PASS: cached Xcode DerivedData lanes prune restored module caches before xcodebuild"
+}
+
 check_ui_regression_budget() {
   local timeout_minutes
   timeout_minutes="$(
@@ -949,6 +983,7 @@ check_xcodebuild_unit_step_requires_nonzero_execution "$TERMINAL_CORPUS_NIGHTLY_
 check_xcodebuild_unit_step_rejects_expected_failures "$CI_FILE" "Run unit tests"
 check_xcodebuild_unit_step_rejects_expected_failures "$COMPAT_FILE" "Run unit tests"
 check_tests_deriveddata_cache
+check_cached_deriveddata_prunes_module_caches
 check_ui_regression_budget
 check_build_and_lag_budget
 check_compat_virtual_display_readiness

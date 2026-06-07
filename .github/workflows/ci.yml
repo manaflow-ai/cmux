@@ -323,6 +323,9 @@ jobs:
           restore-keys: |
             deriveddata-unit-tests-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}-
 
+      - name: Prune restored Xcode module caches
+        run: scripts/ci/prune-deriveddata-module-cache.sh .ci-derived-data/unit-tests
+
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -547,6 +550,9 @@ jobs:
           key: deriveddata-tests-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}
           restore-keys: |
             deriveddata-tests-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}-
+
+      - name: Prune restored Xcode module caches
+        run: scripts/ci/prune-deriveddata-module-cache.sh .ci-derived-data/tests
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -842,6 +848,9 @@ jobs:
           key: deriveddata-build-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}
           restore-keys: |
             deriveddata-build-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}-
+
+      - name: Prune restored Xcode module caches
+        run: scripts/ci/prune-deriveddata-module-cache.sh .ci-derived-data/build
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -1144,6 +1153,9 @@ jobs:
           path: build-universal
           key: deriveddata-release-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}
 
+      - name: Prune restored Xcode module caches
+        run: scripts/ci/prune-deriveddata-module-cache.sh build-universal
+
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1292,6 +1304,9 @@ jobs:
           path: .ci-derived-data/ui-regressions
           key: deriveddata-ui-regressions-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}
           restore-keys: deriveddata-ui-regressions-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}-
+
+      - name: Prune restored Xcode module caches
+        run: scripts/ci/prune-deriveddata-module-cache.sh .ci-derived-data/ui-regressions
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
