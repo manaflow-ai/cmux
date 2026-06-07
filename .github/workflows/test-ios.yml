@@ -274,13 +274,6 @@ jobs:
             XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
           fi
           XCODEBUILD_ARGS+=(test)
-          selected_tests_passed_despite_xcodebuild_status() {
-            local log_path="$1"
-            grep -Eq "Test Suite 'Selected tests' passed|Test Suite 'cmuxUITests' passed" "$log_path" &&
-              grep -Eq "Executed [1-9][0-9]* tests, with 0 failures \\(0 unexpected\\)" "$log_path" &&
-              ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)" "$log_path" &&
-              ! grep -Eiq "Test Case '.*' skipped|with [1-9][0-9]* skipped|[1-9][0-9]* skips?"
-          }
           require_executed_tests() {
             local log_path="$1"
             if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$log_path"; then
@@ -300,13 +293,10 @@ jobs:
               exit 0
             fi
             status="${PIPESTATUS[0]}"
-            if selected_tests_passed_despite_xcodebuild_status "$LOG_PATH"; then
-              echo "xcodebuild exited $status after XCTest reported the selected tests passed with zero failures; treating this as a runner cleanup failure."
-              exit 0
-            fi
             if [ "$attempt" -lt 2 ] && grep -Eq "Timed out while launching application via Xcode|Failed to send signal 19|DTXMessage" "$LOG_PATH"; then
               echo "Detected Xcode simulator launch failure, retrying on a clean simulator."
               continue
             fi
+            echo "iOS simulator xcodebuild failed; failing instead of treating post-XCTest cleanup as success" >&2
             exit "$status"
           done
