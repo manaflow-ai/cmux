@@ -9,9 +9,11 @@ import Testing
         #expect(Bool(true))
     }
 
+#if os(iOS)
     @Test func normalizesInitialFeedbackEmail() {
         #expect(MobileFeedbackComposerSheet.normalizedInitialEmail("  user@example.com  ") == "user@example.com")
         #expect(MobileFeedbackComposerSheet.normalizedInitialEmail("   ") == nil)
         #expect(MobileFeedbackComposerSheet.normalizedInitialEmail(nil) == nil)
     }
+#endif
 }
