@@ -19,7 +19,10 @@ struct MobileDiagnosticsSecretPatternFactory {
             "access[_-]?key[_-]?id",
             "secret[_-]?access[_-]?key",
             "storage[_-]?key",
+            "session[_-]?id",
             "session[_-]?token",
+            "csrf[_-]?token",
+            "xsrf[_-]?token",
             "security[_-]?token",
             "token",
             "password",
@@ -40,7 +43,10 @@ struct MobileDiagnosticsSecretPatternFactory {
             "clientSecret",
             "accessKeyId",
             "secretAccessKey",
+            "sessionId",
             "sessionToken",
+            "csrfToken",
+            "xsrfToken",
             "securityToken",
         ].joined(separator: "|")
         let separatedSecretKey = "(?:[A-Za-z0-9]+[_-])*(?:\(separatedSecretNames))"
@@ -66,6 +72,15 @@ struct MobileDiagnosticsSecretPatternFactory {
             // whole value, including an optional Bearer prefix, before the generic
             // key/value rule sees `Bearer` as the value.
             ("(?i)(\\bx[_-]stack[_-](?:access|refresh)[_-]token\\s*[:=]\\s*)((?:Bearer\\s+)?[^\\s,;)]+)",
+             2),
+
+            // Cookie headers often bundle many app/session cookies. Redact the
+            // header value rather than trying to preserve non-secret cookies.
+            ("(?i)(\\b(?:Set-Cookie|Cookie)\\s*:\\s*)([^\\r\\n]{4,})", 2),
+
+            // Standalone cookie assignments from logs or document.cookie output,
+            // including names like `__Secure-next-auth.session-token=...`.
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?#])((?:__Host-|__Secure-)?[A-Za-z0-9._-]*(?:session|sid|csrf|xsrf)[A-Za-z0-9._-]*\\s*=\\s*[\"']?)([^\\s\"'&;]{4,})",
              2),
 
             // cmux attach/pairing URLs carry base64url JSON payloads. Attach

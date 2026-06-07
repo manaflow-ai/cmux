@@ -169,6 +169,27 @@ import Testing
         #expect(!scrubbedRefreshHeader.contains("stack-refresh-secret"))
     }
 
+    @Test func redactsSessionCookieSecrets() {
+        let cookieHeader = "Cookie: session=abcdef1234567890; theme=dark"
+        let setCookieHeader = "Set-Cookie: __Secure-next-auth.session-token=secret-cookie-value-123; Path=/; HttpOnly"
+        let standaloneSessionCookie = "__Secure-next-auth.session-token=secret-cookie-value-456; Path=/"
+        let standaloneCSRFToken = "XSRF-TOKEN=csrf-cookie-value-789"
+
+        let scrubbedCookieHeader = scrubber.scrub(cookieHeader)
+        let scrubbedSetCookieHeader = scrubber.scrub(setCookieHeader)
+        let scrubbedStandaloneSessionCookie = scrubber.scrub(standaloneSessionCookie)
+        let scrubbedStandaloneCSRFToken = scrubber.scrub(standaloneCSRFToken)
+
+        #expect(scrubbedCookieHeader == "Cookie: <redacted>")
+        #expect(scrubbedSetCookieHeader == "Set-Cookie: <redacted>")
+        #expect(scrubbedStandaloneSessionCookie == "__Secure-next-auth.session-token=<redacted>; Path=/")
+        #expect(scrubbedStandaloneCSRFToken == "XSRF-TOKEN=<redacted>")
+        #expect(!scrubbedCookieHeader.contains("abcdef1234567890"))
+        #expect(!scrubbedSetCookieHeader.contains("secret-cookie-value"))
+        #expect(!scrubbedStandaloneSessionCookie.contains("secret-cookie-value"))
+        #expect(!scrubbedStandaloneCSRFToken.contains("csrf-cookie-value"))
+    }
+
     @Test func redactsProviderPrefixedKeys() {
         #expect(scrubber.scrub("sk-abcdefghij0123456789xyz").contains("<redacted>"))
         #expect(scrubber.scrub("const key = \"sk-proj-abcdefghij0123456789xyz\"").contains("<redacted>"))
