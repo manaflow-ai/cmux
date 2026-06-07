@@ -254,6 +254,13 @@ jobs:
               grep -Eq "Executed [1-9][0-9]* tests, with 0 failures \\(0 unexpected\\)" "$log_path" &&
               ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)" "$log_path"
           }
+          require_executed_tests() {
+            local log_path="$1"
+            if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$log_path"; then
+              echo "iOS simulator test workflow completed without executing any tests" >&2
+              return 1
+            fi
+          }
           for attempt in 1 2; do
             LOG_PATH="/tmp/cmux-ios-${{ matrix.family }}-attempt-${attempt}.log"
             echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
@@ -262,6 +269,7 @@ jobs:
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
             if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
+              require_executed_tests "$LOG_PATH"
               exit 0
             fi
             status="${PIPESTATUS[0]}"

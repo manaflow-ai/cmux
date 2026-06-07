@@ -791,6 +791,23 @@ check_e2e_ui_tests_require_nonzero_execution() {
   echo "PASS: test-e2e.yml rejects zero-test UI runs"
 }
 
+check_ios_simulator_tests_require_nonzero_execution() {
+  if ! awk '
+    /^[[:space:]]*- name: Run iOS simulator tests$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /require_executed_tests\(\)/ { saw_function=1 }
+    in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
+    in_step && /iOS simulator test workflow completed without executing any tests/ { saw_message=1 }
+    in_step && /require_executed_tests "\$LOG_PATH"/ { saw_call=1 }
+    END { exit(saw_function && saw_nonzero_guard && saw_message && saw_call ? 0 : 1) }
+  ' "$TEST_IOS_FILE"; then
+    echo "FAIL: test-ios.yml must reject successful xcodebuild output that executed zero iOS tests"
+    exit 1
+  fi
+
+  echo "PASS: test-ios.yml rejects zero-test simulator runs"
+}
+
 check_tests_deriveddata_cache() {
   if ! awk '
     /^  tests-core:/ { in_job=1; next }
@@ -1050,6 +1067,7 @@ check_self_hosted_workspace_prep "$E2E_FILE" "e2e"
 # test-ios.yml runs app and package tests on macOS 26. Keep it on the paid
 # runner variable so PR runs do not sit behind the generic GitHub-hosted queue.
 check_ios_change_detection_covers_workflow_trigger
+check_ios_simulator_tests_require_nonzero_execution
 check_macos_runner "$TEST_IOS_FILE" "mobile-core-package"
 check_macos_runner "$TEST_IOS_FILE" "ios-simulator"
 
