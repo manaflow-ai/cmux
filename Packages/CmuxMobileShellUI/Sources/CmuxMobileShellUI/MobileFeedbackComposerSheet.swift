@@ -6,9 +6,9 @@ import PhotosUI
 import SwiftUI
 
 struct MobileFeedbackComposerSheet: View {
-    @AppStorage(MobileFeedbackSettings.storedEmailKey) private var email = ""
     @Environment(\.dismiss) private var dismiss
 
+    @State private var email = ""
     @State private var message = ""
     @State private var diagnosticsReport: MobileDiagnosticsReport?
     @State private var isPreparingDiagnostics = false
@@ -396,8 +396,6 @@ struct MobileFeedbackComposerSheet: View {
         defer { isSubmitting = false }
 
         let report = await refreshDiagnosticsReport()
-
-        email = trimmedEmail
 
         do {
             let metadata = MobileFeedbackAppMetadata.current()

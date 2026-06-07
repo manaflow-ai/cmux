@@ -676,6 +676,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.error("paired mac store activeMac failed: \(String(describing: error), privacy: .public)")
             return false
         }
+        guard isSignedIn, identityProvider?.currentUserID == stackUserID else {
+            return false
+        }
         guard let mac = saved else { return false }
         activePairedMac = mac
         let supportedKinds = runtime?.supportedRouteKinds ?? []

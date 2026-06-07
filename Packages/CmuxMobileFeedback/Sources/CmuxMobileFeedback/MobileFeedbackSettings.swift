@@ -3,8 +3,6 @@ import Foundation
 
 /// Runtime configuration and limits for mobile feedback submission.
 public struct MobileFeedbackSettings: Sendable {
-    /// UserDefaults key used by the UI to remember the reporter email.
-    public static let storedEmailKey = "mobileFeedbackEmail"
     /// Environment variable that overrides the feedback API endpoint in dev builds.
     public static let endpointEnvironmentKey = "CMUX_FEEDBACK_API_URL"
     /// Production feedback API endpoint used when no override is present.

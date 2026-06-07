@@ -338,6 +338,42 @@ import Testing
         #expect(store.pairedMacs.isEmpty)
         #expect(store.activePairedMac == nil)
     }
+
+    @Test func reconnectDoesNotPublishPairedMacAfterSignOutDuringStoreRead() async throws {
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: CmxMobileDefaults.defaultHostPort
+        )
+        let pairedMac = MobilePairedMac(
+            macDeviceID: "mac-stale",
+            displayName: "Stale Mac",
+            routes: [route],
+            createdAt: Date(timeIntervalSince1970: 1),
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            isActive: true,
+            stackUserID: "user-1"
+        )
+        let pairedMacStore = SuspendedActiveMacStore(activeMac: pairedMac)
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: PreviewIdentityProvider(userID: "user-1")
+        )
+
+        let reconnect = Task { @MainActor in
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        await pairedMacStore.waitForActiveMacRequest()
+
+        store.signOut()
+        await pairedMacStore.releaseActiveMac()
+        let didReconnect = await reconnect.value
+
+        #expect(didReconnect == false)
+        #expect(store.activePairedMac == nil)
+        #expect(store.connectionState == .disconnected)
+    }
 }
 
 private func hostPortRoute(
