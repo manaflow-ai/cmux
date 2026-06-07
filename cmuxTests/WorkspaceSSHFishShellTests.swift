@@ -404,7 +404,14 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
-        guard path.utf8.count < maxPathLength else { Darwin.close(fd); throw XCTSkip("Unix socket path too long for sockaddr_un: \(path)") }
+        guard path.utf8.count < maxPathLength else {
+            Darwin.close(fd)
+            let message = "Unix socket path too long for sockaddr_un: \(path)"
+            XCTFail(message)
+            throw NSError(domain: "cmux.tests", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
+        }
         path.withCString { ptr in
             withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
                 let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)

@@ -455,6 +455,20 @@ check_ssh_fish_shell_regression_fails_closed_on_ci() {
   echo "PASS: SSH fish shell regression fails closed on hosted CI"
 }
 
+check_ssh_fish_shell_socket_fixture_fails_closed() {
+  local file="$ROOT_DIR/cmuxTests/WorkspaceSSHFishShellTests.swift"
+  if grep -Fq 'throw XCTSkip("Unix socket path too long for sockaddr_un:' "$file"; then
+    echo "FAIL: WorkspaceSSHFishShellTests must fail closed when its generated Unix socket fixture path is invalid"
+    exit 1
+  fi
+  if ! grep -Fq 'XCTFail(message)' "$file"; then
+    echo "FAIL: WorkspaceSSHFishShellTests must report generated Unix socket fixture failures"
+    exit 1
+  fi
+
+  echo "PASS: SSH fish shell generated socket fixture failures fail closed"
+}
+
 check_settings_frame_clamping_fails_closed_on_ci() {
   local file="$ROOT_DIR/cmuxTests/SettingsWindowPresenterTests.swift"
   if ! grep -Fq "hosted CI must exercise Settings frame clamping" "$file"; then
@@ -1161,6 +1175,7 @@ check_no_debug_xctest_self_skips
 check_port_scanner_fd_regression_fails_closed_on_ci
 check_cmux_config_icon_fixture_fails_closed
 check_ssh_fish_shell_regression_fails_closed_on_ci
+check_ssh_fish_shell_socket_fixture_fails_closed
 check_settings_frame_clamping_fails_closed_on_ci
 check_no_swift_test_skip_quarantines
 check_vm_socket_tests_do_not_skip_ctrl_interactive
