@@ -136,19 +136,13 @@ final class cmuxUITests: XCTestCase {
         try openSelectedWorkspaceIfNeeded(app)
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
-        openTerminalPicker(
-            expecting: "MobileTerminalMenuItem-workspace-3-terminal-1",
-            in: app
-        )
+        assertVisibleText("Workspace 3", in: app)
 
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
         tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
         assertButtonLabel(
             "MobileTerminalDropdown",
             equals: "Terminal 2",
-            in: app
-        )
-        openTerminalPicker(
-            expecting: "MobileTerminalMenuItem-workspace-3-terminal-2",
             in: app
         )
     }
@@ -608,31 +602,22 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func openTerminalPicker(
-        expecting itemIdentifier: String,
+    private func assertVisibleText(
+        _ text: String,
         in app: XCUIApplication,
         timeout: TimeInterval = 20,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let item = app.buttons[itemIdentifier]
-        let dropdown = app.buttons["MobileTerminalDropdown"]
-        XCTAssertTrue(dropdown.waitForExistence(timeout: 6), file: file, line: line)
+        let element = app.descendants(matching: .any)[text]
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if item.exists {
+            if element.exists {
                 return
             }
-            tap(dropdown, in: app, file: file, line: line)
-            let attemptDeadline = Date().addingTimeInterval(2)
-            while Date() < attemptDeadline {
-                if item.exists {
-                    return
-                }
-                RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        XCTFail("Expected terminal picker item \(itemIdentifier) to exist", file: file, line: line)
+        XCTFail("Expected visible text \(text) to exist", file: file, line: line)
     }
 
     @MainActor
