@@ -19,15 +19,33 @@ export interface ApnsNotificationInput {
   readonly body: string;
   readonly workspaceId?: string | null;
   readonly surfaceId?: string | null;
+  /**
+   * Stable Mac-side notification id. Surfaced in the payload as
+   * `cmux.notificationId` so an iOS swipe-dismiss can tell the Mac which
+   * notification was cleared. The sender also stamps it as `apns-collapse-id`
+   * so a later Mac→iOS dismiss can target this exact delivered banner.
+   */
+  readonly notificationId?: string | null;
   /** When true, replace real terminal text with a generic fallback. Keep the
    * fallback literal until device tokens carry client localization capability. */
   readonly hideContent?: boolean;
 }
 
 /**
- * Build the APNs JSON payload. Adds `cmux.workspaceId`/`cmux.surfaceId` custom
- * keys so a tapped notification can deep-link to the right terminal, and marks
- * the alert time-sensitive (the app holds that entitlement).
+ * APNs `aps.category` set on every cmux terminal push. iOS registers a
+ * matching ``UNNotificationCategory`` with `customDismissAction` so a
+ * swipe/clear delivers `UNNotificationDismissActionIdentifier` to the app,
+ * which forwards the dismiss to the Mac. Keep this in sync with the iOS
+ * category id.
+ */
+export const CMUX_APNS_CATEGORY = "cmux.terminal";
+
+/**
+ * Build the APNs JSON payload. Adds `cmux.workspaceId`/`cmux.surfaceId`/
+ * `cmux.notificationId` custom keys so a tapped notification can deep-link to
+ * the right terminal and a swipe can be dismiss-synced, sets the dismiss-action
+ * `category`, and marks the alert time-sensitive (the app holds that
+ * entitlement).
  */
 export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
   const hidden = input.hideContent === true;
@@ -43,11 +61,13 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
     alert,
     sound: "default",
     "interruption-level": "time-sensitive",
+    category: CMUX_APNS_CATEGORY,
   };
 
   const cmux: Record<string, string> = {};
   if (input.workspaceId) cmux.workspaceId = input.workspaceId;
   if (input.surfaceId) cmux.surfaceId = input.surfaceId;
+  if (input.notificationId) cmux.notificationId = input.notificationId;
 
   return Object.keys(cmux).length > 0 ? { aps, cmux } : { aps };
 }
