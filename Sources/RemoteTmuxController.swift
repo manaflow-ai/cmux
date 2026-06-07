@@ -312,9 +312,6 @@ final class RemoteTmuxController {
            !bootstrap.isRemoteTmuxMirror {
             manager.closeWorkspace(bootstrap, recordHistory: false)
         }
-        if sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash }) {
-            addPersistedMirroredHost(host)
-        }
         return .mirrored(windowId: windowId)
     }
 
@@ -336,12 +333,6 @@ final class RemoteTmuxController {
                 cmuxDebugLog("remote-tmux: mirror session \(session.name) on \(host.destination) failed: \(error)")
                 #endif
             }
-        }
-        // Remember the host for relaunch only once it actually has a live mirror,
-        // so an unreachable / sessionless host isn't persisted forever with no
-        // way to forget it through the UI.
-        if sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash }) {
-            addPersistedMirroredHost(host)
         }
     }
 
@@ -696,10 +687,6 @@ final class RemoteTmuxController {
             otherMainWindowCount: otherMainWindowCount
         )
         if !hostHasOtherMirrors {
-            // This path runs only for a genuine remote end (a transient transport
-            // loss reconnects instead of reaching here), so forget the host: the
-            // session is truly gone and must not be re-mirrored on the next launch.
-            forgetMirroredHost(host.destination)
             // The host's last session is gone, so close its shared SSH ControlMaster
             // now. We must do it here rather than rely on the window's onClose hook:
             // clearing the binding just below makes handleRemoteWindowClosed a no-op,
@@ -805,10 +792,9 @@ final class RemoteTmuxController {
         mirror.detachObserver()
         displayObserverTokens.removeValue(forKey: entry.key)
         detach(host: host, sessionName: sessionName)
-        // If this was the host's last mirrored session, stop auto-re-mirroring it
-        // on the next launch and forget its dedicated-window binding.
+        // If this was the host's last mirrored session, drop its dedicated-window
+        // binding.
         if !sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash }) {
-            forgetMirroredHost(host.destination)
             if let windowId = windowIdByHost.removeValue(forKey: host.connectionHash) {
                 hostByWindowId.removeValue(forKey: windowId)
             }
@@ -857,74 +843,5 @@ final class RemoteTmuxController {
     /// connection.
     private static func connectionKey(host: RemoteTmuxHost, sessionName: String) -> String {
         "\(host.connectionHash)\u{1}\(sessionName)"
-    }
-
-    // MARK: - Persistence / reconnect on relaunch (P5)
-
-    /// JSON-encoded `[RemoteTmuxHost]` — preserves port/identityFile across launches.
-    private static let mirroredHostsDefaultsKey = "remoteTmux.mirroredHostsV2"
-    /// Legacy key: a plain `[String]` of destinations (destination-only). Read for
-    /// one-time migration into the V2 store, then removed.
-    private static let legacyMirroredHostsKey = "remoteTmux.mirroredHosts"
-
-    /// The persisted hosts to re-mirror on launch, decoding the full host
-    /// (destination + port + identityFile) or migrating the legacy
-    /// destination-only array.
-    private func persistedMirroredHosts() -> [RemoteTmuxHost] {
-        let defaults = UserDefaults.standard
-        if let data = defaults.data(forKey: Self.mirroredHostsDefaultsKey),
-           let hosts = try? JSONDecoder().decode([RemoteTmuxHost].self, from: data) {
-            return hosts
-        }
-        if let legacy = defaults.stringArray(forKey: Self.legacyMirroredHostsKey) {
-            return legacy.map { RemoteTmuxHost(destination: $0) }
-        }
-        return []
-    }
-
-    private func writePersistedMirroredHosts(_ hosts: [RemoteTmuxHost]) {
-        let defaults = UserDefaults.standard
-        // Dedupe by destination, keep a stable order.
-        var seen = Set<String>()
-        let unique = hosts
-            .filter { seen.insert($0.destination).inserted }
-            .sorted { $0.destination < $1.destination }
-        if let data = try? JSONEncoder().encode(unique) {
-            defaults.set(data, forKey: Self.mirroredHostsDefaultsKey)
-        }
-        // The legacy store has been folded into V2; drop it so it can't shadow.
-        defaults.removeObject(forKey: Self.legacyMirroredHostsKey)
-    }
-
-    /// Remembers a host (full connection details) for re-mirroring on relaunch,
-    /// updating in place if its port/identity changed.
-    private func addPersistedMirroredHost(_ host: RemoteTmuxHost) {
-        var hosts = persistedMirroredHosts().filter { $0.destination != host.destination }
-        hosts.append(host)
-        writePersistedMirroredHosts(hosts)
-    }
-
-    /// Stops remembering a host so it is not re-mirrored on the next launch.
-    func forgetMirroredHost(_ destination: String) {
-        let hosts = persistedMirroredHosts().filter { $0.destination != destination }
-        writePersistedMirroredHosts(hosts)
-    }
-
-    /// Reconnects to every persisted mirrored host and re-mirrors its
-    /// still-running sessions. Quitting cmux only detaches (the remote tmux
-    /// server stays alive), so this restores the sidebar after relaunch. Called
-    /// once per launch from the app delegate.
-    func restoreMirroredHostsOnLaunch() {
-        guard Self.isEnabled else { return }
-        let hosts = persistedMirroredHosts()
-        guard !hosts.isEmpty else { return }
-        Task { @MainActor in
-            for host in hosts {
-                // Restore each host into its own dedicated window (Option 1), so
-                // the relaunched sidebar matches how the user attached it. Don't
-                // activate — a relaunch must not steal focus.
-                _ = try? await self.mirrorHostInNewWindow(host: host, activateWindow: false)
-            }
-        }
     }
 }

@@ -673,8 +673,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated let socketTransport = SocketTransport()
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
-    /// One-shot guard so remote-tmux hosts are reconnected only once per launch.
-    private var didTriggerRemoteTmuxRestore = false
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -1727,12 +1725,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillBecomeActive(_ notification: Notification) { if !hasVisibleMainTerminalWindow() { _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(windows: mainWindowsForVisibilityController(), reason: .applicationWillBecomeActive) } }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        // One-shot per launch: reconnect to remote tmux hosts that were mirrored
-        // before quit and re-mirror their still-running sessions (remoteTmux beta).
-        if !didTriggerRemoteTmuxRestore {
-            didTriggerRemoteTmuxRestore = true
-            remoteTmuxController.restoreMirroredHostsOnLaunch()
-        }
         let activationWindows = mainWindowsForVisibilityController()
         if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
             _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
@@ -4202,10 +4194,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func sortedMainWindowContextsForSessionSnapshot() -> [MainWindowContext] {
         mainWindowContexts.values
-            // Exclude dedicated remote-tmux mirror windows: their workspaces are
-            // non-restorable, so snapshotting one yields an empty window that
-            // would restore as a leftover, duplicating the window that
-            // restoreMirroredHostsOnLaunch rebuilds.
+            // Exclude dedicated remote-tmux mirror windows: a mirror needs a live
+            // SSH connection, so snapshotting one yields an empty window that would
+            // restore as a useless leftover. Remote mirrors are not auto-restored on
+            // launch; the user re-attaches with `cmux ssh-tmux`.
             .filter { !remoteTmuxController.isDedicatedRemoteWindow($0.windowId) }
             .sorted { lhs, rhs in
             let lhsWindow = lhs.window ?? windowForMainWindowId(lhs.windowId)
