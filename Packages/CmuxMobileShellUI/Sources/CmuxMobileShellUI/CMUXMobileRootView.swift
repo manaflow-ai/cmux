@@ -48,10 +48,15 @@ struct CMUXMobileRootView: View {
         .onAppear {
             syncShellAuthentication(isAuthenticated)
             store.resumeForegroundRefresh()
-            connectUITestAttachURLIfNeeded()
             #if os(iOS)
             pushCoordinator.bind(store: store)
             #endif
+            // If the view mounts already authenticated (cached session, or a
+            // mock/fixture launch), `onChange(of: isAuthenticated)` never fires,
+            // so kick off the stored-Mac reconnect here too. Without this the
+            // restoring gate could stay on RestoringSessionView forever because
+            // nothing ever resolves `didFinishStoredMacReconnectAttempt`.
+            reconnectStoredMacIfNeeded()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
@@ -88,18 +93,7 @@ struct CMUXMobileRootView: View {
                 }
                 return
             }
-            let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
-            if !startedUITestAttachURL,
-               MobileRootAuthGate.shouldReconnectStoredMac(
-                stackAuthenticated: authManager.isAuthenticated,
-                attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
-                connectionState: store.connectionState
-            ) {
-                let stackUserID = authManager.currentUser?.id
-                Task {
-                    await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
-                }
-            }
+            reconnectStoredMacIfNeeded()
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
             syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
@@ -126,6 +120,16 @@ struct CMUXMobileRootView: View {
             RestoringSessionView()
         } else if !isAuthenticated {
             SignInView()
+        } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
+            if store.hasKnownPairedMac || store.isReconnectingStoredMac {
+                // We know a Mac is being reconnected: it is honest to say so.
+                RestoringSessionView()
+            } else {
+                // Still determining whether a paired Mac exists (install predating
+                // the hint, or a fresh sign-in): a neutral spinner, since we do not
+                // yet know if there is a session to restore.
+                MobilePairedMacDeterminingView()
+            }
         } else if store.connectionState != .connected {
             DisconnectedWorkspaceShellView(
                 showAddDevice: showAddDevice,
@@ -172,6 +176,17 @@ struct CMUXMobileRootView: View {
         )
     }
 
+    private var shouldShowRestoringStoredMac: Bool {
+        MobileRootAuthGate.shouldShowRestoringStoredMac(
+            authenticated: isAuthenticated,
+            connectionState: store.connectionState,
+            isReconnectingStoredMac: store.isReconnectingStoredMac,
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            pairedMacHintUndetermined: store.pairedMacHintUndetermined,
+            didFinishStoredMacReconnectAttempt: store.didFinishStoredMacReconnectAttempt
+        )
+    }
+
     private var hasActiveAttachTicketAuthentication: Bool {
         didAuthenticateWithAttachTicket && store.hasActiveUnexpiredAttachTicket
     }
@@ -185,6 +200,26 @@ struct CMUXMobileRootView: View {
             isRestoringSession: isRestoringSession ?? authManager.isRestoringSession,
             store: store
         )
+    }
+
+    /// Starts the stored-Mac reconnect when authenticated, unless a UITest attach
+    /// URL took over. Called from both initial `onAppear` (covers a mount that is
+    /// already authenticated) and `onChange(of: isAuthenticated)` (covers a
+    /// sign-in that completes after mount) so the restoring gate always resolves
+    /// even when the auth state never transitions while this view is mounted.
+    private func reconnectStoredMacIfNeeded() {
+        guard isAuthenticated else { return }
+        let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
+        guard !startedUITestAttachURL,
+              MobileRootAuthGate.shouldReconnectStoredMac(
+                stackAuthenticated: authManager.isAuthenticated,
+                attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+                connectionState: store.connectionState
+              ) else { return }
+        let stackUserID = authManager.currentUser?.id
+        Task {
+            await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+        }
     }
 
     private func showAddDevice() {
