@@ -316,6 +316,36 @@ final class HostSettingsActions: SettingsHostActions {
         GhosttyApp.shared.reloadConfiguration(source: reloadSource)
         return true
     }
+
+    // MARK: - Background image theme
+
+    func chooseBackgroundImagePath() -> String? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.image]
+        panel.prompt = String(localized: "settings.backgroundImage.choose", defaultValue: "Choose")
+        return panel.runModal() == .OK ? panel.url?.path : nil
+    }
+
+    func availableImageThemePresets() -> [ImageThemePresetInfo] {
+        ImageThemePresets.all.map {
+            ImageThemePresetInfo(key: $0.key, name: $0.name, opacity: $0.opacity)
+        }
+    }
+
+    func applyImageThemePreset(_ key: String) -> String? {
+        guard let preset = ImageThemePresets.preset(for: key),
+              let imagePath = ImageThemePresets.apply(preset) else { return nil }
+        GhosttyApp.shared.reloadConfiguration(source: "settings.backgroundImage.preset.\(key)")
+        return imagePath
+    }
+
+    func clearBackgroundImageTheme() {
+        ImageThemePresets.removeGhosttyBlock()
+        GhosttyApp.shared.reloadConfiguration(source: "settings.backgroundImage.clear")
+    }
 }
 
 /// Wraps the opaque observer returned by `NotificationCenter.addObserver` so the

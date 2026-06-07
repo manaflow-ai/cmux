@@ -137,6 +137,44 @@ public protocol SettingsHostActions: AnyObject {
     ///
     /// `async` because the availability check probes a real bind.
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult
+
+    /// Presents a native file picker for choosing a full-window background
+    /// image. Returns the chosen file path, or `nil` if the user cancelled.
+    /// The host owns the panel so the package stays Foundation-friendly.
+    func chooseBackgroundImagePath() -> String?
+
+    /// The bundled image-theme presets (Warp-derived) the host can apply.
+    /// Empty for hosts without bundled themes (previews/tests).
+    func availableImageThemePresets() -> [ImageThemePresetInfo]
+
+    /// Applies a bundled image-theme preset by key: materializes its bundled
+    /// image to a stable path, writes the preset's palette + a transparent
+    /// terminal background into the Ghostty config, and live-reloads. Returns
+    /// the image path to store, or `nil` on failure.
+    func applyImageThemePreset(_ key: String) -> String?
+
+    /// Removes the managed image-theme block from the Ghostty config and
+    /// live-reloads, reverting palette/terminal transparency to the user's own
+    /// directives. Does not clear the image path (the caller does that).
+    func clearBackgroundImageTheme()
+}
+
+/// Lightweight descriptor of a bundled image-theme preset, surfaced to the
+/// settings UI so the package can render a preset picker without depending on
+/// the host's theme catalog.
+public struct ImageThemePresetInfo: Identifiable, Hashable {
+    public let key: String
+    public let name: String
+    /// The preset's default image opacity (0–1), applied when selected.
+    public let opacity: Double
+
+    public init(key: String, name: String, opacity: Double) {
+        self.key = key
+        self.name = name
+        self.opacity = opacity
+    }
+
+    public var id: String { key }
 }
 
 public extension SettingsHostActions {
@@ -180,6 +218,14 @@ public extension SettingsHostActions {
         if fraction % 10 == 0 { return "\(whole).\(fraction / 10)" }
         return "\(whole).\(fraction < 10 ? "0" : "")\(fraction)"
     }
+
+    func chooseBackgroundImagePath() -> String? { nil }
+
+    func availableImageThemePresets() -> [ImageThemePresetInfo] { [] }
+
+    func applyImageThemePreset(_ key: String) -> String? { nil }
+
+    func clearBackgroundImageTheme() {}
 }
 
 /// No-op ``SettingsHostActions`` for previews, tests, and any context

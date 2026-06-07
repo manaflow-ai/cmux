@@ -839,6 +839,17 @@ final class CmuxSettingsFileStore {
             let clamped = min(max(value, 0), 1)
             snapshot.managedUserDefaults["sidebarTintOpacity"] = .double(clamped)
         }
+        if let path = jsonString(section["backgroundImage"]) {
+            snapshot.managedUserDefaults[BackgroundImageThemeDefaults.pathKey] = .string(path)
+        }
+        if let value = jsonDouble(section["backgroundImageOpacity"]) {
+            let clamped = min(max(value, 0), 1)
+            snapshot.managedUserDefaults[BackgroundImageThemeDefaults.opacityKey] = .double(clamped)
+        }
+        if let fit = jsonString(section["backgroundImageFit"]) {
+            let normalized = BackgroundImageFit(rawValueOrCover: fit.lowercased()).rawValue
+            snapshot.managedUserDefaults[BackgroundImageThemeDefaults.fitKey] = .string(normalized)
+        }
     }
 
     private func parseAutomationSection(

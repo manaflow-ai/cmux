@@ -2913,7 +2913,6 @@ private struct SidebarDebugView: View {
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
-
     private var selectedSidebarIndicatorStyle: SidebarActiveTabIndicatorStyle {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
     }
@@ -3126,6 +3125,177 @@ private struct SidebarDebugView: View {
         sidebarBlurOpacity = preset.blurOpacity
         sidebarTintHexLight = nil
         sidebarTintHexDark = nil
+    }
+}
+
+/// Bundled image themes ported from Warp. Each preset materializes its bundled
+/// image to a stable path the AppKit renderer can load, and writes the theme's
+/// palette + a fully transparent terminal background (so the window image shows
+/// uniformly across the terminal and chrome) into a managed block in the user's
+/// Ghostty config.
+enum ImageThemePresets {
+    struct Preset {
+        let key: String
+        let name: String
+        /// Asset-catalog image name (e.g. "SolarFlareBackground").
+        let assetName: String
+        /// Stable on-disk filename under ~/.config/cmux/backgrounds/.
+        let filename: String
+        /// Image opacity 0–1 used by the renderer (matches Warp's per-theme value).
+        let opacity: Double
+        /// Hex (no #) for ghostty background/foreground.
+        let background: String
+        let foreground: String
+        /// 16 ghostty palette hex values (no #), indices 0–15.
+        let palette: [String]
+    }
+
+    static let all: [Preset] = [
+        Preset(key: "solar_flare", name: "Solar Flare", assetName: "SolarFlareBackground", filename: "solarflare_bg.jpg", opacity: 0.2,
+               background: "1b1c18", foreground: "dde6ee",
+               palette: ["2e333d","d66060","64af86","caa358","5c80b2","b766a1","8069a1","f0f4f7","37404a","eb8282","64af86","caa358","5c80b2","b766a1","8069a1","ffffff"]),
+        Preset(key: "phenomenon", name: "Phenomenon", assetName: "PhenomenonBackground", filename: "phenomenon_bg.jpg", opacity: 1.0,
+               background: "121212", foreground: "faf9f6",
+               palette: ["121212","d22d1e","1ca05a","e5a01a","3780e9","bf409d","799c92","faf9f6","292929","ae756f","789b88","bd9f65","6f839f","a57899","bfc5c3","ffffff"]),
+        Preset(key: "jellyfish", name: "Jellyfish", assetName: "JellyfishBackground", filename: "jellyfish_bg.jpg", opacity: 0.3,
+               background: "1b1718", foreground: "ffffff",
+               palette: ["616161","ff8272","b4fa72","fefdc2","a5d5fe","ff8ffd","d0d1fe","f1f1f1","8e8e8e","ffc4bd","d6fcb9","fefdd5","c1e3fe","ffb1fe","e5e6fe","feffff"]),
+        Preset(key: "koi", name: "Koi", assetName: "KoiBackground", filename: "koi_bg.jpg", opacity: 0.3,
+               background: "211719", foreground: "ffffff",
+               palette: ["616161","ff8272","b4fa72","fefdc2","a5d5fe","ff8ffd","d0d1fe","f1f1f1","8e8e8e","ffc4bd","d6fcb9","fefdd5","c1e3fe","ffb1fe","e5e6fe","feffff"]),
+        Preset(key: "leafy", name: "Leafy", assetName: "LeafyBackground", filename: "leafy_bg.jpg", opacity: 0.3,
+               background: "000000", foreground: "ffffff",
+               palette: ["616161","ff8272","b4fa72","fefdc2","a5d5fe","ff8ffd","d0d1fe","f1f1f1","8e8e8e","ffc4bd","d6fcb9","fefdd5","c1e3fe","ffb1fe","e5e6fe","feffff"]),
+        Preset(key: "marble", name: "Marble", assetName: "MarbleBackground", filename: "marble_bg.jpg", opacity: 0.5,
+               background: "e3e3e3", foreground: "000000",
+               palette: ["212121","c30771","10a778","a89c14","008ec4","523c79","20a5ba","e0e0e0","212121","fb007a","5fd7af","f3e430","20bbfc","6855de","4fb8cc","f1f1f1"]),
+        Preset(key: "pink_city", name: "Pink City", assetName: "PinkCityBackground", filename: "pink_city_bg.jpg", opacity: 0.4,
+               background: "fbeff6", foreground: "000000",
+               palette: ["212121","c30771","10a778","a89c14","008ec4","523c79","20a5ba","e0e0e0","212121","fb007a","5fd7af","f3e430","20bbfc","6855de","4fb8cc","f1f1f1"]),
+        Preset(key: "snowy", name: "Snowy", assetName: "SnowyBackground", filename: "snowy_bg.jpg", opacity: 0.2,
+               background: "ffffff", foreground: "000000",
+               palette: ["212121","c30771","10a778","a89c14","008ec4","523c79","20a5ba","e0e0e0","212121","fb007a","5fd7af","f3e430","20bbfc","6855de","4fb8cc","f1f1f1"]),
+        Preset(key: "red_rock", name: "Red Rock", assetName: "RedRockBackground", filename: "red_rock_bg.jpg", opacity: 0.3,
+               background: "211719", foreground: "ffffff",
+               palette: ["616161","ff8272","b4fa72","fefdc2","a5d5fe","ff8ffd","d0d1fe","f1f1f1","8e8e8e","ffc4bd","d6fcb9","fefdd5","c1e3fe","ffb1fe","e5e6fe","feffff"]),
+        Preset(key: "dark_city", name: "Dark City", assetName: "DarkCityBackground", filename: "dark_city_bg.jpg", opacity: 0.2,
+               background: "01181f", foreground: "ffffff",
+               palette: ["616161","ff8272","b4fa72","fefdc2","a5d5fe","ff8ffd","d0d1fe","f1f1f1","8e8e8e","ffc4bd","d6fcb9","fefdd5","c1e3fe","ffb1fe","e5e6fe","feffff"]),
+    ]
+
+    static func preset(for key: String) -> Preset? {
+        all.first { $0.key == key }
+    }
+
+    private static let blockStart = "# cmux image theme start"
+    private static let blockEnd = "# cmux image theme end"
+
+    private static var ghosttyConfigURL: URL {
+        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".config/ghostty/config")
+    }
+
+    private static func backgroundImageURL(filename: String) -> URL {
+        URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".config/cmux/backgrounds/\(filename)")
+    }
+
+    /// Apply a preset: materialize its bundled image to a stable path and write
+    /// the managed Ghostty block. Returns the image path, or nil on failure.
+    static func apply(_ preset: Preset) -> String? {
+        guard let path = materializeImage(preset) else { return nil }
+        writeGhosttyBlock(preset)
+        return path
+    }
+
+    /// Extract the preset's bundled asset to a stable on-disk path so the
+    /// path-based renderer can load it. Returns the path, or nil on failure.
+    static func materializeImage(_ preset: Preset) -> String? {
+        let destinationURL = backgroundImageURL(filename: preset.filename)
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            return destinationURL.path
+        }
+        guard let image = NSImage(named: preset.assetName),
+              let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let jpeg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.92])
+        else {
+            return nil
+        }
+        do {
+            try fileManager.createDirectory(
+                at: destinationURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try jpeg.write(to: destinationURL)
+            return destinationURL.path
+        } catch {
+            NSLog("[ImageThemePresets] failed to write background image: %@", error.localizedDescription)
+            return nil
+        }
+    }
+
+    /// Idempotently write the preset's palette + a fully transparent terminal
+    /// background as a managed block in `~/.config/ghostty/config`.
+    static func writeGhosttyBlock(_ preset: Preset) {
+        var lines = [
+            blockStart,
+            "background = \(preset.background)",
+            "foreground = \(preset.foreground)",
+            "background-opacity = 0.0",
+        ]
+        for (index, hex) in preset.palette.enumerated() {
+            lines.append("palette = \(index)=#\(hex)")
+        }
+        lines.append(blockEnd)
+        let block = lines.joined(separator: "\n")
+
+        let url = ghosttyConfigURL
+        let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let stripped = removingManagedBlock(from: existing)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let next = stripped.isEmpty ? "\(block)\n" : "\(stripped)\n\n\(block)\n"
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try next.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            NSLog("[ImageThemePresets] failed to write ghostty config: %@", error.localizedDescription)
+        }
+    }
+
+    /// Remove the managed image-theme block from the Ghostty config, reverting
+    /// palette/background to the user's own directives.
+    static func removeGhosttyBlock() {
+        let url = ghosttyConfigURL
+        guard let existing = try? String(contentsOf: url, encoding: .utf8) else { return }
+        let stripped = removingManagedBlock(from: existing)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            if stripped.isEmpty {
+                try? FileManager.default.removeItem(at: url)
+            } else {
+                try (stripped + "\n").write(to: url, atomically: true, encoding: .utf8)
+            }
+        } catch {
+            NSLog("[ImageThemePresets] failed to clear ghostty config: %@", error.localizedDescription)
+        }
+    }
+
+    private static func removingManagedBlock(from contents: String) -> String {
+        // Also strip the legacy "# cmux solar flare" block from earlier builds.
+        var result = contents
+        for (start, end) in [(blockStart, blockEnd), ("# cmux solar flare start", "# cmux solar flare end")] {
+            let pattern = "(?ms)\\n?" + NSRegularExpression.escapedPattern(for: start)
+                + "\\n.*?\\n" + NSRegularExpression.escapedPattern(for: end) + "\\n?"
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                let range = NSRange(result.startIndex..<result.endIndex, in: result)
+                result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
+            }
+        }
+        return result
     }
 }
 

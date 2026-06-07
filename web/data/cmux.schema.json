@@ -813,6 +813,24 @@
           "maximum": 1,
           "default": 0.03,
           "description": "Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`."
+        },
+        "backgroundImage": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a full-window background image (sidebar + terminal + titlebar share one image, Warp-style). Supports a leading `~`. Leave empty to disable. For the image to show through the terminal area, set `background-opacity` below 1 in `~/.config/ghostty/config`."
+        },
+        "backgroundImageOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.2,
+          "description": "Opacity of the full-window background image from 0 to 1. Defaults to 0.2 (matches Warp's image themes)."
+        },
+        "backgroundImageFit": {
+          "type": "string",
+          "enum": ["cover", "contain"],
+          "default": "cover",
+          "description": "How the background image scales to fill the window. `cover` fills and crops; `contain` fits within bounds."
         }
       }
     },

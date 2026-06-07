@@ -68,5 +68,23 @@ public struct SidebarAppearanceCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarState"
     )
 
+    public let backgroundImagePath = DefaultsKey<String>(
+        id: "sidebarAppearance.backgroundImage",
+        defaultValue: "",
+        userDefaultsKey: "sidebarBackgroundImagePath"
+    )
+
+    public let backgroundImageOpacity = DefaultsKey<Double>(
+        id: "sidebarAppearance.backgroundImageOpacity",
+        defaultValue: 0.2,
+        userDefaultsKey: "sidebarBackgroundImageOpacity"
+    )
+
+    public let backgroundImageFit = DefaultsKey<String>(
+        id: "sidebarAppearance.backgroundImageFit",
+        defaultValue: "cover",
+        userDefaultsKey: "sidebarBackgroundImageFit"
+    )
+
     public init() {}
 }

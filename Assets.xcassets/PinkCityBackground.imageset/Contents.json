@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "pink_city_bg.jpg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

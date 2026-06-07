@@ -313,6 +313,16 @@ struct WindowAppearanceSnapshot {
     let unifySurfaceBackdrops: Bool
     let sidebarSettings: SidebarBackdropSettingsSnapshot
     let windowGlassSettings: WindowGlassSettingsSnapshot
+    /// Resolved (tilde-expanded handled by the store) path of the full-window
+    /// background image. Empty when no image theme is active.
+    let backgroundImagePath: String
+    let backgroundImageOpacity: CGFloat
+    let backgroundImageFit: BackgroundImageFit
+
+    /// Whether a full-window background image theme is active. When true, the
+    /// sidebar/chrome backdrops are forced transparent so the single image
+    /// shows through every surface (Warp-style unified background).
+    var imageThemeActive: Bool { !backgroundImagePath.isEmpty }
 
     static func current(
         unifySurfaceBackdrops: Bool,
@@ -329,6 +339,9 @@ struct WindowAppearanceSnapshot {
         bgGlassEnabled: Bool,
         bgGlassTintHex: String,
         bgGlassTintOpacity: Double,
+        backgroundImagePath: String = "",
+        backgroundImageOpacity: Double = BackgroundImageThemeDefaults.defaultOpacity,
+        backgroundImageFit: String = BackgroundImageFit.cover.rawValue,
         app: GhosttyApp = .shared
     ) -> Self {
         Self(
@@ -360,7 +373,10 @@ struct WindowAppearanceSnapshot {
                 terminalGlassTintColor: app.defaultBackgroundColor.withAlphaComponent(
                     Self.clampedOpacity(app.defaultBackgroundOpacity)
                 )
-            )
+            ),
+            backgroundImagePath: backgroundImagePath,
+            backgroundImageOpacity: Self.clampedOpacity(backgroundImageOpacity),
+            backgroundImageFit: BackgroundImageFit(rawValueOrCover: backgroundImageFit)
         )
     }
 
@@ -393,21 +409,37 @@ struct WindowAppearanceSnapshot {
     }
 
     var chromeColorScheme: ColorScheme {
-        cmuxReadableColorScheme(for: compositedTerminalBackgroundColor)
+        // In image mode the terminal is fully transparent, so the composited
+        // color is near-clear and would misresolve. Read text contrast from the
+        // opaque preset background instead, keeping sidebar/terminal text legible
+        // regardless of how transparent the terminal surface is.
+        if imageThemeActive {
+            return cmuxReadableColorScheme(for: terminalBackgroundColor)
+        }
+        return cmuxReadableColorScheme(for: compositedTerminalBackgroundColor)
+    }
+
+    /// Chrome/sidebar surfaces are unified (transparent) when the user opted
+    /// into match-terminal-background OR a full-window image theme is active.
+    var surfacesAreUnified: Bool {
+        unifySurfaceBackdrops || imageThemeActive
     }
 
     var sidebarContentColorScheme: ColorScheme {
-        unifySurfaceBackdrops ? chromeColorScheme : sidebarSettings.colorScheme
+        surfacesAreUnified ? chromeColorScheme : sidebarSettings.colorScheme
     }
 
     func policy(for role: WindowBackdropRole) -> WindowBackdropPolicy {
         switch role {
         case .windowRoot:
-            return terminalBackdropPolicy()
+            // With an image theme, the AppKit window-level image owns the
+            // background; the SwiftUI root must stay clear so it doesn't paint
+            // an opaque terminal color over the image.
+            return imageThemeActive ? .clear : terminalBackdropPolicy()
         case .terminalCanvas, .bonsplitChrome, .titlebar, .browserSurface:
             return .clear
         case .leftSidebar, .rightSidebar:
-            if unifySurfaceBackdrops {
+            if surfacesAreUnified {
                 return .clear
             }
             return .sidebarMaterial(sidebarSettings.materialPolicy)
@@ -423,5 +455,108 @@ struct WindowAppearanceSnapshot {
             opacity: terminalBackgroundOpacity,
             renderingMode: terminalRenderingMode
         )
+    }
+}
+
+// MARK: - Background image theme
+
+/// How a full-window background image is scaled to fill the window.
+enum BackgroundImageFit: String, CaseIterable, Identifiable {
+    case cover
+    case contain
+
+    var id: String { rawValue }
+
+    init(rawValueOrCover raw: String?) {
+        self = BackgroundImageFit(rawValue: raw ?? "") ?? .cover
+    }
+
+    var contentMode: SwiftUI.ContentMode {
+        switch self {
+        case .cover: return .fill
+        case .contain: return .fit
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .cover: return String(localized: "settings.backgroundImage.fit.cover", defaultValue: "Cover")
+        case .contain: return String(localized: "settings.backgroundImage.fit.contain", defaultValue: "Contain")
+        }
+    }
+}
+
+/// UserDefaults keys for the full-window background image theme. Mirrors the
+/// `sidebarAppearance.backgroundImage*` keys parsed from cmux.json and the
+/// `@AppStorage` bindings used by the settings GUI.
+enum BackgroundImageThemeDefaults {
+    static let pathKey = "sidebarBackgroundImagePath"
+    static let opacityKey = "sidebarBackgroundImageOpacity"
+    static let fitKey = "sidebarBackgroundImageFit"
+
+    static let defaultOpacity = 0.2
+    static let defaultFit = BackgroundImageFit.cover
+
+    /// Largest image we will load into memory (16 MB). Keeps a malformed or
+    /// enormous path from stalling the render pass.
+    static let maxImageBytes = 16 * 1024 * 1024
+}
+
+/// Loads and caches the decoded `NSImage` for a background-image theme. The
+/// snapshot only carries the lightweight path/opacity/fit; the render layer
+/// resolves the heavy `NSImage` here so repeated appearance snapshots don't
+/// hit the disk. Cache is keyed by resolved path + modification time so an
+/// edited image picks up without an app restart.
+enum BackgroundImageThemeStore {
+    private struct CacheEntry {
+        let modified: Date?
+        let byteCount: Int
+        let image: NSImage
+    }
+
+    private static let lock = NSLock()
+    private static var cache: [String: CacheEntry] = [:]
+
+    /// Expand a leading `~` to the user's home directory. Intermediate tildes
+    /// are left untouched, matching cmux's other path handling.
+    static func expandedPath(_ rawPath: String) -> String {
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if trimmed == "~" {
+            return NSHomeDirectory()
+        }
+        if trimmed.hasPrefix("~/") {
+            return NSHomeDirectory() + String(trimmed.dropFirst(1))
+        }
+        return trimmed
+    }
+
+    /// Resolve and decode the image at `rawPath`, returning a cached instance
+    /// when the file is unchanged. Returns nil for empty/missing/oversized
+    /// paths so callers can treat the theme as inactive.
+    static func image(forPath rawPath: String) -> NSImage? {
+        let path = expandedPath(rawPath)
+        guard !path.isEmpty else { return nil }
+
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        guard let attributes else { return nil }
+        let modified = attributes[.modificationDate] as? Date
+        let byteCount = (attributes[.size] as? NSNumber)?.intValue ?? 0
+        guard byteCount > 0, byteCount <= BackgroundImageThemeDefaults.maxImageBytes else {
+            return nil
+        }
+
+        lock.lock()
+        if let cached = cache[path], cached.modified == modified, cached.byteCount == byteCount {
+            lock.unlock()
+            return cached.image
+        }
+        lock.unlock()
+
+        guard let image = NSImage(contentsOfFile: path) else { return nil }
+        lock.lock()
+        cache[path] = CacheEntry(modified: modified, byteCount: byteCount, image: image)
+        lock.unlock()
+        return image
     }
 }
