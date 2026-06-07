@@ -1405,7 +1405,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// active so reconnect-on-launch is a no-op until the user pairs again).
     /// Backs the "Rescan QR" action.
     public func disconnectAndForgetActiveMac() {
+        // Resolve the persisted stored id to remove BEFORE disconnecting. When the
+        // active Mac is offline the all-devices gate still shows this surface, but
+        // `activeTicket` is already nil, so relying on the ticket alone would skip
+        // the store removal and the Mac would reappear on the next launch. Prefer
+        // the ticket id, else the active paired row, else the active partition key
+        // when it is a real (non-synthetic) stored id.
         let staleMacID = activeTicket?.macDeviceID
+        let persistedMacIDToRemove: String? = staleMacID
+            ?? pairedMacs.first(where: { $0.isActive })?.macDeviceID
+            ?? activeMacDeviceID.flatMap { $0.hasPrefix("manual-") ? nil : $0 }
         // Capture the active partition key before disconnect clears the active
         // pointer; it may be a `manual-...` key that differs from the ticket's
         // macDeviceID, so drop the partition by the key the aggregated list uses.
@@ -1421,8 +1430,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // checks `pairedMacs.isEmpty`, so without this Rescan QR would leave the
         // last paired Mac in memory and the gate would never fall to the pairing
         // flow. Remove the active row (this forgets the active Mac) and any row
-        // whose id matches the stale ticket's macDeviceID, for robustness.
-        pairedMacs.removeAll { $0.isActive || $0.macDeviceID == staleMacID }
+        // whose id matches the resolved persisted id, for robustness when the
+        // active row is not flagged isActive (e.g. an offline active Mac).
+        pairedMacs.removeAll { $0.isActive || $0.macDeviceID == persistedMacIDToRemove }
         // Forgetting the active Mac clears the restoring hint so the next launch
         // (and the current disconnected view) shows add-device immediately. Bump
         // the reconnect generation first so an in-flight reconnect can't re-set the
@@ -1431,7 +1441,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hasKnownPairedMac = false
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
-        if let pairedMacStore, let macID = staleMacID {
+        if let pairedMacStore, let macID = persistedMacIDToRemove {
             // Fire-and-forget: forgetting the persisted mac is cleanup that must
             // not block the synchronous disconnect UI state update above.
             Task {
