@@ -2695,7 +2695,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
             }
             Task {
-                try? await Task.sleep(nanoseconds: 600_000_000)
+                try? await ContinuousClock().sleep(for: .milliseconds(600))
                 await completion.resume(returning: "===== visible terminal: (snapshot skipped — render busy) =====")
             }
         }
