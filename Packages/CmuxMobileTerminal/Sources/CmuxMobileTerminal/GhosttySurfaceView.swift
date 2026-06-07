@@ -2675,26 +2675,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if pending.isEmpty {
             return "===== visible terminal: (no on-screen surface) ====="
         }
-        return await visibleTerminalSnapshotText(for: pending)
-    }
-
-    nonisolated private static func visibleTerminalSnapshotText(for pending: [VisibleSnapshotRequest]) async -> String {
-        await Task.detached(priority: .utility) {
-            Self.visibleTerminalSnapshotTextSync(for: pending)
-        }.value
-    }
-
-    nonisolated private static func visibleTerminalSnapshotTextSync(for pending: [VisibleSnapshotRequest]) -> String {
-        // Read on the output queue, but bound the wait. If a render wedge has the
-        // queue stuck mid-`process_output`, a plain `.sync` here would freeze the
-        // diagnostics task exactly when the user needs to capture that bug. Time
-        // out and ship the logs without the snapshot instead.
         let holder = VisibleSnapshotHolder()
-        // This synchronous helper reads the viewport off the serial output queue
-        // and must give up after a deadline if a render wedge holds it.
-        // carve-out justification: one-shot cross-queue completion signal with a
-        // bounded wait, not a lock guarding shared state.
         let done = DispatchSemaphore(value: 0)
+        enqueueVisibleTerminalSnapshotRead(pending: pending, holder: holder, done: done)
+        return await visibleTerminalSnapshotTextFromEnqueuedRead(holder: holder, done: done)
+    }
+
+    nonisolated private static func enqueueVisibleTerminalSnapshotRead(
+        pending: [VisibleSnapshotRequest],
+        holder: VisibleSnapshotHolder,
+        done: DispatchSemaphore
+    ) {
+        // Enqueue the read before the main actor can run a teardown that enqueues
+        // `ghostty_surface_free` for these same pointers. FIFO ordering on
+        // `outputQueue` keeps the read ahead of any later free.
         outputQueue.async {
             var built: [String] = []
             for item in pending {
@@ -2707,6 +2701,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             holder.sections = built
             done.signal()
         }
+    }
+
+    nonisolated private static func visibleTerminalSnapshotTextFromEnqueuedRead(
+        holder: VisibleSnapshotHolder,
+        done: DispatchSemaphore
+    ) async -> String {
+        await Task.detached(priority: .utility) {
+            Self.visibleTerminalSnapshotTextFromEnqueuedReadSync(holder: holder, done: done)
+        }.value
+    }
+
+    nonisolated private static func visibleTerminalSnapshotTextFromEnqueuedReadSync(
+        holder: VisibleSnapshotHolder,
+        done: DispatchSemaphore
+    ) -> String {
+        // Bound the wait. If a render wedge has the queue stuck mid-`process_output`,
+        // ship the logs without the snapshot instead.
         if done.wait(timeout: .now() + 0.6) == .timedOut {
             return "===== visible terminal: (snapshot skipped — render busy) ====="
         }
