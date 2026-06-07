@@ -501,6 +501,24 @@ check_browser_audio_mute_fails_closed_on_ci() {
   echo "PASS: browser audio mute regressions fail closed on hosted CI"
 }
 
+check_cli_socket_namespace_fails_closed_on_ci() {
+  local file="$ROOT_DIR/cmuxTests/CMUXCLIErrorOutputRegressionTests.swift"
+  if ! grep -Fq "hosted tests require an isolated runner socket namespace" "$file"; then
+    echo "FAIL: CLI socket routing regressions must fail closed on hosted CI when stable socket paths are already occupied"
+    exit 1
+  fi
+  if ! grep -Fq 'environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true"' "$file"; then
+    echo "FAIL: CLI socket routing regressions must explicitly distinguish hosted CI from local socket namespace skips"
+    exit 1
+  fi
+  if ! grep -Fq 'throw XCTSkip(message)' "$file"; then
+    echo "FAIL: CLI socket routing regressions should keep the local socket namespace skip for developer machines"
+    exit 1
+  fi
+
+  echo "PASS: CLI socket namespace regressions fail closed on hosted CI"
+}
+
 check_no_swift_test_skip_quarantines() {
   if grep -R -n -E "swift[[:space:]]+test([^|;&]*[[:space:]])--skip([[:space:]]|=)" "$ROOT_DIR/.github/workflows"; then
     echo "FAIL: workflow Swift package tests must not hide coverage with swift test --skip quarantines"
@@ -1196,6 +1214,7 @@ check_ssh_fish_shell_regression_fails_closed_on_ci
 check_ssh_fish_shell_socket_fixture_fails_closed
 check_settings_frame_clamping_fails_closed_on_ci
 check_browser_audio_mute_fails_closed_on_ci
+check_cli_socket_namespace_fails_closed_on_ci
 check_no_swift_test_skip_quarantines
 check_vm_socket_tests_do_not_skip_ctrl_interactive
 check_vm_socket_tests_do_not_self_skip
