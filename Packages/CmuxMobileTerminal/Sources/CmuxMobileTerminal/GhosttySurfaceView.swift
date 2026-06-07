@@ -2676,6 +2676,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return "===== visible terminal: (no on-screen surface) ====="
         }
         let holder = VisibleSnapshotHolder()
+        // carve-out justification: one-shot cross-queue completion signal with a
+        // bounded wait in a detached task, never a lock guarding shared state.
         let done = DispatchSemaphore(value: 0)
         enqueueVisibleTerminalSnapshotRead(pending: pending, holder: holder, done: done)
         return await visibleTerminalSnapshotTextFromEnqueuedRead(holder: holder, done: done)
@@ -2684,6 +2686,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     nonisolated private static func enqueueVisibleTerminalSnapshotRead(
         pending: [VisibleSnapshotRequest],
         holder: VisibleSnapshotHolder,
+        // carve-out justification: completion signal owned by one snapshot read.
         done: DispatchSemaphore
     ) {
         // Enqueue the read before the main actor can run a teardown that enqueues
@@ -2705,6 +2708,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     nonisolated private static func visibleTerminalSnapshotTextFromEnqueuedRead(
         holder: VisibleSnapshotHolder,
+        // carve-out justification: waited in a detached sync helper, not main actor.
         done: DispatchSemaphore
     ) async -> String {
         await Task.detached(priority: .utility) {
@@ -2714,6 +2718,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     nonisolated private static func visibleTerminalSnapshotTextFromEnqueuedReadSync(
         holder: VisibleSnapshotHolder,
+        // carve-out justification: bounded wait for one already-enqueued queue read.
         done: DispatchSemaphore
     ) -> String {
         // Bound the wait. If a render wedge has the queue stuck mid-`process_output`,
