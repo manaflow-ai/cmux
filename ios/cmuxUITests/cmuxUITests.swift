@@ -49,6 +49,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(invalidHostPairButton.exists)
         XCTAssertTrue(invalidHostPairButton.isEnabled)
 
+        dismissKeyboard(in: invalidHostApp, preferAddDeviceAccessoryDoneButton: true)
         tap(invalidHostPairButton, in: invalidHostApp)
         assertPairingError(contains: "Enter a host or IP address", in: invalidHostApp)
         invalidHostApp.terminate()
@@ -62,6 +63,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(invalidPortPairButton.exists)
         XCTAssertTrue(invalidPortPairButton.isEnabled)
 
+        dismissKeyboard(in: invalidPortApp, preferAddDeviceAccessoryDoneButton: true)
         tap(invalidPortPairButton, in: invalidPortApp)
         assertPairingError(contains: "Enter a port from 1 to 65535", in: invalidPortApp)
     }

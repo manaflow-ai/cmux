@@ -194,6 +194,13 @@ struct PairingView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     cancelButton
                 }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
+                        focusedField = nil
+                    }
+                    .accessibilityIdentifier("MobileAddDeviceKeyboardDoneButton")
+                }
                 #else
                 ToolbarItem {
                     cancelButton
