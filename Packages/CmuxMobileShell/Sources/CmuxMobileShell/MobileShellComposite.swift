@@ -1470,6 +1470,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket: probeTicket,
             allowsStackAuthFallback: true
         )
+        // This is a one-shot probe client for the ticket mint; tear down its
+        // transport/read loop before returning or throwing. The all-devices
+        // refresh mints a ticket per non-active Mac on every sign-in/foreground/
+        // pull, so a leaked probe client per Mac per refresh would accumulate
+        // persistent transports. (The workspace.list client below is likewise
+        // explicitly disconnected.)
+        defer { Task { await client.disconnect() } }
         let resultData = try await client.sendRequest(
             MobileCoreRPCClient.requestData(
                 method: "mobile.attach_ticket.create",

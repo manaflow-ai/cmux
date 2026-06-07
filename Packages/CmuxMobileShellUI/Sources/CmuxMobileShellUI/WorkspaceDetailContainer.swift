@@ -28,11 +28,31 @@ struct WorkspaceDetailContainer: View {
         return store.workspaces.first { $0.id == workspaceID } ?? store.selectedWorkspace
     }
 
+    /// The display name of the workspace's source Mac, or the active host name for
+    /// an untagged (synthetic/preview) workspace.
+    private func hostName(for workspace: MobileWorkspacePreview) -> String {
+        guard !workspace.sourceMacDeviceID.isEmpty else { return store.connectedHostName }
+        return store.macDisplayName(forMacDeviceID: workspace.sourceMacDeviceID)
+    }
+
+    /// The connectivity status of the workspace's source Mac, or the active Mac's
+    /// status for an untagged (synthetic/preview) workspace.
+    private func connectionStatus(for workspace: MobileWorkspacePreview) -> MobileMacConnectionStatus {
+        guard !workspace.sourceMacDeviceID.isEmpty else { return store.macConnectionStatus }
+        return store.macStatus(forMacDeviceID: workspace.sourceMacDeviceID)
+    }
+
     var body: some View {
         if let workspace {
             WorkspaceDetailView(
-                host: store.connectedHostName,
-                connectionStatus: store.macConnectionStatus,
+                // Resolve host + status from the workspace's OWN source Mac, not
+                // the active heavy-session Mac: a detail opened for a non-active
+                // (or mid-retarget) Mac must not show the active Mac's connected
+                // chrome while its input/replay are dropped by the active-Mac
+                // guards. Falls back to active-Mac metadata only for an untagged
+                // workspace (synthetic/preview with no source Mac).
+                host: hostName(for: workspace),
+                connectionStatus: connectionStatus(for: workspace),
                 workspace: workspace,
                 store: store,
                 createWorkspace: createWorkspace,
