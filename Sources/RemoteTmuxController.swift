@@ -793,8 +793,15 @@ final class RemoteTmuxController {
         displayObserverTokens.removeValue(forKey: entry.key)
         detach(host: host, sessionName: sessionName)
         // If this was the host's last mirrored session, drop its dedicated-window
-        // binding.
-        if !sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash }) {
+        // binding and tear down the shared SSH ControlMaster. The remote-end path
+        // (handleSessionEndedRemotely) and the window-close path
+        // (handleRemoteWindowClosed) both close the master when a host loses its last
+        // mirror; a user-initiated workspace close must do the same or the master
+        // lingers for the full ControlPersist window. Clearing the window binding here
+        // makes the window's onClose handleRemoteWindowClosed a no-op, so this path has
+        // to own the teardown.
+        let isLastSession = !sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
+        if isLastSession {
             if let windowId = windowIdByHost.removeValue(forKey: host.connectionHash) {
                 hostByWindowId.removeValue(forKey: windowId)
             }
@@ -803,7 +810,19 @@ final class RemoteTmuxController {
         // can't leave us targeting a stale name.
         let killTarget = mirror.connection.sessionId.map { "$\($0)" } ?? sessionName
         let transport = transport(for: host)
-        Task { _ = try? await transport.runTmux(["kill-session", "-t", killTarget]) }
+        if isLastSession {
+            // Drop the transport so a later re-attach builds a fresh one instead of
+            // reusing this soon-to-be-dead master.
+            transports.removeValue(forKey: host.connectionHash)
+        }
+        Task {
+            _ = try? await transport.runTmux(["kill-session", "-t", killTarget])
+            // Close the master only after kill-session has used it; `ssh -O exit`
+            // first would tear the connection down before the session dies.
+            if isLastSession {
+                RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+            }
+        }
     }
 
     /// Returns the control connection for a host+session, if attached.
