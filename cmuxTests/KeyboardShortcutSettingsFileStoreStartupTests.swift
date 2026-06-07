@@ -1340,6 +1340,51 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testRandomTerminalPanelBackgroundsDefaultOff() {
+        let suiteName = "RandomTerminalPanelBackgrounds.Default.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.removeObject(forKey: RandomTerminalPanelBackgroundSettings.enabledKey)
+
+        XCTAssertFalse(RandomTerminalPanelBackgroundSettings.isEnabled(defaults: defaults))
+    }
+
+    func testSettingsFileParsesRandomTerminalPanelBackgroundsEvenWhenPaletteIsPresent() throws {
+        let key = RandomTerminalPanelBackgroundSettings.enabledKey
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "workspaceColors": {
+                    "randomizeTerminalPanelBackgrounds": true,
+                    "colors": {
+                      "Red": "#C0392B"
+                    }
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertTrue(defaults.bool(forKey: key))
+        }
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-startup-\(UUID().uuidString)",

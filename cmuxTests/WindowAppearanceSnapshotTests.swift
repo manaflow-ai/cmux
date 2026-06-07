@@ -326,6 +326,42 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertFalse(plan.clearsSharedWindowBackdrop)
     }
 
+    /// Verifies randomized panel backgrounds paint the full terminal host layer when OSC 11 is absent.
+    func testRandomizedPanelBackgroundUsesSurfaceHostFillWhenNoOSCOverrideExists() {
+        let plan = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: .windowHostBackdrop,
+            explicitSurfaceBackgroundColor: nil,
+            randomizedPanelBackgroundColor: NSColor(hex: "#123456") ?? .black,
+            defaultBackgroundColor: NSColor(hex: "#272822") ?? .black,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: true,
+            usesBonsplitPaneBackdrop: false
+        )
+
+        XCTAssertEqual(plan.owner, .surfaceHostLayer)
+        XCTAssertEqual(plan.hostLayerColor.hexString(includeAlpha: true), "#123456FF")
+        XCTAssertTrue(plan.clearsSharedWindowBackdrop)
+        XCTAssertEqual(plan.logSource, "randomizedPanelBackground")
+    }
+
+    /// Verifies explicit OSC 11 remains above randomized panel backgrounds.
+    func testOSCOverrideWinsOverRandomizedPanelBackground() {
+        let plan = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: .windowHostBackdrop,
+            explicitSurfaceBackgroundColor: NSColor(hex: "#ABCDEF") ?? .white,
+            randomizedPanelBackgroundColor: NSColor(hex: "#123456") ?? .black,
+            defaultBackgroundColor: NSColor(hex: "#272822") ?? .black,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: true,
+            usesBonsplitPaneBackdrop: false
+        )
+
+        XCTAssertEqual(plan.owner, .surfaceHostLayer)
+        XCTAssertEqual(plan.hostLayerColor.hexString(includeAlpha: true), "#ABCDEFFF")
+        XCTAssertTrue(plan.clearsSharedWindowBackdrop)
+        XCTAssertEqual(plan.logSource, "surfaceOverride")
+    }
+
     private func makeSnapshot(
         unifySurfaceBackdrops: Bool,
         backgroundHex: String = "#272822",

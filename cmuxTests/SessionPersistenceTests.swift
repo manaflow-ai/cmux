@@ -165,6 +165,62 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(store.notifications.contains { $0.tabId == restoredWorkspaceId && $0.id != duplicateId })
     }
 
+    @MainActor
+    func testWorkspaceSessionSnapshotPersistsRandomizedTerminalPanelBackground() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+        terminalPanel.randomizedPanelBackgroundHex = "#123456"
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
+
+        XCTAssertEqual(panelSnapshot.terminal?.randomizedPanelBackgroundHex, "#123456")
+    }
+
+    @MainActor
+    func testWorkspaceSessionRestoreAppliesRandomizedTerminalPanelBackground() throws {
+        let panelId = UUID()
+        let panel = SessionPanelSnapshot(
+            id: panelId,
+            type: .terminal,
+            title: "Terminal",
+            customTitle: nil,
+            directory: nil,
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(randomizedPanelBackgroundHex: "#654321"),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil
+        )
+        let snapshot = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: nil,
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            terminalScrollBarHidden: nil,
+            currentDirectory: "/tmp",
+            focusedPanelId: panelId,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelId], selectedPanelId: panelId)),
+            panels: [panel],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: panelId))
+
+        XCTAssertEqual(restoredPanel.randomizedPanelBackgroundHex, "#654321")
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -189,6 +245,29 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(loaded?.windows.first?.display?.displayID, 42)
         let visibleFrame = try XCTUnwrap(loaded?.windows.first?.display?.visibleFrame)
         XCTAssertEqual(visibleFrame.y, 25, accuracy: 0.001)
+    }
+
+    func testRandomTerminalPanelBackgroundAssignmentUsesPaletteDeterministically() throws {
+        let suiteName = "RandomTerminalPanelBackgroundSettings.Assign.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: RandomTerminalPanelBackgroundSettings.enabledKey)
+        defaults.set(["Red": "#C0392B", "Blue": "#1565C0"], forKey: WorkspaceTabColorSettings.paletteKey)
+
+        let surfaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let firstColor = RandomTerminalPanelBackgroundSettings.assignedHex(
+            surfaceId: surfaceId,
+            existingHex: nil,
+            defaults: defaults
+        )
+        let secondColor = RandomTerminalPanelBackgroundSettings.assignedHex(
+            surfaceId: surfaceId,
+            existingHex: nil,
+            defaults: defaults
+        )
+
+        XCTAssertEqual(firstColor, secondColor)
+        XCTAssertTrue(["#C0392B", "#1565C0"].contains(try XCTUnwrap(firstColor)))
     }
 
     func testLoadReopenSessionSnapshotRequiresPreviousSnapshotFile() throws {
