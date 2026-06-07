@@ -180,6 +180,17 @@ import Testing
         #expect(scrubber.scrub("ghp_abcdefghij0123456789abcdef").contains("<redacted>"))
         #expect(scrubber.scrub("github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz_abcdefghijklmno").contains("<redacted>"))
         #expect(!scrubber.scrub("github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz_abcdefghijklmno").contains("github_pat_"))
+        let slackTokenTail = ["111111111111", "222222222222", "abcdefghijklmnopqrstuvwxyz"].joined(separator: "-")
+        let slackAppTokenTail = ["1", "A0123456789", "0123456789abcdef0123456789abcdef0123456789abcdef"].joined(separator: "-")
+        for slackToken in [
+            "xoxb-" + slackTokenTail,
+            "xoxp-" + slackTokenTail,
+            "xapp-" + slackAppTokenTail,
+        ] {
+            let out = scrubber.scrub(slackToken)
+            #expect(out == "<redacted>")
+            #expect(!out.contains(slackToken))
+        }
     }
 
     @Test func redactsPrivateKeyBlocks() {

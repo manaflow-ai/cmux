@@ -105,11 +105,12 @@ struct MobileDiagnosticsSecretPatternFactory {
             ("(?i)\\b([A-Za-z][A-Za-z0-9+.-]{1,32}://[^\\s/?#@]*?:)([^\\s/?#@]{4,})(@)", 2),
 
             // Provider-prefixed keys: OpenAI `sk-...`, GitHub
-            // `ghp_/gho_/ghu_/ghs_/ghr_...`, Stack `pck_/sck_...`, generic
-            // `key-...`. Require a meaningful length.
+            // `ghp_/gho_/ghu_/ghs_/ghr_...`, Slack `xox...`, Stack
+            // `pck_/sck_...`, generic `key-...`. Require a meaningful length.
             ("\\b((?:sk|pk|rk)-[A-Za-z0-9_-]{16,}|(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,})", 1),
             ("\\b(github_pat_[A-Za-z0-9_]{20,})\\b", 1),
             ("\\b(gh[pousr]_[A-Za-z0-9]{20,})", 1),
+            ("\\b((?:xox[abprs]|xapp)-[A-Za-z0-9-]{16,})\\b", 1),
             ("\\b((?:pck|sck|ssk)_[A-Za-z0-9]{16,})", 1),
 
             // JWT-like `xxx.yyy.zzz`: three base64url segments. Require the middle
