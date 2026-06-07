@@ -297,6 +297,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return .workspaces
     }
 
+    /// Whether the local synthetic create paths are valid (no real backend).
+    ///
+    /// ``createWorkspace`` / ``createTerminal`` synthesize a local workspace only
+    /// when there is no real session to create against. Two cases qualify: a
+    /// runtime-less store (SwiftUI previews, tests, the `preview()` factory), and
+    /// the production legacy preview-host pairing-code path that makes the
+    /// synthetic preview Mac the active device. A real session that is merely
+    /// disconnected (`runtime != nil`, active Mac dropped or a real device) is
+    /// **excluded**, so creation there is a no-op instead of injecting a fake
+    /// preview workspace into the signed-in user's real device list.
+    private var isPreviewHostActive: Bool {
+        runtime == nil || activeMacDeviceID == PreviewMobileHost.deviceID
+    }
+
     public var selectedWorkspace: MobileWorkspacePreview? {
         guard let selectedWorkspaceID else {
             return workspaces.first
@@ -480,6 +494,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
+        // Drop any queued heavy-session retarget so a pending switch can't fire
+        // for the previous user after sign-out (the drain re-guards on pairedMacs).
+        pendingHeavySessionTarget = nil
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
         allMacsWorkspaceListRefreshTask?.cancel()
@@ -580,6 +597,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func renameWorkspace(id: MobileWorkspacePreview.ID, title: String) async {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let client = remoteClient else { return }
+        // workspace.action runs over the active Mac's client; only act on a
+        // workspace that is in the active Mac's partition so a stale/non-active id
+        // (or a cross-Mac id collision) can't mutate the wrong Mac's workspace.
+        guard workspaceIsOnActiveMac(id) else { return }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "workspace.action",
@@ -607,6 +628,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///   - pinned: `true` to pin, `false` to unpin.
     public func setWorkspacePinned(id: MobileWorkspacePreview.ID, _ pinned: Bool) async {
         guard let client = remoteClient else { return }
+        // Same active-Mac routing guard as `renameWorkspace`.
+        guard workspaceIsOnActiveMac(id) else { return }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "workspace.action",
@@ -1082,8 +1105,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let pairedMacStore,
               let target = pairedMacs.first(where: { $0.macDeviceID == macDeviceID }) else { return }
         if target.isActive, connectionState == .connected { return }
-        isSwitchingHeavySession = true
-        defer { isSwitchingHeavySession = false }
+        // `isSwitchingHeavySession` is owned by `drainPendingHeavySessionTargets`
+        // (the only caller that should manage concurrent retargets); a direct
+        // call here is sequential by the actor and does not need to set it.
         // The currently-active Mac to fall back to if the switch fails.
         let previousActive = pairedMacs.first { $0.isActive && $0.macDeviceID != macDeviceID }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
@@ -1131,6 +1155,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// left on the unreachable target while the heavy session reconnected to a
     /// different Mac, which would otherwise present a dead terminal.
     private func reanchorSelectionToActiveMacIfStranded() {
+        // A newer target is queued: let the drain switch to it rather than
+        // yanking selection back to the just-completed Mac (which would make a
+        // slow earlier switch win over the user's latest tap).
+        guard pendingHeavySessionTarget == nil else { return }
         guard let activeMacDeviceID else { return }
         guard selectedMacDeviceID != activeMacDeviceID else { return }
         let activePartition = workspacesByMac[activeMacDeviceID] ?? []
@@ -1434,8 +1462,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
-        // Preview create (no live session): append to the active Mac's partition.
-        let macID = activeMacDeviceID ?? PreviewMobileHost.deviceID
+        // Synthetic create only for the preview host (no real session). A real
+        // session that is merely disconnected (remoteClient nil, activeMac dropped
+        // or a real Mac) must NOT mint a fake preview workspace into the user's
+        // real device list; the all-devices gate can show this surface while
+        // disconnected, so creation is a no-op until a reachable Mac is active.
+        guard isPreviewHostActive else { return }
+        let macID = PreviewMobileHost.deviceID
         let displayName = macDisplayNameByMac[macID] ?? PreviewMobileHost.hostName
         var partition = workspacesByMac[macID] ?? []
         let nextIndex = partition.count + 1
@@ -1483,9 +1516,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
-        // Preview create (no live session): append into the active Mac's
-        // partition, scoped to the target workspace inside it.
-        let macID = activeMacDeviceID ?? PreviewMobileHost.deviceID
+        // Synthetic create only for the preview host (see createWorkspace): a real
+        // disconnected session must not fabricate terminals into a real list.
+        guard isPreviewHostActive else { return }
+        let macID = PreviewMobileHost.deviceID
         let displayName = macDisplayNameByMac[macID] ?? PreviewMobileHost.hostName
         var partition = workspacesByMac[macID] ?? []
         guard let workspaceIndex = partition.firstIndex(where: { $0.id == targetWorkspaceID }) else {
@@ -2808,6 +2842,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return nil
     }
 
+    /// Whether `workspaceID` is in the active Mac's partition.
+    ///
+    /// The routing chokepoint for workspace-scoped actions (rename, pin) that send
+    /// over the active Mac's `remoteClient`: a workspace not on the active Mac (a
+    /// non-active section, or a cross-Mac id collision) returns `false`, so the
+    /// action is a safe no-op instead of mutating the wrong Mac's workspace.
+    private func workspaceIsOnActiveMac(_ workspaceID: MobileWorkspacePreview.ID) -> Bool {
+        guard let activeMacDeviceID else { return false }
+        return (workspacesByMac[activeMacDeviceID] ?? []).contains { $0.id == workspaceID }
+    }
+
     private func handleTerminalRenderGridEvent(_ event: MobileEventEnvelope) {
         guard let json = event.payloadJSON else {
             return
@@ -3128,18 +3173,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard runtime != nil, pairedMacStore != nil else { return }
         guard macDeviceID != activeMacDeviceID else { return }
         guard macDeviceID != PreviewMobileHost.deviceID else { return }
-        // A switch is already moving the heavy session; do not stack a second one.
-        // `switchToMac` itself supersedes any in-flight connect via the pairing
-        // attempt id, so the latest selection wins.
+        // Record the latest requested target. A switch already in flight will
+        // drain this on completion, so the user's most recent tap wins instead of
+        // being dropped (tap Mac B, then Mac C before B connects -> end on C).
+        pendingHeavySessionTarget = macDeviceID
         guard !isSwitchingHeavySession else { return }
+        isSwitchingHeavySession = true
         Task { @MainActor [weak self] in
-            await self?.switchToMac(macDeviceID: macDeviceID)
+            await self?.drainPendingHeavySessionTargets()
         }
     }
 
-    /// True while a heavy-session retarget (``switchToMac``) is in flight, so a
-    /// selection-driven reconcile does not stack a redundant second switch.
+    /// Switch to the latest requested Mac, then keep switching while newer targets
+    /// arrive, so concurrent selections collapse to the last one. Owns the
+    /// ``isSwitchingHeavySession`` flag for the whole drain (``switchToMac`` no
+    /// longer manages it) so a later tap during a switch supersedes the earlier
+    /// one rather than racing a per-call `defer`.
+    private func drainPendingHeavySessionTargets() async {
+        defer { isSwitchingHeavySession = false }
+        while let target = pendingHeavySessionTarget {
+            pendingHeavySessionTarget = nil
+            // Skip if the selection moved back to the now-active Mac while we
+            // looped, or the target vanished (e.g. forgotten) meanwhile.
+            guard target != activeMacDeviceID,
+                  pairedMacs.contains(where: { $0.macDeviceID == target }) else { continue }
+            await switchToMac(macDeviceID: target)
+        }
+    }
+
+    /// True while a heavy-session retarget drain is in flight, so a
+    /// selection-driven reconcile records a pending target instead of stacking a
+    /// second concurrent switch.
     private var isSwitchingHeavySession = false
+
+    /// The most recently requested heavy-session target Mac, set by a selection
+    /// reconcile and drained by ``drainPendingHeavySessionTargets``. The latest
+    /// write wins, so the user's last device tap is the one that connects.
+    private var pendingHeavySessionTarget: String?
 
     private func selectActiveTicketTargetIfAvailable() -> Bool {
         guard let activeTicket else {
