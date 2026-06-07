@@ -274,6 +274,32 @@ check_virtual_display_step_waits_for_readiness() {
   echo "PASS: $job in $(basename "$file") waits for virtual display readiness"
 }
 
+check_virtual_display_helper_links_appkit() {
+  local file
+  for file in "$CI_FILE" "$COMPAT_FILE" "$E2E_FILE" "$TEST_DEPOT_FILE"; do
+    if ! awk '
+      /clang -framework Foundation -framework CoreGraphics/ {
+        block=$0
+        for (i = 0; i < 5; i += 1) {
+          if (getline line <= 0) {
+            break
+          }
+          block = block "\n" line
+        }
+        if (block ~ /create-virtual-display\.m/ && block !~ /-framework AppKit/) {
+          bad=1
+        }
+      }
+      END { exit(bad ? 1 : 0) }
+    ' "$file"; then
+      echo "FAIL: $(basename "$file") must link create-virtual-display.m with AppKit because the helper waits for NSScreen readiness"
+      exit 1
+    fi
+  done
+
+  echo "PASS: virtual display helper compile sites link AppKit for NSScreen readiness"
+}
+
 check_test_depot_fails_closed() {
   if ! awk '
     /^[[:space:]]*- name: Validate suite selection$/ { in_step=1; next }
@@ -1542,6 +1568,7 @@ check_cached_deriveddata_prunes_module_caches
 check_ui_regression_budget
 check_build_and_lag_budget
 check_compat_virtual_display_readiness
+check_virtual_display_helper_links_appkit
 check_ca_regression_launches_in_gui_bootstrap
 check_zig_helper_build_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_zig_helper_build_runner "$RELEASE_FILE" "build-ghostty-cli-helper"
