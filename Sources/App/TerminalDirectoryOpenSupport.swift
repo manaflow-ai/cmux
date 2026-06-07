@@ -74,6 +74,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     case tower
     case vscode
     case vscodeInline
+    case jupyterInline
     case warp
     case windsurf
     case xcode
@@ -81,12 +82,14 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
 
     struct DetectionEnvironment {
         let homeDirectoryPath: String
+        let pathEnvironment: String
         let fileExistsAtPath: (String) -> Bool
         let isExecutableFileAtPath: (String) -> Bool
         let applicationPathForName: (String) -> String?
 
         static let live = DetectionEnvironment(
             homeDirectoryPath: FileManager.default.homeDirectoryForCurrentUser.path,
+            pathEnvironment: ProcessInfo.processInfo.environment["PATH"] ?? "",
             fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) },
             isExecutableFileAtPath: { FileManager.default.isExecutableFile(atPath: $0) },
             applicationPathForName: { NSWorkspace.shared.fullPath(forApplication: $0) }
@@ -95,6 +98,10 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
 
     static var commandPaletteShortcutTargets: [Self] {
         Array(allCases)
+    }
+
+    static var inlineOpenFolderTargets: [Self] {
+        InlineWebAppRegistry.default.profiles.map(\.target)
     }
 
     static func availableTargets(in environment: DetectionEnvironment = .live) -> Set<Self> {
@@ -131,6 +138,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return String(localized: "menu.openInVSCodeDesktop", defaultValue: "Open Current Directory in VS Code")
         case .vscodeInline:
             return String(localized: "menu.openInVSCode", defaultValue: "Open Current Directory in VS Code (Inline)")
+        case .jupyterInline:
+            return String(localized: "menu.openInJupyterInline", defaultValue: "Open Current Directory in Jupyter (Inline)")
         case .warp:
             return String(localized: "menu.openInWarp", defaultValue: "Open Current Directory in Warp")
         case .windsurf:
@@ -169,6 +178,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return common + ["vs", "code", "visual", "studio", "desktop", "app"]
         case .vscodeInline:
             return common + ["vs", "code", "visual", "studio", "inline", "browser", "serve-web"]
+        case .jupyterInline:
+            return common + ["jupyter", "notebook", "lab", "inline", "browser", "python"]
         case .warp:
             return common + ["warp", "terminal", "shell"]
         case .windsurf:
@@ -181,12 +192,11 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     }
 
     func isAvailable(in environment: DetectionEnvironment = .live) -> Bool {
+        if let profile = InlineWebAppRegistry.default.profile(for: self) {
+            return profile.isAvailable(in: environment)
+        }
         guard let applicationPath = applicationPath(in: environment) else { return false }
-        guard self == .vscodeInline else { return true }
-        return VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
-            vscodeApplicationURL: URL(fileURLWithPath: applicationPath, isDirectory: true),
-            isExecutableAtPath: environment.isExecutableFileAtPath
-        ) != nil
+        return true
     }
 
     func applicationURL(in environment: DetectionEnvironment = .live) -> URL? {
@@ -275,6 +285,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
                 "/Applications/Visual Studio Code.app",
                 "/Applications/Code.app",
             ]
+        case .jupyterInline:
+            return []
         case .warp:
             return ["/Applications/Warp.app"]
         case .windsurf:
@@ -300,76 +312,447 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     }
 }
 
-enum VSCodeServeWebURLBuilder {
-    static func extractWebUIURL(from output: String) -> URL? {
-        let prefix = "Web UI available at "
-        for line in output.split(whereSeparator: \.isNewline).reversed() {
-            guard let range = line.range(of: prefix) else { continue }
-            let rawURL = line[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !rawURL.isEmpty, let url = URL(string: rawURL) else { continue }
-            return url
-        }
-        return nil
-    }
-
-    static func openFolderURL(baseWebUIURL: URL, directoryPath: String) -> URL? {
-        var components = URLComponents(url: baseWebUIURL, resolvingAgainstBaseURL: false)
-        var queryItems = components?.queryItems ?? []
-        queryItems.removeAll { $0.name == "folder" }
-        queryItems.append(URLQueryItem(name: "folder", value: directoryPath))
-        components?.queryItems = queryItems
-        return components?.url
-    }
-}
-
-struct VSCodeCLILaunchConfiguration {
+nonisolated struct InlineWebAppLaunchConfiguration {
     let executableURL: URL
-    let argumentsPrefix: [String]
+    let arguments: [String]
     let environment: [String: String]
+    let connectionTokenFileURL: URL?
 }
 
-enum VSCodeCLILaunchConfigurationBuilder {
-    static func launchConfiguration(
-        vscodeApplicationURL: URL,
+enum InlineWebAppExecutable {
+    case applicationBundle(bundlePathCandidates: [String], executableRelativePath: String)
+    case command(names: [String], fallbackPaths: [String])
+
+    func resolve(in environment: TerminalDirectoryOpenTarget.DetectionEnvironment) -> URL? {
+        switch self {
+        case .applicationBundle(let bundlePathCandidates, let executableRelativePath):
+            for bundlePath in expandedBundlePaths(bundlePathCandidates, homeDirectoryPath: environment.homeDirectoryPath)
+                where environment.fileExistsAtPath(bundlePath) {
+                let executablePath = URL(fileURLWithPath: bundlePath, isDirectory: true)
+                    .appendingPathComponent(executableRelativePath, isDirectory: false)
+                    .path
+                if environment.isExecutableFileAtPath(executablePath) {
+                    return URL(fileURLWithPath: executablePath, isDirectory: false)
+                }
+            }
+
+            let applicationNames = inlineWebAppUniquePreservingOrder(
+                bundlePathCandidates.map {
+                    URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent
+                }
+            )
+            for applicationName in applicationNames {
+                guard let bundlePath = environment.applicationPathForName(applicationName),
+                      environment.fileExistsAtPath(bundlePath) else {
+                    continue
+                }
+                let executablePath = URL(fileURLWithPath: bundlePath, isDirectory: true)
+                    .appendingPathComponent(executableRelativePath, isDirectory: false)
+                    .path
+                if environment.isExecutableFileAtPath(executablePath) {
+                    return URL(fileURLWithPath: executablePath, isDirectory: false)
+                }
+            }
+            return nil
+        case .command(let names, let fallbackPaths):
+            let pathDirectories = environment.pathEnvironment
+                .split(separator: ":", omittingEmptySubsequences: true)
+                .map(String.init)
+            var candidates = fallbackPaths
+            for directory in pathDirectories {
+                for name in names {
+                    candidates.append(
+                        URL(fileURLWithPath: directory, isDirectory: true)
+                            .appendingPathComponent(name, isDirectory: false)
+                            .path
+                    )
+                }
+            }
+            for path in inlineWebAppUniquePreservingOrder(candidates) where environment.isExecutableFileAtPath(path) {
+                return URL(fileURLWithPath: path, isDirectory: false)
+            }
+            return nil
+        }
+    }
+
+    private func expandedBundlePaths(_ paths: [String], homeDirectoryPath: String) -> [String] {
+        let globalPrefix = "/Applications/"
+        let userPrefix = "\(homeDirectoryPath)/Applications/"
+        var expanded: [String] = []
+        for path in paths {
+            expanded.append(path)
+            if path.hasPrefix(globalPrefix) {
+                expanded.append(userPrefix + String(path.dropFirst(globalPrefix.count)))
+            }
+        }
+        return inlineWebAppUniquePreservingOrder(expanded)
+    }
+}
+
+enum InlineWebAppArgument {
+    case literal(String)
+    case directoryPath
+    case connectionTokenFilePath
+
+    func value(directoryURL: URL, connectionTokenFileURL: URL?) -> String? {
+        switch self {
+        case .literal(let value):
+            return value
+        case .directoryPath:
+            return directoryURL.path(percentEncoded: false)
+        case .connectionTokenFilePath:
+            return connectionTokenFileURL?.path
+        }
+    }
+}
+
+enum InlineWebAppServerIdentity {
+    case global
+    case directory
+
+    func value(for directoryURL: URL) -> String {
+        switch self {
+        case .global:
+            return "global"
+        case .directory:
+            return directoryURL.standardizedFileURL.path(percentEncoded: false)
+        }
+    }
+}
+
+enum InlineWebAppOpenURLStrategy {
+    case queryItem(name: String)
+    case direct
+
+    func url(baseURL: URL, directoryURL: URL) -> URL? {
+        switch self {
+        case .queryItem(let name):
+            var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
+            var queryItems = components?.queryItems ?? []
+            queryItems.removeAll { $0.name == name }
+            queryItems.append(URLQueryItem(name: name, value: directoryURL.path(percentEncoded: false)))
+            components?.queryItems = queryItems
+            return components?.url
+        case .direct:
+            return baseURL
+        }
+    }
+}
+
+enum InlineWebAppOutputURLExtractor {
+    case linePrefix(String)
+    case firstLoopbackHTTPURL
+
+    func extract(from output: String) -> URL? {
+        switch self {
+        case .linePrefix(let prefix):
+            for line in output.split(whereSeparator: \.isNewline).reversed() {
+                guard let range = line.range(of: prefix) else { continue }
+                let rawURL = line[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !rawURL.isEmpty, let url = URL(string: rawURL) else { continue }
+                return url
+            }
+            return nil
+        case .firstLoopbackHTTPURL:
+            guard let regex = try? NSRegularExpression(pattern: #"https?://[^\s<>"']+"#) else { return nil }
+            let nsRange = NSRange(output.startIndex..<output.endIndex, in: output)
+            for match in regex.matches(in: output, range: nsRange).reversed() {
+                guard let range = Range(match.range, in: output) else { continue }
+                let rawURL = String(output[range])
+                    .trimmingCharacters(in: CharacterSet(charactersIn: ".,);]}\n\r\t "))
+                guard let url = URL(string: rawURL),
+                      let host = url.host?.lowercased(),
+                      ["127.0.0.1", "localhost", "::1"].contains(host) else {
+                    continue
+                }
+                return url
+            }
+            return nil
+        }
+    }
+}
+
+struct InlineWebAppProfile {
+    let target: TerminalDirectoryOpenTarget
+    let displayName: () -> String
+    let openFolderCommandId: String
+    let openFolderTitle: () -> String
+    let openFolderSubtitle: () -> String
+    let openFolderPanelTitle: () -> String
+    let openFolderPanelPrompt: () -> String
+    let stopServerCommandId: String
+    let stopServerTitle: () -> String
+    let restartServerCommandId: String
+    let restartServerTitle: () -> String
+    let keywords: [String]
+    let executable: InlineWebAppExecutable
+    let arguments: [InlineWebAppArgument]
+    let serverIdentity: InlineWebAppServerIdentity
+    let openURLStrategy: InlineWebAppOpenURLStrategy
+    let outputURLExtractor: InlineWebAppOutputURLExtractor
+    let requiresConnectionTokenFile: Bool
+    let environmentTransform: ([String: String]) -> [String: String]
+
+    func isAvailable(in environment: TerminalDirectoryOpenTarget.DetectionEnvironment = .live) -> Bool {
+        executable.resolve(in: environment) != nil
+    }
+
+    func serverIdentityValue(for directoryURL: URL) -> String {
+        serverIdentity.value(for: directoryURL)
+    }
+
+    func openURL(baseURL: URL, directoryURL: URL) -> URL? {
+        openURLStrategy.url(baseURL: baseURL, directoryURL: directoryURL)
+    }
+
+    func launchConfiguration(
+        directoryURL: URL,
         baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
-        isExecutableAtPath: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
-    ) -> VSCodeCLILaunchConfiguration? {
-        let contentsURL = vscodeApplicationURL.appendingPathComponent("Contents", isDirectory: true)
-        let codeTunnelURL = contentsURL.appendingPathComponent("Resources/app/bin/code-tunnel", isDirectory: false)
-        guard isExecutableAtPath(codeTunnelURL.path) else { return nil }
-
-        var environment = baseEnvironment
-        environment["ELECTRON_RUN_AS_NODE"] = "1"
-        environment.removeValue(forKey: "VSCODE_NODE_OPTIONS")
-        environment.removeValue(forKey: "VSCODE_NODE_REPL_EXTERNAL_MODULE")
-        if let nodeOptions = environment["NODE_OPTIONS"] {
-            environment["VSCODE_NODE_OPTIONS"] = nodeOptions
+        environment: TerminalDirectoryOpenTarget.DetectionEnvironment = .live
+    ) -> InlineWebAppLaunchConfiguration? {
+        guard let executableURL = executable.resolve(in: environment) else { return nil }
+        let connectionTokenFileURL: URL?
+        if requiresConnectionTokenFile {
+            guard let tokenFileURL = Self.makeConnectionTokenFile(targetRawValue: target.rawValue) else { return nil }
+            connectionTokenFileURL = tokenFileURL
+        } else {
+            connectionTokenFileURL = nil
         }
-        if let nodeReplExternalModule = environment["NODE_REPL_EXTERNAL_MODULE"] {
-            environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"] = nodeReplExternalModule
-        }
-        environment.removeValue(forKey: "NODE_OPTIONS")
-        environment.removeValue(forKey: "NODE_REPL_EXTERNAL_MODULE")
 
-        return VSCodeCLILaunchConfiguration(
-            executableURL: codeTunnelURL,
-            argumentsPrefix: [],
-            environment: environment
+        var resolvedArguments: [String] = []
+        for argument in arguments {
+            guard let value = argument.value(
+                directoryURL: directoryURL,
+                connectionTokenFileURL: connectionTokenFileURL
+            ) else {
+                if let connectionTokenFileURL {
+                    Self.removeConnectionTokenFile(at: connectionTokenFileURL)
+                }
+                return nil
+            }
+            resolvedArguments.append(value)
+        }
+
+        return InlineWebAppLaunchConfiguration(
+            executableURL: executableURL,
+            arguments: resolvedArguments,
+            environment: environmentTransform(baseEnvironment),
+            connectionTokenFileURL: connectionTokenFileURL
         )
     }
+
+    private static func randomConnectionToken() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "")
+    }
+
+    private static func makeConnectionTokenFile(targetRawValue: String) -> URL? {
+        let token = randomConnectionToken()
+        let tokenFileName = "cmux-\(targetRawValue)-token-\(UUID().uuidString)"
+        let tokenFileURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent(tokenFileName, isDirectory: false)
+        guard let tokenData = token.data(using: .utf8) else { return nil }
+
+        let fileDescriptor = open(tokenFileURL.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
+        guard fileDescriptor >= 0 else { return nil }
+        defer { _ = close(fileDescriptor) }
+
+        let wroteAllBytes = tokenData.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return false }
+            return write(fileDescriptor, baseAddress, rawBuffer.count) == rawBuffer.count
+        }
+        guard wroteAllBytes else {
+            removeConnectionTokenFile(at: tokenFileURL)
+            return nil
+        }
+
+        return tokenFileURL
+    }
+
+    static func removeConnectionTokenFile(at url: URL) {
+        try? FileManager.default.removeItem(at: url)
+    }
 }
 
-final class VSCodeServeWebController {
-    static let shared = VSCodeServeWebController()
-    private static let serveWebStartupTimeoutSeconds: TimeInterval = 60
+struct InlineWebAppRegistry {
+    static let `default` = InlineWebAppRegistry(profiles: [
+        InlineWebAppProfile.vscode,
+        InlineWebAppProfile.jupyter,
+    ])
 
-    private let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
-    private let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
+    let profiles: [InlineWebAppProfile]
+
+    func profile(for target: TerminalDirectoryOpenTarget) -> InlineWebAppProfile? {
+        profiles.first { $0.target == target }
+    }
+}
+
+extension InlineWebAppProfile {
+    static let vscode = InlineWebAppProfile(
+        target: .vscodeInline,
+        displayName: {
+            String(localized: "command.openFolderInVSCodeInline.subtitle", defaultValue: "VS Code Inline")
+        },
+        openFolderCommandId: "palette.openFolderInVSCodeInline",
+        openFolderTitle: {
+            String(localized: "command.openFolderInVSCodeInline.title", defaultValue: "Open Folder in VS Code (Inline)...")
+        },
+        openFolderSubtitle: {
+            String(localized: "command.openFolderInVSCodeInline.subtitle", defaultValue: "VS Code Inline")
+        },
+        openFolderPanelTitle: {
+            String(localized: "menu.file.openFolderInVSCodeInline.panelTitle", defaultValue: "Open Folder in VS Code (Inline)")
+        },
+        openFolderPanelPrompt: {
+            String(localized: "menu.file.openFolderInVSCodeInline.panelPrompt", defaultValue: "Open in VS Code")
+        },
+        stopServerCommandId: "palette.vscodeServeWebStop",
+        stopServerTitle: {
+            String(localized: "command.vscodeServeWebStop.title", defaultValue: "Stop VS Code Inline Server")
+        },
+        restartServerCommandId: "palette.vscodeServeWebRestart",
+        restartServerTitle: {
+            String(localized: "command.vscodeServeWebRestart.title", defaultValue: "Restart VS Code Inline Server")
+        },
+        keywords: ["open", "folder", "directory", "project", "vs", "code", "inline", "editor", "browser"],
+        executable: .applicationBundle(
+            bundlePathCandidates: ["/Applications/Visual Studio Code.app", "/Applications/Code.app"],
+            executableRelativePath: "Contents/Resources/app/bin/code-tunnel"
+        ),
+        arguments: [
+            .literal("serve-web"),
+            .literal("--accept-server-license-terms"),
+            .literal("--host"),
+            .literal("127.0.0.1"),
+            .literal("--port"),
+            .literal("0"),
+            .literal("--connection-token-file"),
+            .connectionTokenFilePath,
+        ],
+        serverIdentity: .global,
+        openURLStrategy: .queryItem(name: "folder"),
+        outputURLExtractor: .linePrefix("Web UI available at "),
+        requiresConnectionTokenFile: true,
+        environmentTransform: { baseEnvironment in
+            var environment = baseEnvironment
+            environment["ELECTRON_RUN_AS_NODE"] = "1"
+            environment.removeValue(forKey: "VSCODE_NODE_OPTIONS")
+            environment.removeValue(forKey: "VSCODE_NODE_REPL_EXTERNAL_MODULE")
+            if let nodeOptions = environment["NODE_OPTIONS"] {
+                environment["VSCODE_NODE_OPTIONS"] = nodeOptions
+            }
+            if let nodeReplExternalModule = environment["NODE_REPL_EXTERNAL_MODULE"] {
+                environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"] = nodeReplExternalModule
+            }
+            environment.removeValue(forKey: "NODE_OPTIONS")
+            environment.removeValue(forKey: "NODE_REPL_EXTERNAL_MODULE")
+            return environment
+        }
+    )
+
+    static let jupyter = InlineWebAppProfile(
+        target: .jupyterInline,
+        displayName: {
+            String(localized: "command.openFolderInJupyterInline.subtitle", defaultValue: "Jupyter Inline")
+        },
+        openFolderCommandId: "palette.openFolderInJupyterInline",
+        openFolderTitle: {
+            String(localized: "command.openFolderInJupyterInline.title", defaultValue: "Open Folder in Jupyter (Inline)...")
+        },
+        openFolderSubtitle: {
+            String(localized: "command.openFolderInJupyterInline.subtitle", defaultValue: "Jupyter Inline")
+        },
+        openFolderPanelTitle: {
+            String(localized: "menu.file.openFolderInJupyterInline.panelTitle", defaultValue: "Open Folder in Jupyter (Inline)")
+        },
+        openFolderPanelPrompt: {
+            String(localized: "menu.file.openFolderInJupyterInline.panelPrompt", defaultValue: "Open in Jupyter")
+        },
+        stopServerCommandId: "palette.jupyterServeWebStop",
+        stopServerTitle: {
+            String(localized: "command.jupyterServeWebStop.title", defaultValue: "Stop Jupyter Inline Server")
+        },
+        restartServerCommandId: "palette.jupyterServeWebRestart",
+        restartServerTitle: {
+            String(localized: "command.jupyterServeWebRestart.title", defaultValue: "Restart Jupyter Inline Server")
+        },
+        keywords: ["open", "folder", "directory", "project", "jupyter", "notebook", "lab", "inline", "browser", "python"],
+        executable: .command(
+            names: ["jupyter"],
+            fallbackPaths: ["/opt/homebrew/bin/jupyter", "/usr/local/bin/jupyter", "/opt/local/bin/jupyter"]
+        ),
+        arguments: [
+            .literal("lab"),
+            .literal("--no-browser"),
+            .literal("--ip=127.0.0.1"),
+            .literal("--port=0"),
+            .literal("--ServerApp.open_browser=False"),
+            .literal("--ServerApp.root_dir"),
+            .directoryPath,
+        ],
+        serverIdentity: .directory,
+        openURLStrategy: .direct,
+        outputURLExtractor: .firstLoopbackHTTPURL,
+        requiresConnectionTokenFile: false,
+        environmentTransform: { $0 }
+    )
+}
+
+final class InlineWebAppRuntimeManager {
+    static let shared = InlineWebAppRuntimeManager()
+
+    private let lock = NSLock()
+    private var controllers: [TerminalDirectoryOpenTarget: InlineWebAppController] = [:]
+
+    func ensureOpenURL(
+        for profile: InlineWebAppProfile,
+        directoryURL: URL,
+        completion: @escaping (URL?) -> Void
+    ) {
+        controller(for: profile).ensureServerURL(directoryURL: directoryURL) { serverURL in
+            guard let serverURL else {
+                completion(nil)
+                return
+            }
+            completion(profile.openURL(baseURL: serverURL, directoryURL: directoryURL.standardizedFileURL))
+        }
+    }
+
+    func stop(profile: InlineWebAppProfile) {
+        controller(for: profile).stop()
+    }
+
+    func restart(
+        profile: InlineWebAppProfile,
+        directoryURL: URL,
+        completion: @escaping (URL?) -> Void
+    ) {
+        controller(for: profile).restart(directoryURL: directoryURL, completion: completion)
+    }
+
+    private func controller(for profile: InlineWebAppProfile) -> InlineWebAppController {
+        lock.lock()
+        defer { lock.unlock() }
+        if let controller = controllers[profile.target] {
+            return controller
+        }
+        let controller = InlineWebAppController(profile: profile)
+        controllers[profile.target] = controller
+        return controller
+    }
+}
+
+final class InlineWebAppController {
+    private static let startupTimeoutSeconds: TimeInterval = 60
+
+    private let profile: InlineWebAppProfile
+    private let queue: DispatchQueue
+    private let launchQueue: DispatchQueue
     private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
-    private var serveWebProcess: Process?
+    private var serverProcess: Process?
     private var launchingProcess: Process?
     private var connectionTokenFilesByProcessID: [ObjectIdentifier: URL] = [:]
-    private var serveWebURL: URL?
+    private var serverURL: URL?
+    private var serverIdentityValue: String?
     private var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
     private var isLaunching = false
     private var activeLaunchGeneration: UInt64?
@@ -378,15 +761,22 @@ final class VSCodeServeWebController {
     private var testingTrackedProcesses: [Process] = []
 #endif
 
-    private init(launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil) {
+    init(
+        profile: InlineWebAppProfile,
+        launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil
+    ) {
+        self.profile = profile
+        self.queue = DispatchQueue(label: "cmux.inlineWebApp.\(profile.target.rawValue)")
+        self.launchQueue = DispatchQueue(label: "cmux.inlineWebApp.\(profile.target.rawValue).launch")
         self.launchProcessOverride = launchProcessOverride
     }
 
 #if DEBUG
     static func makeForTesting(
+        profile: InlineWebAppProfile,
         launchProcessOverride: @escaping (URL, UInt64) -> (process: Process, url: URL)?
-    ) -> VSCodeServeWebController {
-        VSCodeServeWebController(launchProcessOverride: launchProcessOverride)
+    ) -> InlineWebAppController {
+        InlineWebAppController(profile: profile, launchProcessOverride: launchProcessOverride)
     }
 
     func trackConnectionTokenFileForTesting(
@@ -400,7 +790,7 @@ final class VSCodeServeWebController {
                 self.launchingProcess = process
             }
             if setAsServeWebProcess {
-                self.serveWebProcess = process
+                self.serverProcess = process
             }
             if !setAsLaunchingProcess && !setAsServeWebProcess {
                 self.testingTrackedProcesses.append(process)
@@ -410,15 +800,21 @@ final class VSCodeServeWebController {
     }
 #endif
 
-    func ensureServeWebURL(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
+    func ensureServerURL(directoryURL: URL, completion: @escaping (URL?) -> Void) {
+        let normalizedDirectoryURL = directoryURL.standardizedFileURL
+        let requestedIdentity = profile.serverIdentityValue(for: normalizedDirectoryURL)
         queue.async {
-            if let process = self.serveWebProcess,
+            if let process = self.serverProcess,
                process.isRunning,
-               let url = self.serveWebURL {
-                DispatchQueue.main.async {
-                    completion(url)
-                }
+               let url = self.serverURL,
+               self.serverIdentityValue == requestedIdentity {
+                DispatchQueue.main.async { completion(url) }
                 return
+            }
+
+            if self.serverIdentityValue != nil,
+               self.serverIdentityValue != requestedIdentity {
+                Self.finishStop(self.stopLocked(completePendingWithNil: true))
             }
 
             let completionGeneration = self.lifecycleGeneration
@@ -426,13 +822,12 @@ final class VSCodeServeWebController {
             guard !self.isLaunching else { return }
 
             self.isLaunching = true
+            self.serverIdentityValue = requestedIdentity
             let launchGeneration = completionGeneration
             self.activeLaunchGeneration = launchGeneration
 
             self.launchQueue.async {
-                let shouldLaunch = self.queue.sync {
-                    self.lifecycleGeneration == launchGeneration
-                }
+                let shouldLaunch = self.queue.sync { self.lifecycleGeneration == launchGeneration }
                 guard shouldLaunch else {
                     self.queue.async {
                         guard self.activeLaunchGeneration == launchGeneration else { return }
@@ -441,8 +836,9 @@ final class VSCodeServeWebController {
                     }
                     return
                 }
-                let launchResult = self.launchServeWebProcess(
-                    vscodeApplicationURL: vscodeApplicationURL,
+
+                let launchResult = self.launchServerProcess(
+                    directoryURL: normalizedDirectoryURL,
                     expectedGeneration: launchGeneration
                 )
                 self.queue.async {
@@ -456,10 +852,6 @@ final class VSCodeServeWebController {
                     self.activeLaunchGeneration = nil
 
                     guard self.lifecycleGeneration == launchGeneration else {
-                        if let launchedProcess = launchResult?.process,
-                           self.launchingProcess === launchedProcess {
-                            self.launchingProcess = nil
-                        }
                         if let process = launchResult?.process, process.isRunning {
                             process.terminate()
                         }
@@ -468,12 +860,13 @@ final class VSCodeServeWebController {
 
                     if let launchResult {
                         self.launchingProcess = nil
-                        self.serveWebProcess = launchResult.process
-                        self.serveWebURL = launchResult.url
+                        self.serverProcess = launchResult.process
+                        self.serverURL = launchResult.url
                     } else {
                         self.launchingProcess = nil
-                        self.serveWebProcess = nil
-                        self.serveWebURL = nil
+                        self.serverProcess = nil
+                        self.serverURL = nil
+                        self.serverIdentityValue = nil
                     }
 
                     var completions: [(URL?) -> Void] = []
@@ -486,7 +879,7 @@ final class VSCodeServeWebController {
                         }
                     }
                     self.pendingCompletions = remaining
-                    let resolvedURL = self.serveWebURL
+                    let resolvedURL = self.serverURL
                     DispatchQueue.main.async {
                         completions.forEach { $0(resolvedURL) }
                     }
@@ -496,79 +889,71 @@ final class VSCodeServeWebController {
     }
 
     func stop() {
-        let (processes, tokenFileURLs, completions): ([Process], [URL], [(URL?) -> Void]) = queue.sync {
-            self.lifecycleGeneration &+= 1
-            self.isLaunching = false
-            self.activeLaunchGeneration = nil
-            var processes: [Process] = []
-            if let process = self.serveWebProcess {
-                processes.append(process)
-            }
-            if let process = self.launchingProcess,
-               !processes.contains(where: { $0 === process }) {
-                processes.append(process)
-            }
-            self.serveWebProcess = nil
-            self.launchingProcess = nil
+        Self.finishStop(queue.sync { self.stopLocked(completePendingWithNil: true) })
+    }
+
+    func restart(directoryURL: URL, completion: @escaping (URL?) -> Void) {
+        stop()
+        ensureServerURL(directoryURL: directoryURL, completion: completion)
+    }
+
+    private func stopLocked(
+        completePendingWithNil: Bool
+    ) -> (processes: [Process], tokenFileURLs: [URL], completions: [(URL?) -> Void]) {
+        lifecycleGeneration &+= 1
+        isLaunching = false
+        activeLaunchGeneration = nil
+        let processes = [serverProcess, launchingProcess].compactMap { $0 }
+        serverProcess = nil
+        launchingProcess = nil
 #if DEBUG
-            self.testingTrackedProcesses.removeAll()
+        testingTrackedProcesses.removeAll()
 #endif
-            var tokenFileURLs = processes.compactMap {
-                self.connectionTokenFilesByProcessID.removeValue(forKey: ObjectIdentifier($0))
-            }
-            tokenFileURLs.append(contentsOf: self.connectionTokenFilesByProcessID.values)
-            self.connectionTokenFilesByProcessID.removeAll()
-            self.serveWebURL = nil
-            let completions = self.pendingCompletions.map(\.completion)
-            self.pendingCompletions.removeAll()
-            return (processes, tokenFileURLs, completions)
+        var tokenFileURLs = processes.compactMap {
+            connectionTokenFilesByProcessID.removeValue(forKey: ObjectIdentifier($0))
         }
-
-        for tokenFileURL in tokenFileURLs {
-            Self.removeConnectionTokenFile(at: tokenFileURL)
+        tokenFileURLs.append(contentsOf: connectionTokenFilesByProcessID.values)
+        connectionTokenFilesByProcessID.removeAll()
+        serverURL = nil
+        serverIdentityValue = nil
+        let completions = completePendingWithNil ? pendingCompletions.map(\.completion) : []
+        if completePendingWithNil {
+            pendingCompletions.removeAll()
         }
+        return (processes, tokenFileURLs, completions)
+    }
 
-        for process in processes where process.isRunning {
+    private static func finishStop(
+        _ stopped: (processes: [Process], tokenFileURLs: [URL], completions: [(URL?) -> Void])
+    ) {
+        for tokenFileURL in stopped.tokenFileURLs {
+            InlineWebAppProfile.removeConnectionTokenFile(at: tokenFileURL)
+        }
+        for process in stopped.processes where process.isRunning {
             process.terminate()
         }
-
-        if !completions.isEmpty {
+        if !stopped.completions.isEmpty {
             DispatchQueue.main.async {
-                completions.forEach { $0(nil) }
+                stopped.completions.forEach { $0(nil) }
             }
         }
     }
 
-    func restart(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
-        stop()
-        ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL, completion: completion)
-    }
-
-    private func launchServeWebProcess(
-        vscodeApplicationURL: URL,
+    private func launchServerProcess(
+        directoryURL: URL,
         expectedGeneration: UInt64
     ) -> (process: Process, url: URL)? {
         if let launchProcessOverride {
-            return launchProcessOverride(vscodeApplicationURL, expectedGeneration)
+            return launchProcessOverride(directoryURL, expectedGeneration)
         }
 
-        guard let launchConfiguration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
-            vscodeApplicationURL: vscodeApplicationURL
-        ) else { return nil }
-
-        guard let connectionTokenFileURL = Self.makeConnectionTokenFile() else {
+        guard let launchConfiguration = profile.launchConfiguration(directoryURL: directoryURL) else {
             return nil
         }
 
         let process = Process()
         process.executableURL = launchConfiguration.executableURL
-        process.arguments = launchConfiguration.argumentsPrefix + [
-            "serve-web",
-            "--accept-server-license-terms",
-            "--host", "127.0.0.1",
-            "--port", "0",
-            "--connection-token-file", connectionTokenFileURL.path,
-        ]
+        process.arguments = launchConfiguration.arguments
         process.environment = launchConfiguration.environment
 
         let stdoutPipe = Pipe()
@@ -576,7 +961,7 @@ final class VSCodeServeWebController {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        let collector = ServeWebOutputCollector()
+        let collector = InlineWebAppOutputCollector(extractor: profile.outputURLExtractor)
         let outputReader: (FileHandle) -> Void = { fileHandle in
             switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
             case .data(let data):
@@ -601,36 +986,35 @@ final class VSCodeServeWebController {
                 if self.launchingProcess === terminatedProcess {
                     self.launchingProcess = nil
                 }
-                if self.serveWebProcess === terminatedProcess {
-                    self.serveWebProcess = nil
-                    self.serveWebURL = nil
+                if self.serverProcess === terminatedProcess {
+                    self.serverProcess = nil
+                    self.serverURL = nil
+                    self.serverIdentityValue = nil
                 }
                 if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
                     forKey: ObjectIdentifier(terminatedProcess)
                 ) {
-                    Self.removeConnectionTokenFile(at: tokenFileURL)
+                    InlineWebAppProfile.removeConnectionTokenFile(at: tokenFileURL)
                 }
             }
         }
 
         let didStart: Bool = queue.sync {
-            guard self.lifecycleGeneration == expectedGeneration,
-                  self.activeLaunchGeneration == expectedGeneration else {
+            guard lifecycleGeneration == expectedGeneration,
+                  activeLaunchGeneration == expectedGeneration else {
                 return false
             }
-            self.launchingProcess = process
-            self.connectionTokenFilesByProcessID[ObjectIdentifier(process)] = connectionTokenFileURL
+            launchingProcess = process
+            if let connectionTokenFileURL = launchConfiguration.connectionTokenFileURL {
+                connectionTokenFilesByProcessID[ObjectIdentifier(process)] = connectionTokenFileURL
+            }
             do {
                 try process.run()
                 return true
             } catch {
-                if self.launchingProcess === process {
-                    self.launchingProcess = nil
-                }
-                if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
-                    forKey: ObjectIdentifier(process)
-                ) {
-                    Self.removeConnectionTokenFile(at: tokenFileURL)
+                launchingProcess = nil
+                if let tokenFileURL = connectionTokenFilesByProcessID.removeValue(forKey: ObjectIdentifier(process)) {
+                    InlineWebAppProfile.removeConnectionTokenFile(at: tokenFileURL)
                 }
                 return false
             }
@@ -638,39 +1022,26 @@ final class VSCodeServeWebController {
         guard didStart else {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
-            Self.removeConnectionTokenFile(at: connectionTokenFileURL)
-            return nil
-        }
-
-        guard collector.waitForURL(timeoutSeconds: Self.serveWebStartupTimeoutSeconds),
-              let serveWebURL = collector.webUIURL else {
-            stdoutPipe.fileHandleForReading.readabilityHandler = nil
-            stderrPipe.fileHandleForReading.readabilityHandler = nil
-            if process.isRunning {
-                process.terminate()
-            } else {
-                queue.sync {
-                    if self.launchingProcess === process {
-                        self.launchingProcess = nil
-                    }
-                    if self.serveWebProcess === process {
-                        self.serveWebProcess = nil
-                        self.serveWebURL = nil
-                    }
-                    if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
-                        forKey: ObjectIdentifier(process)
-                    ) {
-                        Self.removeConnectionTokenFile(at: tokenFileURL)
-                    }
-                }
+            if let connectionTokenFileURL = launchConfiguration.connectionTokenFileURL {
+                InlineWebAppProfile.removeConnectionTokenFile(at: connectionTokenFileURL)
             }
             return nil
         }
 
-        return (process, serveWebURL)
+        guard collector.waitForURL(timeoutSeconds: Self.startupTimeoutSeconds),
+              let serverURL = collector.webUIURL else {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            if process.isRunning {
+                process.terminate()
+            }
+            return nil
+        }
+
+        return (process, serverURL)
     }
 
-    private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
+    private static func drainAvailableOutput(from fileHandle: FileHandle, collector: InlineWebAppOutputCollector) {
         while true {
             switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
             case .data(let data):
@@ -680,40 +1051,10 @@ final class VSCodeServeWebController {
             }
         }
     }
-
-    private static func randomConnectionToken() -> String {
-        UUID().uuidString.replacingOccurrences(of: "-", with: "")
-    }
-
-    private static func makeConnectionTokenFile() -> URL? {
-        let token = randomConnectionToken()
-        let tokenFileName = "cmux-vscode-token-\(UUID().uuidString)"
-        let tokenFileURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent(tokenFileName, isDirectory: false)
-        guard let tokenData = token.data(using: .utf8) else { return nil }
-
-        let fileDescriptor = open(tokenFileURL.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
-        guard fileDescriptor >= 0 else { return nil }
-        defer { _ = close(fileDescriptor) }
-
-        let wroteAllBytes = tokenData.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else { return false }
-            return write(fileDescriptor, baseAddress, rawBuffer.count) == rawBuffer.count
-        }
-        guard wroteAllBytes else {
-            removeConnectionTokenFile(at: tokenFileURL)
-            return nil
-        }
-
-        return tokenFileURL
-    }
-
-    private static func removeConnectionTokenFile(at url: URL) {
-        try? FileManager.default.removeItem(at: url)
-    }
 }
 
-final class ServeWebOutputCollector {
+final class InlineWebAppOutputCollector {
+    private let extractor: InlineWebAppOutputURLExtractor
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
     private var outputBuffer = ""
@@ -726,6 +1067,10 @@ final class ServeWebOutputCollector {
         return resolvedURL
     }
 
+    init(extractor: InlineWebAppOutputURLExtractor) {
+        self.extractor = extractor
+    }
+
     func append(_ data: Data) {
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
         lock.lock()
@@ -735,9 +1080,7 @@ final class ServeWebOutputCollector {
         while let newlineIndex = outputBuffer.firstIndex(where: \.isNewline) {
             let line = String(outputBuffer[..<newlineIndex])
             outputBuffer.removeSubrange(...newlineIndex)
-            guard let parsedURL = VSCodeServeWebURLBuilder.extractWebUIURL(from: line) else {
-                continue
-            }
+            guard let parsedURL = extractor.extract(from: line) else { continue }
             resolvedURL = parsedURL
             outputBuffer.removeAll(keepingCapacity: false)
             if !didSignal {
@@ -752,7 +1095,7 @@ final class ServeWebOutputCollector {
         lock.lock()
         defer { lock.unlock() }
         if resolvedURL == nil, !outputBuffer.isEmpty,
-           let parsedURL = VSCodeServeWebURLBuilder.extractWebUIURL(from: outputBuffer) {
+           let parsedURL = extractor.extract(from: outputBuffer) {
             resolvedURL = parsedURL
             outputBuffer.removeAll(keepingCapacity: false)
         }
@@ -766,6 +1109,15 @@ final class ServeWebOutputCollector {
         _ = semaphore.wait(timeout: .now() + timeoutSeconds)
         return webUIURL != nil
     }
+}
+
+private func inlineWebAppUniquePreservingOrder(_ paths: [String]) -> [String] {
+    var seen: Set<String> = []
+    var deduped: [String] = []
+    for path in paths where seen.insert(path).inserted {
+        deduped.append(path)
+    }
+    return deduped
 }
 
 enum WorkspaceShortcutMapper {

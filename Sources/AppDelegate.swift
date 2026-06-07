@@ -1866,7 +1866,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.stop()
         TerminalController.shared.stop()
         GhosttyPasteboardHelper.cleanupAllOwnedTemporaryImageFiles()
-        VSCodeServeWebController.shared.stop()
+        for profile in InlineWebAppRegistry.default.profiles {
+            InlineWebAppRuntimeManager.shared.stop(profile: profile)
+        }
         BrowserProfileStore.shared.flushPendingSaves()
         if TelemetrySettings.enabledForCurrentLaunch {
             PostHogAnalytics.shared.flush()
@@ -7286,13 +7288,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ directoryURL: URL,
         tabManager preferredTabManager: TabManager? = nil
     ) -> Bool {
-        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
+        openDirectoryInInlineWebApp(.vscode, directoryURL, tabManager: preferredTabManager)
+    }
+
+    func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
+        showOpenFolderInInlineWebAppPanel(.vscode, tabManager: preferredTabManager)
+    }
+
+    @discardableResult
+    func openDirectoryInInlineWebApp(
+        _ profile: InlineWebAppProfile,
+        _ directoryURL: URL,
+        tabManager preferredTabManager: TabManager? = nil
+    ) -> Bool {
+        guard profile.isAvailable() else {
+            NSSound.beep()
             return false
         }
 
         let targetTabManager = preferredTabManager
-            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "inlineVSCode.open.target")?.tabManager
+            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "inlineWebApp.open.\(profile.target.rawValue)")?.tabManager
         guard let targetTabManager else {
+            NSSound.beep()
             return false
         }
 
@@ -7301,21 +7318,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? targetTabManager.addWorkspace(select: true).id
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
-        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
-            guard let serveWebURL,
-                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
-                      baseWebUIURL: serveWebURL,
-                      directoryPath: normalizedDirectoryURL.path
-                  ) else {
-                NSSound.beep()
-                return
-            }
-
-            guard targetTabManager.openBrowser(
-                inWorkspace: targetWorkspaceId,
-                url: openFolderURL,
-                preferSplitRight: true
-            ) != nil else {
+        InlineWebAppRuntimeManager.shared.ensureOpenURL(
+            for: profile,
+            directoryURL: normalizedDirectoryURL
+        ) { openURL in
+            guard let openURL,
+                  targetTabManager.openBrowser(
+                      inWorkspace: targetWorkspaceId,
+                      url: openURL,
+                      preferSplitRight: true
+                  ) != nil else {
                 NSSound.beep()
                 return
             }
@@ -7324,14 +7336,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
-        guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
+    func showOpenFolderInInlineWebAppPanel(
+        _ profile: InlineWebAppProfile,
+        tabManager preferredTabManager: TabManager? = nil
+    ) {
+        guard profile.isAvailable() else {
             NSSound.beep()
             return
         }
 
         let targetTabManager = preferredTabManager
-            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "inlineVSCode.panel.target")?.tabManager
+            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "inlineWebApp.panel.\(profile.target.rawValue)")?.tabManager
         guard let targetTabManager else {
             NSSound.beep()
             return
@@ -7341,14 +7356,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.title = String(
-            localized: "menu.file.openFolderInVSCodeInline.panelTitle",
-            defaultValue: "Open Folder in VS Code (Inline)"
-        )
-        panel.prompt = String(
-            localized: "menu.file.openFolderInVSCodeInline.panelPrompt",
-            defaultValue: "Open in VS Code"
-        )
+        panel.title = profile.openFolderPanelTitle()
+        panel.prompt = profile.openFolderPanelPrompt()
         if let cwd = targetTabManager.selectedWorkspace?.currentDirectory,
            !cwd.isEmpty {
             panel.directoryURL = URL(fileURLWithPath: cwd)
@@ -7356,7 +7365,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if panel.runModal() == .OK,
            let url = panel.url,
-           !openDirectoryInInlineVSCode(url, tabManager: targetTabManager) {
+           !openDirectoryInInlineWebApp(profile, url, tabManager: targetTabManager) {
             NSSound.beep()
         }
     }
