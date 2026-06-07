@@ -15,7 +15,7 @@ enum MobileDebugLogOperation: Sendable {
 
     func runIfDropped(from sink: MobileDebugLogSink) {
         guard case .clear = self else { return }
-        Task {
+        Task.detached {
             await run(on: sink)
         }
     }

@@ -16,7 +16,7 @@ final class MobileDebugLogOperationQueue: Sendable {
         )
         self.sink = sink
         self.continuation = stream.continuation
-        Task {
+        Task.detached {
             for await operation in stream.stream {
                 await operation.run(on: sink)
             }
@@ -30,7 +30,7 @@ final class MobileDebugLogOperationQueue: Sendable {
     func clear() -> Task<Void, Never> {
         let receipt = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
         yield(.clear(receipt.continuation))
-        return Task {
+        return Task.detached {
             var iterator = receipt.stream.makeAsyncIterator()
             _ = await iterator.next()
         }

@@ -299,7 +299,7 @@ struct MobileFeedbackComposerSheet: View {
             return
         }
 
-        let remainingPhotoBytes = MobileFeedbackSettings.targetTotalPhotoUploadBytes - startingPhotoBytes
+        var remainingPhotoBytes = MobileFeedbackSettings.targetTotalPhotoUploadBytes - startingPhotoBytes
         guard remainingPhotoBytes > 0 else {
             submissionErrorMessage = L10n.string(
                 "mobile.feedback.totalPhotosTooLarge",
@@ -308,7 +308,6 @@ struct MobileFeedbackComposerSheet: View {
             return
         }
 
-        let perAttachmentBudget = max(1, remainingPhotoBytes / requestedNewCount)
         var preparedAttachments: [MobileFeedbackPhotoAttachment] = []
 
         for item in items {
@@ -319,14 +318,22 @@ struct MobileFeedbackComposerSheet: View {
                 )
                 break
             }
+            guard remainingPhotoBytes > 0 else {
+                firstIssue = L10n.string(
+                    "mobile.feedback.totalPhotosTooLarge",
+                    defaultValue: "These photos are too large to send together. Remove a few and try again."
+                )
+                break
+            }
 
             do {
                 let attachment = try await MobileFeedbackPhotoAttachment.make(
                     from: item,
                     index: startingCount + preparedAttachments.count + 1,
-                    maximumByteCount: perAttachmentBudget
+                    maximumByteCount: remainingPhotoBytes
                 )
                 preparedAttachments.append(attachment)
+                remainingPhotoBytes -= attachment.data.count
             } catch MobileFeedbackSubmissionError.photoPreparationFailed {
                 firstIssue = L10n.string(
                     "mobile.feedback.totalPhotosTooLarge",
