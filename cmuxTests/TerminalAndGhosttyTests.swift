@@ -3256,7 +3256,9 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
-        focusTerminalSurface(surfaceView, surface: surface, in: window)
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+        surface.setFocus(true, force: true)
+        XCTAssertTrue(surface.debugDesiredFocusState(), "Expected focused terminal state before simulating the detach race")
 
         surface.releaseSurfaceForTesting()
         XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")
@@ -3283,6 +3285,10 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         wait(for: [recovered], timeout: 3.0)
 
         XCTAssertNotNil(surface.surface, "Expected missing-surface recovery to still recreate the runtime surface")
+        XCTAssertFalse(
+            surface.debugDesiredFocusState(),
+            "Recovered surface should not replay focus after AppKit focus moves to another responder"
+        )
 #else
         throw XCTSkip("Debug-only regression test")
 #endif
