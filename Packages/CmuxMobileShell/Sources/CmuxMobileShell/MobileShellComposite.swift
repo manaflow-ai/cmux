@@ -1435,6 +1435,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let staleActivePartitionKey {
             forgetMacPartition(staleActivePartitionKey)
         }
+        // When the active Mac was ALREADY offline, `clearRemoteConnectionContext`
+        // had nulled `activeMacDeviceID` but intentionally kept its (grayed)
+        // partition, so `staleActivePartitionKey` is nil and the loop above never
+        // drops it. Also drop the resolved persisted id's partition so the offline
+        // active Mac's cached workspaces don't survive Rescan and keep
+        // `hasNoPairedMacs` false. No-op when it equals the key already dropped.
+        if let persistedMacIDToRemove, persistedMacIDToRemove != staleActivePartitionKey {
+            forgetMacPartition(persistedMacIDToRemove)
+        }
         // Drop the forgotten Mac from the in-memory pairedMacs immediately. The
         // store removal below is fire-and-forget (no reload), and `hasNoPairedMacs`
         // checks `pairedMacs.isEmpty`, so without this Rescan QR would leave the
