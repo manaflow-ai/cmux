@@ -20674,6 +20674,8 @@ class TerminalController {
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
+        case "mobile.terminal.paste_image", "terminal.paste_image":
+            result = v2MobileTerminalPasteImage(params: request.params)
         case "mobile.terminal.replay", "terminal.replay":
             result = v2MobileTerminalReplay(params: request.params)
         case "mobile.terminal.viewport", "terminal.viewport":
@@ -21335,6 +21337,60 @@ class TerminalController {
             payload["terminal_seq"] = seq
         }
         return .ok(payload)
+    }
+
+    /// Handle `terminal.paste_image`: a paired client (the iOS app) forwards an
+    /// image it pasted as base64 bytes. We materialize it to a temp file on the
+    /// Mac and inject the shell-escaped path as terminal input, exactly the way a
+    /// local clipboard-image paste does, so the running TUI (e.g. Claude Code)
+    /// attaches the image from the path.
+    private func v2MobileTerminalPasteImage(params: [String: Any]) -> V2CallResult {
+        guard let base64 = v2RawString(params, "image_base64"),
+              let imageData = Data(base64Encoded: base64), !imageData.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or invalid image_base64", data: nil)
+        }
+        let format = v2RawString(params, "image_format") ?? "png"
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+
+        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+
+        guard let escapedPath = GhosttyPasteboardHelper.saveImageData(imageData, fileExtension: format) else {
+            return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
+        }
+
+        let sendResult = terminalPanel.surface.sendInputResult(escapedPath)
+        switch sendResult {
+        case .sent:
+            terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPasteImage")
+        case .queued:
+            break
+        case .inputQueueFull:
+            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
+        case .surfaceUnavailable:
+            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+        case .processExited:
+            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
+        }
+        #if DEBUG
+        cmuxDebugLog(
+            "mobile.terminal.paste_image workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) bytes=\(imageData.count) format=\(format)"
+        )
+        #endif
+        return .ok([
+            "workspace_id": resolved.workspace.id.uuidString,
+            "surface_id": terminalPanel.id.uuidString,
+            "queued": sendResult == .queued,
+        ])
     }
 
     private func applyMobileViewportReport(

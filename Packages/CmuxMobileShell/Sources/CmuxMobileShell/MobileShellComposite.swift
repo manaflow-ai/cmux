@@ -1639,6 +1639,66 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Forward an image the user pasted on the phone to the currently selected
+    /// remote terminal. The bytes travel as base64 in `terminal.paste_image`; the
+    /// Mac writes them to a temp file and injects the path into the terminal so
+    /// the running TUI (e.g. Claude Code) attaches the image the same way a local
+    /// clipboard-image paste does.
+    ///
+    /// - Parameters:
+    ///   - data: The encoded image bytes (PNG/JPEG/…).
+    ///   - format: A lowercase file-extension hint (e.g. `"png"`). The Mac
+    ///     sanitizes it and defaults to `png` for anything unrecognized.
+    public func submitTerminalPasteImage(_ data: Data, format: String) async {
+        guard !data.isEmpty else { return }
+        guard let workspaceID = selectedWorkspace?.id,
+              let terminalID = selectedTerminalID else {
+            return
+        }
+        guard remoteClient != nil else { return }
+        await sendRemoteTerminalPasteImage(
+            data,
+            format: format,
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+    }
+
+    private func sendRemoteTerminalPasteImage(
+        _ data: Data,
+        format: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async {
+        guard let client = remoteClient else { return }
+        let generation = connectionGeneration
+        do {
+            #if DEBUG
+            mobileShellLog.debug("send remote terminal paste image byteCount=\(data.count, privacy: .public) format=\(format, privacy: .public)")
+            #endif
+            let params: [String: Any] = [
+                "workspace_id": workspaceID.rawValue,
+                "surface_id": terminalID.rawValue,
+                "image_base64": data.base64EncodedString(),
+                "image_format": format,
+                "client_id": clientID,
+            ]
+            let responseData = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "terminal.paste_image",
+                    params: params
+                )
+            )
+            guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
+            handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
+        } catch {
+            guard generation == connectionGeneration else { return }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            markMacConnectionUnavailableIfNeeded(after: error)
+            connectionError = Self.localizedConnectionError(for: error)
+        }
+    }
+
     private var terminalEventStreamID: String {
         "ios-terminal-events-\(clientID)"
     }
