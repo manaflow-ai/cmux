@@ -53,13 +53,26 @@ struct WorkspaceListView: View {
     @State private var showingSettings = false
 
     /// Sections after the device filter and search, with pinned workspaces first
-    /// within each Mac. Empty sections (no matching workspace) are dropped.
+    /// within each Mac.
+    ///
+    /// With an active search query, sections whose workspaces don't match are
+    /// dropped. With no query, an unreachable section with no cached workspaces is
+    /// retained (as an empty grayed section) so an offline paired Mac is still
+    /// visible rather than collapsing the list to an empty shell; a reachable
+    /// section with genuinely no workspaces is still dropped.
     private var visibleSections: [MobileWorkspaceDeviceSection] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         return deviceSections.compactMap { section -> MobileWorkspaceDeviceSection? in
             guard deviceFilter.matches(deviceID: section.deviceID) else { return nil }
             let matches = Self.filteredWorkspaces(section.workspaces, query: query)
-            guard !matches.isEmpty else { return nil }
+            if matches.isEmpty {
+                // Keep an offline/unreachable Mac visible when not searching, so
+                // the user sees the grayed device instead of an empty list.
+                guard query.isEmpty, !section.isReachable else { return nil }
+                var emptyOffline = section
+                emptyOffline.workspaces = []
+                return emptyOffline
+            }
             var filtered = section
             filtered.workspaces = matches
             return filtered
@@ -171,10 +184,19 @@ struct WorkspaceListView: View {
         }
     }
 
+    /// Whether any Mac is the active, reachable heavy session. New Workspace
+    /// creates over that live session, so the button no-ops without one (e.g. an
+    /// offline cold launch showing only grayed sections); disable it then so the
+    /// affordance is honest.
+    private var canCreateWorkspace: Bool {
+        deviceSections.contains { $0.isActive && $0.isReachable }
+    }
+
     private var newWorkspaceButton: some View {
         Button(action: createWorkspace) {
             Image(systemName: "plus")
         }
+        .disabled(!canCreateWorkspace)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
     }

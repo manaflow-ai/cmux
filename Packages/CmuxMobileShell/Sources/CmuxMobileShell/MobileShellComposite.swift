@@ -186,19 +186,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// status, active flag, and that Mac's workspaces, with no reference back to
     /// this store. The grouped list view binds to these snapshots so its rows and
     /// section headers stay below the list's snapshot boundary. Ordered by
-    /// ``macOrder`` (first-seen) so sections do not reshuffle as partitions
-    /// update; empty partitions are omitted so a forgotten/empty Mac drops out.
+    /// ``macOrder`` (first-seen), then any paired Mac not yet partitioned, so
+    /// sections do not reshuffle as partitions update. A section is emitted for
+    /// every such Mac — including a paired-but-offline Mac with no cached
+    /// workspaces (an empty grayed section) — so an offline cold launch shows the
+    /// device rather than an empty shell. A forgotten Mac is removed from both
+    /// ``macOrder`` and ``pairedMacs``, so it still drops out.
     public var deviceSections: [MobileWorkspaceDeviceSection] {
-        macOrder.compactMap { macID in
-            guard let macWorkspaces = workspacesByMac[macID], !macWorkspaces.isEmpty else {
-                return nil
-            }
-            return MobileWorkspaceDeviceSection(
+        // Paired Macs not yet in macOrder (a cold launch before the first refresh
+        // marks them) still get a grayed section so the user sees the device.
+        let extraPairedMacIDs = pairedMacs
+            .map(\.macDeviceID)
+            .filter { !macOrder.contains($0) && $0 != PreviewMobileHost.deviceID }
+        let orderedMacIDs = macOrder + extraPairedMacIDs
+        return orderedMacIDs.map { macID in
+            MobileWorkspaceDeviceSection(
                 deviceID: macID,
                 displayName: macDisplayName(forMacDeviceID: macID),
                 status: macStatus(forMacDeviceID: macID),
                 isActive: macID == activeMacDeviceID,
-                workspaces: macWorkspaces
+                workspaces: workspacesByMac[macID] ?? []
             )
         }
     }
@@ -963,6 +970,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         pairedMacs = loaded
+        // Seed display names for paired Macs so a not-yet-partitioned (offline)
+        // Mac's grayed section shows its real name instead of the bare device id.
+        for mac in loaded {
+            if macDisplayNameByMac[mac.macDeviceID] == nil,
+               let name = mac.displayName, !name.isEmpty {
+                macDisplayNameByMac[mac.macDeviceID] = name
+            }
+        }
         hasCompletedInitialPairedMacLoad = true
     }
 
@@ -2132,6 +2147,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func createRemoteWorkspace() async {
         guard let client = remoteClient else { return }
+        // workspace.create runs over the active Mac's `remoteClient`. Use the same
+        // strong predicate as createRemoteTerminal: a tap during a cross-Mac
+        // retarget (selection on Mac B, client still A's) must not create a
+        // workspace on the old active Mac. No-op until the selected Mac is active.
+        guard selectedMacDeviceID == activeMacDeviceID else { return }
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
