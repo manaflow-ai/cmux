@@ -100,10 +100,12 @@ public struct SidebarSection: View {
                     Menu(String(localized: "settings.sidebarAppearance.backgroundImage.presets", defaultValue: "Theme")) {
                         ForEach(presets) { preset in
                             Button(preset.name) {
-                                if let path = hostActions.applyImageThemePreset(preset.key) {
-                                    backgroundImageOpacity.set(preset.opacity)
-                                    backgroundImageFit.set("cover")
-                                    backgroundImagePath.set(path)
+                                Task {
+                                    if let path = await hostActions.applyImageThemePreset(preset.key) {
+                                        backgroundImageOpacity.set(preset.opacity)
+                                        backgroundImageFit.set("cover")
+                                        backgroundImagePath.set(path)
+                                    }
                                 }
                             }
                         }
@@ -123,7 +125,7 @@ public struct SidebarSection: View {
                 if !backgroundImagePath.current.isEmpty {
                     Button(String(localized: "settings.sidebarAppearance.backgroundImage.clear", defaultValue: "Clear")) {
                         backgroundImagePath.set("")
-                        hostActions.clearBackgroundImageTheme()
+                        Task { await hostActions.clearBackgroundImageTheme() }
                     }
                     .controlSize(.small)
                 }

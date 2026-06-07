@@ -149,32 +149,15 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Applies a bundled image-theme preset by key: materializes its bundled
     /// image to a stable path, writes the preset's palette + a transparent
-    /// terminal background into the Ghostty config, and live-reloads. Returns
-    /// the image path to store, or `nil` on failure.
-    func applyImageThemePreset(_ key: String) -> String?
+    /// terminal background into the Ghostty config, and live-reloads. Disk work
+    /// runs off the main actor; returns the image path to store, or `nil` on
+    /// failure.
+    func applyImageThemePreset(_ key: String) async -> String?
 
     /// Removes the managed image-theme block from the Ghostty config and
     /// live-reloads, reverting palette/terminal transparency to the user's own
     /// directives. Does not clear the image path (the caller does that).
-    func clearBackgroundImageTheme()
-}
-
-/// Lightweight descriptor of a bundled image-theme preset, surfaced to the
-/// settings UI so the package can render a preset picker without depending on
-/// the host's theme catalog.
-public struct ImageThemePresetInfo: Identifiable, Hashable {
-    public let key: String
-    public let name: String
-    /// The preset's default image opacity (0–1), applied when selected.
-    public let opacity: Double
-
-    public init(key: String, name: String, opacity: Double) {
-        self.key = key
-        self.name = name
-        self.opacity = opacity
-    }
-
-    public var id: String { key }
+    func clearBackgroundImageTheme() async
 }
 
 public extension SettingsHostActions {
@@ -223,9 +206,9 @@ public extension SettingsHostActions {
 
     func availableImageThemePresets() -> [ImageThemePresetInfo] { [] }
 
-    func applyImageThemePreset(_ key: String) -> String? { nil }
+    func applyImageThemePreset(_ key: String) async -> String? { nil }
 
-    func clearBackgroundImageTheme() {}
+    func clearBackgroundImageTheme() async {}
 }
 
 /// No-op ``SettingsHostActions`` for previews, tests, and any context

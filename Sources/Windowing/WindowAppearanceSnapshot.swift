@@ -482,30 +482,31 @@ enum BackgroundImageThemeDefaults {
 
     static let defaultOpacity = 0.2
     static let defaultFit = BackgroundImageFit.cover
-
-    /// Largest image we will load into memory (16 MB). Keeps a malformed or
-    /// enormous path from stalling the render pass.
-    static let maxImageBytes = 16 * 1024 * 1024
 }
 
-/// Loads and caches the decoded `NSImage` for a background-image theme. The
-/// snapshot only carries the lightweight path/opacity/fit; the render layer
-/// resolves the heavy `NSImage` here so repeated appearance snapshots don't
-/// hit the disk. Cache is keyed by resolved path + modification time so an
-/// edited image picks up without an app restart.
+/// Loads and caches the decoded `NSImage` for a background-image theme.
+///
+/// The snapshot carries only the lightweight path/opacity/fit; the window
+/// backdrop bridge resolves the heavy `NSImage` here. `image(forPath:)` is the
+/// render-hot path (called from `WindowBackdropController.apply` on every
+/// focus/selection), so on a cache hit it does **no** file-system work — it
+/// returns the already-decoded image straight from the in-memory cache. The
+/// only disk read is a one-time decode the first time a given path is applied
+/// (a deliberate user action, not a per-focus cost).
+///
+/// `image(forPath:)` is called synchronously from the nonisolated
+/// `WindowBackdropController.apply` (an AppKit window bridge), so the cache
+/// cannot be actor-isolated without forcing that hot path to become async.
+/// A small lock guards the dictionary; it is held only for in-memory reads and
+/// writes, never across the one-time decode, and the rare duplicate decode from
+/// a same-path race is harmless (idempotent, one-shot).
 enum BackgroundImageThemeStore {
-    private struct CacheEntry {
-        let modified: Date?
-        let byteCount: Int
-        let image: NSImage
-    }
-
-    // Small lock around a synchronous, non-async image cache shared by the
-    // window backdrop bridge (an AppKit/CALayer code path that has no actor).
-    // An actor would force the synchronous render-time `image(forPath:)` lookup
-    // to become async; the critical section is a dictionary read/write only.
+    /// Decoded images keyed by resolved path. Capped to avoid unbounded growth
+    /// as users try different custom images in a session.
     private static let lock = NSLock()
-    private static var cache: [String: CacheEntry] = [:]
+    private static var cache: [String: NSImage] = [:]
+    private static var insertionOrder: [String] = []
+    private static let maxEntries = 12
 
     /// Expand a leading `~` to the user's home directory. Intermediate tildes
     /// are left untouched, matching cmux's other path handling.
@@ -521,32 +522,40 @@ enum BackgroundImageThemeStore {
         return trimmed
     }
 
-    /// Resolve and decode the image at `rawPath`, returning a cached instance
-    /// when the file is unchanged. Returns nil for empty/missing/oversized
-    /// paths so callers can treat the theme as inactive.
+    /// Returns the decoded image for `rawPath`. Cache hits touch no file system;
+    /// a miss decodes once and caches. Returns nil for empty/missing paths so
+    /// callers can treat the theme as inactive.
     static func image(forPath rawPath: String) -> NSImage? {
         let path = expandedPath(rawPath)
         guard !path.isEmpty else { return nil }
 
-        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
-        guard let attributes else { return nil }
-        let modified = attributes[.modificationDate] as? Date
-        let byteCount = (attributes[.size] as? NSNumber)?.intValue ?? 0
-        guard byteCount > 0, byteCount <= BackgroundImageThemeDefaults.maxImageBytes else {
-            return nil
-        }
-
         lock.lock()
-        if let cached = cache[path], cached.modified == modified, cached.byteCount == byteCount {
-            lock.unlock()
-            return cached.image
-        }
+        let cached = cache[path]
         lock.unlock()
+        if let cached {
+            return cached
+        }
 
         guard let image = NSImage(contentsOfFile: path) else { return nil }
+
         lock.lock()
-        cache[path] = CacheEntry(modified: modified, byteCount: byteCount, image: image)
+        cache[path] = image
+        insertionOrder.append(path)
+        if insertionOrder.count > maxEntries {
+            let evicted = insertionOrder.removeFirst()
+            cache.removeValue(forKey: evicted)
+        }
         lock.unlock()
         return image
+    }
+
+    /// Drops a cached decode so a re-applied path (e.g. a replaced custom image)
+    /// is reloaded on next access.
+    static func invalidate(path rawPath: String) {
+        let path = expandedPath(rawPath)
+        lock.lock()
+        cache.removeValue(forKey: path)
+        insertionOrder.removeAll { $0 == path }
+        lock.unlock()
     }
 }

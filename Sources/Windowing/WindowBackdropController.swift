@@ -353,10 +353,6 @@ enum WindowBackgroundImageEffect {
               let themeFrame = contentView.superview else { return }
 
         if let existing = themeFrame.subviews.first(where: { $0.identifier == viewIdentifier }) as? BackgroundImageView {
-            if existing.superview !== themeFrame {
-                existing.removeFromSuperview()
-                attach(existing, to: themeFrame, below: contentView)
-            }
             existing.configure(image: image, opacity: opacity, fit: fit, baseColor: baseColor)
             return
         }
