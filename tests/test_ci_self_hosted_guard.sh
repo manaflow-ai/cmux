@@ -612,6 +612,14 @@ check_web_db_behavior_test_coverage() {
     echo "FAIL: run-db-behavior-tests.sh must reject DB-gated files that execute zero Bun tests"
     exit 1
   fi
+  if ! grep -Fq "skipped tests while CMUX_DB_TEST=1" "$script"; then
+    echo "FAIL: run-db-behavior-tests.sh must reject skipped DB behavior tests when CMUX_DB_TEST=1"
+    exit 1
+  fi
+  if ! grep -Fq "^[[:space:]]*[1-9][0-9]* skips?$" "$script"; then
+    echo "FAIL: run-db-behavior-tests.sh must detect Bun skipped-test summaries"
+    exit 1
+  fi
 
   if ! grep -Fq '"test:db:behavior": "bash scripts/run-db-behavior-tests.sh"' "$ROOT_DIR/web/package.json"; then
     echo "FAIL: web package.json must keep test:db:behavior wired to run-db-behavior-tests.sh"
