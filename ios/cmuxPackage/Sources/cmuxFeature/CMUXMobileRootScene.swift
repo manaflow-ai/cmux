@@ -1,4 +1,6 @@
+import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileShell
 @_exported import CmuxMobileShellUI
@@ -28,6 +30,7 @@ public struct CMUXMobileRootScene: View {
     private let runtime: CMUXMobileRuntime
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
+    private let analytics: any AnalyticsEmitting
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     #endif
@@ -40,17 +43,20 @@ public struct CMUXMobileRootScene: View {
     ///   - auth: The constructed auth graph (coordinator + push registration).
     ///   - reachability: The process-wide reachability monitor, injected into
     ///     the shell store (already used to build `auth`).
+    ///   - analytics: The app-root analytics emitter, injected into the store.
     ///   - pushCoordinator: The app-root push coordinator (shared with the app
     ///     delegate) injected into the environment.
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
+        analytics: any AnalyticsEmitting,
         pushCoordinator: MobilePushCoordinator
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
+        self.analytics = analytics
         self.pushCoordinator = pushCoordinator
         self.pairedMacStore = Self.openPairedMacStore()
     }
@@ -59,11 +65,13 @@ public struct CMUXMobileRootScene: View {
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
-        reachability: any ReachabilityProviding
+        reachability: any ReachabilityProviding,
+        analytics: any AnalyticsEmitting
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
+        self.analytics = analytics
         self.pairedMacStore = Self.openPairedMacStore()
     }
     #endif
@@ -82,6 +90,7 @@ public struct CMUXMobileRootScene: View {
     public var body: some View {
         content
             .environment(auth.coordinator)
+            .analytics(analytics)
             #if os(iOS)
             .environment(pushCoordinator)
             #endif
@@ -107,7 +116,8 @@ public struct CMUXMobileRootScene: View {
             runtime: runtime,
             pairedMacStore: pairedMacStore,
             identityProvider: identityProvider,
-            reachability: reachability
+            reachability: reachability,
+            analytics: analytics
         )
     }
 }
