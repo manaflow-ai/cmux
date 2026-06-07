@@ -695,13 +695,19 @@ final class RemoteTmuxController {
         )
         if !hostHasOtherMirrors {
             // The host's last session is gone, so close its shared SSH ControlMaster
-            // now. We must do it here rather than rely on the window's onClose hook:
-            // clearing the binding just below makes handleRemoteWindowClosed a no-op,
-            // and the dedicated window may be closed programmatically (the
+            // now — but only if no other control connection (e.g. a
+            // remote.tmux.attach/open for the same endpoint) is still multiplexing
+            // over it. We must do it here rather than rely on the window's onClose
+            // hook: clearing the binding just below makes handleRemoteWindowClosed a
+            // no-op, and the dedicated window may be closed programmatically (the
             // `.closeDedicatedWindow` path), so the hook can't be the one to tear the
             // master down.
-            transports.removeValue(forKey: host.connectionHash)
-            RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+            let hostHasOtherConnections = connectionsByHostSession.values
+                .contains { $0.host.connectionHash == host.connectionHash }
+            if !hostHasOtherConnections {
+                transports.removeValue(forKey: host.connectionHash)
+                RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+            }
             // Drop the dedicated-window binding (the window is either closing, or
             // converting to a plain local window — either way it is no longer a
             // remote mirror). Done before the switch so the window's onClose hook's
