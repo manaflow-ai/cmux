@@ -145,6 +145,23 @@ check_e2e_recording_preflight() {
   echo "PASS: test-e2e.yml preflights screen recording and requires artifacts after recording starts"
 }
 
+check_e2e_ui_tests_skip_zig_helper_build() {
+  if ! awk '
+    /^[[:space:]]*- name: Run UI tests$/ { in_step=1; saw_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /XCODEBUILD_ENV=\(/ { in_env=1; saw_env=1; next }
+    in_env && /\)/ { in_env=0 }
+    in_env && /CMUX_SKIP_ZIG_BUILD=1/ { saw_skip=1 }
+    in_step && /xcodebuild -project cmux\.xcodeproj -scheme cmux -configuration Debug/ { saw_xcodebuild=1 }
+    END { exit(saw_step && saw_env && saw_skip && saw_xcodebuild ? 0 : 1) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must set CMUX_SKIP_ZIG_BUILD=1 for UI-test xcodebuild so manual E2E cannot fail on Ghostty helper Zig dependency fetches"
+    exit 1
+  fi
+
+  echo "PASS: test-e2e.yml skips the Ghostty helper Zig build during UI-test app builds"
+}
+
 check_virtual_display_step_waits_for_readiness() {
   local file="$1" job="$2"
   if ! awk -v job="$job" '
@@ -882,6 +899,7 @@ check_self_hosted_workspace_prep "$COMPAT_FILE" "compat-tests"
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
 check_e2e_recording_preflight
+check_e2e_ui_tests_skip_zig_helper_build
 check_e2e_ui_tests_require_nonzero_execution
 check_self_hosted_workspace_prep "$E2E_FILE" "e2e"
 

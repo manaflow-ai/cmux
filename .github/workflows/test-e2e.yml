@@ -342,6 +342,7 @@ jobs:
             "LOGNAME=${LOGNAME:-$USER}"
             "CI=${CI:-true}"
             "GITHUB_ACTIONS=${GITHUB_ACTIONS:-true}"
+            "CMUX_SKIP_ZIG_BUILD=1"
             "RUNNER_TEMP=${RUNNER_TEMP:-}"
             "TMPDIR=${TMPDIR:-/tmp}"
           )
