@@ -8499,6 +8499,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         applySurfaceColorScheme(force: !isSameSurface || !isAlreadyAttached)
     }
 
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil,
+           let oldWindow = window,
+           let firstResponder = oldWindow.firstResponder as? NSView,
+           firstResponder === self || firstResponder.isDescendant(of: self) {
+            desiredFocus = false
+            terminalSurface?.setFocus(false, force: true)
+#if DEBUG
+            cmuxDebugLog(
+                "focus.detach.clear surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "firstResponder=\(String(describing: oldWindow.firstResponder))"
+            )
+#endif
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let windowObserver {
