@@ -18,6 +18,7 @@ struct MobileDiagnosticsSecretPatternFactory {
             "token",
             "password",
             "passwd",
+            "private[_-]?key",
             "secret[_-]?key",
             "secret",
             "client[_-]?secret",
@@ -115,6 +116,7 @@ struct MobileDiagnosticsSecretPatternFactory {
             ("\\b(github_pat_[A-Za-z0-9_]{20,})\\b", 1),
             ("\\b(gh[pousr]_[A-Za-z0-9]{20,})", 1),
             ("\\b((?:xox[abprs]|xapp)-[A-Za-z0-9-]{16,})\\b", 1),
+            ("\\b(AIza[A-Za-z0-9_-]{20,})\\b", 1),
             ("\\b((?:pck|sck|ssk)_[A-Za-z0-9]{16,})", 1),
 
             // JWT-like `xxx.yyy.zzz`: three base64url segments. Require the middle

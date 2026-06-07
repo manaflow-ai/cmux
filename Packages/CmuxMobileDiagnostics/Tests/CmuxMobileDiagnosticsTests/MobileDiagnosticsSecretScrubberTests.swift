@@ -182,10 +182,12 @@ import Testing
         #expect(!scrubber.scrub("github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz_abcdefghijklmno").contains("github_pat_"))
         let slackTokenTail = ["111111111111", "222222222222", "abcdefghijklmnopqrstuvwxyz"].joined(separator: "-")
         let slackAppTokenTail = ["1", "A0123456789", "0123456789abcdef0123456789abcdef0123456789abcdef"].joined(separator: "-")
+        let googleAPIKey = "AIza" + "abcdefghijklmnopqrstuvwxyz0123456789"
         for slackToken in [
             "xoxb-" + slackTokenTail,
             "xoxp-" + slackTokenTail,
             "xapp-" + slackAppTokenTail,
+            googleAPIKey,
         ] {
             let out = scrubber.scrub(slackToken)
             #expect(out == "<redacted>")
@@ -222,12 +224,16 @@ import Testing
             "DB_PASSWORD=plainvalue123",
             "STACK_REFRESH_TOKEN=opaquevalue9999",
             "AWS_SECRET=plainsecret456",
+            "PRIVATE_KEY=opaquePrivateKeyMaterial123",
+            "JWT_PRIVATE_KEY=opaqueJwtPrivateKeyMaterial123",
         ] {
             let out = scrubber.scrub(sample)
             #expect(out.contains("<redacted>"), "expected redaction for \(sample), got \(out)")
             #expect(!out.contains("plain"), "value leaked for \(sample): \(out)")
             #expect(!out.contains("abcd1234efgh"))
             #expect(!out.contains("opaquevalue9999"))
+            #expect(!out.contains("opaquePrivateKeyMaterial"))
+            #expect(!out.contains("opaqueJwtPrivateKeyMaterial"))
         }
     }
 

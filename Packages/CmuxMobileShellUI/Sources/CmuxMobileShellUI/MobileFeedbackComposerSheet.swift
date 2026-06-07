@@ -327,10 +327,12 @@ struct MobileFeedbackComposerSheet: View {
             }
 
             do {
+                let remainingSelectedPhotoCount = requestedNewCount - preparedAttachments.count
+                let reservedByteCount = max(1, remainingPhotoBytes / max(remainingSelectedPhotoCount, 1))
                 let attachment = try await MobileFeedbackPhotoAttachment.make(
                     from: item,
                     index: startingCount + preparedAttachments.count + 1,
-                    maximumByteCount: remainingPhotoBytes
+                    maximumByteCount: reservedByteCount
                 )
                 preparedAttachments.append(attachment)
                 remainingPhotoBytes -= attachment.data.count

@@ -527,6 +527,7 @@ struct WorkspaceDetailView: View {
 
     private func terminalPickerDidDisappear() {
         guard !presentPendingPostPickerSheetIfNeeded() else { return }
+        guard diagnosticsActionTask == nil else { return }
         cancelDiagnosticsWorkForCurrentSession()
     }
 
