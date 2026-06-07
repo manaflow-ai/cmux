@@ -450,6 +450,8 @@ public final class AuthCoordinator {
     ///   unregistration) and lives above this package. Defaults to a no-op.
     public func signOut(onSignedOut: @Sendable () async -> Void = {}) async {
         var signOutError: (any Error)?
+        if launch.includesDevAuth { debugCredentials = nil }
+        clearAuthState()
         await onSignedOut()
         do {
             try await client.signOut()
@@ -457,8 +459,6 @@ public final class AuthCoordinator {
             signOutError = error
             authLog.error("Sign-out failed: \(error.localizedDescription, privacy: .private)")
         }
-        if launch.includesDevAuth { debugCredentials = nil }
-        clearAuthState()
         if let signOutError {
             recordAuthError(signOutError)
         }

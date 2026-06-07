@@ -3,13 +3,17 @@ internal import Foundation
 struct MobileDiagnosticsL10n {
     private init() {}
 
-    static func string(_ key: StaticString, defaultValue: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: defaultValue, bundle: .main)
+    static func string(_ key: StaticString, defaultValue: String) -> String {
+        #if canImport(Darwin)
+        String(localized: key, defaultValue: String.LocalizationValue(defaultValue), bundle: .main)
+        #else
+        defaultValue
+        #endif
     }
 
     static func format(
         _ key: StaticString,
-        defaultValue: String.LocalizationValue,
+        defaultValue: String,
         _ arguments: any CVarArg...
     ) -> String {
         String(

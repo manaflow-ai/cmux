@@ -104,7 +104,7 @@ import Testing
     @Test func signOutHookRunsBeforeTokensAreRevoked() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)
-        let (coordinator, _) = makeCoordinator(client: client)
+        let (coordinator, store) = makeCoordinator(client: client)
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         await client.setTokens(access: "access-1", refresh: "refresh-1")
         let captured = TokenSnapshot()
@@ -112,12 +112,18 @@ import Testing
         await coordinator.signOut {
             await captured.capture(
                 access: await client.accessToken(),
-                refresh: await client.refreshToken()
+                refresh: await client.refreshToken(),
+                isAuthenticated: coordinator.isAuthenticated,
+                currentUserID: coordinator.currentUser?.id,
+                hasCachedTokens: store.bool(forKey: "has_tokens")
             )
         }
 
         #expect(await captured.access == "access-1")
         #expect(await captured.refresh == "refresh-1")
+        #expect(await captured.isAuthenticated == false)
+        #expect(await captured.currentUserID == nil)
+        #expect(await captured.hasCachedTokens == false)
         #expect(await client.accessToken() == nil)
         #expect(await client.refreshToken() == nil)
     }
