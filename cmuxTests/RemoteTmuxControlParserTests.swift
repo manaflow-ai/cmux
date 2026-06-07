@@ -334,6 +334,28 @@ import Testing
         #expect(Workspace.mirrorTabReorder(current: [a, b, c], requested: [c, b]) == nil)
     }
 
+    // MARK: - Reconnect: session-gone classification
+
+    @Test func stderrSessionGoneIsDetected() {
+        // A reconnect that reaches the host but finds the session/server gone is a
+        // genuine end (stop retrying, close).
+        #expect(RemoteTmuxControlConnection.stderrIndicatesSessionGone("can't find session: work"))
+        #expect(RemoteTmuxControlConnection.stderrIndicatesSessionGone("no server running on /tmp/tmux-501/default"))
+        #expect(RemoteTmuxControlConnection.stderrIndicatesSessionGone("lost server"))
+        #expect(RemoteTmuxControlConnection.stderrIndicatesSessionGone("ERROR: SESSION NOT FOUND"))
+    }
+
+    @Test func stderrTransientFailureIsNotSessionGone() {
+        // Network/transport failures must NOT be classified as session-gone — the
+        // reconnect loop keeps retrying through these.
+        #expect(!RemoteTmuxControlConnection.stderrIndicatesSessionGone(
+            "ssh: connect to host example.com port 22: Operation timed out"))
+        #expect(!RemoteTmuxControlConnection.stderrIndicatesSessionGone(
+            "ssh: connect to host x port 22: No route to host"))
+        #expect(!RemoteTmuxControlConnection.stderrIndicatesSessionGone("Connection to host closed."))
+        #expect(!RemoteTmuxControlConnection.stderrIndicatesSessionGone(""))
+    }
+
     // MARK: - Raw layout parser
 
     @Test func parsesLeafLayoutWithChecksum() {

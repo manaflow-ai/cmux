@@ -30,13 +30,26 @@ final class RemoteTmuxControlConnection {
     private var paneCwdObservers: [ObserverToken: (_ paneId: Int, _ path: String) -> Void] = [:]
     private var activePaneObservers: [ObserverToken: (_ windowId: Int, _ paneId: Int) -> Void] = [:]
     private var topologyObservers: [ObserverToken: () -> Void] = [:]
-    private var exitObservers: [ObserverToken: (SessionEndReason) -> Void] = [:]
+    private var exitObservers: [ObserverToken: () -> Void] = [:]
+    private var stateObservers: [ObserverToken: (ConnectionState) -> Void] = [:]
 
     // MARK: Observed state
 
     private(set) var started = false
     private(set) var enterReceived = false
-    private(set) var exited = false
+    /// The connection's lifecycle phase. Drives reconnect-on-transport-loss and the
+    /// disconnected UI; `exited` is derived from it.
+    private(set) var connectionState: ConnectionState = .connecting {
+        didSet {
+            guard oldValue != connectionState else { return }
+            for callback in stateObservers.values { callback(connectionState) }
+        }
+    }
+    /// `true` once the connection has permanently ended (genuine tmux `%exit`, a
+    /// session discovered gone on reconnect, or a deliberate ``stop()``). A
+    /// transient transport loss is `.reconnecting`, NOT ended — so callers that
+    /// guard on `!exited` keep treating a reconnecting connection as alive.
+    var exited: Bool { connectionState == .ended }
     private(set) var sessionId: Int?
     private(set) var windowsByID: [Int: RemoteTmuxWindow] = [:]
     private(set) var windowOrder: [Int] = []
@@ -48,28 +61,70 @@ final class RemoteTmuxControlConnection {
     private var process: Process?
     private var stdinHandle: FileHandle?
     private var stdoutReader: FileHandle?
+    private var stderrReader: FileHandle?
     private var streamContinuation: AsyncStream<Data>.Continuation?
+    private var stderrContinuation: AsyncStream<Data>.Continuation?
+    /// Consumes the current spawn's stderr into `stderrBuffer`. Awaited before a
+    /// failed reconnect attempt is classified, so the decision sees the complete
+    /// error rather than racing the async stderr delivery.
+    private var stderrTask: Task<Void, Never>?
     private var parser = RemoteTmuxControlStreamParser()
     private var ingestTask: Task<Void, Never>?
     private var pendingCommands: [CommandKind] = []
     private let createIfMissing: Bool
     private let maxRecentEvents = 100
 
+    // MARK: Reconnect state
+
+    /// The current reconnect backoff task (a single sleeping `Task` between
+    /// attempts); cancelled on `stop()` / genuine end so a dead connection stops
+    /// retrying.
+    private var reconnectTask: Task<Void, Never>?
+    /// Number of reconnect attempts since the last successful connect, driving the
+    /// capped exponential backoff. Reset to 0 on a successful connect.
+    private var reconnectAttemptCount = 0
+    /// stderr text captured for the in-flight spawn, inspected when a reconnect
+    /// attempt's process exits to tell "session genuinely gone" from "host still
+    /// unreachable". Reset at the start of each spawn.
+    private var stderrBuffer = ""
+    /// Last client size applied via ``setClientSize(columns:rows:)``, re-applied
+    /// after a reconnect so the resumed session keeps the mirror's grid instead of
+    /// reverting to ssh's default 80×24.
+    private var lastClientSize: (columns: Int, rows: Int)?
+    /// Set when a reconnect reaches control mode; the actual pane re-seed is deferred
+    /// to the first post-reconnect `list-windows` result so it can't queue commands
+    /// before the attach's own `%begin`/`%end` block is consumed (which would misalign
+    /// the command-result FIFO).
+    private var pendingReconnectReseed = false
+
+    /// Base reconnect backoff (seconds); doubled each attempt up to ``reconnectMaxDelaySeconds``.
+    private static let reconnectBaseDelaySeconds: Double = 1
+    /// Cap on the reconnect backoff (seconds). Retries continue indefinitely at this
+    /// interval until the network returns or the session is found to be gone.
+    private static let reconnectMaxDelaySeconds: Double = 10
+    /// Cap on captured stderr (bytes) so a noisy/hostile remote can't grow it unbounded.
+    private static let maxStderrBytes = 8 * 1024
+
     private enum CommandKind: Equatable {
         case listWindows, capturePane(Int), paneState(Int), panePath(Int), paneAltScreen(Int), other
     }
 
-    /// Why a control connection ended — distinguishes a genuine tmux end from a
-    /// transport drop so consumers can react differently (e.g. keep the host
-    /// persisted for relaunch on a transient network loss, but forget it when the
-    /// session was actually killed).
-    enum SessionEndReason: Sendable, Equatable {
-        /// tmux reported `%exit` — the session/server intentionally ended.
-        case sessionExited
-        /// The control stream died without `%exit` (ssh process exit, EOF, or a
-        /// broken-pipe write) — typically a network/transport loss, not a
-        /// deliberate end.
-        case transportLost
+    /// The lifecycle phase of a control connection.
+    ///
+    /// A transport loss moves `.connected` → `.reconnecting` (the mirror stays
+    /// frozen and keeps retrying); a successful re-attach returns to `.connected`
+    /// and re-seeds the panes. Only a genuine tmux `%exit`, a session found gone on
+    /// reconnect, or a deliberate ``stop()`` reaches `.ended`.
+    enum ConnectionState: Sendable, Equatable {
+        /// The initial connection is being established (before the first control-mode
+        /// `%enter`).
+        case connecting
+        /// Live: control mode is up and streaming.
+        case connected
+        /// The transport dropped; retrying with backoff while the mirror stays frozen.
+        case reconnecting
+        /// Permanently over (genuine `%exit`, session gone, or deliberate stop).
+        case ended
     }
 
     /// Subscription-name prefix for per-pane `pane_current_path` (`refresh-client -B`).
@@ -112,14 +167,20 @@ final class RemoteTmuxControlConnection {
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
     ///   - onTopologyChanged: fires when the window/pane topology changes.
-    ///   - onExit: fires once when control mode ends, with the ``SessionEndReason``.
+    ///   - onExit: fires once when the connection PERMANENTLY ends (a genuine tmux
+    ///     `%exit`, or a session found gone on reconnect). A transient transport loss
+    ///     does NOT fire this — the connection reconnects instead.
+    ///   - onConnectionStateChanged: fires on every ``ConnectionState`` transition
+    ///     (e.g. `.connected` → `.reconnecting` on a transport loss), so consumers
+    ///     can show a disconnected/reconnecting indicator without tearing down.
     @discardableResult
     func addObserver(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)? = nil,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)? = nil,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
         onTopologyChanged: (() -> Void)? = nil,
-        onExit: ((SessionEndReason) -> Void)? = nil
+        onExit: (() -> Void)? = nil,
+        onConnectionStateChanged: ((ConnectionState) -> Void)? = nil
     ) -> ObserverToken {
         let token = ObserverToken()
         if let onPaneOutput { paneOutputObservers[token] = onPaneOutput }
@@ -127,6 +188,7 @@ final class RemoteTmuxControlConnection {
         if let onActivePaneChanged { activePaneObservers[token] = onActivePaneChanged }
         if let onTopologyChanged { topologyObservers[token] = onTopologyChanged }
         if let onExit { exitObservers[token] = onExit }
+        if let onConnectionStateChanged { stateObservers[token] = onConnectionStateChanged }
         return token
     }
 
@@ -137,6 +199,7 @@ final class RemoteTmuxControlConnection {
         activePaneObservers[token] = nil
         topologyObservers[token] = nil
         exitObservers[token] = nil
+        stateObservers[token] = nil
     }
 
     private func emitPaneOutput(_ paneId: Int, _ data: Data) {
@@ -155,14 +218,34 @@ final class RemoteTmuxControlConnection {
         for callback in topologyObservers.values { callback() }
     }
 
-    private func notifyExit(reason: SessionEndReason) {
-        for callback in exitObservers.values { callback(reason) }
+    private func notifyExit() {
+        for callback in exitObservers.values { callback() }
     }
 
     /// Spawns the SSH `tmux -CC` process and begins streaming.
     func start() throws {
         guard !started else { return }
         try host.ensureControlSocketDirectory()
+        // The initial connect honors `createIfMissing`; reconnects never create.
+        try spawnProcess(createIfMissing: createIfMissing)
+        started = true
+    }
+
+    /// Spawns (or re-spawns, on reconnect) the SSH `tmux -CC` process and wires its
+    /// stdout into the parser, consuming stderr for session-gone classification.
+    /// Resets the per-process state (parser, pending-command FIFO, captured stderr,
+    /// `enterReceived`) so a reconnect starts from a clean control stream.
+    ///
+    /// - Parameter createIfMissing: `true` only for the initial connect. Reconnect
+    ///   attempts pass `false` (`attach-session`), so a session killed during the
+    ///   outage fails the re-attach (→ `.ended`) instead of being silently recreated.
+    private func spawnProcess(createIfMissing: Bool) throws {
+        // Fresh control stream: the prior attempt's parser buffer and pending-command
+        // FIFO are stale and must not bleed into the new %begin/%end correlation.
+        parser = RemoteTmuxControlStreamParser()
+        pendingCommands.removeAll()
+        stderrBuffer = ""
+        enterReceived = false
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
@@ -187,7 +270,27 @@ final class RemoteTmuxControlConnection {
                 continuation.yield(chunk)
             }
         }
-        proc.terminationHandler = { _ in continuation.finish() }
+        // Capture stderr via its own AsyncStream so a failed reconnect attempt can be
+        // classified deterministically: `handleStreamEnd` awaits `stderrTask` (which
+        // finishes on stderr EOF) before reading `stderrBuffer`, so the decision can't
+        // race a not-yet-delivered chunk.
+        let (errStream, errContinuation) = AsyncStream<Data>.makeStream()
+        let errReader = errPipe.fileHandleForReading
+        errReader.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+                errContinuation.finish()
+            } else {
+                errContinuation.yield(chunk)
+            }
+        }
+        // Finish BOTH streams on process exit so the consumers (and any awaiter)
+        // always complete even if a reader's EOF callback is delayed.
+        proc.terminationHandler = { _ in
+            continuation.finish()
+            errContinuation.finish()
+        }
 
         do {
             try proc.run()
@@ -197,20 +300,39 @@ final class RemoteTmuxControlConnection {
             // stdin handle too, so the connection is left in a clean, retry-safe
             // state instead of holding a dead pipe that silently EPIPEs on write.
             reader.readabilityHandler = nil
+            errReader.readabilityHandler = nil
             continuation.finish()
+            errContinuation.finish()
             try? stdinHandle?.close()
             stdinHandle = nil
             throw error
         }
-        started = true
         process = proc
         stdoutReader = reader
+        stderrReader = errReader
         streamContinuation = continuation
+        stderrContinuation = errContinuation
+        stderrTask = Task { [weak self] in
+            for await chunk in errStream {
+                guard let text = String(data: chunk, encoding: .utf8), !text.isEmpty else { continue }
+                self?.appendStderr(text)
+            }
+        }
         ingestTask = Task { [weak self] in
             for await chunk in stream {
                 self?.ingest(chunk)
             }
-            self?.handleStreamEnd()
+            await self?.handleStreamEnd()
+        }
+    }
+
+    /// Appends captured stderr, bounded (by UTF-8 bytes) so a noisy/hostile remote
+    /// can't grow it without limit. Keeps the tail (the most recent, where the
+    /// failure reason is).
+    private func appendStderr(_ text: String) {
+        stderrBuffer += text
+        if stderrBuffer.utf8.count > Self.maxStderrBytes {
+            stderrBuffer = String(decoding: Array(stderrBuffer.utf8.suffix(Self.maxStderrBytes)), as: UTF8.self)
         }
     }
 
@@ -222,14 +344,21 @@ final class RemoteTmuxControlConnection {
     /// Sizes the tmux control client to `columns`×`rows` cells (tmux
     /// `refresh-client -C`) so the remote windows/panes reflow to the rendered
     /// cmux grid. Without this a freshly attached session stays at ssh's default
-    /// 80×24 and TUIs (claude, claude agents) render mangled. No-ops once the
-    /// connection has exited or for a degenerate grid.
+    /// 80×24 and TUIs (claude, claude agents) render mangled. Always records the grid
+    /// (re-applied by ``reseedAfterReconnect()``); sends the live `refresh-client`
+    /// only while `.connected`. No-ops for a degenerate grid.
     ///
     /// This is the single sizing entrypoint every remote-tmux render path routes
     /// through (the single-pane display surface and the multi-pane window mirror),
     /// so client sizing stays one shared behavior rather than duplicated sends.
     func setClientSize(columns: Int, rows: Int) {
-        guard !exited, columns > 0, rows > 0 else { return }
+        guard columns > 0, rows > 0 else { return }
+        // Remember the grid so a reconnect can re-apply it (a fresh ssh client
+        // otherwise reverts to 80×24 and mangles TUIs). Only send now when actually
+        // connected — while reconnecting/ended there is no live stdin (the send would
+        // silently drop); `reseedAfterReconnect` re-applies the stored size.
+        lastClientSize = (columns, rows)
+        guard connectionState == .connected else { return }
         send("refresh-client -C \(columns)x\(rows)")
     }
 
@@ -368,24 +497,37 @@ final class RemoteTmuxControlConnection {
     }
 
     /// Detaches: terminating ssh kills the control client but leaves the remote
-    /// tmux session alive for resume.
+    /// tmux session alive for resume. Permanently ends the connection — no reconnect.
     func stop() {
-        // Mark exited FIRST so the deliberate teardown does not fire `onExit`:
-        // finishing the stream makes the ingest task run `handleStreamEnd`, whose
-        // `guard !exited` then short-circuits. Only a genuine remote end (a real
-        // `%exit`, an unexpected stream EOF, or a broken-pipe write) notifies exit
-        // observers — so detach/quit/window-close (preserve) never trigger the
-        // "session ended remotely" cleanup.
-        exited = true
+        // Mark `.ended` FIRST so the deliberate teardown's stream-end is ignored and
+        // never fires `onExit` or a reconnect: only a genuine remote end (a real
+        // `%exit` or a session found gone on reconnect) notifies exit observers — so
+        // detach / quit / window-close (preserve) and transport drops do not.
+        connectionState = .ended
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        teardownProcessHandles()
+    }
+
+    /// Tears down the current spawn's process and I/O handles WITHOUT changing
+    /// `connectionState`, so the connection can either end (``stop()``) or re-spawn
+    /// (reconnect) from a clean slate.
+    private func teardownProcessHandles() {
         ingestTask?.cancel()
         ingestTask = nil
+        stderrTask?.cancel()
+        stderrTask = nil
         process?.terminationHandler = nil
-        // Tear down the stdout reader deterministically rather than waiting for
-        // EOF (the ingest consumer is already cancelled).
+        // Tear down the readers deterministically rather than waiting for EOF (the
+        // consumers are already cancelled).
         stdoutReader?.readabilityHandler = nil
         stdoutReader = nil
+        stderrReader?.readabilityHandler = nil
+        stderrReader = nil
         streamContinuation?.finish()
         streamContinuation = nil
+        stderrContinuation?.finish()
+        stderrContinuation = nil
         try? stdinHandle?.close()
         stdinHandle = nil
         process?.terminate()
@@ -416,10 +558,10 @@ final class RemoteTmuxControlConnection {
     }
 
     private func handleWriteFailure() {
-        guard !exited else { return }
-        exited = true
-        stop()
-        notifyExit(reason: .transportLost)
+        // A broken-pipe write means the transport dropped. Keep the mirror frozen
+        // and reconnect (the remote tmux session survives an ssh client death)
+        // rather than ending. `beginReconnecting` guards the source state.
+        beginReconnecting()
     }
 
     private func ingest(_ data: Data) {
@@ -428,11 +570,124 @@ final class RemoteTmuxControlConnection {
         }
     }
 
-    private func handleStreamEnd() {
-        guard !exited else { return }
-        exited = true
+    private func handleStreamEnd() async {
         record("stream-end")
-        notifyExit(reason: .transportLost)
+        switch connectionState {
+        case .ended:
+            return
+        case .connecting, .connected:
+            // The control stream died without `%exit` — a transport loss. Keep the
+            // mirror frozen and reconnect.
+            beginReconnecting()
+        case .reconnecting:
+            // A reconnect attempt's process exited before reaching control mode
+            // (a successful attach would have moved us to `.connected` via `.enter`).
+            // Drain the attempt's stderr to completion (the process has exited, so the
+            // stream finishes) BEFORE classifying, so the decision can't race a
+            // not-yet-delivered chunk and misclassify a gone session as transient.
+            await stderrTask?.value
+            // A state change may have raced the drain (e.g. a deliberate stop()).
+            guard connectionState == .reconnecting else { return }
+            // Classify: a session/server found gone is a genuine end; anything else
+            // (host unreachable, refused) is transient — keep retrying with backoff.
+            let sessionGone = Self.stderrIndicatesSessionGone(stderrBuffer)
+            teardownProcessHandles()
+            if sessionGone {
+                record("reconnect-session-gone")
+                connectionState = .ended
+                reconnectTask?.cancel()
+                reconnectTask = nil
+                notifyExit()
+            } else {
+                scheduleReconnectAttempt()
+            }
+        }
+    }
+
+    // MARK: - Reconnect
+
+    /// Begins reconnecting after a transport loss: tears down the dead spawn, marks
+    /// `.reconnecting` (consumers keep the frozen mirror), and schedules the first
+    /// retry. No-op unless currently connected/connecting.
+    private func beginReconnecting() {
+        guard connectionState == .connected || connectionState == .connecting else { return }
+        record("reconnecting")
+        teardownProcessHandles()
+        reconnectAttemptCount = 0
+        connectionState = .reconnecting
+        scheduleReconnectAttempt()
+    }
+
+    /// Schedules the next reconnect attempt after a capped exponential backoff.
+    private func scheduleReconnectAttempt() {
+        let attempt = reconnectAttemptCount
+        reconnectAttemptCount += 1
+        let delay = min(
+            Self.reconnectMaxDelaySeconds,
+            Self.reconnectBaseDelaySeconds * pow(2, Double(attempt))
+        )
+        record("reconnect-scheduled attempt=\(attempt) delay=\(delay)")
+        reconnectTask?.cancel()
+        // A bounded, cancellable backoff before the next attempt (not a poll/settle):
+        // cancelled by stop()/genuine end, re-armed by each failed attempt. `do/catch`
+        // (not `try?`) so a cancelled sleep returns immediately — the previously
+        // scheduled task can't fall through and double-spawn a second ssh client.
+        reconnectTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard let self, self.connectionState == .reconnecting else { return }
+            self.attemptReconnectSpawn()
+        }
+    }
+
+    /// Re-spawns the ssh control client for a reconnect attempt. Always attach-only
+    /// (`createIfMissing: false`) so a session killed during the outage fails the
+    /// re-attach (→ classified `.ended`) instead of being silently recreated empty.
+    /// A spawn failure (e.g. control-socket dir) backs off and retries; the spawn's
+    /// success/failure is observed via `.enter` (connected) or `handleStreamEnd`.
+    private func attemptReconnectSpawn() {
+        record("reconnect-attempt")
+        do {
+            try spawnProcess(createIfMissing: false)
+        } catch {
+            scheduleReconnectAttempt()
+        }
+    }
+
+    /// Re-seeds every mirrored pane after a successful reconnect: the fresh ssh
+    /// client lost the prior screen, cwd subscriptions, and client size, so re-apply
+    /// the grid, then per pane clear the stale frozen content (screen + scrollback)
+    /// and re-capture current contents (with history) + cwd. Called from the first
+    /// post-reconnect `list-windows` result, so `windowsByID` is freshly repopulated
+    /// and the command-result FIFO is aligned (the attach block is already drained).
+    private func reseedAfterReconnect() {
+        if let size = lastClientSize {
+            send("refresh-client -C \(size.columns)x\(size.rows)")
+        }
+        for window in windowsByID.values {
+            for paneId in window.paneIDsInOrder {
+                emitPaneOutput(paneId, Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8))
+                capturePane(paneId: paneId)
+                requestPanePath(paneId: paneId)
+                subscribePanePath(paneId: paneId)
+            }
+        }
+    }
+
+    /// Whether captured ssh/tmux stderr indicates the session/server is genuinely
+    /// gone (reconnect should stop and end) vs a transient transport failure (host
+    /// unreachable / connection refused — keep retrying).
+    nonisolated static func stderrIndicatesSessionGone(_ stderr: String) -> Bool {
+        let lowered = stderr.lowercased()
+        return lowered.contains("can't find session")
+            || lowered.contains("can\u{2019}t find session")
+            || lowered.contains("no server running")
+            || lowered.contains("no current session")
+            || lowered.contains("session not found")
+            || lowered.contains("lost server")
     }
 
     private func handle(_ message: RemoteTmuxControlMessage) {
@@ -440,10 +695,30 @@ final class RemoteTmuxControlConnection {
         case .enter:
             enterReceived = true
             record("enter")
+            // First connect, or a reconnect attempt that reached control mode.
+            if connectionState != .connected {
+                let wasReconnecting = connectionState == .reconnecting
+                connectionState = .connected
+                reconnectAttemptCount = 0
+                reconnectTask?.cancel()
+                reconnectTask = nil
+                // Resync the surfaces after a reconnect (a fresh client lost the
+                // screen/subscriptions). DON'T reseed here: the attach's own
+                // %begin/%end block hasn't been consumed yet, so queuing commands now
+                // would misalign the %end correlation FIFO. Defer until the first
+                // post-reconnect list-windows result (attach block drained,
+                // windowsByID freshly repopulated). Skipped on the first connect (the
+                // mirror seeds new tabs itself).
+                if wasReconnecting { pendingReconnectReseed = true }
+            }
         case let .exit(reason):
-            exited = true
             record("exit\(reason.map { " " + $0 } ?? "")")
-            notifyExit(reason: .sessionExited)
+            // A genuine remote end (session/server intentionally exited). No reconnect.
+            guard connectionState != .ended else { return }
+            connectionState = .ended
+            reconnectTask?.cancel()
+            reconnectTask = nil
+            notifyExit()
         case let .output(paneId, data):
             paneOutputByteCounts[paneId, default: 0] += data.count
             totalOutputBytes += data.count
@@ -535,6 +810,13 @@ final class RemoteTmuxControlConnection {
             if !order.isEmpty {
                 windowOrder = order
                 notifyTopologyChanged()
+                // Now that the attach block is drained and the topology is fresh, run
+                // the deferred reconnect re-seed (re-capture each pane). Queuing the
+                // capture commands here keeps the result FIFO aligned.
+                if pendingReconnectReseed {
+                    pendingReconnectReseed = false
+                    reseedAfterReconnect()
+                }
             }
         case let .capturePane(paneId):
             // capture-pane -e -S output is the pane's history + visible rows (with

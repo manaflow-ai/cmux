@@ -608,20 +608,16 @@ final class RemoteTmuxController {
         return .closeWorkspace
     }
 
-    /// The remote tmux session ended on its own (its last window was killed, or
-    /// it was killed out-of-band) — remove the mirror + connection and either close
-    /// the now-dead workspace or, when the host's dedicated window just lost its
-    /// last session, close that whole window. Never issues a kill (the session is
-    /// already gone).
-    ///
-    /// - Parameter reason: distinguishes a genuine tmux `%exit` from a transport
-    ///   drop. A transport loss (network blip) keeps the host persisted so the next
-    ///   launch re-mirrors it; a genuine exit forgets it.
+    /// The remote tmux session ended FOR GOOD (its last window was killed, it was
+    /// killed out-of-band, or a reconnect found it gone) — remove the mirror +
+    /// connection and either close the now-dead workspace or, when the host's
+    /// dedicated window just lost its last session, close that whole window. Never
+    /// issues a kill (the session is already gone). A transient transport loss does
+    /// NOT reach here — the connection reconnects instead.
     func handleSessionEndedRemotely(
         host: RemoteTmuxHost,
         sessionName: String,
-        workspaceId: UUID,
-        reason: RemoteTmuxControlConnection.SessionEndReason
+        workspaceId: UUID
     ) {
         let key = Self.connectionKey(destination: host.destination, sessionName: sessionName)
         if let mirror = sessionMirrors.removeValue(forKey: key) {
@@ -668,24 +664,12 @@ final class RemoteTmuxController {
             otherMainWindowCount: otherMainWindowCount
         )
         if !hostHasOtherMirrors {
-            // Persistence (for restoreMirroredHostsOnLaunch):
-            // - Keep the host persisted only on a transient transport loss that
-            //   either closes the dedicated window, or never had one (the socket
-            //   `remote.tmux.mirror` path) — then relaunch re-mirrors into a fresh
-            //   window with nothing left behind.
-            // - Forget it on a genuine `%exit`, AND on the sole-window degradation
-            //   where the dedicated window survives as a plain local workspace:
-            //   that window now lands in the generic session snapshot, so keeping
-            //   the host would restore it AND re-mirror a duplicate on next launch.
-            let wasDedicated = dedicatedWindowId != nil
-            let closingDedicatedWindow: Bool = {
-                if case .closeDedicatedWindow = action { return true }
-                return false
-            }()
-            let keepPersistedForRelaunch = reason == .transportLost && (!wasDedicated || closingDedicatedWindow)
-            if !keepPersistedForRelaunch {
-                forgetMirroredHost(host.destination)
-            }
+            // This path runs only for a genuine remote end (a transient transport
+            // loss reconnects instead of reaching here), so forget the host: the
+            // session is truly gone and must not be re-mirrored on the next launch.
+            // (Quitting cmux detaches via stop(), which suppresses this, so the host
+            // stays persisted for relaunch in that case.)
+            forgetMirroredHost(host.destination)
             // Drop the dedicated-window binding (the window is either closing, or
             // converting to a plain local window — either way it is no longer a
             // remote mirror). Done before the switch so the window's onClose hook's
@@ -696,7 +680,7 @@ final class RemoteTmuxController {
         }
         #if DEBUG
         cmuxDebugLog(
-            "remote-tmux: session ended host=\(host.destination) session=\(sessionName) reason=\(reason) " +
+            "remote-tmux: session ended host=\(host.destination) session=\(sessionName) " +
             "hostHasOtherMirrors=\(hostHasOtherMirrors) dedicatedWindowOpen=\(dedicatedWindowIsOpen) " +
             "ownedByEndingHost=\(ownedByEndingHost) otherWindows=\(otherMainWindowCount) action=\(action)"
         )
