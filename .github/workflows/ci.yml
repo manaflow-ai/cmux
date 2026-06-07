@@ -458,7 +458,12 @@ jobs:
           )
           for pkg in "${PACKAGES[@]}"; do
             echo "::group::swift test Packages/$pkg"
-            swift test --package-path "Packages/$pkg"
+            output_file="/tmp/cmux-swift-package-${pkg}-test-output.txt"
+            swift test --package-path "Packages/$pkg" 2>&1 | tee "$output_file"
+            if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$output_file"; then
+              echo "swift test Packages/$pkg completed without executing any tests" >&2
+              exit 1
+            fi
             echo "::endgroup::"
           done
 

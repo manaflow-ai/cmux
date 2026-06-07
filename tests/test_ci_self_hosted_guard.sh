@@ -847,19 +847,36 @@ check_bundled_ghostty_helper_regression_coverage() {
 
 check_swift_package_tests_require_nonzero_execution() {
   if ! awk '
-    /^[[:space:]]*- name: Run Swift package unit tests$/ { in_step=1; next }
-    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    function reset_step() {
+      saw_swift_test=0
+      saw_capture=0
+      saw_nonzero_guard=0
+      saw_failure_message=0
+    }
+    function finish_step() {
+      if (!in_step) {
+        return
+      }
+      steps += 1
+      if (!(saw_swift_test && saw_capture && saw_nonzero_guard && saw_failure_message)) {
+        bad_step=1
+      }
+      in_step=0
+      reset_step()
+    }
+    /^[[:space:]]*- name: Run Swift package unit tests$/ { finish_step(); in_step=1; reset_step(); next }
+    in_step && /^[[:space:]]*- name:/ { finish_step() }
     in_step && /swift test --package-path "Packages\/\$pkg"/ { saw_swift_test=1 }
     in_step && /tee "\$output_file"/ { saw_capture=1 }
     in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
     in_step && /completed without executing any tests/ { saw_failure_message=1 }
-    END { exit(saw_swift_test && saw_capture && saw_nonzero_guard && saw_failure_message ? 0 : 1) }
+    END { finish_step(); exit(steps > 0 && !bad_step ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: Swift package unit-test lane must fail if a listed package completes without executing any XCTest or Swift Testing tests"
+    echo "FAIL: every Swift package unit-test lane must fail if a listed package completes without executing any XCTest or Swift Testing tests"
     exit 1
   fi
 
-  echo "PASS: Swift package unit-test lane rejects zero-test package runs"
+  echo "PASS: Swift package unit-test lanes reject zero-test package runs"
 }
 
 check_xcodebuild_unit_step_requires_nonzero_execution() {
