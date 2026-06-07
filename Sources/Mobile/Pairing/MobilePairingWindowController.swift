@@ -44,6 +44,9 @@ final class MobilePairingWindowController {
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
+        // On-demand window: never let AppKit state restoration reopen it
+        // uninvited on the next launch.
+        window.isRestorable = false
         window.setContentSize(NSSize(width: 460, height: 640))
         window.center()
         self.window = window
