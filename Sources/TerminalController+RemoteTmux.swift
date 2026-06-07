@@ -42,17 +42,36 @@ extension TerminalController {
         guard let destination = (params["host"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !destination.isEmpty,
-            !destination.hasPrefix("-")
+            !destination.hasPrefix("-"),
+            !Self.remoteTmuxValueHasHiddenCharacter(destination)
         else { return nil }
         let port = params["port"] as? Int
         let identityFile = (params["identity_file"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let identityFile, identityFile.hasPrefix("-") { return nil }
+        if let identityFile, Self.remoteTmuxValueHasHiddenCharacter(identityFile) { return nil }
         return RemoteTmuxHost(
             destination: destination,
             port: port,
             identityFile: (identityFile?.isEmpty == false) ? identityFile : nil
         )
+    }
+
+    /// Rejects control / format / separator scalars in an SSH destination or
+    /// identity-file path. These hidden characters never appear in a legitimate
+    /// `user@host` / alias / key path, and refusing them at the socket boundary
+    /// blocks attempts to smuggle terminal escapes or obscure the real target —
+    /// defense in depth alongside the dash-prefix rejection and the argv `--`
+    /// end-of-options guard.
+    nonisolated static func remoteTmuxValueHasHiddenCharacter(_ value: String) -> Bool {
+        value.unicodeScalars.contains { scalar in
+            switch scalar.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator:
+                return true
+            default:
+                return false
+            }
+        }
     }
 
     /// `remote.tmux.attach` — attach a `tmux -CC` control client to a session.
@@ -127,6 +146,53 @@ extension TerminalController {
             }
             try await controller.mirrorHost(host: host)
             return ["host": host.destination, "mirrored": true]
+        }
+    }
+
+    /// `remote.tmux.window` — open a dedicated cmux window mirroring every tmux
+    /// session on a host (the `cmux ssh-tmux` CLI entry point).
+    ///
+    /// Params: `host` (required), optional `port` (Int), optional `identity_file`
+    /// (String), optional `activate` (Bool, default `true`).
+    ///
+    /// Returns `{mirrored: true, window_id}` on success, or
+    /// `{auth_required: true, ssh_argv: […]}` when the host needs interactive
+    /// authentication. cmux's control client uses plain pipes and cannot prompt,
+    /// so the CLI runs `ssh_argv` in the user's terminal (where the tty makes
+    /// password / host-key / MFA / FIDO prompts work) to open the shared
+    /// ControlMaster, then re-issues this command — which now succeeds by
+    /// multiplexing over the authenticated master.
+    nonisolated func v2RemoteTmuxWindow(id: Any?, params: [String: Any]) -> String {
+        guard RemoteTmuxController.isEnabled else {
+            return v2Error(id: id, code: "disabled", message: "remote tmux beta is disabled")
+        }
+        guard let host = Self.remoteTmuxHost(from: params) else {
+            return v2Error(id: id, code: "invalid_params", message: "host is required")
+        }
+        let activate = (params["activate"] as? Bool) ?? true
+        // 60s (the CLI waits longer still) so a slow-but-valid BatchMode probe
+        // completes instead of the app timing out first and turning an
+        // auth-required result into an opaque timeout error.
+        return v2VmCall(id: id, timeoutSeconds: 60) {
+            guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
+            else {
+                throw RemoteTmuxError.unreachable("app not ready")
+            }
+            let outcome = try await controller.mirrorHostInNewWindow(host: host, activateWindow: activate)
+            switch outcome {
+            case .mirrored(let windowId):
+                return [
+                    "host": host.destination,
+                    "mirrored": true,
+                    "window_id": windowId.uuidString,
+                ]
+            case .authRequired(let sshArgv):
+                return [
+                    "host": host.destination,
+                    "auth_required": true,
+                    "ssh_argv": sshArgv,
+                ]
+            }
         }
     }
 

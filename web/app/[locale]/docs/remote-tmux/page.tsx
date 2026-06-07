@@ -50,6 +50,8 @@ export default function RemoteTmuxPage() {
 
       <DocsHeading level={2} id="attach">{t("attachTitle")}</DocsHeading>
       <p>{t("attachIntro")}</p>
+      <p>{t("attachCli")}</p>
+      <CodeBlock lang="bash">{`cmux ssh-tmux dev@example.com\ncmux ssh-tmux my-ssh-alias --port 2222 --identity ~/.ssh/id_ed25519`}</CodeBlock>
       <p>{t("attachSockets")}</p>
 
       <DocsHeading level={2} id="how-it-works">{t("howTitle")}</DocsHeading>
@@ -81,6 +83,7 @@ export default function RemoteTmuxPage() {
           <tr><td><code>remote.tmux.attach</code></td><td><code>host</code>, <code>session</code>, <code>create?</code></td><td>{t("methodAttach")}</td></tr>
           <tr><td><code>remote.tmux.open</code></td><td><code>host</code>, <code>session</code></td><td>{t("methodOpen")}</td></tr>
           <tr><td><code>remote.tmux.mirror</code></td><td><code>host</code></td><td>{t("methodMirror")}</td></tr>
+          <tr><td><code>remote.tmux.window</code></td><td><code>host</code>, <code>port?</code>, <code>identity_file?</code></td><td>{t("methodWindow")}</td></tr>
           <tr><td><code>remote.tmux.detach</code></td><td><code>host</code>, <code>session</code></td><td>{t("methodDetach")}</td></tr>
           <tr><td><code>remote.tmux.state</code></td><td><code>host</code>, <code>session</code></td><td>{t("methodState")}</td></tr>
         </tbody>

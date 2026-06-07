@@ -1043,6 +1043,8 @@ class TerminalController {
             return v2RemoteTmuxOpen(id: request.id, params: request.params)
         case "remote.tmux.mirror":
             return v2RemoteTmuxMirror(id: request.id, params: request.params)
+        case "remote.tmux.window":
+            return v2RemoteTmuxWindow(id: request.id, params: request.params)
         case "sidebar.custom.validate":
             return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
         case "sidebar.custom.reload":

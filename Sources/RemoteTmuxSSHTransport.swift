@@ -15,7 +15,10 @@ import Foundation
 /// serializes process launches; reads/writes are `async`.
 actor RemoteTmuxSSHTransport {
     /// The host this transport talks to.
-    let host: RemoteTmuxHost
+    ///
+    /// `nonisolated` so the controller can read it synchronously (it's an immutable
+    /// `Sendable` value) when tearing down masters on quit/window-close.
+    nonisolated let host: RemoteTmuxHost
 
     private let sshExecutablePath: String
     private let controlPersistSeconds: Int
@@ -86,6 +89,27 @@ actor RemoteTmuxSSHTransport {
         )
     }
 
+    /// Fire-and-forget `ssh -O exit` to close the host's shared SSH ControlMaster.
+    ///
+    /// `nonisolated` and non-`async` so it can run from the synchronous app-quit /
+    /// window-close paths where awaiting an actor isn't possible. `-O exit` hits the
+    /// LOCAL control socket (fast, no network round-trip) and the spawned process
+    /// runs independently of cmux, so the master is torn down even as the app exits
+    /// — instead of lingering for `ControlPersist` after the user closes the app or
+    /// the mirror window. Best-effort: a missing/dead socket just fails fast.
+    nonisolated static func spawnControlMasterExit(
+        host: RemoteTmuxHost,
+        sshExecutablePath: String = "/usr/bin/ssh"
+    ) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: sshExecutablePath)
+        process.arguments = ["-O", "exit", "-o", "ControlPath=\(host.controlSocketPath)", "--", host.destination]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()  // fire-and-forget — do not wait
+    }
+
     // MARK: - Heuristics
 
     /// Whether stderr indicates the remote tmux server simply isn't running.
@@ -94,6 +118,32 @@ actor RemoteTmuxSSHTransport {
         return lowered.contains("no server running")
             || lowered.contains("no sessions")
             || lowered.contains("error connecting to")
+    }
+
+    /// Whether a failed non-interactive (`BatchMode=yes`) connect failed because
+    /// the host needs **interactive** authentication or host-key confirmation
+    /// that batch mode cannot service — a password, an unknown/changed host key,
+    /// keyboard-interactive MFA, or a FIDO touch. Used to decide whether to hand
+    /// the user an interactive `ssh` (run in their terminal by `cmux ssh-tmux`) that
+    /// opens the shared ControlMaster, versus surfacing a genuine
+    /// unreachable/transient error.
+    ///
+    /// Matches the canonical OpenSSH failure phrases only. "Permission denied"
+    /// already covers `Permission denied (publickey,keyboard-interactive)`, so
+    /// the bare "keyboard-interactive" substring is intentionally omitted (it
+    /// also appears in success-time banners). A *changed* host key ("remote host
+    /// identification has changed") is included so the interactive terminal
+    /// renders ssh's actionable message rather than an opaque alert — even though
+    /// the user must fix `known_hosts` themselves. Algorithm-negotiation failures
+    /// ("no matching host key type") are deliberately NOT matched: an interactive
+    /// retry cannot fix them, so they surface as a normal error instead.
+    static func indicatesAuthRequired(_ stderr: String) -> Bool {
+        let lowered = stderr.lowercased()
+        return lowered.contains("permission denied")
+            || lowered.contains("host key verification failed")
+            || lowered.contains("remote host identification has changed")
+            || lowered.contains("authentication failed")
+            || lowered.contains("too many authentication failures")
     }
 
     // MARK: - Process plumbing
