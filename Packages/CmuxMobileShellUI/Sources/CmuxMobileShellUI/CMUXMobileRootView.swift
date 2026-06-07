@@ -52,7 +52,9 @@ struct CMUXMobileRootView: View {
         .onAppear {
             syncShellAuthentication(isAuthenticated)
             store.resumeForegroundRefresh()
-            connectUITestAttachURLIfNeeded()
+            if !connectUITestAttachURLIfNeeded() {
+                reconnectStoredMacIfNeeded()
+            }
             #if os(iOS)
             pushCoordinator.bind(store: store)
             #endif
@@ -92,17 +94,8 @@ struct CMUXMobileRootView: View {
                 }
                 return
             }
-            let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
-            if !startedUITestAttachURL,
-               MobileRootAuthGate.shouldReconnectStoredMac(
-                stackAuthenticated: authManager.isAuthenticated,
-                attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
-                connectionState: store.connectionState
-            ) {
-                let stackUserID = authManager.currentUser?.id
-                Task {
-                    await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
-                }
+            if !connectUITestAttachURLIfNeeded() {
+                reconnectStoredMacIfNeeded()
             }
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
@@ -237,6 +230,19 @@ struct CMUXMobileRootView: View {
             await authManager.signOut(onSignedOut: onSignedOut)
             didAuthenticateWithAttachTicket = false
             store.signOut()
+        }
+    }
+
+    private func reconnectStoredMacIfNeeded() {
+        guard MobileRootAuthGate.shouldReconnectStoredMac(
+            stackAuthenticated: authManager.isAuthenticated,
+            attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+            connectionState: store.connectionState
+        ) else { return }
+
+        let stackUserID = authManager.currentUser?.id
+        Task {
+            await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
         }
     }
 
