@@ -156,8 +156,9 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Removes the managed image-theme block from the Ghostty config and
     /// live-reloads, reverting palette/terminal transparency to the user's own
-    /// directives. Does not clear the image path (the caller does that).
-    func clearBackgroundImageTheme() async
+    /// directives. Returns `true` on success so the caller only clears the
+    /// stored image path once the config cleanup actually succeeded.
+    func clearBackgroundImageTheme() async -> Bool
 }
 
 public extension SettingsHostActions {
@@ -208,7 +209,7 @@ public extension SettingsHostActions {
 
     func applyImageThemePreset(_ key: String) async -> String? { nil }
 
-    func clearBackgroundImageTheme() async {}
+    func clearBackgroundImageTheme() async -> Bool { true }
 }
 
 /// No-op ``SettingsHostActions`` for previews, tests, and any context

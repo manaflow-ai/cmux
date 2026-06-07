@@ -124,8 +124,11 @@ public struct SidebarSection: View {
 
                 if !backgroundImagePath.current.isEmpty {
                     Button(String(localized: "settings.sidebarAppearance.backgroundImage.clear", defaultValue: "Clear")) {
-                        backgroundImagePath.set("")
-                        Task { await hostActions.clearBackgroundImageTheme() }
+                        Task {
+                            if await hostActions.clearBackgroundImageTheme() {
+                                backgroundImagePath.set("")
+                            }
+                        }
                     }
                     .controlSize(.small)
                 }

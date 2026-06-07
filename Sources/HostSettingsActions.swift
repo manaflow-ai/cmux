@@ -337,30 +337,46 @@ final class HostSettingsActions: SettingsHostActions {
 
     func applyImageThemePreset(_ key: String) async -> String? {
         guard let preset = ImageThemePresets.preset(for: key) else { return nil }
-        // Decode the bundled asset to JPEG on the main actor (AppKit), then do
-        // the disk writes off the main actor so Settings stays responsive.
+        // Decode the bundled asset to JPEG on the main actor (AppKit), then run
+        // the disk writes through the serial mutator so rapid preset switches
+        // apply in order and Settings stays responsive.
         let imageData = ImageThemePresets.encodedImageData(for: preset)
         do {
-            let imagePath = try await Task.detached(priority: .userInitiated) {
+            let imagePath = try await ImageThemeMutator.shared.perform {
                 try ImageThemePresets.write(preset: preset, imageData: imageData)
-            }.value
+            }
             GhosttyApp.shared.reloadConfiguration(source: "settings.backgroundImage.preset.\(key)")
             return imagePath
         } catch {
-            hostSettingsLogger.error("apply image theme failed: \(error.localizedDescription, privacy: .public)")
+            // error.localizedDescription may contain home-directory paths; keep private.
+            hostSettingsLogger.error("apply image theme failed: \(error.localizedDescription, privacy: .private)")
             return nil
         }
     }
 
-    func clearBackgroundImageTheme() async {
+    func clearBackgroundImageTheme() async -> Bool {
         do {
-            try await Task.detached(priority: .userInitiated) {
+            try await ImageThemeMutator.shared.perform {
                 try ImageThemePresets.removeManagedBlock()
-            }.value
+            }
             GhosttyApp.shared.reloadConfiguration(source: "settings.backgroundImage.clear")
+            return true
         } catch {
-            hostSettingsLogger.error("clear image theme failed: \(error.localizedDescription, privacy: .public)")
+            hostSettingsLogger.error("clear image theme failed: \(error.localizedDescription, privacy: .private)")
+            return false
         }
+    }
+}
+
+/// Serializes image-theme config mutations so concurrent apply/clear actions
+/// (e.g. rapid preset clicks) run one at a time in submission order, keeping the
+/// Ghostty config and the persisted settings last-write-wins rather than
+/// dependent on detached-task completion order.
+private actor ImageThemeMutator {
+    static let shared = ImageThemeMutator()
+
+    func perform<T: Sendable>(_ work: @Sendable () throws -> T) async rethrows -> T {
+        try work()
     }
 }
 
@@ -504,7 +520,9 @@ enum ImageThemePresets {
         let block = lines.joined(separator: "\n")
 
         let url = ghosttyConfigURL
-        let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        // A missing file is fine (start fresh); a file that exists but can't be
+        // read must NOT be treated as empty or we'd clobber the user's config.
+        let existing = try readExistingConfig(at: url)
         let stripped = removingManagedBlockText(from: existing)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let next = stripped.isEmpty ? "\(block)\n" : "\(stripped)\n\n\(block)\n"
@@ -524,7 +542,10 @@ enum ImageThemePresets {
     /// actor.
     static func removeManagedBlock() throws {
         let url = ghosttyConfigURL
-        guard let existing = try? String(contentsOf: url, encoding: .utf8) else { return }
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        // Exists but unreadable → surface as failure, don't silently no-op and
+        // leave the managed block behind.
+        let existing = try readExistingConfig(at: url)
         let stripped = removingManagedBlockText(from: existing)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         do {
@@ -535,6 +556,18 @@ enum ImageThemePresets {
             }
         } catch {
             throw ThemeError.fileWriteFailed("ghostty config: \(error.localizedDescription)")
+        }
+    }
+
+    /// Reads the existing Ghostty config. Returns "" if the file does not exist,
+    /// but throws if it exists and cannot be read — so callers never overwrite an
+    /// unreadable config with just the managed block.
+    private static func readExistingConfig(at url: URL) throws -> String {
+        guard FileManager.default.fileExists(atPath: url.path) else { return "" }
+        do {
+            return try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            throw ThemeError.fileWriteFailed("read ghostty config: \(error.localizedDescription)")
         }
     }
 
