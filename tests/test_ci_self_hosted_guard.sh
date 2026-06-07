@@ -989,6 +989,23 @@ check_ios_simulator_tests_require_nonzero_execution() {
   echo "PASS: test-ios.yml rejects zero-test simulator runs"
 }
 
+check_ios_mobile_core_package_tests_require_nonzero_execution() {
+  if ! awk '
+    /^[[:space:]]*- name: Run CMUXMobileCore package tests$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /swift test --package-path Packages\/CMUXMobileCore/ { saw_swift_test=1 }
+    in_step && /tee "\$output_file"/ { saw_capture=1 }
+    in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
+    in_step && /CMUXMobileCore package tests completed without executing any tests/ { saw_message=1 }
+    END { exit(saw_swift_test && saw_capture && saw_nonzero_guard && saw_message ? 0 : 1) }
+  ' "$TEST_IOS_FILE"; then
+    echo "FAIL: test-ios.yml must reject successful CMUXMobileCore package runs that execute zero tests"
+    exit 1
+  fi
+
+  echo "PASS: test-ios.yml rejects zero-test CMUXMobileCore package runs"
+}
+
 check_tests_deriveddata_cache() {
   if ! awk '
     /^  tests-core:/ { in_job=1; next }
@@ -1303,6 +1320,7 @@ check_xcodebuild_unit_step_requires_nonzero_execution "$COMPAT_FILE" "Run unit t
 check_xcodebuild_unit_step_requires_nonzero_execution "$TERMINAL_CORPUS_NIGHTLY_FILE" "Run terminal corpus unit tests" "Terminal corpus unit tests completed without executing any tests"
 check_xcodebuild_unit_step_rejects_expected_failures "$CI_FILE" "Run unit tests"
 check_xcodebuild_unit_step_rejects_expected_failures "$COMPAT_FILE" "Run unit tests"
+check_ios_mobile_core_package_tests_require_nonzero_execution
 check_tests_deriveddata_cache
 check_cached_deriveddata_prunes_module_caches
 check_ui_regression_budget

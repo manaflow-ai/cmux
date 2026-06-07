@@ -137,7 +137,13 @@ jobs:
 
       - name: Run CMUXMobileCore package tests
         run: |
-          swift test --package-path Packages/CMUXMobileCore
+          set -euo pipefail
+          output_file="$(mktemp)"
+          swift test --package-path Packages/CMUXMobileCore 2>&1 | tee "$output_file"
+          if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$output_file"; then
+            echo "CMUXMobileCore package tests completed without executing any tests" >&2
+            exit 1
+          fi
 
   ios-simulator:
     needs: detect-ios-changes
