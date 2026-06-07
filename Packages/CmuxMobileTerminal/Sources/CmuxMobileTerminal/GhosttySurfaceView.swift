@@ -1437,6 +1437,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // scene-update watchdog (0x8BADF00D) kills the app. It must run off
         // the main thread. Feed it on a serial background queue (order
         // preserved) and hop back to main only for the Swift-side UI state.
+        #if DEBUG
+        let accessibilityThrottleKey = ObjectIdentifier(self)
+        #endif
         Self.outputQueue.async { [weak self] in
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
@@ -1455,8 +1458,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // main. Off-main reads can never trip the main-thread watchdog.
             var accessibilityText: String?
             let a11yNow = CACurrentMediaTime()
-            if a11yNow - Self.lastAccessibilityTextTime > 0.5 {
-                Self.lastAccessibilityTextTime = a11yNow
+            let lastAccessibilityTextTime = Self.lastAccessibilityTextTimeBySurfaceID[accessibilityThrottleKey]
+                ?? 0
+            if a11yNow - lastAccessibilityTextTime > 0.5 {
+                Self.lastAccessibilityTextTimeBySurfaceID[accessibilityThrottleKey] = a11yNow
                 accessibilityText = Self.accessibilitySurfaceText(surface)
             }
             #endif
@@ -1648,10 +1653,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Throttle stamp for the off-main accessibility-label read in
+    /// Per-surface throttle stamps for the off-main accessibility-label read in
     /// `processOutput`. Accessed only on the serial `outputQueue`, so the
     /// unchecked mutation is safe.
-    nonisolated(unsafe) fileprivate static var lastAccessibilityTextTime: CFTimeInterval = 0
+    nonisolated(unsafe) fileprivate static var lastAccessibilityTextTimeBySurfaceID =
+        [ObjectIdentifier: CFTimeInterval]()
 
     /// Off-main equivalent of ``accessibilityRenderedTextForTesting()`` that
     /// reads via the raw surface handle so it can run on the serial output queue
@@ -1714,7 +1720,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // backlog drains before the free. (Retain the bridge across the hop; it
         // owns the userdata libghostty still references until the free.)
         let retainedBridge = Unmanaged.passRetained(bridge)
+        #if DEBUG
+        let accessibilityThrottleKey = ObjectIdentifier(self)
+        #endif
         Self.outputQueue.async {
+            #if DEBUG
+            Self.lastAccessibilityTextTimeBySurfaceID.removeValue(forKey: accessibilityThrottleKey)
+            #endif
             ghostty_surface_free(surface)
             retainedBridge.release()
         }
