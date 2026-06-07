@@ -1,15 +1,18 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
+import type http2 from "node:http2";
 import { describe, expect, test } from "bun:test";
 import {
   apnsHostForEnvironment,
   buildApnsPayload,
+  CMUX_APNS_CATEGORY,
   shouldPruneToken,
 } from "../services/apns/payload";
 import { summarizeApnsSendResults } from "../services/apns/response";
 import { sendApnsNotification, signApnsJwt, normalizeP8 } from "../services/apns/sender";
 import {
   MAX_PUSH_BODY_CHARS,
+  MAX_PUSH_ID_CHARS,
   normalizeApnsBundle,
   parsePushPayload,
   readBoundedJsonObject,
@@ -34,6 +37,33 @@ describe("apns payload", () => {
   test("omits cmux block when no ids", () => {
     const payload = buildApnsPayload({ title: "t", body: "b" }) as Record<string, unknown>;
     expect("cmux" in payload).toBe(false);
+  });
+
+  test("carries the stable notification id and dismiss-sync category", () => {
+    const payload = buildApnsPayload({
+      title: "claude",
+      body: "Agent finished",
+      workspaceId: "ws-1",
+      notificationId: "n-42",
+    }) as { aps: Record<string, unknown>; cmux: Record<string, string> };
+
+    // The category is what arms iOS customDismissAction; the cmux key lets an
+    // iOS swipe tell the Mac which notification was dismissed.
+    expect(payload.aps.category).toBe(CMUX_APNS_CATEGORY);
+    expect(payload.cmux).toEqual({ workspaceId: "ws-1", notificationId: "n-42" });
+  });
+
+  test("keeps the notification id even when content is hidden (id is not content)", () => {
+    const payload = buildApnsPayload({
+      title: "secret",
+      body: "secret output",
+      notificationId: "n-9",
+      hideContent: true,
+    }) as { aps: { alert: Record<string, string>; category: string }; cmux: Record<string, string> };
+
+    expect(payload.aps.alert.title).toBe("cmux");
+    expect(payload.aps.category).toBe(CMUX_APNS_CATEGORY);
+    expect(payload.cmux).toEqual({ notificationId: "n-9" });
   });
 
   test("hideContent redacts terminal content but keeps a generic compatibility body and deep-link", () => {
@@ -119,6 +149,7 @@ describe("apns route policy", () => {
       body: " done ",
       workspaceId: " ws-1 ",
       surfaceId: " sf-1 ",
+      notificationId: " n-1 ",
       hideContent: true,
     });
 
@@ -130,6 +161,7 @@ describe("apns route policy", () => {
         body: "done",
         workspaceId: "ws-1",
         surfaceId: "sf-1",
+        notificationId: "n-1",
         hideContent: true,
       },
     });
@@ -142,6 +174,26 @@ describe("apns route policy", () => {
       ok: false,
       error: "body_too_long",
     });
+  });
+
+  test("absent notificationId parses to null and over-long is rejected", () => {
+    const parsed = parsePushPayload({ title: "agent", body: "done" });
+    expect(parsed).toEqual({
+      ok: true,
+      value: {
+        title: "agent",
+        subtitle: null,
+        body: "done",
+        workspaceId: null,
+        surfaceId: null,
+        notificationId: null,
+        hideContent: false,
+      },
+    });
+
+    expect(
+      parsePushPayload({ title: "agent", body: "done", notificationId: "x".repeat(MAX_PUSH_ID_CHARS + 1) }),
+    ).toEqual({ ok: false, error: "notification_id_too_long" });
   });
 
   test("reads only bounded JSON objects from requests", async () => {
@@ -433,5 +485,93 @@ describe("apns sender transport", () => {
       { deviceToken: "b".repeat(64), status: 0, reason: "request failed", prune: false },
     ]);
     expect(closed).toEqual([productionHost]);
+  });
+
+  test("stamps apns-collapse-id from the notification id so the banner is dismiss-syncable", async () => {
+    const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
+
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+      end() {
+        this.emit("response", { ":status": 200 });
+        this.emit("end");
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      request(headers: http2.OutgoingHttpHeaders) {
+        capturedHeaders.push(headers);
+        return new FakeRequest();
+      }
+      close() {}
+    }
+
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+
+    await sendApnsNotification(
+      { keyP8: p8, keyId: "KID-COLLAPSE", teamId: "TEAM456" },
+      [{ deviceToken: "a".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" }],
+      { title: "agent", body: "done", notificationId: "n-7" },
+      1000,
+      transport,
+    );
+
+    expect(capturedHeaders).toHaveLength(1);
+    expect(capturedHeaders[0]["apns-collapse-id"]).toBe("n-7");
+  });
+
+  test("omits apns-collapse-id when there is no notification id", async () => {
+    const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
+
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+      end() {
+        this.emit("response", { ":status": 200 });
+        this.emit("end");
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      request(headers: http2.OutgoingHttpHeaders) {
+        capturedHeaders.push(headers);
+        return new FakeRequest();
+      }
+      close() {}
+    }
+
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+
+    await sendApnsNotification(
+      { keyP8: p8, keyId: "KID-NO-COLLAPSE", teamId: "TEAM456" },
+      [{ deviceToken: "a".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" }],
+      { title: "agent", body: "done" },
+      1000,
+      transport,
+    );
+
+    expect(capturedHeaders).toHaveLength(1);
+    expect("apns-collapse-id" in capturedHeaders[0]).toBe(false);
   });
 });
