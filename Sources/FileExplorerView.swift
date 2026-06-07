@@ -418,8 +418,12 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private func beginPendingInlineEditIfPossible(in outlineView: NSOutlineView) {
             guard let pending = pendingInlineEdit else { return }
             // Drop the pending edit if the item vanished from disk before we could focus it.
+            // Also release watcher suppression that beginCreate turned on — otherwise watch
+            // events buffer forever and the tree stops auto-refreshing until a manual reload.
             if pending.isNewItem, !FileManager.default.fileExists(atPath: pending.path) {
                 pendingInlineEdit = nil
+                isInlineEditing = false
+                store.suppressWatcherReloads = false
                 return
             }
             guard row(forPath: pending.path, in: outlineView) != nil else { return }
@@ -2504,6 +2508,11 @@ final class FileExplorerCellView: NSTableCellView {
             statusLabel.font = .systemFont(ofSize: 10, weight: .semibold)
             statusLabel.textColor = style.gitColor(for: gitStatus)
             statusLabel.isHidden = false
+            // The badge owns the name's trailing edge. Release the container/loading
+            // trailing constraints so the three are mutually exclusive (no Auto Layout
+            // conflict). The badge only appears when the row is not loading.
+            nameLabelTrailingToContainerConstraint.isActive = false
+            nameLabelTrailingToLoadingConstraint.isActive = false
             nameLabelTrailingToStatusConstraint.isActive = true
         } else {
             statusLabel.stringValue = ""
