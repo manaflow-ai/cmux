@@ -7,6 +7,14 @@ final class TerminalInputTextView: UITextView {
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
     var onEscapeSequence: ((Data) -> Void)?
+    /// Invoked for a committed *block* of text (more than one character) that no
+    /// modifier transforms: system dictation, autocorrect/predictive-bar
+    /// replacements, and clipboard text inserted by the keyboard all arrive this
+    /// way. The host routes the block through a bracketed-paste RPC so the remote
+    /// terminal receives it as a single paste rather than per-character input,
+    /// which avoids CR-fragmenting multi-line text and lets TUIs treat it as
+    /// pasted content. Single characters and Return still ride ``onText``.
+    var onPasteText: ((String) -> Void)?
     /// Invoked when the Paste accessory button reads an image off the system
     /// clipboard. The host forwards the bytes (+ a lowercase format hint) to the
     /// Mac, which injects the resulting file path into the terminal. Clipboard
@@ -51,6 +59,25 @@ final class TerminalInputTextView: UITextView {
     private static let directInsertMirrorTextLimit = 128
 
     override var canBecomeFirstResponder: Bool { true }
+
+    /// Always report that there is text to delete.
+    ///
+    /// This is the load-bearing piece (borrowed from iSH's `TerminalView`) that
+    /// makes the system software keyboard's *hold-to-repeat* backspace work. The
+    /// keyboard's auto-repeat timer keeps firing ``deleteBackward()`` only while
+    /// the first responder reports `hasText == true`; the moment it reads
+    /// `false` the repeat stops. Because this view keeps a perpetually-empty
+    /// document (every committed keystroke is forwarded to the Mac and the local
+    /// buffer is cleared), the inherited `UITextView.hasText` returned `false`,
+    /// so holding backspace deleted exactly one character. Forcing `true` here
+    /// lets the keyboard repeat indefinitely, just like a normal text field. It
+    /// is always safe to send a DEL byte to the remote terminal, so there is no
+    /// "nothing to delete" state to honor.
+    ///
+    /// Internal byte-routing must therefore *not* key off `hasText` (it is now a
+    /// constant); ``deleteBackward()`` and the modifier guards key off
+    /// ``markedTextRange`` (IME composition) instead.
+    override var hasText: Bool { true }
 
     override var keyCommands: [UIKeyCommand]? {
         guard markedTextRange == nil else { return nil }
@@ -375,7 +402,13 @@ final class TerminalInputTextView: UITextView {
     }
 
     override func deleteBackward() {
-        if commandAccessoryArmed, markedTextRange == nil, !hasText {
+        // Routing keys off `markedTextRange` (IME composition in progress), NOT
+        // `hasText`: `hasText` is now a forced constant `true` so the software
+        // keyboard auto-repeats backspace, so it can no longer mean "the local
+        // document is empty". While composing, the delete edits the marked text
+        // locally (`super.deleteBackward()`); otherwise it is a real backspace
+        // that must reach the Mac.
+        if commandAccessoryArmed, markedTextRange == nil {
             if !commandAccessorySticky {
                 setCommandAccessoryArmed(false)
             }
@@ -383,7 +416,7 @@ final class TerminalInputTextView: UITextView {
             onEscapeSequence?(Data([0x15]))
             return
         }
-        if alternateAccessoryArmed, markedTextRange == nil, !hasText {
+        if alternateAccessoryArmed, markedTextRange == nil {
             if !alternateAccessorySticky {
                 setAlternateAccessoryArmed(false)
             }
@@ -395,19 +428,36 @@ final class TerminalInputTextView: UITextView {
             }
             return
         }
-        if controlAccessoryArmed, markedTextRange == nil, !hasText {
+        if controlAccessoryArmed, markedTextRange == nil {
             if !controlAccessorySticky {
                 setControlAccessoryArmed(false)
             }
             onBackspace?()
             return
         }
-        if markedTextRange != nil || hasText {
+        // While composing (marked text present), let UITextView edit the marked
+        // string locally so the IME candidate updates; the committed result
+        // still flows to the Mac via the normal insert/textChange path.
+        if markedTextRange != nil {
             super.deleteBackward()
             return
         }
         onBackspace?()
     }
+
+    // MARK: Dictation
+    //
+    // Unlike iSH's `TerminalView` (a raw `UIView` that hand-rolls `UITextInput`
+    // and therefore must provide `insertDictationResultPlaceholder` /
+    // `removeDictationResultPlaceholder`), this view is a `UITextView`, which
+    // already conforms to `UITextInput` and supplies those placeholder methods
+    // as framework witnesses that are not exposed for override. So we inherit
+    // iSH's dictation plumbing for free: when the user taps the keyboard mic,
+    // UIKit drives its own placeholder against this view's text storage and then
+    // delivers the recognized text through the normal `insertText(_:)` /
+    // ``textViewDidChange(_:)`` path, where ``emitCommittedText(_:source:)``
+    // routes the multi-character block through the bracketed-paste sink
+    // (``onPasteText``). There is nothing to override here.
 
     func simulateTextChangeForTesting(_ text: String, isComposing: Bool) {
         self.text = text
@@ -704,10 +754,12 @@ final class TerminalInputTextView: UITextView {
 
     /// Read the system clipboard for the Paste button. An image is forwarded via
     /// ``onPasteImage`` (the host uploads it to the Mac as `terminal.paste_image`
-    /// and the Mac injects the resulting file path); plain text rides the normal
-    /// ``onText`` input path. Images win when both are present. Accessing the
-    /// pasteboard contents here is what shows iOS's one-shot paste banner, which
-    /// is the expected confirmation for an explicit Paste tap.
+    /// and the Mac injects the resulting file path); plain text rides the
+    /// bracketed-paste ``onPasteText`` path (falling back to ``onText`` on a host
+    /// that does not support it) so multi-line clipboard text lands as one paste
+    /// instead of executing line-by-line. Images win when both are present.
+    /// Accessing the pasteboard contents here is what shows iOS's one-shot paste
+    /// banner, which is the expected confirmation for an explicit Paste tap.
     ///
     /// The image must fit the mobile sync frame budget once base64-encoded, so we
     /// try PNG first, then a compressed JPEG, and send the first candidate whose
@@ -739,7 +791,15 @@ final class TerminalInputTextView: UITextView {
             return
         }
         if pasteboard.hasStrings, let string = pasteboard.string, !string.isEmpty {
-            onText?(string)
+            // An explicit Paste is always pasted content, so it goes through the
+            // bracketed-paste sink (which falls back to per-key input on a host
+            // that does not support it). The host gates the fallback on the
+            // `terminal.paste.v1` capability.
+            if onPasteText != nil {
+                onPasteText?(string)
+            } else {
+                onText?(string)
+            }
         }
     }
 
@@ -851,9 +911,28 @@ final class TerminalInputTextView: UITextView {
             if !shiftAccessorySticky {
                 setShiftAccessoryArmed(false)
             }
-            onText?(committedText.uppercased())
+            emitUnmodifiedText(committedText.uppercased())
         } else {
-            onText?(committedText)
+            emitUnmodifiedText(committedText)
+        }
+    }
+
+    /// Route a committed block with no active modifier to either the per-key
+    /// input path or the bracketed-paste path.
+    ///
+    /// Single characters and Return keep riding ``onText`` so byte semantics
+    /// (CR for Return, control bytes, the existing per-keystroke flow) are
+    /// unchanged. A multi-character block — system dictation, an
+    /// autocorrect/predictive replacement, or keyboard-inserted clipboard text —
+    /// is sent through ``onPasteText`` so it reaches the remote terminal as one
+    /// bracketed paste instead of fragmenting on embedded newlines.
+    private func emitUnmodifiedText(_ text: String) {
+        switch TerminalCommitRouter.route(for: text) {
+        case .paste where onPasteText != nil:
+            onPasteText?(text)
+        case .paste, .input:
+            // No paste sink wired (or a single character): per-character input.
+            onText?(text)
         }
     }
 

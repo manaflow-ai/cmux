@@ -1755,6 +1755,8 @@ class TerminalController {
             return v2Result(id: id, self.v2MobileTerminalCreate(params: params))
         case "mobile.terminal.input", "terminal.input":
             return v2Result(id: id, self.v2MobileTerminalInput(params: params))
+        case "mobile.terminal.paste", "terminal.paste":
+            return v2Result(id: id, self.v2MobileTerminalPaste(params: params))
         case "mobile.terminal.replay", "terminal.replay":
             return v2Result(id: id, self.v2MobileTerminalReplay(params: params))
         case "mobile.terminal.viewport", "terminal.viewport":
@@ -2294,10 +2296,12 @@ class TerminalController {
             "mobile.workspace.list",
             "mobile.terminal.create",
             "mobile.terminal.input",
+            "mobile.terminal.paste",
             "mobile.terminal.replay",
             "mobile.terminal.viewport",
             "terminal.create",
             "terminal.input",
+            "terminal.paste",
             "terminal.replay",
             "terminal.viewport",
             "auth.login",
@@ -20674,10 +20678,10 @@ class TerminalController {
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
-        case "mobile.terminal.paste_image", "terminal.paste_image":
-            result = v2MobileTerminalPasteImage(params: request.params)
         case "mobile.terminal.paste", "terminal.paste":
             result = v2MobileTerminalPaste(params: request.params)
+        case "mobile.terminal.paste_image", "terminal.paste_image":
+            result = v2MobileTerminalPasteImage(params: request.params)
         case "mobile.terminal.replay", "terminal.replay":
             result = v2MobileTerminalReplay(params: request.params)
         case "mobile.terminal.viewport", "terminal.viewport":

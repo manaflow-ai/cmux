@@ -67,6 +67,13 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// The composer accessory button was tapped; the host should toggle the
     /// iMessage-style composer above the terminal. Optional.
     func ghosttySurfaceViewDidRequestComposerToggle(_ surfaceView: GhosttySurfaceView)
+    /// Forward a committed block of text (system dictation, an autocorrect
+    /// replacement, or keyboard-inserted clipboard text) that should reach the
+    /// remote terminal as a bracketed paste rather than per-character input. The
+    /// host sends it via the `terminal.paste` RPC so embedded newlines do not
+    /// fragment into separate Returns. Defaults to the raw-input path so existing
+    /// conformers keep working. Optional.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteText text: String)
 }
 
 public extension GhosttySurfaceViewDelegate {
@@ -76,6 +83,19 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
     func ghosttySurfaceViewDidFailToPasteImageTooLarge(_ surfaceView: GhosttySurfaceView) {}
     func ghosttySurfaceViewDidRequestComposerToggle(_ surfaceView: GhosttySurfaceView) {}
+    /// Default bracketed-paste handler that falls back to per-character input.
+    ///
+    /// A conformer that does not implement the bracketed-paste path still
+    /// delivers the text: newlines are normalized to CR (matching the
+    /// per-keystroke input path) and the bytes are forwarded through
+    /// ``ghosttySurfaceView(_:didProduceInput:)``.
+    /// - Parameters:
+    ///   - surfaceView: The surface view that produced the committed block.
+    ///   - text: The committed block of pasted/dictated text.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteText text: String) {
+        let normalized = text.replacingOccurrences(of: "\n", with: "\r")
+        ghosttySurfaceView(surfaceView, didProduceInput: Data(normalized.utf8))
+    }
 }
 
 @MainActor
@@ -823,6 +843,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self.resetCursorBlink()
             TerminalInputDebugLog.log("surface.onEscape data=\(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
+        }
+        inputProxy.onPasteText = { [weak self] text in
+            guard let self else { return }
+            self.resetCursorBlink()
+            // Multi-character commits (dictation, autocorrect, keyboard clipboard
+            // insert) go through the bracketed-paste RPC so embedded newlines are
+            // not split into separate Returns by the remote terminal.
+            TerminalInputDebugLog.log("surface.onPasteText text=\(TerminalInputDebugLog.textSummary(text))")
+            self.delegate?.ghosttySurfaceView(self, didPasteText: text)
         }
         inputProxy.onPasteImage = { [weak self] data, format in
             guard let self else { return }
