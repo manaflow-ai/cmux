@@ -841,7 +841,17 @@ final class RemoteTmuxController {
             // Close the master only after kill-session has used it; `ssh -O exit`
             // first would tear the connection down before the session dies.
             if isLastSession {
-                RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+                // …and only if no reattach reclaimed this endpoint during the
+                // kill-session round-trip: a concurrent `cmux ssh-tmux` to the same
+                // host builds a fresh transport/connection on the same ControlPath,
+                // and exiting the master here would drop that new mirror. (This Task
+                // is @MainActor, so the check + exit is atomic w.r.t. a reattach.)
+                let reclaimed = transports[host.connectionHash] != nil
+                    || sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
+                    || connectionsByHostSession.values.contains { $0.host.connectionHash == host.connectionHash }
+                if !reclaimed {
+                    RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+                }
             }
         }
     }
@@ -868,12 +878,17 @@ final class RemoteTmuxController {
         let connections = Array(connectionsByHostSession.values)
         connectionsByHostSession.removeAll()
         for connection in connections { connection.stop() }
-        // Fire-and-forget `ssh -O exit` per host: it hits the local control socket
-        // and runs independently of cmux, so the masters are torn down even as the
-        // app exits — no lingering ssh after quit.
-        let hosts = transports.values.map(\.host)
+        // Fire-and-forget `ssh -O exit` per endpoint: it hits the local control
+        // socket and runs independently of cmux, so the masters are torn down even as
+        // the app exits — no lingering ssh after quit. Collect endpoints from BOTH
+        // transports AND control connections (the remote.tmux.attach/open paths open a
+        // ControlPersist master via the connection without ever creating a transport),
+        // deduped by connectionHash.
+        var hostsByHash: [String: RemoteTmuxHost] = [:]
+        for connection in connections { hostsByHash[connection.host.connectionHash] = connection.host }
+        for transport in transports.values { hostsByHash[transport.host.connectionHash] = transport.host }
         transports.removeAll()
-        for host in hosts { RemoteTmuxSSHTransport.spawnControlMasterExit(host: host) }
+        for host in hostsByHash.values { RemoteTmuxSSHTransport.spawnControlMasterExit(host: host) }
     }
 
     /// The dictionary key for a control connection / session mirror, scoped to the
