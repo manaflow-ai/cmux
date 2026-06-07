@@ -709,10 +709,17 @@ jobs:
           # app-target dependency). Add a package here once its `swift test`
           # is confirmed to resolve standalone.
           PACKAGES=(
+            CMUXAgentVault
+            CMUXDebugLog
+            CMUXPasteboardFidelity
+            CMUXProjectModel
+            CMUXWorkstream
+            CmuxExtensionKit
             CmuxFoundation
             CmuxSettings
             CmuxSettingsUI
             CmuxSocketControl
+            CmuxTerminalCopyMode
           )
           for pkg in "${PACKAGES[@]}"; do
             echo "::group::swift test Packages/$pkg"

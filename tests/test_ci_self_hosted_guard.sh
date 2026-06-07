@@ -941,6 +941,38 @@ check_swift_package_tests_require_nonzero_execution() {
   echo "PASS: Swift package unit-test lanes reject zero-test package runs"
 }
 
+check_standalone_swift_package_tests_are_wired() {
+  local packages=(
+    CMUXAgentLaunch
+    CMUXAgentVault
+    CMUXAuthCore
+    CMUXDebugLog
+    CMUXPasteboardFidelity
+    CMUXProjectModel
+    CMUXWorkstream
+    CmuxAuthRuntime
+    CmuxControlSocket
+    CmuxExtensionKit
+    CmuxFileWatch
+    CmuxFoundation
+    CmuxGit
+    CmuxProcess
+    CmuxSettings
+    CmuxSettingsUI
+    CmuxSocketControl
+    CmuxTerminalCopyMode
+  )
+
+  for pkg in "${packages[@]}"; do
+    if ! grep -Eq "^[[:space:]]{12}${pkg}$" "$CI_FILE"; then
+      echo "FAIL: standalone Swift package tests for $pkg must be wired into the CI package-test lane"
+      exit 1
+    fi
+  done
+
+  echo "PASS: standalone Swift package test targets are wired into CI"
+}
+
 check_xcodebuild_unit_step_requires_nonzero_execution() {
   local file="$1" step="$2" message="$3"
   local require_class_sharding="${4:-0}"
@@ -1426,6 +1458,7 @@ check_terminal_corpus_requires_live_ghostty_surface
 check_web_db_behavior_test_coverage
 check_bundled_ghostty_helper_regression_coverage
 check_swift_package_tests_require_nonzero_execution
+check_standalone_swift_package_tests_are_wired
 check_cmux_unit_isolated_runner
 check_xcodebuild_unit_step_requires_nonzero_execution "$CI_FILE" "Run unit tests" "Unit test workflow completed without executing any tests" 1
 check_xcodebuild_unit_step_requires_nonzero_execution "$COMPAT_FILE" "Run unit tests" "Compatibility unit tests completed without executing any tests" 1
