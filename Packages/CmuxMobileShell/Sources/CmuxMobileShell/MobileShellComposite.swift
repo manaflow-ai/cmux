@@ -467,15 +467,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // by `refreshAllPairedMacWorkspaceLists`, and only kicked once per
         // sign-in transition so re-syncing an already-signed-in session is a no-op.
         guard !wasSignedIn else { return }
+        // Claim this sign-in's generation. `signOut` bumps it, so a bootstrap that
+        // started for a now-signed-out session bails before it can flip the
+        // initial-load gate (whose reset `signOut` performed). Without this the
+        // bootstrap's `loadPairedMacs` could take its `!isSignedIn` path and set
+        // `hasCompletedInitialPairedMacLoad = true` after sign-out, making the next
+        // sign-in evaluate `hasNoPairedMacs` before the new user's load resolves.
+        signInBootstrapGeneration &+= 1
+        let generation = signInBootstrapGeneration
         Task { @MainActor [weak self] in
             guard let self else { return }
+            guard generation == self.signInBootstrapGeneration, self.isSignedIn else { return }
             // loadPairedMacs first so `hasCompletedInitialPairedMacLoad` is set
             // even when no runtime/store is available to fan out the refresh,
             // letting the gate resolve empty-vs-loading on every path.
             await self.loadPairedMacs()
+            guard generation == self.signInBootstrapGeneration, self.isSignedIn else { return }
             await self.refreshAllPairedMacWorkspaceLists()
         }
     }
+
+    /// Monotonic generation for the ``signIn`` bootstrap task, bumped by
+    /// ``signOut`` so a bootstrap from a now-signed-out session cannot resolve the
+    /// initial-load gate for the next session.
+    private var signInBootstrapGeneration = 0
 
     public func signOut() {
         pairingAttemptID = UUID()
@@ -492,8 +507,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Drop the cached paired Macs so the next signed-in user never sees the
         // previous user's hosts in the switcher.
         pairedMacs = []
-        // Re-arm the empty-vs-loading gate so the next sign-in re-resolves it.
+        // Re-arm the empty-vs-loading gate so the next sign-in re-resolves it, and
+        // bump the sign-in bootstrap generation so an in-flight bootstrap from this
+        // session can't flip the gate back to resolved after this reset.
         hasCompletedInitialPairedMacLoad = false
+        signInBootstrapGeneration &+= 1
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the forget path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
