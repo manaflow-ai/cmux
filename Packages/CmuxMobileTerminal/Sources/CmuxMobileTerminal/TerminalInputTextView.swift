@@ -550,6 +550,12 @@ final class TerminalInputTextView: UITextView {
 
     private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
         if action == .composer {
+            // Opening the composer hides the accessory bar, so clear any armed
+            // modifier first (like Paste/Zoom do); otherwise a Ctrl/Alt/Cmd/Shift
+            // armed before opening would linger invisibly and modify the next key
+            // after the composer is dismissed.
+            disarmAllModifiers()
+            refreshAccessoryButtonStyles()
             onToggleComposer?()
             return
         }

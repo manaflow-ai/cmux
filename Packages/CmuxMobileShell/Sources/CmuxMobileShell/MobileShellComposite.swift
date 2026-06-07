@@ -136,6 +136,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// from the input accessory bar's composer button and observed by the
     /// terminal screen to present ``terminalInputText`` for multi-line editing.
     public var isComposerPresented: Bool = false
+    /// Guards ``submitComposerInput()`` against re-entrancy. A quick double tap
+    /// on Send would otherwise start two sends that both capture the same text
+    /// (the field is cleared only on ack), pasting the message to the agent
+    /// twice. Not observed: it gates an async flow, not view state.
+    @ObservationIgnored private var isSubmittingComposerInput = false
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
@@ -1217,6 +1222,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let text = terminalInputText
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         guard remoteClient != nil else { return }
+        // Reject a re-entrant send (e.g. a double tap on Send) so the same text
+        // is not pasted twice. The flag is set/cleared on the main actor around
+        // the await, so no second call can slip past it.
+        guard !isSubmittingComposerInput else { return }
+        isSubmittingComposerInput = true
+        defer { isSubmittingComposerInput = false }
         let sent = await sendRemoteTerminalPaste(text, submitKey: "return")
         // Only clear if the field still holds exactly what we sent, so a value
         // the user typed while the send was in flight is not discarded.
