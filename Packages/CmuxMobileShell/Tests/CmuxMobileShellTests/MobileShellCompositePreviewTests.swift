@@ -450,6 +450,10 @@ import Testing
         let didReconnect = await reconnect.value
 
         #expect(didReconnect == false)
+        let removedIDs = await pairedMacStore.removedMacDeviceIDs()
+        #expect(removedIDs == ["mac-stale"])
+        let remaining = try await pairedMacStore.loadAll(stackUserID: "user-1")
+        #expect(remaining.isEmpty)
         #expect(store.activePairedMac == nil)
         #expect(store.connectionState == .disconnected)
     }

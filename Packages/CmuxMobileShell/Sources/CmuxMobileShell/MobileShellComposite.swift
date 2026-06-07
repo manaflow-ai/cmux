@@ -188,6 +188,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resolve the restoring-gate flags, so a superseded older attempt can't clear
     /// the gate while a newer reconnect is still in progress.
     private var storedMacReconnectGeneration = 0
+    /// Reconnect generation whose resolved active Mac should be deleted from
+    /// persistence because the user hit Rescan while the store read was in flight.
+    private var activeMacForgetPendingReconnectGeneration: Int?
 
     /// Whether the active ticket still has a non-expired auth token.
     public var hasActiveUnexpiredAttachTicket: Bool {
@@ -871,6 +874,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         do {
             saved = try await pairedMacStore.activeMac(stackUserID: stackUserID)
         } catch {
+            if activeMacForgetPendingReconnectGeneration == generation {
+                activeMacForgetPendingReconnectGeneration = nil
+            }
             mobileShellLog.error("paired mac store activeMac failed: \(String(describing: error), privacy: .public)")
             // A read failure means "couldn't determine," not "no mac": keep the
             // hint so a transient SQLite error doesn't erase a returning user's
@@ -879,10 +885,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         guard let mac = saved else {
+            if activeMacForgetPendingReconnectGeneration == generation {
+                activeMacForgetPendingReconnectGeneration = nil
+            }
             // Definitively no active Mac: clear the hint so future launches show
             // the add-device sheet immediately with no restoring flash.
             setHasKnownPairedMac(false, generation: generation)
             finishStoredMacReconnectAttempt(generation: generation)
+            return false
+        }
+        if activeMacForgetPendingReconnectGeneration == generation {
+            activeMacForgetPendingReconnectGeneration = nil
+            do {
+                try await pairedMacStore.remove(macDeviceID: mac.macDeviceID)
+            } catch {
+                mobileShellLog.error("forgetActiveMac stale reconnect removal failed: \(String(describing: error), privacy: .private)")
+            }
             return false
         }
         guard isSignedIn, identityProvider?.currentUserID == stackUserID else {
@@ -1218,6 +1236,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let staleMacID = activePairedMac?.macDeviceID
             ?? pairedMacs.first(where: { $0.isActive })?.macDeviceID
             ?? pairedMacs.first(where: { $0.macDeviceID == ticketMacID })?.macDeviceID
+        let generationToForgetIfStoreReadIsInFlight = storedMacReconnectGeneration
         disconnectLiveConnection()
         // Forgetting the active Mac clears the restoring hint so the next launch
         // (and the current disconnected view) shows add-device immediately. Bump
@@ -1227,6 +1246,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hasKnownPairedMac = false
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
+        if staleMacID == nil,
+           pairedMacStore != nil,
+           generationToForgetIfStoreReadIsInFlight > 0 {
+            activeMacForgetPendingReconnectGeneration = generationToForgetIfStoreReadIsInFlight
+        }
         guard let pairedMacStore, let macID = staleMacID else { return nil }
         // Fire-and-forget: forgetting the persisted mac is cleanup that must
         // not block the synchronous disconnect UI state update above.
