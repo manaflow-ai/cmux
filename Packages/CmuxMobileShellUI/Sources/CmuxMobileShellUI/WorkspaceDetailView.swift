@@ -45,7 +45,12 @@ struct WorkspaceDetailView: View {
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
+                    // While the composer is open it owns the keyboard, so a
+                    // surface re-create from switching terminals must not let the
+                    // hidden terminal input proxy grab first responder back.
                     autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
+                        && !store.isComposerPresented,
+                    isComposerActive: store.isComposerPresented
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -80,6 +85,11 @@ struct WorkspaceDetailView: View {
                 .padding(.leading, 10)
         }
         #if os(iOS)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if store.isComposerPresented {
+                TerminalComposerView(store: store)
+            }
+        }
         .mobileTerminalSafeAreaExpansion(
             context: safeAreaContext,
             includesBottom: true
