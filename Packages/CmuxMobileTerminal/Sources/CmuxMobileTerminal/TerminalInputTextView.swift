@@ -175,9 +175,6 @@ final class TerminalInputTextView: UITextView {
     var toolbarView: UIView { terminalAccessoryToolbar }
 
     private weak var accessoryStackView: UIStackView?
-    // Strong reference — command button is not always in the stack's arrangedSubviews,
-    // so nothing else retains it.
-    private var commandAccessoryButton: UIButton?
     private var isMacRemote = false
 
     func updateAccessoryLayoutInsets() {
@@ -196,60 +193,66 @@ final class TerminalInputTextView: UITextView {
         }
     }
 
-    /// The structural buttons pinned to the front of the bar, ahead of the
-    /// user-configurable shortcuts. Command is created but kept out of the
-    /// stack until ``applyModifierPresentation()`` inserts it for a Mac remote.
-    private static let pinnedLeadingActions: [TerminalInputAccessoryAction] = [
-        .control, .alternate, .command, .paste,
-    ]
-
-    /// The structural buttons pinned to the end of the bar, after the
-    /// user-configurable shortcuts. The zoom controls live here so the
-    /// high-traffic shortcuts sit directly after the modifier keys.
-    private static let pinnedTrailingActions: [TerminalInputAccessoryAction] = [
-        .zoomOut, .zoomIn,
-    ]
-
-    /// Build (or rebuild) the bar's buttons: the pinned modifier controls, the
-    /// user-configurable shortcuts in their saved order, then the pinned zoom
-    /// controls. Safe to call repeatedly; it clears the stack first.
+    /// Build (or rebuild) the bar's buttons in the user's configured order
+    /// (modifiers, zoom, paste, shortcuts, and custom actions all reorderable
+    /// together), followed by the fixed trailing "customize" control. The ⌘ item
+    /// is rendered only when driving a Mac remote. Safe to call repeatedly; it
+    /// clears the stack first.
     private func populateAccessoryActions() {
         guard let stack = accessoryStackView else { return }
         for view in stack.arrangedSubviews {
             stack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        commandAccessoryButton?.removeFromSuperview()
-        commandAccessoryButton = nil
 
-        // Pinned leading modifier controls, in fixed order.
-        for action in Self.pinnedLeadingActions {
-            let button = makeAccessoryButton(for: action)
-            // Command is Mac-only; kept out of the stack and inserted by
-            // applyModifierPresentation() when driving a Mac remote.
-            if action == .command {
-                commandAccessoryButton = button
-            } else {
-                stack.addArrangedSubview(button)
-            }
-        }
-        // The user-configurable region: built-in shortcuts and custom actions in
-        // the user's saved order.
+        // The user-configurable region: built-in shortcuts/modifiers/zoom/paste
+        // and custom actions, all in the user's saved order.
         for item in TerminalAccessoryConfiguration.shared.enabledItems {
             switch item {
             case let .builtin(action):
+                // ⌘ only makes sense against a Mac remote; skip it otherwise
+                // (it stays in the saved order, just unrendered, so flipping the
+                // remote re-shows it in place).
+                if action == .command && !isMacRemote { continue }
                 stack.addArrangedSubview(makeAccessoryButton(for: action))
             case let .custom(custom):
                 stack.addArrangedSubview(makeCustomAccessoryButton(for: custom))
             }
         }
-        // Pinned trailing zoom controls, after the configurable shortcuts (the
-        // redesigned bar moved zoom here from the leading region).
-        for action in Self.pinnedTrailingActions {
-            stack.addArrangedSubview(makeAccessoryButton(for: action))
-        }
         // The "customize" button pinned at the very end of the bar.
         stack.addArrangedSubview(makeToolbarSettingsButton())
+
+        // A modifier the user just hid (or ⌘ on a non-Mac remote) is no longer
+        // rendered, so it would otherwise stay armed/sticky with no visible
+        // button to turn it off and silently modify every keystroke. Clear any
+        // armed modifier whose button is not on the bar.
+        reconcileArmedModifierVisibility()
+    }
+
+    /// Disarm the active modifier if its bar button is no longer rendered, so a
+    /// hidden (or non-Mac-remote ⌘) modifier can never stay invisibly armed.
+    private func reconcileArmedModifierVisibility() {
+        guard let armed = modifierState.armedModifier,
+              let action = Self.accessoryAction(for: armed) else { return }
+        let renderedActions = (accessoryStackView?.arrangedSubviews ?? []).compactMap { view -> TerminalInputAccessoryAction? in
+            guard let button = view as? AccessoryActionButton,
+                  case let .builtin(builtinAction) = button.item else { return nil }
+            return builtinAction
+        }
+        guard !renderedActions.contains(action) else { return }
+        modifierState.disarmAll()
+        refreshAccessoryButtonStyles()
+    }
+
+    /// Maps a modifier-state modifier to its accessory-bar action, so the
+    /// rebuild can check whether its button is currently on the bar.
+    private static func accessoryAction(for modifier: TerminalInputModifier) -> TerminalInputAccessoryAction? {
+        switch modifier {
+        case .control: return .control
+        case .alternate: return .alternate
+        case .command: return .command
+        case .shift: return .shift
+        }
     }
 
     @objc private func handleAccessoryConfigurationChanged() {
@@ -265,35 +268,18 @@ final class TerminalInputTextView: UITextView {
     func updateModifierLabels(isMacRemote: Bool) {
         guard self.isMacRemote != isMacRemote else { return }
         self.isMacRemote = isMacRemote
+        // The ⌘ item is rendered only for a Mac remote and modifier titles depend
+        // on `isMacRemote`, so a full repopulate (rather than an in-place relabel)
+        // keeps the bar correct now that ⌘ can sit anywhere in the user's order.
+        populateAccessoryActions()
         applyModifierPresentation()
     }
 
-    /// Retitle the modifier buttons for the current remote and insert/remove the
-    /// command button. Split out of ``updateModifierLabels(isMacRemote:)`` so a
-    /// configuration-driven rebuild can re-apply it without toggling the flag.
+    /// Retitle the modifier buttons for the current remote and re-apply each
+    /// button's armed/sticky style. Split out of ``updateModifierLabels(isMacRemote:)``
+    /// so a configuration-driven rebuild can re-apply it without toggling the flag.
     private func applyModifierPresentation() {
         guard let stack = accessoryStackView else { return }
-        // Insert/remove the command button first (it is not always in
-        // arrangedSubviews) so the restyle pass below covers it when present.
-        if let cmdButton = commandAccessoryButton {
-            if isMacRemote {
-                if cmdButton.superview == nil {
-                    // Insert after alternate (ctrl, alt, cmd order).
-                    var insertIndex = stack.arrangedSubviews.count
-                    for (idx, view) in stack.arrangedSubviews.enumerated() {
-                        if let button = view as? AccessoryActionButton,
-                           case .builtin(.alternate) = button.item {
-                            insertIndex = idx + 1
-                            break
-                        }
-                    }
-                    stack.insertArrangedSubview(cmdButton, at: insertIndex)
-                }
-            } else if cmdButton.superview != nil {
-                stack.removeArrangedSubview(cmdButton)
-                cmdButton.removeFromSuperview()
-            }
-        }
         // Restyle every visible button for the current remote (built-in titles
         // depend on `isMacRemote`) and its armed/sticky state. Custom actions
         // never arm.
