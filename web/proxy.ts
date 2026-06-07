@@ -63,5 +63,5 @@ export default function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next|_vercel|agent-page-variant|handler).*)"],
+  matcher: ["/((?!api|_next|_vercel|agent-page-variant|handler|typefully).*)"],
 };
