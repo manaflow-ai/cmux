@@ -56,6 +56,7 @@ public struct AppSection: View {
     @State private var hideCloseButton: DefaultsValueModel<Bool>
     @State private var renameSelects: DefaultsValueModel<Bool>
     @State private var paletteAllSurfaces: DefaultsValueModel<Bool>
+    @State private var showWorkspaceStatusBar: DefaultsValueModel<Bool>
 
     @State private var languageAtAppear: AppLanguage?
     @State private var telemetryAtAppear: Bool?
@@ -100,6 +101,7 @@ public struct AppSection: View {
         _hideCloseButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.hideTabCloseButton))
         _renameSelects = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.renameSelectsExistingName))
         _paletteAllSurfaces = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.commandPaletteSearchesAllSurfaces))
+        _showWorkspaceStatusBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.showWorkspaceStatusBar))
     }
 
     private static let columnWidth: CGFloat = 196
@@ -214,6 +216,22 @@ public struct AppSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsMinimalModeToggle")
+            }
+            SettingsCardDivider()
+
+            // Workspace Status Bar — the global bottom bar. A separate per-pane
+            // status bar (for worktrees) is configured elsewhere.
+            SettingsCardRow(
+                configurationReview: .json("app.showWorkspaceStatusBar"),
+                String(localized: "settings.app.showWorkspaceStatusBar", defaultValue: "Show Workspace Status Bar"),
+                subtitle: showWorkspaceStatusBar.current
+                    ? String(localized: "settings.app.showWorkspaceStatusBar.subtitleOn", defaultValue: "Show a bottom bar with the focused pane's Git branch, working directory, and workspace name.")
+                    : String(localized: "settings.app.showWorkspaceStatusBar.subtitleOff", defaultValue: "Hide the bottom workspace status bar.")
+            ) {
+                Toggle("", isOn: Binding(get: { showWorkspaceStatusBar.current }, set: { showWorkspaceStatusBar.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsShowWorkspaceStatusBarToggle")
             }
             SettingsCardDivider()
 
