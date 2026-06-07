@@ -37,6 +37,9 @@ jobs:
       - name: Validate setup-bun version pinning
         run: ./tests/test_ci_setup_bun_pinned.sh
 
+      - name: Validate tagged reload port isolation
+        run: ./tests/test_reload_tagged_port.sh
+
       - name: Validate Ghostty helper zig environment
         run: ./tests/test_build_ghostty_cli_helper_env.sh
 
