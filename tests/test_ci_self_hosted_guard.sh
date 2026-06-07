@@ -391,7 +391,7 @@ check_no_xctest_quarantines() {
 }
 
 check_no_debug_xctest_self_skips() {
-  if grep -R -n -E 'throw[[:space:]]+XCTSkip\("([^"]*(DEBUG|Debug-only|debug-only)[^"]*)"\)' "$ROOT_DIR/cmuxTests"; then
+  if grep -R -n -E 'XCTSkip\("([^"]*(DEBUG|Debug|debug)[^"]*)"\)' "$ROOT_DIR/cmuxTests"; then
     echo "FAIL: DEBUG-only XCTest regressions must fail closed, not silently skip"
     exit 1
   fi
