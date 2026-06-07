@@ -22,6 +22,7 @@ TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
 TERMINAL_CORPUS_NIGHTLY_FILE="$ROOT_DIR/.github/workflows/terminal-corpus-nightly.yml"
 CA_REGRESSION_SCRIPT="$ROOT_DIR/scripts/verify-main-thread-ca-transactions.sh"
 CMUX_UNIT_ISOLATED_RUNNER="$ROOT_DIR/scripts/ci/run-cmux-unit-tests-isolated.sh"
+E2E_FILTER_VALIDATOR="$ROOT_DIR/scripts/ci/validate-e2e-test-filter.sh"
 
 check_macos_runner() {
   local file="$1" job="$2"
@@ -160,6 +161,72 @@ check_e2e_ui_tests_skip_zig_helper_build() {
   fi
 
   echo "PASS: test-e2e.yml skips the Ghostty helper Zig build during UI-test app builds"
+}
+
+check_e2e_test_filter_validation() {
+  if [ ! -x "$E2E_FILTER_VALIDATOR" ]; then
+    echo "FAIL: validate-e2e-test-filter.sh must be executable"
+    exit 1
+  fi
+
+  if [ "$("$E2E_FILTER_VALIDATOR" UpdatePillUITests)" != "UpdatePillUITests" ]; then
+    echo "FAIL: E2E filter validator must accept macOS UI test classes"
+    exit 1
+  fi
+
+  if [ "$("$E2E_FILTER_VALIDATOR" cmuxUITests/UpdatePillUITests/testUpdatePillShowsForAvailableUpdate)" != "UpdatePillUITests/testUpdatePillShowsForAvailableUpdate" ]; then
+    echo "FAIL: E2E filter validator must normalize explicit macOS target prefixes"
+    exit 1
+  fi
+
+  local err
+  err="$(mktemp)"
+  if "$E2E_FILTER_VALIDATOR" cmuxUITests/testWorkspaceToolbarCreatesWorkspaceAndTerminal > /dev/null 2>"$err"; then
+    echo "FAIL: E2E filter validator must reject iOS-only UI test filters before xcodebuild"
+    rm -f "$err"
+    exit 1
+  fi
+  if ! grep -Fq ".github/workflows/test-ios.yml" "$err"; then
+    echo "FAIL: E2E filter validator must point iOS UI test filters to test-ios.yml"
+    cat "$err"
+    rm -f "$err"
+    exit 1
+  fi
+  rm -f "$err"
+
+  err="$(mktemp)"
+  if "$E2E_FILTER_VALIDATOR" UpdatePillUITests/testDoesNotExist > /dev/null 2>"$err"; then
+    echo "FAIL: E2E filter validator must reject missing macOS UI test methods"
+    rm -f "$err"
+    exit 1
+  fi
+  if ! grep -Fq "available test methods:" "$err"; then
+    echo "FAIL: E2E filter validator must list available methods for a missing method"
+    cat "$err"
+    rm -f "$err"
+    exit 1
+  fi
+  rm -f "$err"
+
+  if ! awk '
+    /^[[:space:]]*- name: Validate test filter$/ { saw_validate=1; in_validate=1; next }
+    in_validate && /^[[:space:]]*- name:/ { in_validate=0 }
+    in_validate && /validate-e2e-test-filter\.sh "\$TEST_FILTER"/ { saw_validator=1 }
+    in_validate && /echo "TEST_FILTER=\$normalized" >> "\$GITHUB_ENV"/ { saw_env=1 }
+    /^[[:space:]]*- name: Initialize submodules with retry$/ { saw_init=1; if (saw_validate) validate_before_init=1 }
+    /^[[:space:]]*- name: Select Xcode$/ { saw_select_xcode=1; if (saw_validate) validate_before_xcode=1 }
+    END { exit(saw_validate && saw_validator && saw_env && saw_init && saw_select_xcode && validate_before_xcode && !validate_before_init ? 0 : 1) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must validate manual test filters after checkout/submodules and before expensive Xcode setup"
+    exit 1
+  fi
+
+  if ! grep -Fq 'validate-e2e-test-filter.sh" "$TEST_FILTER"' "$ROOT_DIR/scripts/run-e2e.sh"; then
+    echo "FAIL: run-e2e.sh must validate test filters before dispatch"
+    exit 1
+  fi
+
+  echo "PASS: test-e2e.yml validates manual UI test filters before expensive setup"
 }
 
 check_virtual_display_step_waits_for_readiness() {
@@ -934,6 +1001,7 @@ check_self_hosted_workspace_prep "$COMPAT_FILE" "compat-tests"
 check_e2e_runner_fallbacks
 check_e2e_recording_preflight
 check_e2e_ui_tests_skip_zig_helper_build
+check_e2e_test_filter_validation
 check_e2e_ui_tests_require_nonzero_execution
 check_self_hosted_workspace_prep "$E2E_FILE" "e2e"
 

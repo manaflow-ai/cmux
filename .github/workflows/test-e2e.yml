@@ -88,6 +88,17 @@ jobs:
         id: sha
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Validate test filter
+        env:
+          TEST_FILTER: ${{ inputs.test_filter }}
+        run: |
+          set -euo pipefail
+          normalized="$(./scripts/ci/validate-e2e-test-filter.sh "$TEST_FILTER")"
+          echo "TEST_FILTER=$normalized" >> "$GITHUB_ENV"
+          if [ "$normalized" != "$TEST_FILTER" ]; then
+            echo "Normalized test filter: $normalized"
+          fi
+
       - name: Select Xcode
         run: |
           set -euo pipefail
@@ -268,7 +279,6 @@ jobs:
       - name: Run UI tests
         id: tests
         env:
-          TEST_FILTER: ${{ inputs.test_filter }}
           TEST_TIMEOUT: ${{ inputs.test_timeout || '120' }}
           RECORD_VIDEO: ${{ inputs.record_video }}
         run: |
