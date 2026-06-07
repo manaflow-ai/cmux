@@ -75,6 +75,21 @@ actor TextBoxMentionIndexStore {
         }
     }
 
+    #if DEBUG
+    func waitForFileIndexRefreshesForTesting(rootDirectory: String?) async {
+        guard let normalizedRootDirectory = Self.normalizedDirectory(rootDirectory) else { return }
+        while let refreshTask = fileIndexRefreshTasks[normalizedRootDirectory] {
+            let index = await refreshTask.task.value
+            storeFileIndex(
+                rootDirectory: normalizedRootDirectory,
+                index: index,
+                refreshStartedAt: refreshTask.startedAt,
+                refreshTaskID: refreshTask.id
+            )
+        }
+    }
+    #endif
+
     private func fileSuggestions(
         for query: TextBoxMentionQuery,
         rootDirectory: String

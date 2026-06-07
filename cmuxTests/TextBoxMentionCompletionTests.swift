@@ -769,22 +769,16 @@ struct TextBoxMentionCompletionTests {
         )
         #expect(immediateMissSuggestions.isEmpty)
 
-        var refreshedSuggestions: [TextBoxMentionSuggestion] = []
-        for _ in 0..<100 {
-            refreshedSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
-                for: TextBoxMentionQuery(
-                    kind: .file,
-                    range: NSRange(location: 0, length: 8),
-                    query: "new-file",
-                    trigger: "@"
-                ),
-                rootDirectory: root.path
-            )
-            if refreshedSuggestions.first?.title == "@new-file.txt" {
-                break
-            }
-            await Task.yield()
-        }
+        await TextBoxMentionIndexStore.shared.waitForFileIndexRefreshesForTesting(rootDirectory: root.path)
+        let refreshedSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 8),
+                query: "new-file",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
         #expect(refreshedSuggestions.first?.title == "@new-file.txt")
     }
 
