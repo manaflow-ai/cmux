@@ -7260,17 +7260,6 @@ struct ContentView: View {
 
         contributions.append(
             CommandPaletteCommandContribution(
-                commandId: "palette.attachRemoteTmux",
-                title: constant(String(localized: "command.attachRemoteTmux.title", defaultValue: "Attach Remote tmux…")),
-                subtitle: constant(String(localized: "command.attachRemoteTmux.subtitle", defaultValue: "Open a new window mirroring a remote server's tmux sessions")),
-                keywords: ["remote", "tmux", "ssh", "attach", "mirror", "session"],
-                dismissOnRun: true,
-                when: { _ in RemoteTmuxController.isEnabled }
-            )
-        )
-
-        contributions.append(
-            CommandPaletteCommandContribution(
                 commandId: "palette.renameTab",
                 title: constant(String(localized: "command.renameTab.title", defaultValue: "Rename Tab…")),
                 subtitle: panelSubtitle,
@@ -8238,11 +8227,6 @@ struct ContentView: View {
         }
         registerIdentifierCopyCommandHandlers(&registry)
 
-        registry.register(commandId: "palette.attachRemoteTmux") {
-            AppDelegate.shared?.promptAttachRemoteTmuxHost(
-                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-            )
-        }
         registry.register(commandId: "palette.renameTab") {
             beginRenameTabFlow()
         }

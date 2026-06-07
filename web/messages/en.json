@@ -653,7 +653,7 @@
       "enableTitle": "Enable it",
       "enableDesc": "Open Settings → Beta Features and turn on Remote tmux. The toggle is off by default, so nothing changes for local terminals until you opt in.",
       "attachTitle": "Attaching",
-      "attachIntro": "Run File → Attach Remote tmux… (also in the command palette) and enter an SSH destination — a ~/.ssh/config alias or user@host. cmux opens a new window that mirrors that host's tmux sessions: each session becomes a workspace, each window a tab, and multi-pane windows become in-tab splits.",
+      "attachIntro": "Run cmux ssh-tmux <destination> in a terminal — an ~/.ssh/config alias or user@host. cmux opens a new window that mirrors that host's tmux sessions: each session becomes a workspace, each window a tab, and multi-pane windows become in-tab splits.",
       "attachSockets": "The remote.tmux.* socket commands (below) give finer control — for example, remote.tmux.open mirrors just one session's active pane into the current workspace instead of the whole host.",
       "attachCli": "Hosts that authenticate non-interactively (ssh-agent, or a key in ~/.ssh/config) attach with no prompt. If the host needs interactive authentication (a password, host-key confirmation, or MFA), cmux runs ssh inline in your terminal so you can authenticate, then opens the mirror window. Accepts --port and --identity.",
       "howTitle": "How it works",
