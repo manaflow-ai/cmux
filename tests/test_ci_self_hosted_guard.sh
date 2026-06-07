@@ -519,6 +519,68 @@ check_cli_socket_namespace_fails_closed_on_ci() {
   echo "PASS: CLI socket namespace regressions fail closed on hosted CI"
 }
 
+check_cmux_top_process_fixture_fails_closed_on_ci() {
+  local file="$ROOT_DIR/cmuxTests/CmuxTopSnapshotScopeTests.swift"
+  if ! grep -Fq 'hostedProcessFixtureErrorOrSkip' "$file"; then
+    echo "FAIL: cmux top process fixture regressions must have a shared hosted-CI fail-closed helper"
+    exit 1
+  fi
+  if ! grep -Fq 'environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true"' "$file"; then
+    echo "FAIL: cmux top process fixture regressions must explicitly distinguish hosted CI from local fixture skips"
+    exit 1
+  fi
+  if ! grep -Fq 'XCTFail(message, file: file, line: line)' "$file"; then
+    echo "FAIL: cmux top process fixture regressions must fail on hosted CI when process fixtures are unavailable"
+    exit 1
+  fi
+  if ! grep -Fq 'return XCTSkip(message)' "$file"; then
+    echo "FAIL: cmux top process fixture regressions should keep the local fixture skip for developer machines"
+    exit 1
+  fi
+
+  echo "PASS: cmux top process fixture regressions fail closed on hosted CI"
+}
+
+check_file_explorer_search_fails_closed_on_ci() {
+  local file="$ROOT_DIR/cmuxTests/FileExplorerStoreTests.swift"
+  if ! grep -Fq "hosted CI must exercise FileExplorer search behavior" "$file"; then
+    echo "FAIL: FileExplorer search regressions must fail closed on hosted CI when ripgrep is unavailable"
+    exit 1
+  fi
+  if ! grep -Fq 'environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true"' "$file"; then
+    echo "FAIL: FileExplorer search regressions must explicitly distinguish hosted CI from local tool skips"
+    exit 1
+  fi
+  if ! grep -Fq 'throw XCTSkip(message)' "$file"; then
+    echo "FAIL: FileExplorer search regressions should keep the local ripgrep skip for developer machines"
+    exit 1
+  fi
+
+  echo "PASS: FileExplorer search regressions fail closed on hosted CI"
+}
+
+check_cli_notify_bundled_cli_fails_closed_on_ci() {
+  local file="$ROOT_DIR/cmuxTests/CLINotifyProcessTestSupport.swift"
+  if ! grep -Fq "Bundled cmux CLI not found" "$file"; then
+    echo "FAIL: CLI notify regressions must report missing bundled CLI fixtures"
+    exit 1
+  fi
+  if ! grep -Fq 'environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true"' "$file"; then
+    echo "FAIL: CLI notify regressions must explicitly distinguish hosted CI from local bundled CLI skips"
+    exit 1
+  fi
+  if ! grep -Fq 'XCTFail(message, file: file, line: line)' "$file"; then
+    echo "FAIL: CLI notify regressions must fail on hosted CI when the bundled CLI fixture is missing"
+    exit 1
+  fi
+  if ! grep -Fq 'return XCTSkip(message)' "$file"; then
+    echo "FAIL: CLI notify regressions should keep the local bundled CLI skip for developer machines"
+    exit 1
+  fi
+
+  echo "PASS: CLI notify bundled CLI regressions fail closed on hosted CI"
+}
+
 check_no_swift_test_skip_quarantines() {
   if grep -R -n -E "swift[[:space:]]+test([^|;&]*[[:space:]])--skip([[:space:]]|=)" "$ROOT_DIR/.github/workflows"; then
     echo "FAIL: workflow Swift package tests must not hide coverage with swift test --skip quarantines"
@@ -1215,6 +1277,9 @@ check_ssh_fish_shell_socket_fixture_fails_closed
 check_settings_frame_clamping_fails_closed_on_ci
 check_browser_audio_mute_fails_closed_on_ci
 check_cli_socket_namespace_fails_closed_on_ci
+check_cmux_top_process_fixture_fails_closed_on_ci
+check_file_explorer_search_fails_closed_on_ci
+check_cli_notify_bundled_cli_fails_closed_on_ci
 check_no_swift_test_skip_quarantines
 check_vm_socket_tests_do_not_skip_ctrl_interactive
 check_vm_socket_tests_do_not_self_skip
