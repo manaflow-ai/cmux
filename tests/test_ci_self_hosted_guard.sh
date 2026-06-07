@@ -298,6 +298,15 @@ check_no_xctest_quarantines() {
   echo "PASS: workflows do not hide XCTest coverage with -skip-testing"
 }
 
+check_no_swift_test_skip_quarantines() {
+  if grep -R -n -E "swift[[:space:]]+test([^|;&]*[[:space:]])--skip([[:space:]]|=)" "$ROOT_DIR/.github/workflows"; then
+    echo "FAIL: workflow Swift package tests must not hide coverage with swift test --skip quarantines"
+    exit 1
+  fi
+
+  echo "PASS: workflows do not hide Swift package coverage with swift test --skip"
+}
+
 check_vm_socket_tests_do_not_skip_ctrl_interactive() {
   for script in "$ROOT_DIR/scripts/run-tests-v1.sh" "$ROOT_DIR/scripts/run-tests-v2.sh"; do
     if grep -n "test_ctrl_interactive.py" "$script" | grep -Eq "SKIP|continue"; then
@@ -903,6 +912,7 @@ check_xcode_selection
 check_workflow_yaml_parse
 check_release_build_signal
 check_no_xctest_quarantines
+check_no_swift_test_skip_quarantines
 check_vm_socket_tests_do_not_skip_ctrl_interactive
 check_vm_socket_tests_do_not_self_skip
 check_tmux_corpus_pr_jobs_do_not_report_skipped_terminal_tests
