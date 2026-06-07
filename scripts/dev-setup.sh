@@ -30,7 +30,11 @@
 # Flags:
 #   --tag <t>           required; tags the macOS + iOS dev builds.
 #   --surface <s>       mac | ios | both   (default both)
-#   --profile <name>    reserved for P3 (env presets); currently a no-op + warn.
+#   --profile <name>    apply an environment preset after the app is up. Replays
+#                       scripts/dev-profiles/<name>.json against the tagged debug
+#                       socket (composer, notif, browser, groups, multi-mac, ...).
+#                       Accepts a comma-list to compose (e.g. composer,browser).
+#                       Run `scripts/dev-profiles/replay-cli.mjs --list` for names.
 #   --no-pair           skip enabling the host + minting + auto-pair.
 #   --simulator <name>  iOS simulator name (default "iPhone 17").
 #   --device            target a connected iPhone instead of the simulator.
@@ -74,10 +78,6 @@ case "$SURFACE" in
   *) echo "error: --surface must be mac|ios|both (got '$SURFACE')" >&2; exit 2 ;;
 esac
 
-if [[ -n "$PROFILE" ]]; then
-  echo "warning: --profile '$PROFILE' is reserved for P3 (env presets) and is currently a no-op." >&2
-fi
-
 if [[ "$AGENT" -eq 1 && ( "$SURFACE" == "mac" || "$SURFACE" == "both" ) ]]; then
   echo "warning: --agent only changes the iOS sign-in account. The macOS app picks its" >&2
   echo "         account from ~/.secrets via DebugDogfoodCredentialResolver (dogfood-first)," >&2
@@ -86,6 +86,20 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROFILE_REPLAY="$SCRIPT_DIR/dev-profiles/replay-cli.mjs"
+
+# --- profiles: validate up front (P3) ---------------------------------------
+# Fail fast on an unknown profile name BEFORE any heavy build/launch work, so a
+# typo doesn't cost a full build. --dry-run validates parse + resolution without
+# touching a socket; it lists the available profiles on an unknown name.
+if [[ -n "$PROFILE" ]]; then
+  if ! node "$PROFILE_REPLAY" --dry-run --profile "$PROFILE" >/dev/null; then
+    echo "error: invalid --profile '$PROFILE'." >&2
+    echo "available profiles:" >&2
+    node "$PROFILE_REPLAY" --list | sed 's/^/  /' >&2
+    exit 2
+  fi
+fi
 
 # --- credentials: validate only, do NOT export into this process -------------
 # The macOS app reads dogfood creds from disk (DebugDogfoodCredentialResolver),
@@ -214,6 +228,34 @@ build_and_launch_ios() {
   CMUX_DOGFOOD_ATTACH_URL="$attach_url" "$REPO_ROOT/scripts/mobile-dev-launch.sh" "${launch_args[@]}"
 }
 
+# --- apply environment profile(s) (P3) --------------------------------------
+# Profiles provision a realistic test environment against the TAGGED Mac socket
+# via scripts/cmux-debug-cli.sh. The replay engine spawns the debug CLI, which
+# refuses without CMUX_TAG and never touches the stable app.
+#
+# This must run BEFORE build_and_launch_ios: the simulator launch path
+# (mobile-dev-launch.sh -> `simctl launch --console-pty`) attaches to the app
+# console and blocks until the app exits, so anything after it would never run.
+# Profiles only need the Mac socket anyway, and seeding before the phone attaches
+# means the phone sees the seeded workspaces/groups immediately. For --surface
+# ios the tagged Mac app must already be running.
+apply_profile() {
+  echo "==> applying profile(s) '$PROFILE' against $SOCKET_PATH"
+  # The Mac app needs its socket bound before the debug CLI can connect. Poll
+  # the socket file (the real readiness signal), bounded so a never-launching
+  # app fails clearly instead of hanging.
+  local _attempt
+  for _attempt in $(seq 1 40); do
+    [[ -S "$SOCKET_PATH" ]] && break
+    sleep 0.25
+  done
+  if [[ ! -S "$SOCKET_PATH" ]]; then
+    echo "error: tagged socket $SOCKET_PATH never appeared; is the Mac dev app for tag '$TAG' running?" >&2
+    exit 1
+  fi
+  node "$PROFILE_REPLAY" --tag "$TAG" --profile "$PROFILE" --cwd "$REPO_ROOT"
+}
+
 # --- orchestrate ------------------------------------------------------------
 ATTACH_URL=""
 
@@ -237,6 +279,13 @@ if [[ "$NO_PAIR" -eq 0 && ( "$SURFACE" == "ios" || "$SURFACE" == "both" ) ]]; th
     ATTACH_URL=""
     echo "warning: could not mint an attach URL (is the Mac dev app running with the pairing host enabled, and the Local Network prompt allowed?). iOS will launch signed-in only." >&2
   fi
+fi
+
+# Apply environment profile(s) BEFORE the (blocking) iOS launch. Profiles target
+# the Mac socket, so they only need the Mac app up; seeding here means the phone
+# sees the seeded state the moment it attaches.
+if [[ -n "$PROFILE" ]]; then
+  apply_profile
 fi
 
 if [[ "$SURFACE" == "ios" || "$SURFACE" == "both" ]]; then
