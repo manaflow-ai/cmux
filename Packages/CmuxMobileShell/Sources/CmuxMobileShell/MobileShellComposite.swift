@@ -211,6 +211,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var pairingAttemptStartedAt: Date?
     /// The method (`qr`/`manual`/`attach_url`) of the in-flight pairing attempt.
     private var pairingAttemptMethod: String?
+    /// Whether this install had no known paired Mac at the *start* of the in-flight
+    /// attempt. Snapshotted in ``beginPairingAttempt(method:)`` and reused for the
+    /// started/succeeded/failed events, because a successful `connect(ticket:)`
+    /// sets ``hasKnownPairedMac`` to `true` before `succeeded` is recorded — so
+    /// reading it again would report the first successful pair as `is_first_pair:
+    /// false` and break the first-pair funnel.
+    private var pairingAttemptIsFirstPair = false
     private var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -1716,9 +1723,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let method {
             pairingAttemptStartedAt = runtime?.now() ?? Date()
             pairingAttemptMethod = method
+            // Snapshot at attempt start: a successful connect mutates
+            // `hasKnownPairedMac` before `succeeded` is recorded.
+            pairingAttemptIsFirstPair = !hasKnownPairedMac
             analytics.capture("ios_pairing_started", [
                 "method": .string(method),
-                "is_first_pair": .bool(!hasKnownPairedMac),
+                "is_first_pair": .bool(pairingAttemptIsFirstPair),
                 "attempt_id": .string(attemptID.uuidString),
             ])
         } else {
@@ -1734,7 +1744,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let method = pairingAttemptMethod else { return }
         var props: [String: AnalyticsValue] = [
             "method": .string(method),
-            "is_first_pair": .bool(!hasKnownPairedMac),
+            "is_first_pair": .bool(pairingAttemptIsFirstPair),
             "attempt_id": .string(pairingAttemptID.uuidString),
         ]
         if let startedAt = pairingAttemptStartedAt {
@@ -1757,7 +1767,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "method": .string(method),
             "reason": .string(reason),
             "failure_phase": .string(phase),
-            "is_first_pair": .bool(!hasKnownPairedMac),
+            "is_first_pair": .bool(pairingAttemptIsFirstPair),
             "attempt_id": .string(pairingAttemptID.uuidString),
         ]
         if let startedAt = pairingAttemptStartedAt {
