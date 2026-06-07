@@ -172,23 +172,46 @@ jobs:
     defaults:
       run:
         working-directory: web
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: cmux_test
-          POSTGRES_PASSWORD: cmux
-          POSTGRES_USER: cmux
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U cmux -d cmux_test"
-          --health-interval 1s
-          --health-timeout 5s
-          --health-retries 30
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Start Postgres
+        run: |
+          set -euo pipefail
+          container="cmux-postgres-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
+          echo "CMUX_CI_POSTGRES_CONTAINER=$container" >> "$GITHUB_ENV"
+          for attempt in 1 2 3; do
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            if docker run -d \
+              --name "$container" \
+              -e POSTGRES_DB=cmux_test \
+              -e POSTGRES_PASSWORD=cmux \
+              -e POSTGRES_USER=cmux \
+              -p 127.0.0.1:5432:5432 \
+              postgres:16-alpine; then
+              for _ in $(seq 1 60); do
+                if docker exec "$container" pg_isready -U cmux -d cmux_test >/dev/null 2>&1; then
+                  echo "Postgres is ready"
+                  exit 0
+                fi
+                if ! docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null | grep -q true; then
+                  echo "Postgres container exited before readiness"
+                  docker logs "$container" || true
+                  break
+                fi
+                sleep 1
+              done
+              echo "Postgres did not become ready on attempt $attempt"
+              docker logs "$container" || true
+            else
+              echo "Postgres docker run failed on attempt $attempt"
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
 
       - name: Setup Bun
         run: ../scripts/ci/setup-bun-with-retry.sh 1.3.13
@@ -214,6 +237,14 @@ jobs:
           DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: bun run test:db:behavior
+
+      - name: Stop Postgres
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${CMUX_CI_POSTGRES_CONTAINER:-}" ]; then
+            docker rm -f "$CMUX_CI_POSTGRES_CONTAINER" >/dev/null 2>&1 || true
+          fi
 
   unit-tests:
     strategy:

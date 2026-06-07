@@ -535,17 +535,28 @@ check_web_db_behavior_test_coverage() {
     /^  web-db-migrations:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && /services:/ { saw_services=1 }
-    in_job && /postgres:/ { saw_postgres=1 }
-    in_job && /POSTGRES_DB: cmux_test/ { saw_db=1 }
+    in_job && /^[[:space:]]*- name: Start Postgres$/ { in_start=1; saw_start=1; next }
+    in_start && /^[[:space:]]*- name:/ { in_start=0 }
+    in_start && /docker run -d/ { saw_docker_run=1 }
+    in_start && /POSTGRES_DB=cmux_test/ { saw_db=1 }
+    in_start && /-p 127\.0\.0\.1:5432:5432/ { saw_local_port=1 }
+    in_start && /postgres:16-alpine/ { saw_image=1 }
+    in_start && /for attempt in 1 2 3/ { saw_retry=1 }
+    in_start && /pg_isready -U cmux -d cmux_test/ { saw_ready=1 }
+    in_start && /docker logs "\$container"/ { saw_logs=1 }
     in_job && /^[[:space:]]*- name: Database behavior tests$/ { in_step=1; next }
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
     in_step && /CMUX_DB_TEST: "1"/ { saw_cmux_db_test=1 }
     in_step && /DATABASE_URL: postgres:\/\/cmux:cmux@localhost:5432\/cmux_test/ { saw_database_url=1 }
     in_step && /DIRECT_DATABASE_URL: postgres:\/\/cmux:cmux@localhost:5432\/cmux_test/ { saw_direct_database_url=1 }
     in_step && /run: bun run test:db:behavior/ { saw_command=1 }
-    END { exit(saw_services && saw_postgres && saw_db && saw_cmux_db_test && saw_database_url && saw_direct_database_url && saw_command ? 0 : 1) }
+    in_job && /^[[:space:]]*- name: Stop Postgres$/ { in_stop=1; saw_stop=1; next }
+    in_stop && /^[[:space:]]*- name:/ { in_stop=0 }
+    in_stop && /if: always\(\)/ { saw_always=1 }
+    in_stop && /docker rm -f "\$CMUX_CI_POSTGRES_CONTAINER"/ { saw_cleanup=1 }
+    END { exit(!saw_services && saw_start && saw_docker_run && saw_db && saw_local_port && saw_image && saw_retry && saw_ready && saw_logs && saw_cmux_db_test && saw_database_url && saw_direct_database_url && saw_command && saw_stop && saw_always && saw_cleanup ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: web-db-migrations must run CMUX_DB_TEST-gated web behavior tests against the CI Postgres database"
+    echo "FAIL: web-db-migrations must start Postgres with retryable Docker setup, run CMUX_DB_TEST-gated web behavior tests, and clean up the container"
     exit 1
   fi
 
