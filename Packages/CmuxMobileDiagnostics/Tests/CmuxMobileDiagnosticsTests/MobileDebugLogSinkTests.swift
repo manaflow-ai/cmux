@@ -46,6 +46,63 @@ import Testing
         #expect(result.body.isEmpty)
     }
 
+    @Test func facadeClearWaitsForEarlierAppends() async {
+        let sink = MobileDebugLogSink()
+        let log = MobileDebugLog(sink: sink)
+
+        log.append("old session")
+        let clearTask = log.clear()
+        await clearTask.value
+
+        let result = await sink.snapshotWithCount()
+        #expect(result.count == 0)
+        #expect(!result.body.contains("old session"))
+    }
+
+    @Test func facadeClearCompletesAfterAppendFlood() async {
+        let sink = MobileDebugLogSink(capacity: 100)
+        let log = MobileDebugLog(sink: sink, pendingOperationLimit: 2)
+
+        for i in 0..<100 {
+            log.append("flood \(i)")
+        }
+        let clearTask = log.clear()
+        await clearTask.value
+
+        let result = await sink.snapshotWithCount()
+        #expect(result.count == 0)
+    }
+
+    @Test func facadeClearIsNotDroppedByLaterAppendFlood() async {
+        let sink = MobileDebugLogSink(capacity: 100)
+        let log = MobileDebugLog(sink: sink, pendingOperationLimit: 1)
+
+        log.append("old session")
+        let clearTask = log.clear()
+        for i in 0..<100 {
+            log.append("new session \(i)")
+        }
+        await clearTask.value
+
+        let result = await sink.snapshotWithCount()
+        #expect(!result.body.contains("old session"))
+    }
+
+    @Test func clearBarrierUsesFacadeIssueOrder() async {
+        let sink = MobileDebugLogSink()
+        let oldIssuedAt = ContinuousClock.now
+        let clearIssuedAt = oldIssuedAt + .nanoseconds(1)
+        let newIssuedAt = clearIssuedAt + .nanoseconds(1)
+
+        await sink.append("new session", issuedAt: newIssuedAt)
+        await sink.clear(issuedAt: clearIssuedAt)
+        await sink.append("old session", issuedAt: oldIssuedAt)
+
+        let result = await sink.snapshotWithCount()
+        #expect(result.body.contains("new session"))
+        #expect(!result.body.contains("old session"))
+    }
+
     @Test func timestampUsesInjectedClock() async {
         // A monotonic stepping clock: each read advances 1.5s from a fixed base.
         // The first read seeds `startedAt`; the second is the append time, so the

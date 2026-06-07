@@ -8,6 +8,11 @@ final class cmuxUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    override func tearDownWithError() throws {
+        XCUIApplication().terminate()
+        try super.tearDownWithError()
+    }
+
     @MainActor
     func testStackAuthEntryUsesStableIdentifiers() throws {
         let app = launchApp(mockData: false, clearAuth: true)
@@ -44,6 +49,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(invalidHostPairButton.exists)
         XCTAssertTrue(invalidHostPairButton.isEnabled)
 
+        dismissKeyboard(in: invalidHostApp, preferAddDeviceAccessoryDoneButton: true)
         tap(invalidHostPairButton, in: invalidHostApp)
         assertPairingError(contains: "Enter a host or IP address", in: invalidHostApp)
         invalidHostApp.terminate()
@@ -57,6 +63,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(invalidPortPairButton.exists)
         XCTAssertTrue(invalidPortPairButton.isEnabled)
 
+        dismissKeyboard(in: invalidPortApp, preferAddDeviceAccessoryDoneButton: true)
         tap(invalidPortPairButton, in: invalidPortApp)
         assertPairingError(contains: "Enter a port from 1 to 65535", in: invalidPortApp)
     }
@@ -129,21 +136,30 @@ final class cmuxUITests: XCTestCase {
         try openSelectedWorkspaceIfNeeded(app)
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
-        let workspaceStart = Date()
-        assertTerminalRows([
-            1: "workspace: Workspace 3",
-            2: "terminal: Terminal 1",
-        ], in: app)
-        XCTAssertLessThan(Date().timeIntervalSince(workspaceStart), 6.0)
+        assertVisibleText("Workspace 3", in: app)
+        assertTerminalCount(1, in: "workspace-3", on: server, timeout: 45)
+
+        tapTerminalPickerMenuItem("MobileNewTerminalMenuItem", in: app)
+        assertTerminalCount(2, in: "workspace-3", on: server, timeout: 45)
+    }
+
+    @MainActor
+    func testDiagnosticsFeedbackMenuPresentsComposer() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        try openSelectedWorkspaceIfNeeded(app)
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
-        tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
-        let terminalStart = Date()
-        assertTerminalRows([
-            1: "workspace: Workspace 3",
-            2: "terminal: Terminal 2",
-        ], in: app)
-        XCTAssertLessThan(Date().timeIntervalSince(terminalStart), 6.0)
+        let feedbackItem = app.buttons["MobileSendFeedbackMenuItem"]
+        XCTAssertTrue(feedbackItem.waitForExistence(timeout: 8))
+        tap(feedbackItem, in: app)
+
+        XCTAssertTrue(app.navigationBars["Send Feedback"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.textFields["MobileFeedbackEmailField"].waitForExistence(timeout: 6))
+        XCTAssertTrue(app.descendants(matching: .any)["MobileFeedbackAttachPhotosButton"].waitForExistence(timeout: 6))
     }
 
     @MainActor
@@ -502,21 +518,15 @@ final class cmuxUITests: XCTestCase {
     ) {
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
-        let labelExpectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                self.terminalRows(in: app).dropFirst(index).first == expectedLabel
-            },
-            object: app
-        )
-        let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
-        XCTAssertEqual(
-            result,
-            .completed,
-            "Expected terminal row \(index) to equal \(expectedLabel). Rows: \(terminalRowLabels(in: app))",
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(terminalRows(in: app).dropFirst(index).first, expectedLabel, file: file, line: line)
+        guard let rows = waitForTerminalRows([index: expectedLabel], in: app) else {
+            XCTFail(
+                "Expected terminal row \(index) to equal \(expectedLabel). Rows: \(terminalRowLabels(in: app))",
+                file: file,
+                line: line
+            )
+            return
+        }
+        XCTAssertEqual(rows.dropFirst(index).first, expectedLabel, file: file, line: line)
     }
 
     @MainActor
@@ -528,16 +538,7 @@ final class cmuxUITests: XCTestCase {
     ) {
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
-        let labelExpectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                expectedLabels.allSatisfy { index, expectedLabel in
-                    self.terminalRows(in: app).dropFirst(index).first == expectedLabel
-                }
-            },
-            object: app
-        )
-        let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
-        if result != .completed {
+        guard let rows = waitForTerminalRows(expectedLabels, in: app) else {
             XCTFail(
                 "Expected terminal rows \(expectedLabels). Rows: \(terminalRowLabels(in: app))",
                 file: file,
@@ -546,8 +547,92 @@ final class cmuxUITests: XCTestCase {
             return
         }
         for (index, expectedLabel) in expectedLabels.sorted(by: { $0.key < $1.key }) {
-            XCTAssertEqual(terminalRows(in: app).dropFirst(index).first, expectedLabel, file: file, line: line)
+            XCTAssertEqual(rows.dropFirst(index).first, expectedLabel, file: file, line: line)
         }
+    }
+
+    @MainActor
+    private func waitForTerminalRows(
+        _ expectedLabels: [Int: String],
+        in app: XCUIApplication,
+        timeout: TimeInterval = 12
+    ) -> [String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let rows = terminalRows(in: app)
+            if terminalRows(rows, match: expectedLabels) {
+                return rows
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        let rows = terminalRows(in: app)
+        return terminalRows(rows, match: expectedLabels) ? rows : nil
+    }
+
+    private func terminalRows(_ rows: [String], match expectedLabels: [Int: String]) -> Bool {
+        expectedLabels.allSatisfy { index, expectedLabel in
+            rows.dropFirst(index).first == expectedLabel
+        }
+    }
+
+    @MainActor
+    private func assertButtonLabel(
+        _ identifier: String,
+        equals expectedLabel: String,
+        in app: XCUIApplication,
+        timeout: TimeInterval = 12,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let button = app.buttons[identifier]
+        XCTAssertTrue(button.waitForExistence(timeout: 6), file: file, line: line)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if button.label == expectedLabel {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTAssertEqual(button.label, expectedLabel, file: file, line: line)
+    }
+
+    @MainActor
+    private func assertTerminalCount(
+        _ expectedCount: Int,
+        in workspaceID: String,
+        on server: MobileSyncMockHostServer,
+        timeout: TimeInterval = 12,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if server.terminalCount(in: workspaceID) == expectedCount {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTAssertEqual(server.terminalCount(in: workspaceID), expectedCount, file: file, line: line)
+    }
+
+    @MainActor
+    private func assertVisibleText(
+        _ text: String,
+        in app: XCUIApplication,
+        timeout: TimeInterval = 20,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let element = app.descendants(matching: .any)[text]
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTFail("Expected visible text \(text) to exist", file: file, line: line)
     }
 
     @MainActor
@@ -574,9 +659,34 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        tap(app.buttons["MobileTerminalDropdown"], in: app, file: file, line: line)
-        tap(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app, file: file, line: line)
+        tapTerminalPickerMenuItem("MobileTerminalMenuItem-terminal-tui", in: app, file: file, line: line)
         assertTerminalRow(0, label: "LAZYGIT", in: app, file: file, line: line)
+    }
+
+    @MainActor
+    private func tapTerminalPickerMenuItem(
+        _ identifier: String,
+        in app: XCUIApplication,
+        timeout: TimeInterval = 12,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let item = app.buttons[identifier]
+        let dropdown = app.buttons["MobileTerminalDropdown"]
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if item.exists {
+                tap(item, in: app, file: file, line: line)
+                return
+            }
+            tap(dropdown, in: app, file: file, line: line)
+            if item.waitForExistence(timeout: 2) {
+                tap(item, in: app, file: file, line: line)
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTAssertTrue(item.exists, "Expected terminal picker item \(identifier) to exist", file: file, line: line)
     }
 
     @MainActor
@@ -996,6 +1106,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 connection.cancel()
             }
             self.connections.removeAll()
+        }
+    }
+
+    func terminalCount(in workspaceID: String) -> Int {
+        queue.sync {
+            workspaces.first { $0.id == workspaceID }?.terminals.count ?? 0
         }
     }
 

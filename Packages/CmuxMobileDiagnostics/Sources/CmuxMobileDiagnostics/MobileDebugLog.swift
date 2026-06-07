@@ -3,32 +3,43 @@ import Foundation
 import UIKit
 #endif
 
-/// In-app debug-log facade for iOS DEV builds, backed by an actor sink.
+/// In-app diagnostics log facade for iOS, backed by an actor sink.
 ///
 /// This is the thin compatibility surface the mobile packages call into
 /// (``append(_:)`` from the synchronous ``MobileDebugLog.anchormux(_:)`` helper, and
 /// ``copyToPasteboard(prepending:)`` from the debug menu). The actual buffer
 /// and its synchronization live in ``MobileDebugLogSink`` (an `actor`), so this
 /// type holds no mutable state of its own; it only bridges synchronous callers
-/// into the actor.
+/// into the actor. DEBUG-only `anchormux` probes and shipped high-signal
+/// diagnostics events share the same sink so exported reports have one recent
+/// event timeline.
 ///
 /// - Note: The ``shared`` instance is a TRANSITIONAL (iOS refactor) shim so the
 ///   many existing render/IO-thread call sites stay one-liners. The intended
 ///   end state injects a ``MobileDebugLogSink`` from the app composition root.
 public struct MobileDebugLog: Sendable {
-    /// Process-wide instance used by the legacy anchormux call sites.
+    /// Process-wide instance used by diagnostics event producers.
     // TRANSITIONAL (iOS refactor): call sites still reach for `.shared`; the
     // composition root should inject the sink once decomposition reaches them.
     public static let shared = MobileDebugLog(sink: MobileDebugLogSink())
 
     /// The actor that owns the ring buffer and broadcast stream.
     public let sink: MobileDebugLogSink
+    private let operationQueue: MobileDebugLogOperationQueue
 
     /// Wrap an existing sink.
     ///
     /// - Parameter sink: The actor-backed buffer to bridge synchronous calls to.
     public init(sink: MobileDebugLogSink) {
+        self.init(sink: sink, pendingOperationLimit: MobileDebugLogOperationQueue.defaultPendingOperationLimit)
+    }
+
+    init(sink: MobileDebugLogSink, pendingOperationLimit: Int) {
         self.sink = sink
+        self.operationQueue = MobileDebugLogOperationQueue(
+            sink: sink,
+            pendingOperationLimit: pendingOperationLimit
+        )
     }
 
     /// Append one line, dispatching the write into the actor.
@@ -36,8 +47,16 @@ public struct MobileDebugLog: Sendable {
     /// Safe to call from any thread (Ghostty IO/render). The write is enqueued
     /// on the actor and does not block the caller.
     public func append(_ message: String) {
-        let sink = sink
-        Task { await sink.append(message) }
+        operationQueue.append(message)
+    }
+
+    /// Remove all buffered lines.
+    ///
+    /// Safe to call from synchronous lifecycle hooks; clearing is serialized on
+    /// the actor-backed sink.
+    @discardableResult
+    public func clear() -> Task<Void, Never> {
+        operationQueue.clear()
     }
 
     /// Identifies the running build so a pasted log proves which reload it came

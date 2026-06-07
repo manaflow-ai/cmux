@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -6,12 +7,14 @@ import CmuxMobileTerminal
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
+import CmuxMobileFeedback
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
 #endif
 
 struct WorkspaceDetailView: View {
+    @Environment(AuthCoordinator.self) private var authManager
     let host: String
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
@@ -21,7 +24,22 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    #if os(iOS)
+    let feedbackClient: any MobileFeedbackSubmitting
+    #endif
     @State private var isTerminalPickerPresented = false
+    #if canImport(UIKit)
+    @State private var diagnosticsReport: MobileDiagnosticsReport?
+    @State private var diagnosticsSessionID = UUID()
+    @State private var diagnosticsPreparationTask: Task<MobileDiagnosticsReport, Error>?
+    @State private var diagnosticsActionTask: Task<Void, Never>?
+    @State private var diagnosticsShareSheetItem: MobileDiagnosticsActivityItem?
+    @State private var pendingDiagnosticsShareSheetItem: MobileDiagnosticsActivityItem?
+    @State private var isPreparingDiagnostics = false
+    @State private var diagnosticsFailureAlert: MobileDiagnosticsFailureAlert?
+    @State private var isFeedbackComposerPresented = false
+    @State private var shouldPresentFeedbackAfterPickerDismisses = false
+    #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
@@ -105,6 +123,27 @@ struct WorkspaceDetailView: View {
             }
         #endif
         }
+        #if canImport(UIKit)
+        .sheet(item: $diagnosticsShareSheetItem) { item in
+            MobileDiagnosticsActivityView(item: item)
+        }
+        .sheet(isPresented: $isFeedbackComposerPresented) {
+            MobileFeedbackComposerSheet(
+                initialEmail: feedbackInitialEmail,
+                initialDiagnosticsReport: diagnosticsReport,
+                buildDiagnosticsReport: buildDiagnosticsReport,
+                client: feedbackClient
+            )
+            .presentationDetents([.large])
+        }
+        .alert(item: $diagnosticsFailureAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text(L10n.string("common.ok", defaultValue: "OK")))
+            )
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -125,6 +164,9 @@ struct WorkspaceDetailView: View {
     private var terminalPickerToolbarButton: some View {
         Button {
             dismissTerminalKeyboardForChrome()
+            #if canImport(UIKit)
+            resetDiagnosticsForNewPickerSession()
+            #endif
             isTerminalPickerPresented = true
         } label: {
             Label(
@@ -135,10 +177,24 @@ struct WorkspaceDetailView: View {
         }
         .foregroundStyle(TerminalPalette.foreground)
         .accessibilityIdentifier("MobileTerminalDropdown")
+        .accessibilityLabel(
+            selectedTerminal?.name
+                ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal")
+        )
         .accessibilityValue(host)
         .popover(isPresented: $isTerminalPickerPresented, arrowEdge: .top) {
-            terminalPickerContent
+            terminalPickerPopoverContent
         }
+    }
+
+    @ViewBuilder
+    private var terminalPickerPopoverContent: some View {
+        #if canImport(UIKit)
+        terminalPickerContent
+            .onDisappear(perform: terminalPickerDidDisappear)
+        #else
+        terminalPickerContent
+        #endif
     }
 
     private var terminalPickerContent: some View {
@@ -189,34 +245,316 @@ struct WorkspaceDetailView: View {
             .padding(.vertical, 10)
             .accessibilityIdentifier("MobileNewTerminalMenuItem")
 
-            #if DEBUG && canImport(UIKit)
-            Button(action: copyDebugLogsFromMenu) {
-                // DEV-only debug tooling; not shipped, so not localized.
-                Label("Copy Debug Logs", systemImage: "doc.on.clipboard")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
+            #if canImport(UIKit)
+            Divider()
+                .padding(.vertical, 4)
+
+            diagnosticsCopyButton
+            diagnosticsShareButton
+            diagnosticsFeedbackButton
             #endif
         }
         .frame(minWidth: 240, maxWidth: 320, alignment: .leading)
         .presentationCompactAdaptation(.popover)
     }
 
-    #if DEBUG && canImport(UIKit)
-    private func copyDebugLogsFromMenu() {
-        isTerminalPickerPresented = false
-        // Include "what the user sees" (the visible terminal text) above the
-        // debug log so a pasted bug report shows the on-screen content too.
-        let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
-        Task { @MainActor in
-            let count = await MobileDebugLog.shared.copyToPasteboard(prepending: terminalText)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)
+    #if canImport(UIKit)
+    /// Copies the assembled, scrubbed diagnostics report to the clipboard.
+    @ViewBuilder
+    private var diagnosticsCopyButton: some View {
+        Button(action: startCopyDiagnosticsToPasteboard) {
+            diagnosticsActionLabel(
+                title: L10n.string("mobile.diagnostics.copy", defaultValue: "Copy Diagnostics"),
+                systemImage: "doc.on.clipboard"
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .disabled(isPreparingDiagnostics)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        // Preserve the historical accessibility id so existing automation that
+        // taps the debug-log export keeps working.
+        .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
+    }
+
+    /// Shares the assembled, scrubbed diagnostics report.
+    ///
+    /// `ShareLink` needs the shared item synchronously. Once a report is cached
+    /// this renders as a real `ShareLink`; the initial tap builds the report
+    /// from the explicit user action and presents the same iOS activity sheet.
+    @ViewBuilder
+    private var diagnosticsShareButton: some View {
+        if let report = diagnosticsReport {
+            ShareLink(
+                item: report.text,
+                preview: SharePreview(
+                    L10n.string("mobile.diagnostics.shareTitle", defaultValue: "cmux Diagnostics")
+                )
+            ) {
+                Label(
+                    L10n.string("mobile.diagnostics.share", defaultValue: "Share Diagnostics"),
+                    systemImage: "square.and.arrow.up"
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
+        } else {
+            Button(action: startDiagnosticsShare) {
+                diagnosticsActionLabel(
+                    title: isPreparingDiagnostics
+                        ? L10n.string("mobile.diagnostics.preparing", defaultValue: "Preparing Diagnostics…")
+                        : L10n.string("mobile.diagnostics.share", defaultValue: "Share Diagnostics"),
+                    systemImage: "square.and.arrow.up"
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isPreparingDiagnostics)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
+        }
+    }
+
+    /// Opens the feedback form that emails the scrubbed diagnostics report
+    /// through the same backend feedback flow used by the macOS app.
+    private var diagnosticsFeedbackButton: some View {
+        Button(action: presentFeedbackComposer) {
+            Label(
+                L10n.string("mobile.feedback.open", defaultValue: "Send Feedback"),
+                systemImage: "paperplane"
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isPreparingDiagnostics)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .accessibilityIdentifier("MobileSendFeedbackMenuItem")
+    }
+    #endif
+
+    #if canImport(UIKit)
+    private func diagnosticsActionLabel(title: String, systemImage: String) -> Label<Text, Image> {
+        Label(title, systemImage: systemImage)
+    }
+
+    @MainActor
+    private func resetDiagnosticsForNewPickerSession() {
+        diagnosticsSessionID = UUID()
+        diagnosticsActionTask?.cancel()
+        diagnosticsActionTask = nil
+        diagnosticsPreparationTask?.cancel()
+        diagnosticsPreparationTask = nil
+        diagnosticsReport = nil
+        diagnosticsShareSheetItem = nil
+        pendingDiagnosticsShareSheetItem = nil
+        diagnosticsFailureAlert = nil
+        isPreparingDiagnostics = false
+    }
+
+    @MainActor
+    private func cancelDiagnosticsWorkForCurrentSession() {
+        diagnosticsActionTask?.cancel()
+        diagnosticsActionTask = nil
+        diagnosticsPreparationTask?.cancel()
+        diagnosticsPreparationTask = nil
+        isPreparingDiagnostics = false
+    }
+
+    /// The shell's live runtime state, mapped into the decoupled diagnostics
+    /// snapshot the report builder consumes.
+    private var diagnosticsLiveState: MobileDiagnosticsLiveState {
+        let host = store.connectedHostName.isEmpty ? nil : store.connectedHostName
+        let activeTicket = store.activeTicket
+        let activePairedMac = store.activePairedMac
+        let persistedActivePairedMac = store.pairedMacs.first { $0.isActive }
+        let effectiveIsAuthenticated = authManager.isAuthenticated || store.hasActiveUnexpiredAttachTicket
+        return MobileDiagnosticsLiveState(
+            connectionState: connectionStatus.label,
+            isSignedIn: store.isSignedIn && effectiveIsAuthenticated,
+            isAuthenticated: effectiveIsAuthenticated,
+            lastAuthError: authManager.lastAuthErrorDescription,
+            connectedHostName: host,
+            pairedMacName: activeTicket?.macDisplayName
+                ?? activePairedMac?.displayName
+                ?? persistedActivePairedMac?.displayName
+                ?? activeTicket?.macDeviceID
+                ?? activePairedMac?.macDeviceID
+                ?? persistedActivePairedMac?.macDeviceID,
+            pairedMacDeviceID: activeTicket?.macDeviceID
+                ?? activePairedMac?.macDeviceID
+                ?? persistedActivePairedMac?.macDeviceID,
+            connectionError: store.connectionError
+        )
+    }
+
+    private var feedbackInitialEmail: String? {
+        guard authManager.isAuthenticated,
+              let email = authManager.currentUser?.primaryEmail?.trimmingCharacters(in: .whitespacesAndNewlines),
+              email.isEmpty == false else {
+            return nil
+        }
+        return email
+    }
+
+    /// Builds the report after the user chooses a diagnostics action, so the
+    /// terminal picker itself stays a cheap navigation control.
+    @MainActor
+    private func prepareDiagnosticsReport(sessionID: UUID, cacheResult: Bool) async -> MobileDiagnosticsReport? {
+        guard diagnosticsSessionID == sessionID else { return nil }
+        if let diagnosticsPreparationTask {
+            do {
+                let report = try await diagnosticsPreparationTask.value
+                guard diagnosticsSessionID == sessionID, !Task.isCancelled else { return nil }
+                if cacheResult {
+                    diagnosticsReport = report
+                }
+                self.diagnosticsPreparationTask = nil
+                isPreparingDiagnostics = false
+                return report
+            } catch {
+                guard diagnosticsSessionID == sessionID else { return nil }
+                self.diagnosticsPreparationTask = nil
+                isPreparingDiagnostics = false
+                return nil
+            }
+        }
+
+        isPreparingDiagnostics = true
+        let task = Task { @MainActor in
+            try Task.checkCancellation()
+            let report = await buildDiagnosticsReport()
+            try Task.checkCancellation()
+            return report
+        }
+        diagnosticsPreparationTask = task
+        do {
+            let report = try await task.value
+            guard diagnosticsSessionID == sessionID, !Task.isCancelled else { return nil }
+            if cacheResult {
+                diagnosticsReport = report
+            }
+            diagnosticsPreparationTask = nil
+            isPreparingDiagnostics = false
+            return report
+        } catch {
+            guard diagnosticsSessionID == sessionID else { return nil }
+            diagnosticsPreparationTask = nil
+            isPreparingDiagnostics = false
+            return nil
+        }
+    }
+
+    @MainActor
+    private func startDiagnosticsShare() {
+        let sessionID = diagnosticsSessionID
+        diagnosticsActionTask?.cancel()
+        diagnosticsActionTask = Task { @MainActor in
+            await prepareAndPresentDiagnosticsShareSheet(sessionID: sessionID)
+        }
+    }
+
+    @MainActor
+    private func prepareAndPresentDiagnosticsShareSheet(sessionID: UUID) async {
+        guard let report = await prepareDiagnosticsReport(sessionID: sessionID, cacheResult: true) else {
+            showDiagnosticsPreparationFailureIfCurrent(sessionID: sessionID)
+            return
+        }
+        guard diagnosticsSessionID == sessionID, !Task.isCancelled else { return }
+        let item = MobileDiagnosticsActivityItem(text: report.text)
+        if isTerminalPickerPresented {
+            pendingDiagnosticsShareSheetItem = item
+            isTerminalPickerPresented = false
+        } else {
+            diagnosticsShareSheetItem = item
+        }
+        diagnosticsActionTask = nil
+    }
+
+    /// Builds the diagnostics report (in-process log + OS log + live state +
+    /// visible terminal, then scrubbed).
+    @MainActor
+    private func buildDiagnosticsReport() async -> MobileDiagnosticsReport {
+        let terminalText = await GhosttySurfaceView.visibleTerminalSnapshot()
+        let liveState = diagnosticsLiveState
+        let immediateEventLines = await store.diagnosticsImmediateEventLinesForReport()
+        let environment = MobileDiagnosticsEnvironment.current()
+        let builder = MobileDiagnosticsReportBuilder(
+            environment: environment,
+            sink: MobileDebugLog.shared.sink
+        )
+        return await builder.buildReport(
+            liveState: liveState,
+            terminalSnapshot: terminalText,
+            immediateEventLines: immediateEventLines,
+            osLogNotBefore: store.diagnosticsOSLogBoundaryDate
+        )
+    }
+
+    /// Copies the prepared diagnostics text to the system pasteboard.
+    @MainActor
+    private func startCopyDiagnosticsToPasteboard() {
+        let sessionID = diagnosticsSessionID
+        diagnosticsActionTask?.cancel()
+        diagnosticsActionTask = Task { @MainActor in
+            await copyDiagnosticsToPasteboard(sessionID: sessionID)
+        }
+    }
+
+    /// Copies the prepared diagnostics text to the system pasteboard.
+    @MainActor
+    private func copyDiagnosticsToPasteboard(sessionID: UUID) async {
+        guard let report = await prepareDiagnosticsReport(sessionID: sessionID, cacheResult: false) else {
+            showDiagnosticsPreparationFailureIfCurrent(sessionID: sessionID)
+            return
+        }
+        guard diagnosticsSessionID == sessionID, !Task.isCancelled else { return }
+        isTerminalPickerPresented = false
+        UIPasteboard.general.string = report.text
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        diagnosticsActionTask = nil
+    }
+
+    /// Presents the mobile feedback form with the current diagnostics report.
+    private func presentFeedbackComposer() {
+        shouldPresentFeedbackAfterPickerDismisses = true
+        isTerminalPickerPresented = false
+    }
+
+    private func terminalPickerDidDisappear() {
+        guard !presentPendingPostPickerSheetIfNeeded() else { return }
+        guard diagnosticsActionTask == nil else { return }
+        cancelDiagnosticsWorkForCurrentSession()
+    }
+
+    @MainActor
+    private func showDiagnosticsPreparationFailureIfCurrent(sessionID: UUID) {
+        guard diagnosticsSessionID == sessionID, !Task.isCancelled else { return }
+        diagnosticsActionTask = nil
+        diagnosticsFailureAlert = MobileDiagnosticsFailureAlert()
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+    }
+
+    @discardableResult
+    private func presentPendingPostPickerSheetIfNeeded() -> Bool {
+        if let pendingDiagnosticsShareSheetItem {
+            self.pendingDiagnosticsShareSheetItem = nil
+            diagnosticsShareSheetItem = pendingDiagnosticsShareSheetItem
+            return true
+        }
+        guard shouldPresentFeedbackAfterPickerDismisses else { return false }
+        shouldPresentFeedbackAfterPickerDismisses = false
+        isFeedbackComposerPresented = true
+        return true
     }
     #endif
 

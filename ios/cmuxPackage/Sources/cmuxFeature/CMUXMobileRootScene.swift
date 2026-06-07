@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
+import CmuxMobileFeedback
 import CmuxMobilePairedMac
 import CmuxMobileShell
 @_exported import CmuxMobileShellUI
@@ -33,6 +34,7 @@ public struct CMUXMobileRootScene: View {
     private let analytics: any AnalyticsEmitting
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
+    private let feedbackClient: any MobileFeedbackSubmitting
     #endif
     private let pairedMacStore: (any MobilePairedMacStoring)?
 
@@ -46,18 +48,21 @@ public struct CMUXMobileRootScene: View {
     ///   - analytics: The app-root analytics emitter, injected into the store.
     ///   - pushCoordinator: The app-root push coordinator (shared with the app
     ///     delegate) injected into the environment.
+    ///   - feedbackClient: The feedback submitter used by the in-app composer.
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
-        pushCoordinator: MobilePushCoordinator
+        pushCoordinator: MobilePushCoordinator,
+        feedbackClient: any MobileFeedbackSubmitting = MobileFeedbackClient()
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
         self.pushCoordinator = pushCoordinator
+        self.feedbackClient = feedbackClient
         self.pairedMacStore = Self.openPairedMacStore()
     }
     #else
@@ -98,12 +103,16 @@ public struct CMUXMobileRootScene: View {
 
     @ViewBuilder
     private var content: some View {
-        #if canImport(UIKit) && DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
-            MobileZoomStressView()
-        } else {
-            CMUXMobileAppView(store: makeStore())
-        }
+        #if os(iOS)
+            #if canImport(UIKit) && DEBUG
+            if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
+                MobileZoomStressView()
+            } else {
+                CMUXMobileAppView(store: makeStore(), feedbackClient: feedbackClient)
+            }
+            #else
+            CMUXMobileAppView(store: makeStore(), feedbackClient: feedbackClient)
+            #endif
         #else
         CMUXMobileAppView(store: makeStore())
         #endif

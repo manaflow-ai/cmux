@@ -4,6 +4,7 @@ import CmuxMobileShellModel
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
+import CmuxMobileFeedback
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
@@ -12,6 +13,9 @@ import AppKit
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
+    #if os(iOS)
+    let feedbackClient: any MobileFeedbackSubmitting
+    #endif
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
@@ -192,11 +196,21 @@ struct WorkspaceShellView: View {
         createWorkspace: @escaping () -> Void,
         safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth
     ) -> some View {
+        #if os(iOS)
+        WorkspaceDetailContainer(
+            store: store,
+            workspaceID: workspaceID,
+            createWorkspace: createWorkspace,
+            safeAreaContext: safeAreaContext,
+            feedbackClient: feedbackClient
+        )
+        #else
         WorkspaceDetailContainer(
             store: store,
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
             safeAreaContext: safeAreaContext
         )
+        #endif
     }
 }

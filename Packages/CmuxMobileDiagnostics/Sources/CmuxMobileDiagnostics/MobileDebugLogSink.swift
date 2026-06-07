@@ -9,10 +9,11 @@ public import Foundation
 /// `AsyncStream` of every appended line or pull the whole buffer with
 /// ``snapshot()``.
 public actor MobileDebugLogSink {
-    private var buffer: [String] = []
+    private var buffer: [MobileDebugLogSinkEntry] = []
     private let capacity: Int
     private let startedAt: Date
     private let now: @Sendable () -> Date
+    private var lastClearedIssuedAt: ContinuousClock.Instant?
     private var continuations: [UUID: AsyncStream<String>.Continuation] = [:]
 
     /// Create a sink.
@@ -32,10 +33,18 @@ public actor MobileDebugLogSink {
     ///
     /// The line is broadcast to every active ``lines()`` subscriber and stored
     /// in the ring buffer, evicting the oldest entries past the capacity.
-    public func append(_ message: String) {
+    public func append(
+        _ message: String,
+        issuedAt: ContinuousClock.Instant? = nil
+    ) {
+        if let issuedAt,
+           let lastClearedIssuedAt,
+           issuedAt <= lastClearedIssuedAt {
+            return
+        }
         let elapsed = String(format: "%9.3f", now().timeIntervalSince(startedAt))
         let line = "[\(elapsed)] \(message)"
-        buffer.append(line)
+        buffer.append(MobileDebugLogSinkEntry(issuedAt: issuedAt, line: line))
         if buffer.count > capacity {
             buffer.removeFirst(buffer.count - capacity)
         }
@@ -46,7 +55,7 @@ public actor MobileDebugLogSink {
 
     /// The full buffer as newline-joined text, newest last.
     public func snapshot() -> String {
-        buffer.joined(separator: "\n")
+        buffer.map(\.line).joined(separator: "\n")
     }
 
     /// The current buffered lines and their count, newest last.
@@ -54,12 +63,21 @@ public actor MobileDebugLogSink {
     /// - Returns: A tuple of the line count and the newline-joined body. Useful
     ///   when a caller needs both without two round-trips to the actor.
     public func snapshotWithCount() -> (count: Int, body: String) {
-        (buffer.count, buffer.joined(separator: "\n"))
+        (buffer.count, buffer.map(\.line).joined(separator: "\n"))
     }
 
     /// Remove every buffered line, keeping the allocated capacity.
-    public func clear() {
-        buffer.removeAll(keepingCapacity: true)
+    public func clear(issuedAt: ContinuousClock.Instant? = nil) {
+        let clearIssuedAt = issuedAt ?? ContinuousClock.now
+        if let lastClearedIssuedAt {
+            self.lastClearedIssuedAt = max(lastClearedIssuedAt, clearIssuedAt)
+        } else {
+            lastClearedIssuedAt = clearIssuedAt
+        }
+        buffer.removeAll { entry in
+            guard let entryIssuedAt = entry.issuedAt else { return true }
+            return entryIssuedAt <= clearIssuedAt
+        }
     }
 
     /// A live stream of every line appended after subscription.
@@ -80,4 +98,5 @@ public actor MobileDebugLogSink {
     private func removeContinuation(_ id: UUID) {
         continuations[id] = nil
     }
+
 }

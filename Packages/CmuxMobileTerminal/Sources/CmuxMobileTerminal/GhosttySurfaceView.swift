@@ -642,7 +642,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.
-    private static let outputQueue = DispatchQueue(
+    nonisolated private static let outputQueue = DispatchQueue(
         label: "dev.cmux.GhosttySurfaceView.output",
         qos: .userInitiated
     )
@@ -1437,6 +1437,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // scene-update watchdog (0x8BADF00D) kills the app. It must run off
         // the main thread. Feed it on a serial background queue (order
         // preserved) and hop back to main only for the Swift-side UI state.
+        #if DEBUG
+        let accessibilityThrottleKey = ObjectIdentifier(self)
+        let forceAccessibilityTextRead = debugAccessibilityProxy.accessibilityLabel?.isEmpty != false
+        #endif
         Self.outputQueue.async { [weak self] in
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
@@ -1455,9 +1459,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // main. Off-main reads can never trip the main-thread watchdog.
             var accessibilityText: String?
             let a11yNow = CACurrentMediaTime()
-            if a11yNow - Self.lastAccessibilityTextTime > 0.5 {
-                Self.lastAccessibilityTextTime = a11yNow
+            let lastAccessibilityTextTime = Self.lastAccessibilityTextTimeBySurfaceID[accessibilityThrottleKey]
+                ?? 0
+            if forceAccessibilityTextRead || a11yNow - lastAccessibilityTextTime > 0.5 {
+                Self.lastAccessibilityTextTimeBySurfaceID[accessibilityThrottleKey] = a11yNow
                 accessibilityText = Self.accessibilitySurfaceText(surface)
+                if accessibilityText?.isEmpty != false {
+                    accessibilityText = DebugAccessibilityFallbackText.from(forwarded)
+                }
             }
             #endif
             DispatchQueue.main.async {
@@ -1648,10 +1657,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Throttle stamp for the off-main accessibility-label read in
+    /// Per-surface throttle stamps for the off-main accessibility-label read in
     /// `processOutput`. Accessed only on the serial `outputQueue`, so the
     /// unchecked mutation is safe.
-    nonisolated(unsafe) fileprivate static var lastAccessibilityTextTime: CFTimeInterval = 0
+    nonisolated(unsafe) fileprivate static var lastAccessibilityTextTimeBySurfaceID =
+        [ObjectIdentifier: CFTimeInterval]()
 
     /// Off-main equivalent of ``accessibilityRenderedTextForTesting()`` that
     /// reads via the raw surface handle so it can run on the serial output queue
@@ -1714,7 +1724,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // backlog drains before the free. (Retain the bridge across the hop; it
         // owns the userdata libghostty still references until the free.)
         let retainedBridge = Unmanaged.passRetained(bridge)
+        #if DEBUG
+        let accessibilityThrottleKey = ObjectIdentifier(self)
+        #endif
         Self.outputQueue.async {
+            #if DEBUG
+            Self.lastAccessibilityTextTimeBySurfaceID.removeValue(forKey: accessibilityThrottleKey)
+            #endif
             ghostty_surface_free(surface)
             retainedBridge.release()
         }
@@ -2638,19 +2654,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     /// "What the user sees": the visible viewport text of every on-screen
-    /// terminal surface, for the DEV "Copy Debug Logs" action so a bug report
-    /// pairs the on-screen content with the debug log. Reads the VIEWPORT
-    /// (visible grid only, not scrollback) via libghostty.
-    public static func visibleTerminalSnapshot() -> String {
+    /// terminal surface, for diagnostics reports so a bug report pairs the
+    /// on-screen content with the logs. Reads the VIEWPORT (visible grid only,
+    /// not scrollback) via libghostty.
+    @MainActor
+    public static func visibleTerminalSnapshot() async -> String {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
         // Collect the main-actor state + surface pointers first, then read the
         // viewport text on the serial output queue. `ghostty_surface_read_text`
         // takes the same surface lock as `process_output` (which runs off-main);
-        // reading it on the MAIN thread here contends that lock during a render
-        // storm and stalls the present — tapping Copy Debug Logs would itself
-        // blank the terminal. The output queue is never concurrent with
-        // `process_output`, so the read can't wedge. No `main.sync` runs on that
-        // queue, so this `.sync` cannot deadlock.
+        // waiting for that queue on the main actor would stall diagnostics during
+        // a render storm. The bounded wait below runs in a detached task instead.
         var pending: [VisibleSnapshotRequest] = []
         for view in registeredSurfaceViews.values.compactMap(\.value) {
             guard view.window != nil, !view.isHidden, view.alpha > 0.01,
@@ -2661,34 +2675,30 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if pending.isEmpty {
             return "===== visible terminal: (no on-screen surface) ====="
         }
-        // Read on the output queue, but bound the wait. If a render wedge has the
-        // queue stuck mid-`process_output`, a plain `.sync` here would freeze the
-        // whole app exactly when the user taps Copy Debug Logs to capture that
-        // bug. Time out and ship the logs without the snapshot instead.
-        let holder = VisibleSnapshotHolder()
-        // This synchronous DEV-only "Copy Debug Logs" path reads the viewport off
-        // the serial output queue and must give up after a deadline if a render
-        // wedge holds it; an actor/await cannot express the bounded synchronous
-        // wait the synchronous caller needs.
-        // carve-out justification: one-shot cross-queue completion signal with a
-        // bounded wait, not a lock guarding shared state.
-        let done = DispatchSemaphore(value: 0)
-        outputQueue.async {
-            var built: [String] = []
-            for item in pending {
-                let text = surfaceText(item.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
-                built.append(
-                    "===== visible terminal · grid=\(item.grid) · font=\(item.font) =====\n"
-                    + text
-                )
+        return await withCheckedContinuation { continuation in
+            let completion = VisibleSnapshotCompletion(continuation)
+            // Enqueue the read before the main actor can run a teardown that
+            // enqueues `ghostty_surface_free` for these same pointers. FIFO
+            // ordering on `outputQueue` keeps the read ahead of any later free.
+            Self.outputQueue.async {
+                var built: [String] = []
+                for item in pending {
+                    let text = surfaceText(item.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
+                    built.append(
+                        "===== visible terminal · grid=\(item.grid) · font=\(item.font) =====\n"
+                        + text
+                    )
+                }
+                let snapshot = built.joined(separator: "\n\n")
+                Task {
+                    await completion.resume(returning: snapshot)
+                }
             }
-            holder.sections = built
-            done.signal()
+            Task {
+                try? await ContinuousClock().sleep(for: .milliseconds(600))
+                await completion.resume(returning: "===== visible terminal: (snapshot skipped — render busy) =====")
+            }
         }
-        if done.wait(timeout: .now() + 0.6) == .timedOut {
-            return "===== visible terminal: (snapshot skipped — render busy) ====="
-        }
-        return holder.sections.joined(separator: "\n\n")
     }
 
     private func handleBell() {
@@ -2728,14 +2738,18 @@ private struct VisibleSnapshotRequest: @unchecked Sendable {
     let surface: ghostty_surface_t
 }
 
-/// Carrier for the snapshot text produced off `GhosttySurfaceView.outputQueue`.
-///
-/// `sections` is written exactly once on that queue before its semaphore is
-/// signaled and read by the caller only after the matching wait, so the two
-/// accesses never overlap — hence `@unchecked Sendable`. On the timeout path the
-/// caller never reads it, leaving the queue task the sole accessor.
-private final class VisibleSnapshotHolder: @unchecked Sendable {
-    var sections: [String] = []
+private actor VisibleSnapshotCompletion {
+    private var continuation: CheckedContinuation<String, Never>?
+
+    init(_ continuation: CheckedContinuation<String, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(returning value: String) {
+        guard let continuation else { return }
+        self.continuation = nil
+        continuation.resume(returning: value)
+    }
 }
 
 private final class WeakGhosttySurfaceViewBox {

@@ -39,6 +39,7 @@ import Testing
 
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.currentUser == user)
+        #expect(coordinator.lastAuthErrorDescription == nil)
         #expect(store.bool(forKey: "has_tokens"))
         let recorded = await client.signedInWithCredential
         #expect(recorded?.email == "a@b.com")
@@ -49,6 +50,7 @@ import Testing
         await #expect(throws: AuthError.invalidCode) {
             try await coordinator.verifyCode("000000")
         }
+        #expect(coordinator.lastAuthErrorDescription?.contains("Invalid code") == true)
     }
 
     @Test func sendCodeThenVerifySignsIn() async throws {
@@ -69,6 +71,7 @@ import Testing
         await #expect(throws: AuthError.offline) {
             try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         }
+        #expect(coordinator.lastAuthErrorDescription?.contains("No internet connection") == true)
     }
 
     @Test func oauthAppleAndGoogleRouteToProviders() async throws {
@@ -151,6 +154,18 @@ import Testing
         #expect(coordinator.isAuthenticated == false)
     }
 
+    @Test func signOutClearsPreviousDiagnosticsError() async {
+        let (coordinator, _) = makeCoordinator(client: FakeAuthClient())
+        await #expect(throws: AuthError.unauthorized) {
+            _ = try await coordinator.accessToken()
+        }
+        #expect(coordinator.lastAuthErrorDescription != nil)
+
+        await coordinator.signOut()
+
+        #expect(coordinator.lastAuthErrorDescription == nil)
+    }
+
     @Test func devAuthFortyTwoShortcutSignsIn() async throws {
         let user = CMUXAuthUser(id: "debug", primaryEmail: "l@l.com", displayName: "L")
         let client = FakeAuthClient(user: user)
@@ -183,6 +198,38 @@ import Testing
         await #expect(throws: AuthError.unauthorized) {
             _ = try await coordinator.accessToken()
         }
+        #expect(coordinator.lastAuthErrorDescription?.contains("Session expired") == true)
+    }
+
+    @Test func accessTokenSuccessClearsPreviousDiagnosticsError() async throws {
+        let client = FakeAuthClient()
+        let (coordinator, _) = makeCoordinator(client: client)
+        await #expect(throws: AuthError.unauthorized) {
+            _ = try await coordinator.accessToken()
+        }
+        #expect(coordinator.lastAuthErrorDescription != nil)
+
+        await client.setTokens(access: "access-1", refresh: "refresh-1")
+        let token = try await coordinator.accessToken()
+
+        #expect(token == "access-1")
+        #expect(coordinator.lastAuthErrorDescription == nil)
+    }
+
+    @Test func forceRefreshSuccessClearsPreviousDiagnosticsError() async throws {
+        let client = FakeAuthClient(refresh: "refresh-1")
+        await client.setForceRefreshResult(nil)
+        let (coordinator, _) = makeCoordinator(client: client)
+        await #expect(throws: AuthError.networkError) {
+            _ = try await coordinator.forceRefreshAccessToken()
+        }
+        #expect(coordinator.lastAuthErrorDescription != nil)
+
+        await client.setForceRefreshResult("access-2")
+        let token = try await coordinator.forceRefreshAccessToken()
+
+        #expect(token == "access-2")
+        #expect(coordinator.lastAuthErrorDescription == nil)
     }
 
     @Test func signInRefreshesTeamsAndResolvesSelection() async throws {

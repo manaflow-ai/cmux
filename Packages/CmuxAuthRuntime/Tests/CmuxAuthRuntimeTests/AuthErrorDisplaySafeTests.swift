@@ -32,6 +32,24 @@ import Testing
         )
     }
 
+    @Test func diagnosticsDescriptionUsesDisplaySafeStackCodeOnly() throws {
+        let description = try #require(
+            AuthError.diagnosticsDescription(
+                for: StackAuthError(code: "RATE_LIMIT", message: "secret-ish message")
+            )
+        )
+        #expect(description == "code=RATE_LIMIT")
+        #expect(!description.contains("secret-ish message"))
+        #expect(!description.contains("Stack"))
+
+        let generic = try #require(
+            AuthError.diagnosticsDescription(
+                for: StackAuthError(code: "UNEXPECTED", message: "raw server detail")
+            )
+        )
+        #expect(!generic.contains("raw server detail"))
+    }
+
     @Test func mapsURLErrorsToNetworkError() {
         let urlError = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
         #expect(AuthError(displaySafe: urlError) == .networkError)

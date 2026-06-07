@@ -8,4 +8,18 @@ import Testing
     @Test func moduleLinks() {
         #expect(Bool(true))
     }
+
+#if os(iOS)
+    @Test func normalizesInitialFeedbackEmail() {
+        #expect(MobileFeedbackComposerSheet.normalizedInitialEmail("  user@example.com  ") == "user@example.com")
+        #expect(MobileFeedbackComposerSheet.normalizedInitialEmail("   ") == nil)
+        #expect(MobileFeedbackComposerSheet.normalizedInitialEmail(nil) == nil)
+    }
+
+    @Test func feedbackMessageLengthMatchesServerCodeUnits() {
+        #expect(MobileFeedbackComposerSheet.serverMessageCodeUnitCount("hello") == 5)
+        #expect(MobileFeedbackComposerSheet.serverMessageCodeUnitCount("  hello  ") == 5)
+        #expect(MobileFeedbackComposerSheet.serverMessageCodeUnitCount("😀") == 2)
+    }
+#endif
 }
