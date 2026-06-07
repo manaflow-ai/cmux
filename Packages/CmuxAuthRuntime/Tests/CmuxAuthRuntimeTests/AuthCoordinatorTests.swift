@@ -101,52 +101,57 @@ import Testing
         #expect(await ranHook.fired)
     }
 
-    @Test func signOutHookRunsBeforeTokensAreRevoked() async throws {
+    @Test func signOutRunsHookWhileTokensStillValid() async throws {
+        // The push-token DELETE runs as the onSignedOut hook and needs a valid
+        // access token. Regression: the hook used to run after client.signOut()
+        // revoked the session, so the DELETE was silently skipped.
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)
-        let (coordinator, store) = makeCoordinator(client: client)
+        let (coordinator, _) = makeCoordinator(client: client)
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
-        await client.setTokens(access: "access-1", refresh: "refresh-1")
-        let captured = TokenSnapshot()
 
-        await coordinator.signOut {
-            await captured.capture(
-                access: await client.accessToken(),
-                refresh: await client.refreshToken(),
-                isAuthenticated: coordinator.isAuthenticated,
-                currentUserID: coordinator.currentUser?.id,
-                hasCachedTokens: store.bool(forKey: "has_tokens")
-            )
-        }
+        let probe = TokenProbe()
+        await coordinator.signOut(onSignedOut: {
+            let token = try? await coordinator.accessToken()
+            await probe.set(token)
+        })
 
-        #expect(await captured.access == "access-1")
-        #expect(await captured.refresh == "refresh-1")
-        #expect(await captured.isAuthenticated == false)
-        #expect(await captured.currentUserID == nil)
-        #expect(await captured.hasCachedTokens == false)
-        #expect(await client.accessToken() == nil)
-        #expect(await client.refreshToken() == nil)
+        #expect(await probe.value != nil)  // hook saw a valid token (ran before revoke)
+        #expect(coordinator.isAuthenticated == false)  // session revoked afterward
     }
 
-    @Test func staleSignOutDoesNotRevokeSessionCreatedDuringHook() async throws {
-        let firstUser = CMUXAuthUser(id: "u1", primaryEmail: "first@example.com", displayName: "First")
-        let secondUser = CMUXAuthUser(id: "u2", primaryEmail: "second@example.com", displayName: "Second")
-        let client = FakeAuthClient(user: firstUser)
+    @Test func signOutJoinsAndCancelsSlowTeardownAtDeadline() async throws {
+        // Regression: the teardown must be STRUCTURED (joined), not detached. A
+        // detached hook could outlive signOut() and, after a later sign-in,
+        // rebuild its push-token DELETE from the new account's tokens. With a
+        // short deadline the task group cancels the slow hook and joins it before
+        // signOut returns, so by the time signOut returns the hook has already
+        // been cancelled (never left running) and sign-out wasn't blocked for the
+        // hook's full duration.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
         let (coordinator, _) = makeCoordinator(client: client)
-        try await coordinator.signInWithPassword(email: "first@example.com", password: "pw")
-        await client.setTokens(access: "old-access", refresh: "old-refresh")
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
 
-        await coordinator.signOut {
-            await client.setUser(secondUser)
-            await client.setTokens(access: "new-access", refresh: "new-refresh")
-            try? await coordinator.completeExternalSignIn()
-        }
+        let outcome = TeardownOutcomeProbe()
+        await coordinator.signOut(
+            onSignedOut: {
+                await outcome.markStarted()
+                do {
+                    // Cancellation-aware slow work, like the URLSession DELETE.
+                    try await Task.sleep(for: .seconds(60))
+                    await outcome.markFinished()
+                } catch {
+                    await outcome.markCancelled()
+                }
+            },
+            teardownTimeout: .milliseconds(50)
+        )
 
-        #expect(coordinator.isAuthenticated)
-        #expect(coordinator.currentUser == secondUser)
-        #expect(await client.accessToken() == "new-access")
-        #expect(await client.refreshToken() == "new-refresh")
-        #expect(await client.signOutCount == 0)
+        #expect(await outcome.started)
+        #expect(await outcome.cancelled)          // joined + cancelled before return
+        #expect(await outcome.finished == false)  // the 60s path never completed
+        #expect(coordinator.isAuthenticated == false)
     }
 
     @Test func signOutClearsPreviousDiagnosticsError() async {

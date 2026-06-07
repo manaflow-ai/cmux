@@ -35,12 +35,8 @@ struct WorkspaceDetailContainer: View {
                     connectionStatus: store.macConnectionStatus,
                     workspace: workspace,
                     store: store,
-                    selectedTerminalID: Binding(
-                        get: { store.selectedTerminalID },
-                        set: { store.selectTerminal($0) }
-                    ),
                     createWorkspace: createWorkspace,
-                    createTerminal: store.createTerminal,
+                    createTerminal: { store.createTerminal(in: workspace.id) },
                     reportTerminalViewport: store.reportTerminalViewport,
                     sendTerminalInput: store.sendTerminalRawInput,
                     safeAreaContext: safeAreaContext,
@@ -52,12 +48,8 @@ struct WorkspaceDetailContainer: View {
                     connectionStatus: store.macConnectionStatus,
                     workspace: workspace,
                     store: store,
-                    selectedTerminalID: Binding(
-                        get: { store.selectedTerminalID },
-                        set: { store.selectTerminal($0) }
-                    ),
                     createWorkspace: createWorkspace,
-                    createTerminal: store.createTerminal,
+                    createTerminal: { store.createTerminal(in: workspace.id) },
                     reportTerminalViewport: store.reportTerminalViewport,
                     sendTerminalInput: store.sendTerminalRawInput,
                     safeAreaContext: safeAreaContext

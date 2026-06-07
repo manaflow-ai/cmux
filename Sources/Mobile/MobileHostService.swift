@@ -1225,6 +1225,7 @@ final class MobileHostService {
         case "mobile.terminal.create", "terminal.create":
             return nil
         case "mobile.terminal.input", "terminal.input",
+             "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",
              "mobile.terminal.scroll", "terminal.scroll":

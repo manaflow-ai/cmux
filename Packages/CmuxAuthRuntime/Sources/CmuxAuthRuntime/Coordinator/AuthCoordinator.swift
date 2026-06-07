@@ -78,7 +78,6 @@ public final class AuthCoordinator {
     private var debugCredentials: CMUXAuthAutoLoginCredentials?
     private var bootstrapTask: Task<Void, Never>?
     private var isRevalidatingSession = false
-    private var authStateRevision: UInt64 = 0
 
     /// Creates an auth coordinator.
     ///
@@ -240,7 +239,6 @@ public final class AuthCoordinator {
             sessionCache.setHasTokens(true)
             currentUser = fixtureUser
             isAuthenticated = true
-            bumpAuthStateRevision()
             return
         }
 
@@ -448,42 +446,47 @@ public final class AuthCoordinator {
     /// Sign out and clear local + persisted session state.
     ///
     /// - Parameter onSignedOut: An async hook the composition root uses to run
-    ///   sign-out teardown that still needs the current tokens (e.g. push
-    ///   unregistration) and lives above this package. Defaults to a no-op.
-    public func signOut(onSignedOut: @Sendable () async -> Void = {}) async {
-        var signOutError: (any Error)?
-        let revocationAccessToken = await client.accessToken()
-        let revocationRefreshToken = await client.refreshToken()
-        if launch.includesDevAuth { debugCredentials = nil }
-        clearAuthState()
-        let signOutRevision = authStateRevision
-        await onSignedOut()
-        guard authStateRevision == signOutRevision else {
-            authLog.info("Skipping stale sign-out token revocation after auth state changed")
-            return
+    ///   token-authenticated teardown (e.g. deleting the APNs device token from
+    ///   the server) that lives above this package. It runs **before** the Stack
+    ///   session is revoked and local state is cleared, so the hook still has a
+    ///   valid access/refresh token to authenticate its request. After
+    ///   `client.signOut()` the token is gone and a server-side DELETE would be
+    ///   silently skipped, leaving the device receiving pushes for a signed-out
+    ///   account. Defaults to a no-op.
+    /// - Parameter teardownTimeout: How long the structured teardown may run
+    ///   before it is cancelled so a slow call can't hold sign-out open. Injected
+    ///   as a duration (rather than a wall clock) so tests exercise the deadline
+    ///   path without real waiting. Defaults to 5 seconds.
+    public func signOut(
+        onSignedOut: @escaping @Sendable () async -> Void = {},
+        teardownTimeout: Duration = .seconds(5)
+    ) async {
+        // Run the token-authenticated teardown (the push-token DELETE) while the
+        // signing-out account's tokens are still valid, bounded so a slow call
+        // can't hold sign-out open indefinitely. The teardown is STRUCTURED: on
+        // deadline we cancel it and the task group still joins it before
+        // returning, so it can never outlive sign-out and rebuild its request
+        // from a later sign-in's credentials. The push DELETE runs on URLSession
+        // (cancellation-aware), so `cancelAll()` unblocks the join promptly;
+        // awaiting it inline also guarantees it reads this account's tokens,
+        // since no new sign-in can interleave before `signOut` returns.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await onSignedOut() }
+            group.addTask {
+                // Bounded, cancellable teardown deadline (carve-out); the loser
+                // is cancelled by `cancelAll()` once the first task finishes.
+                try? await Task.sleep(for: teardownTimeout)
+            }
+            await group.next()
+            group.cancelAll()
         }
         do {
-            try await signOutIfCurrent(
-                accessToken: revocationAccessToken,
-                refreshToken: revocationRefreshToken
-            )
+            try await client.signOut()
         } catch {
-            signOutError = error
             authLog.error("Sign-out failed: \(error.localizedDescription, privacy: .private)")
         }
-        if let signOutError {
-            recordAuthError(signOutError)
-        }
-    }
-
-    private func signOutIfCurrent(accessToken expectedAccessToken: String?, refreshToken expectedRefreshToken: String?) async throws {
-        let currentAccessToken = await client.accessToken()
-        let currentRefreshToken = await client.refreshToken()
-        guard currentAccessToken == expectedAccessToken,
-              currentRefreshToken == expectedRefreshToken else {
-            return
-        }
-        try await client.signOut()
+        if launch.includesDevAuth { debugCredentials = nil }
+        clearAuthState()
     }
 
     // MARK: - Tokens
@@ -611,7 +614,6 @@ public final class AuthCoordinator {
         lastAuthErrorDescription = nil
         saveCachedUser(user)
         sessionCache.setHasTokens(true)
-        bumpAuthStateRevision()
         await refreshTeams()
         await onSignedIn()
     }
@@ -657,7 +659,6 @@ public final class AuthCoordinator {
         currentUser = cachedUser
         isAuthenticated = cachedUser != nil
         isRestoringSession = false
-        bumpAuthStateRevision()
     }
 
     private func clearPersistedAuthForUITest() async {
@@ -692,11 +693,6 @@ public final class AuthCoordinator {
         currentUser = state.currentUser
         isAuthenticated = state.isAuthenticated
         isRestoringSession = state.isRestoringSession
-        bumpAuthStateRevision()
-    }
-
-    private func bumpAuthStateRevision() {
-        authStateRevision &+= 1
     }
 
     private func loadCachedUser() -> CMUXAuthUser? {

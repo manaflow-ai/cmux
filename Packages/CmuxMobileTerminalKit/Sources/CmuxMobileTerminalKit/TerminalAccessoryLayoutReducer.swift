@@ -12,10 +12,13 @@ public import Foundation
 /// identifiers of those actions, so it stays decoupled from the UIKit-gated
 /// `TerminalInputAccessoryAction` enum and is testable from `swift test`.
 ///
-/// Identifiers are the `rawValue`s of the configurable actions. The reducer
+/// Identifiers are opaque, `Hashable` values supplied by the caller. The reducer
 /// never invents identifiers: every value it returns is drawn from the
 /// `configurable` set it is constructed with, which the caller derives from the
-/// canonical enum order.
+/// canonical built-in order plus any user-defined custom actions. The bar's
+/// built-in shortcuts are keyed by their enum `rawValue` and custom actions by a
+/// stable UUID; ``ToolbarItemID`` unifies both behind one identifier, so the
+/// reducer is instantiated as `TerminalAccessoryLayoutReducer<ToolbarItemID>`.
 ///
 /// ```swift
 /// let reducer = TerminalAccessoryLayoutReducer(configurable: [0, 1, 2, 3])
@@ -25,11 +28,11 @@ public import Foundation
 /// layout = reducer.setEnabled(1, false, in: layout)
 /// // layout.visibleOrder == [2, 0, 3]
 /// ```
-public struct TerminalAccessoryLayoutReducer: Sendable {
-    /// The configurable action identifiers in canonical (enum) order. This is the
+public struct TerminalAccessoryLayoutReducer<ID: Hashable & Sendable>: Sendable {
+    /// The configurable action identifiers in canonical order. This is the
     /// complete valid set of identifiers the reducer will ever surface; every
     /// value it returns is drawn from here.
-    public let configurable: [Int]
+    public let configurable: [ID]
 
     /// The identifiers in their default on-bar arrangement, used on a fresh
     /// install and by ``defaultLayout()``, and as the tail order for forward-compat
@@ -38,26 +41,27 @@ public struct TerminalAccessoryLayoutReducer: Sendable {
     /// Always a permutation of ``configurable``: the init drops unknown ids and
     /// appends any configurable id the caller omitted, so a curated default
     /// arrangement can never make an action vanish from the bar.
-    public let defaultOrder: [Int]
+    public let defaultOrder: [ID]
 
-    private let configurableSet: Set<Int>
+    private let configurableSet: Set<ID>
 
     /// Creates a reducer over the given configurable action identifiers.
     ///
     /// - Parameters:
-    ///   - configurable: The `rawValue`s of every user-configurable action, in
-    ///     canonical (enum) order. This is the valid identifier set.
+    ///   - configurable: Every user-configurable action identifier, in canonical
+    ///     order (built-ins in enum order, then custom actions in their stored
+    ///     order). This is the valid identifier set.
     ///   - defaultOrder: The default on-bar arrangement of those identifiers. Pass
     ///     `nil` (the default) to arrange them in canonical order. Unknown ids are
     ///     dropped and any omitted configurable id is appended, so the resolved
     ///     ``defaultOrder`` is always a permutation of `configurable`.
-    public init(configurable: [Int], defaultOrder: [Int]? = nil) {
+    public init(configurable: [ID], defaultOrder: [ID]? = nil) {
         let configurableSet = Set(configurable)
         self.configurable = configurable
         self.configurableSet = configurableSet
 
-        var seen = Set<Int>()
-        var resolved: [Int] = []
+        var seen = Set<ID>()
+        var resolved: [ID] = []
         for identifier in defaultOrder ?? configurable
         where configurableSet.contains(identifier) && seen.insert(identifier).inserted {
             resolved.append(identifier)
@@ -71,23 +75,23 @@ public struct TerminalAccessoryLayoutReducer: Sendable {
     /// An immutable snapshot of the configurable region's state.
     public struct Layout: Equatable, Sendable {
         /// Every configurable identifier in the user's arranged order.
-        public let order: [Int]
+        public let order: [ID]
         /// The subset of ``order`` currently shown on the bar.
-        public let enabled: Set<Int>
+        public let enabled: Set<ID>
 
         /// Creates a layout snapshot.
         ///
         /// - Parameters:
         ///   - order: The configurable identifiers in display order.
         ///   - enabled: The identifiers currently shown.
-        public init(order: [Int], enabled: Set<Int>) {
+        public init(order: [ID], enabled: Set<ID>) {
             self.order = order
             self.enabled = enabled
         }
 
         /// The enabled identifiers in display order — exactly what the toolbar's
         /// configurable region renders, after the pinned leading buttons.
-        public var visibleOrder: [Int] {
+        public var visibleOrder: [ID] {
             order.filter { enabled.contains($0) }
         }
     }
@@ -104,7 +108,7 @@ public struct TerminalAccessoryLayoutReducer: Sendable {
     ///     the user hid every shortcut.
     /// - Returns: A normalized ``Layout`` containing exactly the configurable
     ///   identifiers.
-    public func load(savedOrder: [Int], savedEnabled: [Int]?) -> Layout {
+    public func load(savedOrder: [ID], savedEnabled: [ID]?) -> Layout {
         var order = savedOrder.filter { configurableSet.contains($0) }
         var seen = Set(order)
         for identifier in defaultOrder where !seen.contains(identifier) {
@@ -112,7 +116,7 @@ public struct TerminalAccessoryLayoutReducer: Sendable {
             seen.insert(identifier)
         }
 
-        let enabled: Set<Int>
+        let enabled: Set<ID>
         if let savedEnabled {
             enabled = Set(savedEnabled.filter { configurableSet.contains($0) })
         } else {
@@ -129,7 +133,7 @@ public struct TerminalAccessoryLayoutReducer: Sendable {
     ///   - isEnabled: `true` to show, `false` to hide.
     ///   - layout: The current layout.
     /// - Returns: The updated layout.
-    public func setEnabled(_ identifier: Int, _ isEnabled: Bool, in layout: Layout) -> Layout {
+    public func setEnabled(_ identifier: ID, _ isEnabled: Bool, in layout: Layout) -> Layout {
         guard configurableSet.contains(identifier) else { return layout }
         var enabled = layout.enabled
         if isEnabled { enabled.insert(identifier) } else { enabled.remove(identifier) }

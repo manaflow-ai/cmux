@@ -20,6 +20,11 @@ struct MobileSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
+    /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
+    /// update after the async enable/disable. The coordinator exposes
+    /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
+    /// directly in `body` would not re-render when it flips.
+    @State private var notificationsEnabled = false
     @State private var showingHostPicker = false
 
     var body: some View {
@@ -103,23 +108,25 @@ struct MobileSettingsView: View {
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Notifications")) {
                     Button {
                         Task {
-                            if pushCoordinator.isEnabled {
+                            if notificationsEnabled {
                                 await pushCoordinator.disable()
+                                notificationsEnabled = false
                             } else {
-                                _ = await pushCoordinator.enable()
+                                notificationsEnabled = await pushCoordinator.enable()
                             }
                         }
                     } label: {
                         Label(
-                            pushCoordinator.isEnabled
+                            notificationsEnabled
                                 ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Agent Notifications")
                                 : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me About Agents"),
-                            systemImage: pushCoordinator.isEnabled ? "bell.slash" : "bell"
+                            systemImage: notificationsEnabled ? "bell.slash" : "bell"
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsNotifications")
                 }
             }
+            .onAppear { notificationsEnabled = pushCoordinator.isEnabled }
             .navigationTitle(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
