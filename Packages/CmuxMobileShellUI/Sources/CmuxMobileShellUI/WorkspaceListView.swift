@@ -184,12 +184,18 @@ struct WorkspaceListView: View {
         }
     }
 
-    /// Whether any Mac is the active, reachable heavy session. New Workspace
-    /// creates over that live session, so the button no-ops without one (e.g. an
-    /// offline cold launch showing only grayed sections); disable it then so the
-    /// affordance is honest.
+    /// Whether New Workspace can create on a Mac the user is actually viewing.
+    ///
+    /// New Workspace creates over the active heavy session (always the active
+    /// Mac), so it requires an active + reachable Mac (disabled on an offline-only
+    /// shell). It also requires that active Mac to be visible under the current
+    /// device filter: when filtered to a different (e.g. offline) device, creating
+    /// on the hidden active Mac would silently add a workspace the user can't see,
+    /// so the button is disabled until they switch the filter to All or that Mac.
     private var canCreateWorkspace: Bool {
-        deviceSections.contains { $0.isActive && $0.isReachable }
+        deviceSections.contains { section in
+            section.isActive && section.isReachable && deviceFilter.matches(deviceID: section.deviceID)
+        }
     }
 
     private var newWorkspaceButton: some View {
