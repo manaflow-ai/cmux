@@ -2,11 +2,19 @@ import AppKit
 
 // MARK: - Explorer Visual Style
 
+/// A selectable visual theme for the file explorer. Each case bundles row metrics, fonts,
+/// icon treatment, selection chrome, and git-status colors so the whole tree can switch look
+/// from a single setting (persisted under `fileExplorer.style`). ``current`` reads that setting.
 enum FileExplorerStyle: Int, CaseIterable {
+    /// Translucent, roomy rows (the default macOS-native look).
     case liquidGlass = 0
+    /// Compact, Cursor-like rows with colorful type icons and git-status letter badges.
     case highDensity = 1
+    /// Monospaced, low-chrome rows tuned for a terminal aesthetic.
     case terminalStealth = 2
+    /// Large, bold rows with generous spacing.
     case proStudio = 3
+    /// Finder-style rows using the system file icons.
     case finder = 4
 
     var label: String {
@@ -162,6 +170,7 @@ enum FileExplorerStyle: Int, CaseIterable {
         }
     }
 
+    /// The text/badge color this style uses to convey a file's git `status`.
     func gitColor(for status: GitFileStatus) -> NSColor {
         switch self {
         case .liquidGlass:
