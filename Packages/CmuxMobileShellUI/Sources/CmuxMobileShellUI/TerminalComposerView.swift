@@ -67,6 +67,7 @@ struct TerminalComposerView: View {
             .lineLimit(1...8)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled(true)
+            .focused($isFieldFocused)
             .foregroundStyle(TerminalPalette.foreground)
             .padding(.horizontal, 14)
             .padding(.vertical, 9)

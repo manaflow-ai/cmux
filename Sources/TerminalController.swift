@@ -21415,12 +21415,17 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
         }
         // Resolve the optional submit key up front so an unsupported value fails
-        // before any text is pasted (no partial application).
+        // before any text is pasted (no partial application). The phone sends
+        // `return` as the default submit *intent*; the agent-aware upgrade to
+        // `ctrl+enter` happens below once the surface (and its agent context) is
+        // resolved, because only the Mac knows which agent is running.
         let submitKeyRaw = (v2String(params, "submit_key") ?? "return").lowercased()
-        let submitKeyName: String?
+        var submitKeyName: String?
+        var submitKeyWasReturnIntent = false
         switch submitKeyRaw {
         case "", "return", "enter":
             submitKeyName = "return"
+            submitKeyWasReturnIntent = true
         case "ctrl+enter":
             submitKeyName = "ctrl+enter"
         case "none":
@@ -21438,6 +21443,21 @@ class TerminalController {
               let surfaceId = resolved.surfaceId,
               let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+
+        // Mirror the macOS TextBox composer's submit-key selection
+        // (`TextBoxInput.dispatchEvents`): Claude Code needs `ctrl+enter` to
+        // submit a multi-line block, while plain `return` submits a newline mid
+        // prompt. The phone cannot know the running agent, so it always asks for
+        // `return`; upgrade that intent here when the surface is Claude and the
+        // composed text spans multiple lines. Explicit `ctrl+enter`/`none` from
+        // the client are honored as-is.
+        if submitKeyWasReturnIntent,
+           text.contains("\n") || text.contains("\r"),
+           TextBoxAgentDetection.isClaudeCode(
+               context: WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: resolved.workspace)
+           ) {
+            submitKeyName = "ctrl+enter"
         }
 
         applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
