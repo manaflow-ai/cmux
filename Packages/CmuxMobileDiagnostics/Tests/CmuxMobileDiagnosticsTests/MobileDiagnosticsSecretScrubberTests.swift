@@ -180,18 +180,22 @@ import Testing
         #expect(scrubber.scrub("ghp_abcdefghij0123456789abcdef").contains("<redacted>"))
         #expect(scrubber.scrub("github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz_abcdefghijklmno").contains("<redacted>"))
         #expect(!scrubber.scrub("github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz_abcdefghijklmno").contains("github_pat_"))
+        let gitLabToken = "glpat-" + "abcdefghijklmnopqrstuvwxyz0123456789"
+        let npmToken = "npm_" + "abcdefghijklmnopqrstuvwxyz0123456789"
         let slackTokenTail = ["111111111111", "222222222222", "abcdefghijklmnopqrstuvwxyz"].joined(separator: "-")
         let slackAppTokenTail = ["1", "A0123456789", "0123456789abcdef0123456789abcdef0123456789abcdef"].joined(separator: "-")
         let googleAPIKey = "AIza" + "abcdefghijklmnopqrstuvwxyz0123456789"
-        for slackToken in [
+        for providerToken in [
+            gitLabToken,
+            npmToken,
             "xoxb-" + slackTokenTail,
             "xoxp-" + slackTokenTail,
             "xapp-" + slackAppTokenTail,
             googleAPIKey,
         ] {
-            let out = scrubber.scrub(slackToken)
+            let out = scrubber.scrub(providerToken)
             #expect(out == "<redacted>")
-            #expect(!out.contains(slackToken))
+            #expect(!out.contains(providerToken))
         }
     }
 

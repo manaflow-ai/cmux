@@ -373,10 +373,11 @@ struct WorkspaceDetailView: View {
         let activeTicket = store.activeTicket
         let activePairedMac = store.activePairedMac
         let persistedActivePairedMac = store.pairedMacs.first { $0.isActive }
+        let effectiveIsAuthenticated = authManager.isAuthenticated || store.hasActiveUnexpiredAttachTicket
         return MobileDiagnosticsLiveState(
             connectionState: connectionStatus.label,
-            isSignedIn: store.isSignedIn,
-            isAuthenticated: authManager.isAuthenticated,
+            isSignedIn: store.isSignedIn && effectiveIsAuthenticated,
+            isAuthenticated: effectiveIsAuthenticated,
             lastAuthError: authManager.lastAuthErrorDescription,
             connectedHostName: host,
             pairedMacName: activeTicket?.macDisplayName
