@@ -23,7 +23,11 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         guard let tiffData = image.tiffRepresentation,
               let imageRep = NSBitmapImageRep(data: tiffData),
               let pngData = imageRep.representation(using: .png, properties: [:]) else {
-            throw XCTSkip("Could not generate PNG data for icon test.")
+            let message = "Could not generate PNG data for icon test."
+            XCTFail(message)
+            throw NSError(domain: "cmux.tests", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
         }
         return pngData
     }

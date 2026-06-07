@@ -427,6 +427,20 @@ check_port_scanner_fd_regression_fails_closed_on_ci() {
   echo "PASS: PortScanner FD leak regression fails closed on hosted CI"
 }
 
+check_cmux_config_icon_fixture_fails_closed() {
+  local file="$ROOT_DIR/cmuxTests/CmuxConfigContextMenuTests.swift"
+  if grep -Fq 'XCTSkip("Could not generate PNG data for icon test.")' "$file"; then
+    echo "FAIL: CmuxConfig context-menu icon tests must fail closed when their PNG fixture cannot be generated"
+    exit 1
+  fi
+  if ! grep -Fq 'XCTFail(message)' "$file"; then
+    echo "FAIL: CmuxConfig context-menu icon tests must report PNG fixture generation failures"
+    exit 1
+  fi
+
+  echo "PASS: CmuxConfig context-menu icon fixture failures fail closed"
+}
+
 check_no_swift_test_skip_quarantines() {
   if grep -R -n -E "swift[[:space:]]+test([^|;&]*[[:space:]])--skip([[:space:]]|=)" "$ROOT_DIR/.github/workflows"; then
     echo "FAIL: workflow Swift package tests must not hide coverage with swift test --skip quarantines"
@@ -1117,6 +1131,7 @@ check_release_build_signal
 check_no_xctest_quarantines
 check_no_debug_xctest_self_skips
 check_port_scanner_fd_regression_fails_closed_on_ci
+check_cmux_config_icon_fixture_fails_closed
 check_no_swift_test_skip_quarantines
 check_vm_socket_tests_do_not_skip_ctrl_interactive
 check_vm_socket_tests_do_not_self_skip
