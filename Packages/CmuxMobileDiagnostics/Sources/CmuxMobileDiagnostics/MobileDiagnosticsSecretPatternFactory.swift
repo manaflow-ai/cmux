@@ -8,8 +8,30 @@ struct MobileDiagnosticsSecretPatternFactory {
     func makePatterns() -> [(regex: NSRegularExpression, valueGroup: Int)] {
         // Base64url alphabet used by JWTs and most opaque tokens.
         let b64url = "[A-Za-z0-9_-]"
-        let separatedSecretKey = "(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|auth|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)"
-        let camelSecretKey = "(?:[A-Za-z0-9]+)?(?:accessToken|refreshToken|apiKey|authToken|attachToken|clientSecret)"
+        let stackSecretKey = "stack[_-]?(?:access|refresh)(?:[_-]?token)?|x[_-]stack[_-](?:access|refresh)[_-]token"
+        let separatedSecretNames = [
+            "access[_-]?token",
+            "refresh[_-]?token",
+            "api[_-]?key",
+            "auth[_-]?token",
+            "auth",
+            "token",
+            "password",
+            "passwd",
+            "secret",
+            "client[_-]?secret",
+            stackSecretKey,
+        ].joined(separator: "|")
+        let camelSecretNames = [
+            "accessToken",
+            "refreshToken",
+            "apiKey",
+            "authToken",
+            "attachToken",
+            "clientSecret",
+        ].joined(separator: "|")
+        let separatedSecretKey = "(?:[A-Za-z0-9]+[_-])*(?:\(separatedSecretNames))"
+        let camelSecretKey = "(?:[A-Za-z0-9]+)?(?:\(camelSecretNames))|stack(?:Access|Refresh)(?:Token)?"
         let secretKey = "(?:\(separatedSecretKey)|\(camelSecretKey))"
         let raw: [(String, Int)] = [
             // PEM private-key blocks from terminal output (`OPENSSH PRIVATE KEY`,
@@ -25,6 +47,12 @@ struct MobileDiagnosticsSecretPatternFactory {
             // Authorization header schemes. Redact the header value through the
             // end of the line so Digest-style parameters do not leak either.
             ("(?i)(\\b(?:Proxy-)?Authorization\\s*:\\s*(?:Basic|Digest|Negotiate|NTLM|AWS4-HMAC-SHA256)\\s+)([^\\r\\n]{4,})",
+             2),
+
+            // Stack-specific auth headers used by the web/API bridge. Redact the
+            // whole value, including an optional Bearer prefix, before the generic
+            // key/value rule sees `Bearer` as the value.
+            ("(?i)(\\bx[_-]stack[_-](?:access|refresh)[_-]token\\s*[:=]\\s*)((?:Bearer\\s+)?[^\\s,;)]+)",
              2),
 
             // cmux attach/pairing URLs carry base64url JSON payloads. Attach

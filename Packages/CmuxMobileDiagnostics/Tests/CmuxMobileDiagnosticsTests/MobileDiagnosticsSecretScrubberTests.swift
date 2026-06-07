@@ -59,6 +59,8 @@ import Testing
             (#"{"authToken":"opaque-auth-token-1234"}"#, #"{"authToken":"<redacted>"}"#, "auth-token"),
             (#"{"refreshToken":"opaque-refresh-token-5678"}"#, #"{"refreshToken":"<redacted>"}"#, "refresh-token"),
             (#"{"stackAccessToken":"opaque-stack-token-1234"}"#, #"{"stackAccessToken":"<redacted>"}"#, "stack-token"),
+            (#"{"stack_access":"opaque-stack-access-1234"}"#, #"{"stack_access":"<redacted>"}"#, "stack-access"),
+            (#"{"stack_refresh":"opaque-stack-refresh-1234"}"#, #"{"stack_refresh":"<redacted>"}"#, "stack-refresh"),
             (#"{"password":"hunter2longvalue"}"#, #"{"password":"<redacted>"}"#, "hunter2longvalue"),
             (#"{"auth":"opaque-secret-123"}"#, #"{"auth":"<redacted>"}"#, "opaque-secret"),
             ("{'client_secret': 'oauth secret value'}", "{'client_secret': '<redacted>'}", "oauth secret"),
@@ -78,6 +80,8 @@ import Testing
             ("authToken='opaque-auth-token-1234'", "authToken='<redacted>'", "auth-token"),
             ("stackAccessToken=opaque-stack-token-1234", "stackAccessToken=<redacted>", "stack-token"),
             ("attachToken=\"opaque-attach-token-1234\"", "attachToken=\"<redacted>\"", "attach-token"),
+            ("stackAccess=opaque-stack-access-1234", "stackAccess=<redacted>", "stack-access"),
+            ("stackRefresh=opaque-stack-refresh-1234", "stackRefresh=<redacted>", "stack-refresh"),
         ]
 
         for (sample, expected, leakedFragment) in samples {
@@ -139,6 +143,24 @@ import Testing
         let scrubbedAuthURL = scrubber.scrub(authURL)
         #expect(scrubbedAuthURL.contains("auth=<redacted>"))
         #expect(!scrubbedAuthURL.contains("opaque-secret-123"))
+    }
+
+    @Test func redactsStackAuthCallbackAndHeaderSecrets() {
+        let callback = "cmux-dev://auth-callback?stack_refresh=refresh-secret-1234&stack_access=access-secret-5678"
+        let scrubbedCallback = scrubber.scrub(callback)
+        #expect(scrubbedCallback.contains("stack_refresh=<redacted>"))
+        #expect(scrubbedCallback.contains("stack_access=<redacted>"))
+        #expect(!scrubbedCallback.contains("refresh-secret"))
+        #expect(!scrubbedCallback.contains("access-secret"))
+
+        let accessHeader = "x-stack-access-token: Bearer stack-access-secret-1234"
+        let refreshHeader = "x-stack-refresh-token=stack-refresh-secret-1234"
+        let scrubbedAccessHeader = scrubber.scrub(accessHeader)
+        let scrubbedRefreshHeader = scrubber.scrub(refreshHeader)
+        #expect(scrubbedAccessHeader == "x-stack-access-token: <redacted>")
+        #expect(scrubbedRefreshHeader == "x-stack-refresh-token=<redacted>")
+        #expect(!scrubbedAccessHeader.contains("stack-access-secret"))
+        #expect(!scrubbedRefreshHeader.contains("stack-refresh-secret"))
     }
 
     @Test func redactsProviderPrefixedKeys() {
