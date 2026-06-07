@@ -285,6 +285,49 @@ import Testing
         #expect(remaining.isEmpty)
     }
 
+    @Test func rescanQRForgetsPersistedPairedMacWhenManualTicketIsActive() async throws {
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: CmxMobileDefaults.defaultHostPort
+        )
+        let pairedMac = MobilePairedMac(
+            macDeviceID: "mac-offline",
+            displayName: "Studio Offline",
+            routes: [route],
+            createdAt: Date(timeIntervalSince1970: 1),
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            isActive: true,
+            stackUserID: "user-1"
+        )
+        let pairedMacStore = PreviewPairedMacStore(activeMac: pairedMac)
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: PreviewIdentityProvider(userID: "user-1")
+        )
+        await store.loadPairedMacs()
+        #expect(store.pairedMacs.first?.macDeviceID == "mac-offline")
+
+        let manualTicket = try CmxAttachTicket(
+            workspaceID: "manual-workspace",
+            terminalID: nil,
+            macDeviceID: "manual-127.0.0.1:\(CmxMobileDefaults.defaultHostPort)",
+            macDisplayName: "Manual Host",
+            routes: [route],
+            expiresAt: Date(timeIntervalSinceNow: 300)
+        )
+        store.pairingCode = try attachURL(for: manualTicket)
+        await store.connectPairingInput()
+        #expect(store.activeTicket?.macDeviceID.hasPrefix("manual-") == true)
+
+        let forgetTask = store.disconnectAndForgetActiveMac()
+        await forgetTask?.value
+
+        let remaining = try await pairedMacStore.loadAll(stackUserID: "user-1")
+        #expect(remaining.isEmpty)
+    }
+
     @Test func pairingURLPublishesActivePairedMacForDiagnostics() async throws {
         let route = try hostPortRoute(
             kind: .debugLoopback,

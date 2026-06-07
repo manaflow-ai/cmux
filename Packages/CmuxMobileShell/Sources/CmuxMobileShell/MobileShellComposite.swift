@@ -949,9 +949,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// "Rescan QR" action.
     @discardableResult
     public func disconnectAndForgetActiveMac() -> Task<Void, Never>? {
-        let staleMacID = activeTicket?.macDeviceID
-            ?? activePairedMac?.macDeviceID
+        let ticketMacID = activeTicket?.macDeviceID
+        let staleMacID = activePairedMac?.macDeviceID
             ?? pairedMacs.first(where: { $0.isActive })?.macDeviceID
+            ?? pairedMacs.first(where: { $0.macDeviceID == ticketMacID })?.macDeviceID
         disconnectLiveConnection()
         guard let pairedMacStore, let macID = staleMacID else { return nil }
         // Fire-and-forget: forgetting the persisted mac is cleanup that must
