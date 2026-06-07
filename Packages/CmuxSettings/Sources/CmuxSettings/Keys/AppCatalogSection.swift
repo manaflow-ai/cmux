@@ -172,6 +172,15 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "workspaceTitlebarVisible"
     )
 
+    /// Visibility of the global workspace status bar — the bottom bar showing
+    /// the focused panel's Git branch, working directory, and workspace/tab
+    /// name. Defaults to `true`.
+    public let showWorkspaceStatusBar = DefaultsKey<Bool>(
+        id: "app.showWorkspaceStatusBar",
+        defaultValue: true,
+        userDefaultsKey: "showWorkspaceStatusBar"
+    )
+
     public let systemWideHotkeyEnabled = DefaultsKey<Bool>(
         id: "app.systemWideHotkeyEnabled",
         defaultValue: false,
