@@ -138,6 +138,11 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.requestedWorkingDirectory
     }
 
+    var randomizedPanelBackgroundHex: String? {
+        get { surface.randomizedPanelBackgroundHex }
+        set { surface.randomizedPanelBackgroundHex = newValue }
+    }
+
     init(workspaceId: UUID, surface: TerminalSurface) {
         self.id = surface.id
         self.workspaceId = workspaceId

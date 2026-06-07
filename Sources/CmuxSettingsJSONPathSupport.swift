@@ -128,6 +128,7 @@ extension CmuxSettingsFileStore {
         "workspaceColors.indicatorStyle",
         "workspaceColors.selectionColor",
         "workspaceColors.notificationBadgeColor",
+        "workspaceColors.randomizeTerminalPanelBackgrounds",
         "workspaceColors.colors",
         "workspaceColors.paletteOverrides",
         "workspaceColors.customColors",

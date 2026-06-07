@@ -736,6 +736,9 @@ final class CmuxSettingsFileStore {
             ) else { return }
             snapshot.managedUserDefaults["sidebarNotificationBadgeColorHex"] = .nullableString(value)
         }
+        if let value = jsonBool(section["randomizeTerminalPanelBackgrounds"]) {
+            snapshot.managedUserDefaults[RandomTerminalPanelBackgroundSettings.enabledKey] = .bool(value)
+        }
         if section.keys.contains("colors") {
             guard let rawColors = section["colors"] as? [String: Any] else {
                 logInvalid("workspaceColors.colors", sourcePath: sourcePath)

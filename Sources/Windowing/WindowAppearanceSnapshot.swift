@@ -119,6 +119,9 @@ struct TerminalSurfaceBackgroundFillPlan {
     /// Whether a host-layer fill must subtract itself from the shared window backdrop.
     let clearsSharedWindowBackdrop: Bool
 
+    /// Debug-log source label for the selected background fill.
+    let logSource: String
+
     /// Whether the terminal host layer should paint a non-clear fill.
     var usesHostLayerFill: Bool {
         owner == .surfaceHostLayer
@@ -138,20 +141,6 @@ struct TerminalSurfaceBackgroundFillPlan {
         }
     }
 
-    /// Returns the debug-log source label for the selected owner.
-    func logSource(hasSurfaceOverride: Bool) -> String {
-        switch owner {
-        case .surfaceHostLayer:
-            return hasSurfaceOverride ? "surfaceOverride" : "defaultBackground"
-        case .sharedWindowBackdrop:
-            return "sharedWindowBackdrop"
-        case .bonsplitPaneBackdrop:
-            return "bonsplitPaneBackdrop"
-        case .ghosttyNativeRenderer:
-            return "ghosttyNativeBackground"
-        }
-    }
-
     /// Computes the terminal background owner and host-layer color for current appearance state.
     static func resolve(
         renderingMode: GhosttyTerminalBackdropRenderingMode,
@@ -161,10 +150,32 @@ struct TerminalSurfaceBackgroundFillPlan {
         sharesWindowBackdrop: Bool,
         usesBonsplitPaneBackdrop: Bool
     ) -> Self {
-        let resolvedColor = (surfaceBackgroundColor ?? defaultBackgroundColor)
+        resolve(
+            renderingMode: renderingMode,
+            explicitSurfaceBackgroundColor: surfaceBackgroundColor,
+            randomizedPanelBackgroundColor: nil,
+            defaultBackgroundColor: defaultBackgroundColor,
+            backgroundOpacity: backgroundOpacity,
+            sharesWindowBackdrop: sharesWindowBackdrop,
+            usesBonsplitPaneBackdrop: usesBonsplitPaneBackdrop
+        )
+    }
+
+    /// Computes the terminal background owner and host-layer color for current appearance state.
+    static func resolve(
+        renderingMode: GhosttyTerminalBackdropRenderingMode,
+        explicitSurfaceBackgroundColor: NSColor?,
+        randomizedPanelBackgroundColor: NSColor?,
+        defaultBackgroundColor: NSColor,
+        backgroundOpacity: Double,
+        sharesWindowBackdrop: Bool,
+        usesBonsplitPaneBackdrop: Bool
+    ) -> Self {
+        let effectiveSurfaceBackgroundColor = explicitSurfaceBackgroundColor ?? randomizedPanelBackgroundColor
+        let resolvedColor = (effectiveSurfaceBackgroundColor ?? defaultBackgroundColor)
             .withAlphaComponent(WindowAppearanceSnapshot.clampedOpacity(backgroundOpacity))
         let owner: TerminalSurfaceBackgroundFillOwner
-        let usesPaneLocalSurfaceFill = surfaceBackgroundColor != nil &&
+        let usesPaneLocalSurfaceFill = effectiveSurfaceBackgroundColor != nil &&
             renderingMode.usesWindowHostBackdrop &&
             !usesBonsplitPaneBackdrop
         if !renderingMode.usesWindowHostBackdrop {
@@ -181,8 +192,36 @@ struct TerminalSurfaceBackgroundFillPlan {
         return Self(
             owner: owner,
             hostLayerColor: owner == .surfaceHostLayer ? resolvedColor : .clear,
-            clearsSharedWindowBackdrop: usesPaneLocalSurfaceFill && sharesWindowBackdrop
+            clearsSharedWindowBackdrop: usesPaneLocalSurfaceFill && sharesWindowBackdrop,
+            logSource: logSource(
+                owner: owner,
+                explicitSurfaceBackgroundColor: explicitSurfaceBackgroundColor,
+                randomizedPanelBackgroundColor: randomizedPanelBackgroundColor
+            )
         )
+    }
+
+    private static func logSource(
+        owner: TerminalSurfaceBackgroundFillOwner,
+        explicitSurfaceBackgroundColor: NSColor?,
+        randomizedPanelBackgroundColor: NSColor?
+    ) -> String {
+        switch owner {
+        case .surfaceHostLayer:
+            if explicitSurfaceBackgroundColor != nil {
+                return "surfaceOverride"
+            }
+            if randomizedPanelBackgroundColor != nil {
+                return "randomizedPanelBackground"
+            }
+            return "defaultBackground"
+        case .sharedWindowBackdrop:
+            return "sharedWindowBackdrop"
+        case .bonsplitPaneBackdrop:
+            return "bonsplitPaneBackdrop"
+        case .ghosttyNativeRenderer:
+            return "ghosttyNativeBackground"
+        }
     }
 }
 

@@ -698,6 +698,61 @@ enum WorkspaceTabColorSettings {
     }
 }
 
+enum RandomTerminalPanelBackgroundSettings {
+    static let enabledKey = "workspaceColors.randomizeTerminalPanelBackgrounds"
+    static let defaultEnabled = false
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
+    }
+
+    static func assignedHex(
+        surfaceId: UUID,
+        existingHex: String?,
+        defaults: UserDefaults = .standard
+    ) -> String? {
+        if let normalizedExistingHex = normalizedStoredHex(existingHex) {
+            return normalizedExistingHex
+        }
+
+        guard isEnabled(defaults: defaults) else { return nil }
+        let palette = WorkspaceTabColorSettings.palette(defaults: defaults)
+            .compactMap { WorkspaceTabColorSettings.normalizedHex($0.hex) }
+        guard !palette.isEmpty else { return nil }
+
+        let index = stablePaletteIndex(surfaceId: surfaceId, count: palette.count)
+        return palette[index]
+    }
+
+    static func normalizedStoredHex(_ rawHex: String?) -> String? {
+        guard let rawHex else { return nil }
+        return WorkspaceTabColorSettings.normalizedHex(rawHex)
+    }
+
+    static func terminalBackgroundColor(
+        storedHex: String?,
+        defaultBackgroundColor: NSColor,
+        defaults: UserDefaults = .standard
+    ) -> NSColor? {
+        guard isEnabled(defaults: defaults) else { return nil }
+        guard let normalizedHex = normalizedStoredHex(storedHex),
+              let paletteColor = NSColor(hex: normalizedHex) else {
+            return nil
+        }
+
+        let readableScheme = cmuxReadableColorScheme(for: defaultBackgroundColor)
+        let mixFraction: CGFloat = readableScheme == .light ? 0.86 : 0.78
+        return paletteColor.blended(withFraction: mixFraction, of: defaultBackgroundColor) ?? paletteColor
+    }
+
+    private static func stablePaletteIndex(surfaceId: UUID, count: Int) -> Int {
+        let hash = surfaceId.uuidString.unicodeScalars.reduce(UInt64(14_695_981_039_346_656_037)) { value, scalar in
+            (value ^ UInt64(scalar.value)) &* 1_099_511_628_211
+        }
+        return Int(hash % UInt64(count))
+    }
+}
+
 /// Coalesces repeated main-thread signals into one callback after a short delay.
 /// Useful for notification storms where only the latest update matters.
 final class NotificationBurstCoalescer {

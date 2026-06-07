@@ -5428,6 +5428,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let initialEnvironmentOverrides: [String: String]
     var requestedWorkingDirectory: String? { workingDirectory }
     let focusPlacement: TerminalSurfaceFocusPlacement
+    private var storedRandomizedPanelBackgroundHex: String?
     private var additionalEnvironment: [String: String]
     var respawnInitialEnvironmentOverrides: [String: String] {
         initialEnvironmentOverrides
@@ -5470,6 +5471,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// surface. The Mac sync server reads the tee'd bytes to broadcast
     /// raw PTY output to paired iPhones (`MobileTerminalByteTee`).
     private var mobileByteTeeContext: Unmanaged<MobileTerminalByteTeeUserdata>?
+    private var randomPanelBackgroundSettingsObserver: NSObjectProtocol?
+    private var lastRandomPanelBackgroundsEnabled = RandomTerminalPanelBackgroundSettings.isEnabled()
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
     /// reapplies this value once the runtime surface exists, then keeps using it
@@ -5544,6 +5547,54 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var lastSearchNeedle = ""
     private var searchNeedleCancellable: AnyCancellable?
     var currentKeyStateIndicatorText: String? { surfaceView.currentKeyStateIndicatorText }
+
+    var randomizedPanelBackgroundHex: String? {
+        get { storedRandomizedPanelBackgroundHex }
+        set {
+            let normalizedHex = RandomTerminalPanelBackgroundSettings.normalizedStoredHex(newValue)
+            guard storedRandomizedPanelBackgroundHex != normalizedHex else { return }
+            storedRandomizedPanelBackgroundHex = normalizedHex
+            surfaceView.applySurfaceBackground()
+            surfaceView.applyWindowBackgroundIfActive()
+        }
+    }
+
+    func randomizedPanelBackgroundColor(defaultBackgroundColor: NSColor) -> NSColor? {
+        RandomTerminalPanelBackgroundSettings.terminalBackgroundColor(
+            storedHex: storedRandomizedPanelBackgroundHex,
+            defaultBackgroundColor: defaultBackgroundColor
+        )
+    }
+
+    private func installRandomPanelBackgroundSettingsObserver() {
+        randomPanelBackgroundSettingsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshRandomizedPanelBackgroundForCurrentSettings()
+        }
+    }
+
+    private func refreshRandomizedPanelBackgroundForCurrentSettings() {
+        let isEnabled = RandomTerminalPanelBackgroundSettings.isEnabled()
+        let shouldAssignMissingColor = isEnabled && storedRandomizedPanelBackgroundHex == nil
+        let didToggle = isEnabled != lastRandomPanelBackgroundsEnabled
+        guard shouldAssignMissingColor || didToggle else { return }
+        lastRandomPanelBackgroundsEnabled = isEnabled
+
+        if shouldAssignMissingColor,
+           let assignedHex = RandomTerminalPanelBackgroundSettings.assignedHex(
+                surfaceId: id,
+                existingHex: nil
+           ) {
+            randomizedPanelBackgroundHex = assignedHex
+            return
+        }
+
+        surfaceView.applySurfaceBackground()
+        surfaceView.applyWindowBackgroundIfActive()
+    }
 
     private static func cmuxContextEnvironment(
         workspaceId: UUID,
@@ -5625,6 +5676,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
         TerminalSurfaceRegistry.shared.register(self)
         self.hostedView.attachSurface(self)
+        installRandomPanelBackgroundSettingsObserver()
 
         let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let inheritedInput = configTemplate?.initialInput
@@ -8117,6 +8169,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     deinit {
         claudeCommandShimInstallTask?.cancel()
+        if let randomPanelBackgroundSettingsObserver {
+            NotificationCenter.default.removeObserver(randomPanelBackgroundSettingsObserver)
+        }
         TerminalSurfaceRegistry.shared.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         closeHeadlessStartupWindowIfNeeded()
@@ -8499,6 +8554,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return base.withAlphaComponent(opacity)
     }
 
+    private func randomizedPanelBackgroundColor() -> NSColor? {
+        terminalSurface?.randomizedPanelBackgroundColor(
+            defaultBackgroundColor: GhosttyApp.shared.defaultBackgroundColor
+        )
+    }
+
     func applySurfaceBackground() {
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
@@ -8508,9 +8569,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             renderingMode: renderingMode,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
+        let randomizedBackgroundColor = randomizedPanelBackgroundColor()
         let fillPlan = TerminalSurfaceBackgroundFillPlan.resolve(
             renderingMode: renderingMode,
-            surfaceBackgroundColor: backgroundColor,
+            explicitSurfaceBackgroundColor: backgroundColor,
+            randomizedPanelBackgroundColor: randomizedBackgroundColor,
             defaultBackgroundColor: GhosttyApp.shared.defaultBackgroundColor,
             backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
@@ -8534,11 +8597,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let signature = "\(fillPlan.usesHostLayerFill ? color.hexString() : "transparent-host"):\(String(format: "%.3f", color.alphaComponent)):\(fillPlan.logBackdropLabel)"
             if signature != lastLoggedSurfaceBackgroundSignature {
                 lastLoggedSurfaceBackgroundSignature = signature
-                let hasOverride = backgroundColor != nil
                 let overrideHex = backgroundColor?.hexString() ?? "nil"
+                let randomHex = randomizedBackgroundColor?.hexString() ?? "nil"
                 let defaultHex = GhosttyApp.shared.defaultBackgroundColor.hexString()
                 GhosttyApp.shared.logBackground(
-                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(fillPlan.logSource(hasSurfaceOverride: hasOverride)) override=\(overrideHex) default=\(defaultHex) sharedWindowBackdrop=\(sharesWindowBackdrop ? 1 : 0) bonsplitPaneBackdrop=\(usesBonsplitPaneBackdrop ? 1 : 0) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
+                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(fillPlan.logSource) override=\(overrideHex) random=\(randomHex) default=\(defaultHex) sharedWindowBackdrop=\(sharesWindowBackdrop ? 1 : 0) bonsplitPaneBackdrop=\(usesBonsplitPaneBackdrop ? 1 : 0) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
                 )
             }
         }

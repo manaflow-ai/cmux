@@ -736,6 +736,11 @@
           "default": null,
           "description": "Override the unread notification badge color."
         },
+        "randomizeTerminalPanelBackgrounds": {
+          "type": "boolean",
+          "default": false,
+          "description": "Assign a stable workspace palette color to each terminal panel background. Explicit terminal background changes still take priority."
+        },
         "colors": {
           "type": "object",
           "description": "Full named workspace color palette. Include built-in entries you want to keep, remove keys to remove colors, and add more named entries to extend the picker.",

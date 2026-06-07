@@ -611,6 +611,7 @@ extension Workspace {
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
+                randomizedPanelBackgroundHex: terminalPanel.randomizedPanelBackgroundHex,
                 wasAgentRunning: agentWasRunning
             )
             browserSnapshot = nil
@@ -1837,6 +1838,7 @@ extension Workspace {
                 clearRestoredAgentSnapshot(panelId: terminalPanel.id)
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
             }
+            terminalPanel.randomizedPanelBackgroundHex = snapshot.terminal?.randomizedPanelBackgroundHex
             terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
@@ -11479,7 +11481,15 @@ final class Workspace: Identifiable, ObservableObject {
         } else if TerminalTextBoxInputSettings.showOnNewTerminals() {
             terminalPanel.showTextBoxInputWhenAvailable()
         }
+        assignRandomizedPanelBackgroundIfNeeded(to: terminalPanel)
         configureTerminalPanel(terminalPanel)
+    }
+
+    private func assignRandomizedPanelBackgroundIfNeeded(to terminalPanel: TerminalPanel) {
+        terminalPanel.randomizedPanelBackgroundHex = RandomTerminalPanelBackgroundSettings.assignedHex(
+            surfaceId: terminalPanel.id,
+            existingHex: terminalPanel.randomizedPanelBackgroundHex
+        )
     }
 
     private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {

@@ -215,8 +215,9 @@ final class SessionPersistenceTests: XCTestCase {
         )
 
         let restored = Workspace()
-        restored.restoreSessionSnapshot(snapshot)
-        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: panelId))
+        let restoredIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restoredIds[panelId])
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
 
         XCTAssertEqual(restoredPanel.randomizedPanelBackgroundHex, "#654321")
     }

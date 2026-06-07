@@ -2913,6 +2913,8 @@ private struct SidebarDebugView: View {
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
+    @AppStorage(RandomTerminalPanelBackgroundSettings.enabledKey)
+    private var randomizeTerminalPanelBackgrounds = RandomTerminalPanelBackgroundSettings.defaultEnabled
 
     private var selectedSidebarIndicatorStyle: SidebarActiveTabIndicatorStyle {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
@@ -3037,6 +3039,20 @@ private struct SidebarDebugView: View {
                     .padding(.top, 2)
                 }
 
+                GroupBox(String(localized: "settings.workspaceColors.terminalPanelBackgrounds", defaultValue: "Terminal Panel Backgrounds")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(
+                            String(localized: "settings.workspaceColors.randomizeTerminalPanelBackgrounds", defaultValue: "Randomize Terminal Panel Backgrounds"),
+                            isOn: $randomizeTerminalPanelBackgrounds
+                        )
+                        Text(String(localized: "settings.workspaceColors.randomizeTerminalPanelBackgrounds.help", defaultValue: "Assign a stable palette color to each terminal panel. Explicit terminal background changes still take priority."))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 2)
+                }
+                .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .workspaceColors, idSuffix: "random-panel-backgrounds"))
+
                 GroupBox("Workspace Metadata") {
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle("Render branch list vertically", isOn: $sidebarBranchVerticalLayout)
@@ -3108,6 +3124,7 @@ private struct SidebarDebugView: View {
         sidebarBranchDirectoryStacked=\(sidebarBranchDirectoryStacked)
         sidebarPathLastSegmentOnly=\(sidebarPathLastSegmentOnly)
         sidebarActiveTabIndicatorStyle=\(sidebarActiveTabIndicatorStyle)
+        randomizeTerminalPanelBackgrounds=\(randomizeTerminalPanelBackgrounds)
         sidebarDevBuildBannerVisible=\(showSidebarDevBuildBanner)
         """
         let pasteboard = NSPasteboard.general
