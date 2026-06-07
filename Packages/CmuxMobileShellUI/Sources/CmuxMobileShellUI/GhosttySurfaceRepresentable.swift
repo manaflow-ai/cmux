@@ -16,6 +16,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let surfaceID: String
     let store: CMUXMobileShellStore
     let fontSize: Float32
+    let autoFocusOnWindowAttach: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(surfaceID: surfaceID, store: store)
@@ -38,6 +39,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             delegate: context.coordinator,
             fontSize: fontSize
         )
+        view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         context.coordinator.attach(surfaceView: view)
         return view
     }

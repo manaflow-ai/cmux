@@ -63,7 +63,8 @@ struct WorkspaceDetailView: View {
                 GhosttySurfaceRepresentable(
                     surfaceID: terminalID,
                     store: store,
-                    fontSize: MobileTerminalFontPreference.defaultSize
+                    fontSize: MobileTerminalFontPreference.defaultSize,
+                    autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -72,6 +73,9 @@ struct WorkspaceDetailView: View {
                 // Keying on terminalID tears down the old surface (unregistering its
                 // sink via dismantleUIView) and builds the newly-selected one.
                 .id(terminalID)
+                .onAppear {
+                    store.consumeTerminalAutoFocusSuppression(for: terminalID)
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(TerminalPalette.background)
                 // The surface positions its grid + docked toolbar from
@@ -580,6 +584,7 @@ struct WorkspaceDetailView: View {
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
         isTerminalPickerPresented = false
+        store.selectTerminalFromChrome(terminalID)
         selectedTerminalID = terminalID
     }
 

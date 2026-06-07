@@ -122,6 +122,24 @@ import Testing
         #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
     }
 
+    @Test func chromeTerminalSelectionSuppressesNextSurfaceAutofocusOnly() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        store.selectTerminal("terminal-agent")
+        #expect(store.shouldAutoFocusTerminalSurface("terminal-agent"))
+
+        store.selectTerminalFromChrome("terminal-agent")
+
+        #expect(store.selectedTerminalID?.rawValue == "terminal-agent")
+        #expect(!store.shouldAutoFocusTerminalSurface("terminal-agent"))
+
+        store.consumeTerminalAutoFocusSuppression(for: "terminal-agent")
+        #expect(store.shouldAutoFocusTerminalSurface("terminal-agent"))
+    }
+
     @Test func activeMacReconnectRouteSkipsUnsupportedLoopbackRoute() throws {
         let loopback = try hostPortRoute(
             kind: .debugLoopback,

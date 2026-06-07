@@ -168,6 +168,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalReplaySurfaceIDsInFlight: Set<String>
+    private var terminalAutoFocusSuppressionIDs: Set<MobileTerminalPreview.ID>
     private var terminalOutputTransport: TerminalOutputTransport
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
@@ -289,6 +290,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
         self.terminalReplaySurfaceIDsInFlight = []
+        self.terminalAutoFocusSuppressionIDs = []
         self.terminalOutputTransport = .rawBytes
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
@@ -1107,6 +1109,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     public func selectTerminal(_ id: MobileTerminalPreview.ID?) {
         selectedTerminalID = id
+    }
+
+    public func selectTerminalFromChrome(_ id: MobileTerminalPreview.ID?) {
+        if let id {
+            terminalAutoFocusSuppressionIDs.insert(id)
+        }
+        selectedTerminalID = id
+    }
+
+    public func shouldAutoFocusTerminalSurface(_ surfaceID: String) -> Bool {
+        !terminalAutoFocusSuppressionIDs.contains(MobileTerminalPreview.ID(rawValue: surfaceID))
+    }
+
+    public func consumeTerminalAutoFocusSuppression(for surfaceID: String) {
+        terminalAutoFocusSuppressionIDs.remove(MobileTerminalPreview.ID(rawValue: surfaceID))
     }
 
     public func reportTerminalViewport(
