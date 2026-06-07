@@ -1057,7 +1057,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
-    private var processDetectedSessionSaveGeneration: UInt64 = 0
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -1906,7 +1905,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !isTerminatingApp else { return }
         clearConfiguredShortcutChordState()
         if Self.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: isTerminatingApp) {
-            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
+            _ = saveSessionSnapshotUsingCachedResumeMetadata(includeScrollback: false)
         }
     }
 
@@ -3177,8 +3176,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isApplyingSessionRestore = false
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             // Auto-resume input can be queued before tmux has spawned; preserve
-            // restored process-detected bindings until a later live scan.
-            _ = saveSessionSnapshot(includeScrollback: false)
+            // restored process-detected bindings without triggering a live scan.
+            _ = saveSessionSnapshotUsingCachedResumeMetadata(includeScrollback: false)
         }
     }
 
@@ -3674,7 +3673,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                     ClosedItemHistoryStore.shared.flushPendingSaves()
                 } else {
-                    self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
+                    _ = self.saveSessionSnapshotUsingCachedResumeMetadata(includeScrollback: false)
                 }
             }
         }
@@ -3773,7 +3772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func sessionAutosaveFingerprint(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     ) -> Int? {
         guard !includeScrollback else { return nil }
 
@@ -3997,11 +3996,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         sessionAutosaveTickInFlight = true
-        let generation = nextProcessDetectedSessionSaveGeneration()
-        Task { @MainActor in await self.finishSessionAutosaveTick(source: source, generation: generation) }
+        Task { @MainActor in await self.finishSessionAutosaveTick(source: source) }
     }
 
-    private func finishSessionAutosaveTick(source: String, generation: UInt64) async {
+    private func finishSessionAutosaveTick(source: String) async {
 #if DEBUG
         let timingStart = CmuxTypingTiming.start()
         let phaseStart = ProcessInfo.processInfo.systemUptime
@@ -4034,20 +4032,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let resumeIndexes = await ProcessDetectedResumeIndexes.load()
-        guard !isTerminatingApp,
-              isCurrentProcessDetectedSessionSaveGeneration(generation) else {
+        guard !isTerminatingApp else {
 #if DEBUG
             cmuxDebugLog(
-                "session.save.skipped reason=stale_process_detected_scan includeScrollback=0 source=\(source)"
+                "session.save.skipped reason=terminating includeScrollback=0 source=\(source)"
             )
 #endif
             return
         }
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: nil
         )
 #if DEBUG
         fingerprintMs = (ProcessInfo.processInfo.systemUptime - fingerprintStart) * 1000.0
@@ -4071,11 +4067,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let saveStart = ProcessInfo.processInfo.systemUptime
 #endif
-        _ = saveSessionSnapshot(
-            includeScrollback: false,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
-        )
+        _ = saveSessionSnapshotUsingCachedResumeMetadata(includeScrollback: false)
 #if DEBUG
         saveMs = (ProcessInfo.processInfo.systemUptime - saveStart) * 1000.0
 #endif
@@ -4083,6 +4075,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             includeScrollback: false,
             persistedAt: now,
             fingerprint: autosaveFingerprint
+        )
+    }
+
+    @discardableResult
+    private func saveSessionSnapshotUsingCachedResumeMetadata(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false
+    ) -> Bool {
+        saveSessionSnapshot(
+            includeScrollback: includeScrollback,
+            removeWhenEmpty: removeWhenEmpty,
+            restorableAgentIndex: RestorableAgentSessionIndex.empty,
+            surfaceResumeBindingIndex: nil
         )
     }
 
@@ -4098,35 +4103,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
             surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
-    }
-
-    private func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
-        includeScrollback: Bool,
-        removeWhenEmpty: Bool = false
-    ) {
-        let generation = nextProcessDetectedSessionSaveGeneration()
-        Task { @MainActor [weak self] in
-            let resumeIndexes = await ProcessDetectedResumeIndexes.load()
-            guard let self,
-                  !self.isTerminatingApp,
-                  self.isCurrentProcessDetectedSessionSaveGeneration(generation) else { return }
-            _ = self.saveSessionSnapshot(
-                includeScrollback: includeScrollback,
-                removeWhenEmpty: removeWhenEmpty,
-                restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-                surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
-            )
-        }
-    }
-
-    @discardableResult
-    private func nextProcessDetectedSessionSaveGeneration() -> UInt64 {
-        processDetectedSessionSaveGeneration &+= 1
-        return processDetectedSessionSaveGeneration
-    }
-
-    private func isCurrentProcessDetectedSessionSaveGeneration(_ generation: UInt64) -> Bool {
-        generation == processDetectedSessionSaveGeneration
     }
 
     fileprivate func recordTypingActivity() {
@@ -4147,7 +4123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         currentFingerprint: Int?,
         lastPersistedAt: Date,
         now: Date,
-        maximumAutosaveSkippableInterval: TimeInterval = 60
+        maximumAutosaveSkippableInterval: TimeInterval = 5 * 60
     ) -> Bool {
         guard !isTerminatingApp,
               !includeScrollback,
@@ -4453,7 +4429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             didApplyStartupSessionRestore: didApplyStartupSessionRestore,
             isApplyingSessionRestore: isApplyingSessionRestore
         ) {
-            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
+            _ = saveSessionSnapshotUsingCachedResumeMetadata(includeScrollback: false)
         }
     }
 
@@ -16034,7 +16010,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // in applicationShouldTerminate/applicationWillTerminate. Saving again here would
         // overwrite it as windows tear down one-by-one, dropping closed windows and replay.
         if Self.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp) {
-            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false, removeWhenEmpty: false)
+            _ = saveSessionSnapshotUsingCachedResumeMetadata(includeScrollback: false, removeWhenEmpty: false)
         }
     }
 

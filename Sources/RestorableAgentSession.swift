@@ -943,6 +943,21 @@ struct RestorableAgentSessionIndex: Sendable {
         )
     }
 
+    static func loadStaleTolerant(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> RestorableAgentSessionIndex {
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        return load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            registry: registry,
+            detectedSnapshots: [:],
+            includeUnverifiedProcessRecords: true,
+            processArgumentsProvider: { _ in nil }
+        )
+    }
+
     static func loadIncludingProcessDetectedSnapshots(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
@@ -977,6 +992,7 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         registry: CmuxVaultAgentRegistry,
         detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)],
+        includeUnverifiedProcessRecords: Bool = false,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         }
@@ -1061,7 +1077,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 if hookCandidatesBySession[sessionKey]?.updatedAt ?? -Double.infinity <= effectiveRecord.updatedAt {
                     hookCandidatesBySession[sessionKey] = entry
                 }
-                guard effectiveRecord.pid == nil || liveProcessID != nil else {
+                guard effectiveRecord.pid == nil || liveProcessID != nil || includeUnverifiedProcessRecords else {
                     continue
                 }
                 if let existing = resolved[key], existing.updatedAt > effectiveRecord.updatedAt {

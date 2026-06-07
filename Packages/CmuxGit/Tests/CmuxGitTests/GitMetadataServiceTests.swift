@@ -147,6 +147,26 @@ import Testing
         #expect(meta.isDirty == false)
     }
 
+    @Test func largeRepositoryMetadataSkipsDirtyAndIndexSignatures() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        var entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
+        entry.size += 100
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+
+        let service = GitMetadataService()
+        let meta = await service.workspaceMetadata(
+            for: fixture.root.path,
+            options: .sidebarLargeRepository
+        )
+        #expect(meta.isRepository)
+        #expect(meta.branch == "main")
+        #expect(meta.isDirty == false)
+        #expect(meta.indexSignature == nil)
+        #expect(meta.indexContentSignature == nil)
+        #expect(meta.headSignature != nil)
+    }
+
     // MARK: Index v4 prefix-compression
 
     @Test func indexVersionFourDecodesPrefixCompressedPaths() throws {
@@ -245,6 +265,35 @@ import Testing
         #expect(paths.contains(fixture.gitDirectory.appendingPathComponent("index").standardizedFileURL.path))
         #expect(paths.contains(fixture.gitDirectory.appendingPathComponent("config").standardizedFileURL.path))
         #expect(paths.contains(fixture.root.standardizedFileURL.path))
+    }
+
+    @Test func largeRepositoryWatchedPathsSkipWorktreeIndexAndGitlinks() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("[core]\n\trepositoryformatversion = 0\n")
+        let commit = String(repeating: "2", count: 40)
+        let submoduleRoot = fixture.root.appendingPathComponent("vendor/lib", isDirectory: true)
+        let submoduleGit = submoduleRoot.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: submoduleGit.appendingPathComponent("refs/heads"),
+            withIntermediateDirectories: true
+        )
+        try "\(commit)\n".write(to: submoduleGit.appendingPathComponent("HEAD"), atomically: true, encoding: .utf8)
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [
+            GitIndexFixture.Entry(path: "vendor/lib", mode: 0o160000, objectID: commit, size: 0),
+        ]))
+
+        let service = GitMetadataService()
+        let paths = try #require(await service.watchedPaths(
+            for: fixture.root.path,
+            options: .sidebarLargeRepository
+        ))
+        #expect(paths == paths.sorted())
+        #expect(paths.contains(fixture.gitDirectory.appendingPathComponent("HEAD").standardizedFileURL.path))
+        #expect(paths.contains(fixture.gitDirectory.appendingPathComponent("config").standardizedFileURL.path))
+        #expect(!paths.contains(fixture.gitDirectory.appendingPathComponent("index").standardizedFileURL.path))
+        #expect(!paths.contains(fixture.root.standardizedFileURL.path))
+        #expect(!paths.contains(submoduleGit.appendingPathComponent("HEAD").standardizedFileURL.path))
     }
 
     @Test func watchedPathsNilOutsideRepository() async {

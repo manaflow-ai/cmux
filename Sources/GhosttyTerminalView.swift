@@ -4664,11 +4664,14 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_SET_TITLE:
-            let title = action.action.set_title.title
+            let rawTitle = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
+            let title = GhosttyNSView.normalizedTerminalTitleForNotification(rawTitle)
             if let tabId = surfaceView.tabId,
-               let surfaceId = surfaceView.terminalSurface?.id {
-                DispatchQueue.main.async {
+               let surfaceId = surfaceView.terminalSurface?.id,
+               surfaceView.shouldPostTerminalTitleNotification(tabId: tabId, surfaceId: surfaceId, title: title) {
+                DispatchQueue.main.async { [weak surfaceView] in
+                    guard let surfaceView else { return }
                     NotificationCenter.default.post(
                         name: .ghosttyDidSetTitle,
                         object: surfaceView,
@@ -8269,10 +8272,42 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _pendingScrollbar: GhosttyScrollbar?
     private var _scrollbarFlushScheduled = false
     private let _scrollbarLock = NSLock()
+    private struct PostedTerminalTitleNotification: Equatable {
+        let tabId: UUID
+        let surfaceId: UUID
+        let title: String
+    }
+
+    private var _lastPostedTerminalTitleNotification: PostedTerminalTitleNotification?
+    private let _terminalTitleNotificationLock = NSLock()
     private var _renderedFrameFlushScheduled = false
     private let _renderedFrameLock = NSLock()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
+
+    private static let volatileTitleSpinnerCharacters: Set<Character> = [
+        "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
+    ]
+
+    static func normalizedTerminalTitleForNotification(_ title: String) -> String {
+        guard let first = title.first,
+              volatileTitleSpinnerCharacters.contains(first) else {
+            return title
+        }
+        let afterSpinner = title.dropFirst()
+        guard afterSpinner.first == " " else { return title }
+        let normalized = afterSpinner.dropFirst()
+        return normalized.isEmpty ? title : String(normalized)
+    }
+
+    func shouldPostTerminalTitleNotification(tabId: UUID, surfaceId: UUID, title: String) -> Bool {
+        let next = PostedTerminalTitleNotification(tabId: tabId, surfaceId: surfaceId, title: title)
+        _terminalTitleNotificationLock.lock()
+        defer { _terminalTitleNotificationLock.unlock() }
+        guard _lastPostedTerminalTitleNotification != next else { return false }
+        _lastPostedTerminalTitleNotification = next
+        return true
+    }
 
     static func retainRenderedFrameNotifications() -> () -> Void {
         GhosttyRenderedFrameNotificationDemand.retain()

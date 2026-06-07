@@ -10305,18 +10305,17 @@ struct ClosedBrowserPanelRestoreSnapshot {
     }
 }
 
-/// Process-wide, event-driven cache of `RestorableAgentSessionIndex.load()` results, used
-/// by the right-click "Fork Conversation" availability check and the close-history undo
-/// snapshot. `load()` runs `sysctl(KERN_PROCARGS2)` per hook record plus disk reads
-/// (350ms-1.8s on large agent histories), far too expensive to do synchronously on the
-/// main actor, so reloads run on a `Task.detached(priority: .utility)` and callers read
-/// the cached snapshot synchronously.
+/// Process-wide, event-driven cache of restorable agent session snapshots, used by the
+/// right-click "Fork Conversation" availability check and close-history undo snapshots.
+/// Refreshes run on a `Task.detached(priority: .utility)` and use stale-tolerant metadata:
+/// agent `--resume` / `--fork-session` paths read transcripts from disk and don't care
+/// whether the cmux-recorded PID is still alive. Keeping this stale-tolerant avoids
+/// repeated process-argument probes while SwiftUI evaluates menu availability.
 ///
 /// Freshness is driven by a watcher on the hook-store directory (`~/.cmuxterm`), which the
 /// `cmux hooks` CLI writes when an agent session starts or updates. The cache reloads
 /// shortly after an actual change (coalesced + rate-limited) and otherwise idles, with a
-/// long fallback TTL for pull access. This replaced a 1s pull TTL that reloaded
-/// near-continuously while the sidebar was visible, because each load outlasts a 1s TTL.
+/// long fallback TTL for pull access.
 ///
 /// `ObservableObject` conformance lets each workspace forward `objectWillChange` when a
 /// reload lands so ContentView re-renders and bonsplit's TabBarView picks up the new
@@ -10376,9 +10375,7 @@ final class SharedLiveAgentIndex: ObservableObject {
         deferredReloadTask = nil
         refreshTask = Task { @MainActor [weak self] in
             let newIndex = await Task.detached(priority: .utility) {
-                // agent-index-load-ok: off-main cache loader (this IS the sanctioned home
-                // for load(); everything else should read SharedLiveAgentIndex.shared).
-                RestorableAgentSessionIndex.load()
+                RestorableAgentSessionIndex.loadStaleTolerant()
             }.value
             guard let self else { return }
             // Assigning to `@Published` fires objectWillChange, which subscribed
@@ -18293,13 +18290,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Snapshot used by the right-click fork path. Prefers the workspace's restored snapshot
     /// (filled on session restore / hibernation), then falls back to the process-wide
     /// `SharedLiveAgentIndex`. The shared index loads the on-disk hook session store off the
-    /// main actor (it runs `sysctl(KERN_PROCARGS2)` per live record for live-PID filtering,
-    /// which is too expensive to do synchronously during SwiftUI menu evaluation) and a
-    /// single load serves every workspace. The Workspace subscribes to the shared store's
-    /// `objectWillChange` in its initializer so that when a refresh lands, this workspace's
-    /// own `objectWillChange` fires, ContentView re-renders, and bonsplit's TabBarView re-
-    /// evaluates the menu state on the same frame — Fork Conversation appears the moment
-    /// the index is loaded without requiring a second right-click.
+    /// main actor and avoids live-PID verification because this menu path only needs a
+    /// stale-tolerant transcript/resume snapshot. A single load serves every workspace.
     func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
         if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
             return snapshot

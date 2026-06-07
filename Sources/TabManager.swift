@@ -23,6 +23,14 @@ protocol WorkspaceGitMetadataReading: Sendable {
 
 extension GitMetadataService: WorkspaceGitMetadataReading {}
 
+private struct SidebarWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
+    let service: GitMetadataService
+
+    func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        await service.workspaceMetadata(for: directory, options: .sidebarLargeRepository)
+    }
+}
+
 private struct WorkspaceGitMetadataProbeWaiter {
     let id: UUID
     let continuation: CheckedContinuation<Bool, Never>
@@ -1304,7 +1312,8 @@ class TabManager: ObservableObject {
     ) {
         self.commandRunner = commandRunner
         self.gitMetadataService = gitMetadataService
-        self.workspaceGitMetadataReader = workspaceGitMetadataReader ?? gitMetadataService
+        self.workspaceGitMetadataReader = workspaceGitMetadataReader
+            ?? SidebarWorkspaceGitMetadataReader(service: gitMetadataService)
         self.gitPollClock = gitPollClock
 #if DEBUG
         self.pullRequestProbeService = PullRequestProbeService(
@@ -1616,7 +1625,10 @@ class TabManager: ObservableObject {
 
         Task { [weak self] in
             guard let gitMetadataService = self?.gitMetadataService else { return }
-            let watchedPaths = await gitMetadataService.watchedPaths(for: directory)
+            let watchedPaths = await gitMetadataService.watchedPaths(
+                for: directory,
+                options: .sidebarLargeRepository
+            )
             await MainActor.run { [weak self] in
                 self?.applyWorkspaceGitMetadataWatcherDescriptor(
                     watchedPaths,
@@ -3136,15 +3148,6 @@ class TabManager: ObservableObject {
 
         workspace.updatePanelDirectory(panelId: probeKey.panelId, directory: expectedDirectory)
 
-        if shouldTrackGitDirectory {
-            workspaceGitTrackedDirectoryByKey[probeKey] = expectedDirectory
-            updateWorkspaceGitMetadataWatcher(for: probeKey, directory: expectedDirectory)
-        } else {
-            workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
-            stopWorkspaceGitMetadataWatcher(for: probeKey)
-        }
-        updateWorkspaceGitMetadataFallbackTimer()
-
         let nextBranch = snapshot.branch
         if let nextBranch {
             if let headSignature = snapshot.headSignature {
@@ -3227,6 +3230,15 @@ class TabManager: ObservableObject {
                 reason: "localGitProbe"
             )
         }
+
+        if shouldTrackGitDirectory {
+            workspaceGitTrackedDirectoryByKey[probeKey] = expectedDirectory
+            updateWorkspaceGitMetadataWatcher(for: probeKey, directory: expectedDirectory)
+        } else {
+            workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
+            stopWorkspaceGitMetadataWatcher(for: probeKey)
+        }
+        updateWorkspaceGitMetadataFallbackTimer()
 
 #if DEBUG
         let branchLabel = snapshot.branch ?? "none"
@@ -6655,6 +6667,7 @@ class TabManager: ObservableObject {
     private func updateWindowTitle(for tab: Workspace?) {
         let title = windowTitle(for: tab)
         guard let targetWindow = window else { return }
+        guard targetWindow.title != title else { return }
         targetWindow.title = title
     }
 
@@ -9271,7 +9284,7 @@ class TabManager: ObservableObject {
 extension TabManager {
     func sessionAutosaveFingerprint(
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(selectedTabId)

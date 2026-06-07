@@ -47,10 +47,36 @@ public struct GitMetadataService: Sendable {
     /// - Returns: The git metadata for the enclosing repository, or
     ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
     public nonisolated func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        await workspaceMetadata(for: directory, options: .full)
+    }
+
+    /// Reads a point-in-time git snapshot for `directory`, honoring `options`.
+    ///
+    /// Use ``GitMetadataReadOptions/sidebarLargeRepository`` for UI code where
+    /// responsiveness is more important than exact dirty/index metadata.
+    public nonisolated func workspaceMetadata(
+        for directory: String,
+        options: GitMetadataReadOptions
+    ) async -> GitWorkspaceMetadata {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
-        let trackedChanges = Self.gitTrackedChangesSnapshot(repository: repository)
+        let trackedChanges: (isDirty: Bool, indexSignature: String?, indexContentSignature: String?) = {
+            if options.checkWorkingTreeDirty {
+                return Self.gitTrackedChangesSnapshot(
+                    repository: repository,
+                    includeIndexContentSignature: options.includeIndexContentSignature
+                )
+            }
+            guard options.includeIndexSignatures else {
+                return (false, nil, nil)
+            }
+            let signatures = Self.gitIndexSignatures(
+                repository: repository,
+                includeIndexContentSignature: options.includeIndexContentSignature
+            )
+            return (false, signatures.indexSignature, signatures.indexContentSignature)
+        }()
         return GitWorkspaceMetadata(
             isRepository: true,
             branch: Self.gitBranchName(repository: repository),
@@ -73,7 +99,16 @@ public struct GitMetadataService: Sendable {
     /// - Returns: Sorted existing paths to watch, or `nil` when `directory` is
     ///   not inside a git repository.
     public nonisolated func watchedPaths(for directory: String) async -> [String]? {
-        Self.workspaceGitMetadataWatchedPaths(for: directory)
+        await watchedPaths(for: directory, options: .full)
+    }
+
+    /// The set of existing filesystem paths whose changes can alter the
+    /// metadata returned by ``workspaceMetadata(for:options:)`` for `directory`.
+    public nonisolated func watchedPaths(
+        for directory: String,
+        options: GitMetadataReadOptions
+    ) async -> [String]? {
+        Self.workspaceGitMetadataWatchedPaths(for: directory, options: options)
     }
 
     /// The GitHub repository slugs (`owner/name`) configured as remotes for the

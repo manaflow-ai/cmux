@@ -11,15 +11,21 @@ extension GitMetadataService {
     /// are dirty when the submodule's checked-out commit differs from the
     /// recorded object ID. A missing/unreadable file marks the tree dirty.
     nonisolated static func gitTrackedChangesSnapshot(
-        repository: ResolvedGitRepository
+        repository: ResolvedGitRepository,
+        includeIndexContentSignature: Bool = true
     ) -> (isDirty: Bool, indexSignature: String?, indexContentSignature: String?) {
         let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
-        guard let indexSnapshot = gitIndexSnapshot(indexURL: indexURL) else {
+        guard let indexSnapshot = gitIndexSnapshot(
+            indexURL: indexURL,
+            includeContentSignature: includeIndexContentSignature
+        ) else {
             return (false, gitIndexFileSignature(indexURL: indexURL), nil)
         }
+        let workTreeRootPrefix = repository.workTreeRoot.hasSuffix("/")
+            ? repository.workTreeRoot
+            : repository.workTreeRoot + "/"
 
         for entry in indexSnapshot.entries {
-            let fileURL = URL(fileURLWithPath: repository.workTreeRoot).appendingPathComponent(entry.path)
             let gitlinkMode: UInt32 = 0o160000
             if (entry.mode & 0o170000) == gitlinkMode {
                 guard let submoduleCommit = gitlinkWorktreeCommit(
@@ -34,8 +40,9 @@ extension GitMetadataService {
                 continue
             }
 
+            let filePath = workTreeRootPrefix + entry.path
             var statValue = stat()
-            guard lstat(fileURL.path, &statValue) == 0 else {
+            guard lstat(filePath, &statValue) == 0 else {
                 return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
             }
             let size = gitIndexUInt32Field(statValue.st_size)
@@ -55,12 +62,29 @@ extension GitMetadataService {
         return (false, indexSnapshot.signature, indexSnapshot.contentSignature)
     }
 
+    nonisolated static func gitIndexSignatures(
+        repository: ResolvedGitRepository,
+        includeIndexContentSignature: Bool = true
+    ) -> (indexSignature: String?, indexContentSignature: String?) {
+        let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
+        guard let indexSnapshot = gitIndexSnapshot(
+            indexURL: indexURL,
+            includeContentSignature: includeIndexContentSignature
+        ) else {
+            return (gitIndexFileSignature(indexURL: indexURL), nil)
+        }
+        return (indexSnapshot.signature, indexSnapshot.contentSignature)
+    }
+
     /// Parses a git `index` file (versions 2, 3, and 4) into a snapshot.
     ///
     /// Handles v3 extended flags, v4 path prefix-compression, assume-unchanged
     /// and skip-worktree exclusion, and entry padding. Returns `nil` for an
     /// absent, truncated, or unsupported-version index.
-    nonisolated static func gitIndexSnapshot(indexURL: URL) -> GitIndexSnapshot? {
+    nonisolated static func gitIndexSnapshot(
+        indexURL: URL,
+        includeContentSignature: Bool = true
+    ) -> GitIndexSnapshot? {
         guard let data = try? Data(contentsOf: indexURL), data.count >= 32 else {
             return nil
         }
@@ -78,7 +102,9 @@ extension GitMetadataService {
         var entries: [GitIndexEntryStat] = []
         var contentEntries: [GitIndexEntryStat] = []
         entries.reserveCapacity(min(entryCount, 1024))
-        contentEntries.reserveCapacity(min(entryCount, 1024))
+        if includeContentSignature {
+            contentEntries.reserveCapacity(min(entryCount, 1024))
+        }
         var previousPathBytes: [UInt8] = []
 
         for _ in 0..<entryCount {
@@ -88,7 +114,7 @@ extension GitMetadataService {
             let mtimeNanoseconds = readBigEndianUInt32(bytes, at: offset + 12)
             let mode = readBigEndianUInt32(bytes, at: offset + 24)
             let size = readBigEndianUInt32(bytes, at: offset + 36)
-            let objectID = gitIndexHexString(bytes[(offset + 40)..<(offset + 60)])
+            let objectID = gitIndexObjectIDHexString(bytes, at: offset + 40)
             let flags = readBigEndianUInt16(bytes, at: offset + 60)
             let pathLength = Int(flags & 0x0fff)
             let hasExtendedFlags = version >= 3 && (flags & 0x4000) != 0
@@ -126,9 +152,9 @@ extension GitMetadataService {
                 pathBytes = Array(bytes[pathStart..<offset])
             }
 
-            let pathData = Data(pathBytes)
-            guard let path = String(data: pathData, encoding: .utf8), !path.isEmpty,
-                  isValidIndexEntryPath(path) else {
+            guard !pathBytes.isEmpty,
+                  isValidIndexEntryPathBytes(pathBytes),
+                  let path = String(bytes: pathBytes, encoding: .utf8) else {
                 return nil
             }
             previousPathBytes = pathBytes
@@ -140,7 +166,9 @@ extension GitMetadataService {
                 mtimeNanoseconds: mtimeNanoseconds,
                 size: size
             )
-            contentEntries.append(entryStat)
+            if includeContentSignature {
+                contentEntries.append(entryStat)
+            }
 
             let assumeUnchangedFlag: UInt16 = 0x8000
             let skipWorktreeExtendedFlag: UInt16 = 0x4000
@@ -161,7 +189,9 @@ extension GitMetadataService {
         return GitIndexSnapshot(
             entries: entries,
             signature: checksum,
-            contentSignature: gitIndexContentSignature(entries: contentEntries)
+            contentSignature: includeContentSignature
+                ? gitIndexContentSignature(entries: contentEntries)
+                : nil
         )
     }
 
@@ -207,6 +237,18 @@ extension GitMetadataService {
         for byte in bytes {
             encoded.append(gitIndexHexAlphabet[Int(byte >> 4)])
             encoded.append(gitIndexHexAlphabet[Int(byte & 0x0f)])
+        }
+        return String(decoding: encoded, as: UTF8.self)
+    }
+
+    private nonisolated static func gitIndexObjectIDHexString(_ bytes: [UInt8], at offset: Int) -> String {
+        var encoded = Array(repeating: UInt8(ascii: "0"), count: 40)
+        var outputIndex = 0
+        for inputIndex in offset..<(offset + 20) {
+            let byte = bytes[inputIndex]
+            encoded[outputIndex] = gitIndexHexAlphabet[Int(byte >> 4)]
+            encoded[outputIndex + 1] = gitIndexHexAlphabet[Int(byte & 0x0f)]
+            outputIndex += 2
         }
         return String(decoding: encoded, as: UTF8.self)
     }
@@ -260,8 +302,28 @@ extension GitMetadataService {
     /// (not absolute) and free of `..` traversal components. An index containing
     /// anything else is treated as malformed.
     nonisolated static func isValidIndexEntryPath(_ path: String) -> Bool {
-        guard !path.hasPrefix("/") else { return false }
-        return !path.split(separator: "/").contains("..")
+        isValidIndexEntryPathBytes(Array(path.utf8))
+    }
+
+    private nonisolated static func isValidIndexEntryPathBytes(_ bytes: [UInt8]) -> Bool {
+        let slash = UInt8(ascii: "/")
+        let dot = UInt8(ascii: ".")
+        guard bytes.first != slash else { return false }
+
+        var segmentStart = 0
+        var index = 0
+        while index <= bytes.count {
+            if index == bytes.count || bytes[index] == slash {
+                if index - segmentStart == 2,
+                   bytes[segmentStart] == dot,
+                   bytes[segmentStart + 1] == dot {
+                    return false
+                }
+                segmentStart = index + 1
+            }
+            index += 1
+        }
+        return true
     }
 
     /// The raw index trailing-20-byte checksum as hex, or `nil` when the index
