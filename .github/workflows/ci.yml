@@ -1673,22 +1673,24 @@ jobs:
               done
             xcode_status=${PIPESTATUS[0]}
             set -e
-            if [ "$xcode_status" -eq 0 ]; then
-              if grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$XCODE_OUTPUT"; then
-                exit 0
-              fi
-              echo "Display resolution UI regression completed without executing any tests" >&2
+            if [ "$xcode_status" -ne 0 ]; then
+              stop_pid "$APP_PID" "cmux DEV"
+              stop_pid "$HELPER_PID" "virtual display helper"
+              echo "Display resolution UI regression xcodebuild failed; not retrying after XCTest started" >&2
+              echo "--- App log ---"
+              cat /tmp/cmux-ui-test-app.log 2>/dev/null | tail -50 || true
+              echo "--- Helper log ---"
+              cat "$HELPER_LOG" 2>/dev/null | tail -30 || true
+              exit "$xcode_status"
             fi
-
-            stop_pid "$APP_PID" "cmux DEV"
-            stop_pid "$HELPER_PID" "virtual display helper"
-
-            if [ "$attempt" -eq "$DISPLAY_ATTEMPTS" ]; then
-              echo "Display resolution UI regression failed after $DISPLAY_ATTEMPTS attempts" >&2
+            if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$XCODE_OUTPUT"; then
+              stop_pid "$APP_PID" "cmux DEV"
+              stop_pid "$HELPER_PID" "virtual display helper"
+              echo "Display resolution UI regression completed without executing any tests" >&2
               exit 1
             fi
-            echo "Attempt $attempt failed, retrying..."
-            cleanup
+
+            exit 0
           done
 
       - name: Run browser find focus UI regression
