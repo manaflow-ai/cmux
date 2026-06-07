@@ -9,7 +9,7 @@ public import Foundation
 /// `AsyncStream` of every appended line or pull the whole buffer with
 /// ``snapshot()``.
 public actor MobileDebugLogSink {
-    private var buffer: [Entry] = []
+    private var buffer: [MobileDebugLogSinkEntry] = []
     private let capacity: Int
     private let startedAt: Date
     private let now: @Sendable () -> Date
@@ -44,7 +44,7 @@ public actor MobileDebugLogSink {
         }
         let elapsed = String(format: "%9.3f", now().timeIntervalSince(startedAt))
         let line = "[\(elapsed)] \(message)"
-        buffer.append(Entry(issuedAt: issuedAt, line: line))
+        buffer.append(MobileDebugLogSinkEntry(issuedAt: issuedAt, line: line))
         if buffer.count > capacity {
             buffer.removeFirst(buffer.count - capacity)
         }
@@ -99,8 +99,4 @@ public actor MobileDebugLogSink {
         continuations[id] = nil
     }
 
-    private struct Entry: Sendable {
-        let issuedAt: ContinuousClock.Instant?
-        let line: String
-    }
 }
