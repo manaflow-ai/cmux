@@ -228,6 +228,34 @@ build_and_launch_ios() {
   CMUX_DOGFOOD_ATTACH_URL="$attach_url" "$REPO_ROOT/scripts/mobile-dev-launch.sh" "${launch_args[@]}"
 }
 
+# --- apply environment profile(s) (P3) --------------------------------------
+# Profiles provision a realistic test environment against the TAGGED Mac socket
+# via scripts/cmux-debug-cli.sh. The replay engine spawns the debug CLI, which
+# refuses without CMUX_TAG and never touches the stable app.
+#
+# This must run BEFORE build_and_launch_ios: the simulator launch path
+# (mobile-dev-launch.sh -> `simctl launch --console-pty`) attaches to the app
+# console and blocks until the app exits, so anything after it would never run.
+# Profiles only need the Mac socket anyway, and seeding before the phone attaches
+# means the phone sees the seeded workspaces/groups immediately. For --surface
+# ios the tagged Mac app must already be running.
+apply_profile() {
+  echo "==> applying profile(s) '$PROFILE' against $SOCKET_PATH"
+  # The Mac app needs its socket bound before the debug CLI can connect. Poll
+  # the socket file (the real readiness signal), bounded so a never-launching
+  # app fails clearly instead of hanging.
+  local _attempt
+  for _attempt in $(seq 1 40); do
+    [[ -S "$SOCKET_PATH" ]] && break
+    sleep 0.25
+  done
+  if [[ ! -S "$SOCKET_PATH" ]]; then
+    echo "error: tagged socket $SOCKET_PATH never appeared; is the Mac dev app for tag '$TAG' running?" >&2
+    exit 1
+  fi
+  node "$PROFILE_REPLAY" --tag "$TAG" --profile "$PROFILE" --cwd "$REPO_ROOT"
+}
+
 # --- orchestrate ------------------------------------------------------------
 ATTACH_URL=""
 
@@ -253,35 +281,15 @@ if [[ "$NO_PAIR" -eq 0 && ( "$SURFACE" == "ios" || "$SURFACE" == "both" ) ]]; th
   fi
 fi
 
-if [[ "$SURFACE" == "ios" || "$SURFACE" == "both" ]]; then
-  build_and_launch_ios "$ATTACH_URL"
-fi
-
-# --- apply environment profile(s) (P3) --------------------------------------
-# Profiles provision a realistic test environment against the TAGGED Mac socket
-# via scripts/cmux-debug-cli.sh. Run last, once the app(s) are up, so the
-# workspaces/panes/groups they create are visible immediately. The replay engine
-# spawns the debug CLI, which refuses without CMUX_TAG and never touches the
-# stable app. For --surface ios, the tagged Mac app must already be running.
-apply_profile() {
-  echo "==> applying profile(s) '$PROFILE' against $SOCKET_PATH"
-  # The Mac app needs its socket bound before the debug CLI can connect. Poll
-  # the socket file (the real readiness signal), bounded so a never-launching
-  # app fails clearly instead of hanging.
-  local _attempt
-  for _attempt in $(seq 1 40); do
-    [[ -S "$SOCKET_PATH" ]] && break
-    sleep 0.25
-  done
-  if [[ ! -S "$SOCKET_PATH" ]]; then
-    echo "error: tagged socket $SOCKET_PATH never appeared; is the Mac dev app for tag '$TAG' running?" >&2
-    exit 1
-  fi
-  node "$PROFILE_REPLAY" --tag "$TAG" --profile "$PROFILE" --cwd "$REPO_ROOT"
-}
-
+# Apply environment profile(s) BEFORE the (blocking) iOS launch. Profiles target
+# the Mac socket, so they only need the Mac app up; seeding here means the phone
+# sees the seeded state the moment it attaches.
 if [[ -n "$PROFILE" ]]; then
   apply_profile
+fi
+
+if [[ "$SURFACE" == "ios" || "$SURFACE" == "both" ]]; then
+  build_and_launch_ios "$ATTACH_URL"
 fi
 
 echo "==> dev-setup complete (tag: $TAG, surface: $SURFACE)"

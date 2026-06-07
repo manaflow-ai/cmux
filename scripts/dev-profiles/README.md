@@ -42,7 +42,7 @@ becomes available automatically. Format:
   "description": "Human summary of what this preset provisions.",
   "steps": [
     {
-      "args": ["workspace", "create", "--name", "Composer",
+      "args": ["--id-format", "uuids", "workspace", "create", "--name", "Composer",
                "--cwd", "${cwd}", "--command", "claude", "--json"],
       "capture": { "ws": "workspace_id" }
     },
@@ -70,9 +70,13 @@ Prefer the canonical noun forms (`cmux workspace create`,
 `cmux workspace group create`) which honor `--json`. Use `--focus false` on
 creation steps so replay does not yank the dev window around.
 
-To get a stable id across windows, capture from a `--id-format uuids` step
-(`group.id` is a UUID then; the default `ref` form is positional, e.g.
-`workspace_group:1`).
+The capture key name depends on the id format, because cmux renames id fields
+in `--json` output: with the default `refs` format a created workspace prints
+`workspace_ref` (a positional `workspace:N`), but with `--id-format uuids` it
+prints `workspace_id` (a stable UUID). The shipped profiles prepend
+`--id-format uuids` to creation steps and capture `workspace_id` / `group.id`
+so the captured value is a UUID that stays valid regardless of window numbering.
+Captured UUIDs are accepted anywhere a `--workspace` / group id is expected.
 
 ## Shipped profiles
 
