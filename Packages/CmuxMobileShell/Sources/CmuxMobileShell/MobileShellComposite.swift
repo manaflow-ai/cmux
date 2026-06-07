@@ -1360,6 +1360,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let staleActivePartitionKey {
             forgetMacPartition(staleActivePartitionKey)
         }
+        // Drop the forgotten Mac from the in-memory pairedMacs immediately. The
+        // store removal below is fire-and-forget (no reload), and `hasNoPairedMacs`
+        // checks `pairedMacs.isEmpty`, so without this Rescan QR would leave the
+        // last paired Mac in memory and the gate would never fall to the pairing
+        // flow. Remove the active row (this forgets the active Mac) and any row
+        // whose id matches the stale ticket's macDeviceID, for robustness.
+        pairedMacs.removeAll { $0.isActive || $0.macDeviceID == staleMacID }
         // Forgetting the active Mac clears the restoring hint so the next launch
         // (and the current disconnected view) shows add-device immediately. Bump
         // the reconnect generation first so an in-flight reconnect can't re-set the
@@ -2154,11 +2161,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func createRemoteWorkspace() async {
         guard let client = remoteClient else { return }
-        // workspace.create runs over the active Mac's `remoteClient`. Use the same
-        // strong predicate as createRemoteTerminal: a tap during a cross-Mac
-        // retarget (selection on Mac B, client still A's) must not create a
-        // workspace on the old active Mac. No-op until the selected Mac is active.
-        guard selectedMacDeviceID == activeMacDeviceID else { return }
+        // workspace.create runs over the active Mac's `remoteClient`. Block only a
+        // genuine cross-Mac retarget window: selection pinned to a DIFFERENT Mac
+        // than the active one (tap on Mac B while the client is still A's). A nil
+        // selection is allowed, so the first workspace can be created on a
+        // connected-but-empty Mac (empty list -> nil selection -> nil selectedMac).
+        if let selectedMacDeviceID, selectedMacDeviceID != activeMacDeviceID { return }
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
@@ -2192,16 +2200,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let client = remoteClient,
               let activeMacDeviceID,
               let requestedID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
-        // terminal.create runs over the active Mac's `remoteClient`. Use the same
-        // strong predicate the selection-driven send paths use: the selected Mac
-        // must already be the active Mac. During a cross-Mac retarget the detail
-        // can be showing Mac B's workspace while Mac A is still active; under a
-        // workspace-id collision a bare "id in active partition" check would
-        // create on Mac A. Requiring selectedMac == activeMac makes the create a
-        // safe no-op until the retarget completes, then it lands on the right Mac.
-        guard selectedMacDeviceID == activeMacDeviceID else { return }
-        // And the requested workspace must actually be in that (now active) Mac's
-        // partition (a row "+" can pass an explicit id that drifted out of it).
+        // terminal.create runs over the active Mac's `remoteClient`. Block a
+        // genuine cross-Mac retarget window: selection pinned to a DIFFERENT Mac
+        // than the active one (viewing Mac B's workspace while the client is still
+        // A's), so under a workspace-id collision the create can't land on Mac A.
+        // A nil selection is allowed (the explicit-id partition check below is the
+        // real routing gate).
+        if let selectedMacDeviceID, selectedMacDeviceID != activeMacDeviceID { return }
+        // The requested workspace must actually be in the active Mac's partition (a
+        // row "+" can pass an explicit id that is not on the active Mac); this is
+        // the authoritative routing check that keeps the create on the right Mac.
         guard (workspacesByMac[activeMacDeviceID] ?? []).contains(where: { $0.id == requestedID }) else { return }
         let workspaceID = requestedID.rawValue
         let requestedWorkspaceID = requestedID
