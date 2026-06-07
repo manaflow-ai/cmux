@@ -135,15 +135,35 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
-      - name: Run CMUXMobileCore package tests
+      - name: Run mobile Swift package tests
         run: |
           set -euo pipefail
-          output_file="$(mktemp)"
-          swift test --package-path Packages/CMUXMobileCore 2>&1 | tee "$output_file"
-          if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$output_file"; then
-            echo "CMUXMobileCore package tests completed without executing any tests" >&2
-            exit 1
-          fi
+          # The iOS workspace build does not execute standalone SwiftPM package
+          # tests. Run mobile package tests here so shared mobile reducers,
+          # route decoders, transport shims, and pairing stores are a real gate.
+          PACKAGES=(
+            CMUXMobileCore
+            CmuxMobileCamera
+            CmuxMobileDiagnostics
+            CmuxMobilePairedMac
+            CmuxMobileRPC
+            CmuxMobileShell
+            CmuxMobileShellModel
+            CmuxMobileSupport
+            CmuxMobileTerminalKit
+            CmuxMobileTransport
+            CmuxMobileWorkspace
+          )
+          for pkg in "${PACKAGES[@]}"; do
+            echo "::group::swift test Packages/$pkg"
+            output_file="$(mktemp)"
+            swift test --package-path "Packages/$pkg" 2>&1 | tee "$output_file"
+            if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$output_file"; then
+              echo "swift test Packages/$pkg completed without executing any tests" >&2
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
 
   ios-simulator:
     needs: detect-ios-changes

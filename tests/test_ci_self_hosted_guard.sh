@@ -959,8 +959,13 @@ check_standalone_swift_package_tests_are_wired() {
     CmuxProcess
     CmuxSettings
     CmuxSettingsUI
+    CmuxSidebarInterpreterService
     CmuxSocketControl
+    CmuxSwiftRender
+    CmuxSwiftRenderUI
     CmuxTerminalCopyMode
+    CmuxUpdater
+    CmuxUpdaterUI
   )
 
   for pkg in "${packages[@]}"; do
@@ -1119,21 +1124,42 @@ check_ios_simulator_cleanup_passthrough_rejects_skips() {
   echo "PASS: test-ios.yml cleanup pass-through rejects skipped selected iOS tests"
 }
 
-check_ios_mobile_core_package_tests_require_nonzero_execution() {
+check_ios_mobile_package_tests_require_nonzero_execution() {
   if ! awk '
-    /^[[:space:]]*- name: Run CMUXMobileCore package tests$/ { in_step=1; next }
+    /^[[:space:]]*- name: Run mobile Swift package tests$/ { in_step=1; next }
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
-    in_step && /swift test --package-path Packages\/CMUXMobileCore/ { saw_swift_test=1 }
+    in_step && /swift test --package-path "Packages\/\$pkg"/ { saw_swift_test=1 }
     in_step && /tee "\$output_file"/ { saw_capture=1 }
     in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
-    in_step && /CMUXMobileCore package tests completed without executing any tests/ { saw_message=1 }
+    in_step && /completed without executing any tests/ { saw_message=1 }
     END { exit(saw_swift_test && saw_capture && saw_nonzero_guard && saw_message ? 0 : 1) }
   ' "$TEST_IOS_FILE"; then
-    echo "FAIL: test-ios.yml must reject successful CMUXMobileCore package runs that execute zero tests"
+    echo "FAIL: test-ios.yml must reject successful mobile package runs that execute zero tests"
     exit 1
   fi
 
-  echo "PASS: test-ios.yml rejects zero-test CMUXMobileCore package runs"
+  local packages=(
+    CMUXMobileCore
+    CmuxMobileCamera
+    CmuxMobileDiagnostics
+    CmuxMobilePairedMac
+    CmuxMobileRPC
+    CmuxMobileShell
+    CmuxMobileShellModel
+    CmuxMobileSupport
+    CmuxMobileTerminalKit
+    CmuxMobileTransport
+    CmuxMobileWorkspace
+  )
+
+  for pkg in "${packages[@]}"; do
+    if ! grep -Eq "^[[:space:]]{12}${pkg}$" "$TEST_IOS_FILE"; then
+      echo "FAIL: standalone mobile Swift package tests for $pkg must be wired into test-ios.yml"
+      exit 1
+    fi
+  done
+
+  echo "PASS: test-ios.yml rejects zero-test mobile package runs and wires standalone mobile package tests"
 }
 
 check_tests_deriveddata_cache() {
@@ -1465,7 +1491,7 @@ check_xcodebuild_unit_step_requires_nonzero_execution "$COMPAT_FILE" "Run unit t
 check_xcodebuild_unit_step_requires_nonzero_execution "$TERMINAL_CORPUS_NIGHTLY_FILE" "Run terminal corpus unit tests" "Terminal corpus unit tests completed without executing any tests"
 check_xcodebuild_unit_step_rejects_expected_failures "$CI_FILE" "Run unit tests"
 check_xcodebuild_unit_step_rejects_expected_failures "$COMPAT_FILE" "Run unit tests"
-check_ios_mobile_core_package_tests_require_nonzero_execution
+check_ios_mobile_package_tests_require_nonzero_execution
 check_ios_simulator_cleanup_passthrough_rejects_skips
 check_tests_deriveddata_cache
 check_cached_deriveddata_prunes_module_caches

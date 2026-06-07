@@ -718,8 +718,13 @@ jobs:
             CmuxFoundation
             CmuxSettings
             CmuxSettingsUI
+            CmuxSidebarInterpreterService
             CmuxSocketControl
+            CmuxSwiftRender
+            CmuxSwiftRenderUI
             CmuxTerminalCopyMode
+            CmuxUpdater
+            CmuxUpdaterUI
           )
           for pkg in "${PACKAGES[@]}"; do
             echo "::group::swift test Packages/$pkg"
