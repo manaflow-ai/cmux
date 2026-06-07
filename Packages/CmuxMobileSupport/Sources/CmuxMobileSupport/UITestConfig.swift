@@ -55,11 +55,11 @@ public struct UITestConfig {
     ///   non-empty; otherwise `nil`. Always `nil` in release builds.
     public static func dogfoodAttachURL(from env: [String: String]) -> String? {
         #if DEBUG
-        // BUG (commit 1): routed through the mock-gated reader, so it returns nil
-        // with CMUX_UITEST_MOCK_DATA=0 (the real-backend dev-launch path). Fixed
-        // in commit 2 by reading the env directly.
-        let value = value(for: "CMUX_DOGFOOD_ATTACH_URL", env: env)
-        return value
+        // Read the env directly, NOT through the mock-gated value(for:), so the
+        // URL is returned with CMUX_UITEST_MOCK_DATA=0 (the real-backend
+        // dev-launch path) and iOS auto-pair actually fires.
+        let value = env["CMUX_DOGFOOD_ATTACH_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value?.isEmpty == false ? value : nil
         #else
         return nil
         #endif

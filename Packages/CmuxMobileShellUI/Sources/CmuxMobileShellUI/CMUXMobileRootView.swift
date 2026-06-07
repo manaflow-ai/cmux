@@ -270,15 +270,21 @@ struct CMUXMobileRootView: View {
     @discardableResult
     private func connectUITestAttachURLIfNeeded() -> Bool {
         #if DEBUG
-        // Auto-pair when CMUX_UITEST_ATTACH_URL is supplied at launch. Originally
-        // gated on mock data (the XCUITest harness), but the dev-launch tooling
-        // (scripts/mobile-dev-launch.sh) signs in for real (CMUX_UITEST_STACK_*
-        // with CMUX_UITEST_MOCK_DATA=0) and still wants to auto-attach, so this
-        // fires for any authenticated session once the attach URL is present.
-        // No-op unless that env var is set, so normal launches are unaffected.
+        // Auto-pair when an attach URL is supplied at launch. Two sources:
+        //   - CMUX_DOGFOOD_ATTACH_URL (UITestConfig.dogfoodAttachURL): NOT gated on
+        //     mock data, so it fires against the real backend. The dev-launch
+        //     tooling (scripts/mobile-dev-launch.sh, scripts/dev-setup.sh) signs in
+        //     for real (CMUX_UITEST_STACK_* with CMUX_UITEST_MOCK_DATA=0) and wants
+        //     the phone to auto-pair to the freshly built Mac dev app. With mock
+        //     off, UITestConfig.attachURL is always nil, so this dedicated accessor
+        //     is what un-breaks real-backend auto-pair.
+        //   - CMUX_UITEST_ATTACH_URL (UITestConfig.attachURL): gated on mock data,
+        //     kept intact for the XCUITest harness.
+        // No-op unless one of those env vars is set, so normal launches are
+        // unaffected.
         guard !didConsumeUITestAttachURL,
               isAuthenticated,
-              let attachURL = UITestConfig.attachURL else {
+              let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
         didConsumeUITestAttachURL = true
