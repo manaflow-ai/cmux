@@ -872,6 +872,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
     private var ghosttyGotoSplitDownShortcut: StoredShortcut?
+    private var ghosttyPreviousTabShortcut: StoredShortcut?
+    private var ghosttyNextTabShortcut: StoredShortcut?
     private var browserAddressBarFocusedPanelId: UUID?
     private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
     private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
@@ -1388,7 +1390,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.start()
         windowDecorationsController.start()
         installMainWindowKeyObserver()
-        refreshGhosttyGotoSplitShortcuts()
+        MainActor.assumeIsolated {
+            refreshGhosttyNavigationShortcuts()
+        }
         installGhosttyConfigObserver()
         installWindowResponderSwizzles()
         installBrowserAddressBarFocusObservers()
@@ -12153,7 +12157,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshGhosttyGotoSplitShortcuts()
+            MainActor.assumeIsolated {
+                self?.refreshGhosttyNavigationShortcuts()
+            }
         }
     }
 
@@ -12241,12 +12247,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func refreshGhosttyGotoSplitShortcuts() {
+    private func refreshGhosttyNavigationShortcuts() {
         guard let config = GhosttyApp.shared.config else {
             ghosttyGotoSplitLeftShortcut = nil
             ghosttyGotoSplitRightShortcut = nil
             ghosttyGotoSplitUpShortcut = nil
             ghosttyGotoSplitDownShortcut = nil
+            ghosttyPreviousTabShortcut = nil
+            ghosttyNextTabShortcut = nil
             return
         }
 
@@ -12261,6 +12269,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         ghosttyGotoSplitDownShortcut = storedShortcutFromGhosttyTrigger(
             ghostty_config_trigger(config, "goto_split:down", UInt("goto_split:down".utf8.count))
+        )
+        ghosttyPreviousTabShortcut = storedShortcutFromGhosttyTrigger(
+            ghostty_config_trigger(config, "previous_tab", UInt("previous_tab".utf8.count))
+        )
+        ghosttyNextTabShortcut = storedShortcutFromGhosttyTrigger(
+            ghostty_config_trigger(config, "next_tab", UInt("next_tab".utf8.count))
         )
     }
 
@@ -12277,6 +12291,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 key = "↑"
             case GHOSTTY_KEY_ARROW_DOWN:
                 key = "↓"
+            case GHOSTTY_KEY_PAGE_UP:
+                key = "pageUp"
+            case GHOSTTY_KEY_PAGE_DOWN:
+                key = "pageDown"
             case GHOSTTY_KEY_A: key = "a"
             case GHOSTTY_KEY_B: key = "b"
             case GHOSTTY_KEY_C: key = "c"
@@ -12347,7 +12365,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
-        return StoredShortcut(key: key, command: command, shift: shift, option: option, control: control)
+        let keyCode: UInt16?
+        if trigger.tag == GHOSTTY_TRIGGER_PHYSICAL {
+            switch trigger.key.physical {
+            case GHOSTTY_KEY_PAGE_UP:
+                keyCode = 116
+            case GHOSTTY_KEY_PAGE_DOWN:
+                keyCode = 121
+            default:
+                keyCode = nil
+            }
+        } else {
+            keyCode = nil
+        }
+
+        return StoredShortcut(
+            key: key,
+            command: command,
+            shift: shift,
+            option: option,
+            control: control,
+            keyCode: keyCode
+        )
     }
 
     private func handleQuitShortcutWarning() -> Bool {
@@ -13130,7 +13169,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
-        if matchConfiguredShortcut(event: event, action: .nextSidebarTab) {
+        if matchConfiguredShortcut(event: event, action: .nextSidebarTab) ||
+            shouldRouteGhosttyTabNavigationShortcut(
+                event: event,
+                shortcut: ghosttyNextTabShortcut,
+                preservingCmuxSurfaceAction: .nextSurface
+            ) {
 #if DEBUG
             let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
@@ -13141,7 +13185,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .prevSidebarTab) {
+        if matchConfiguredShortcut(event: event, action: .prevSidebarTab) ||
+            shouldRouteGhosttyTabNavigationShortcut(
+                event: event,
+                shortcut: ghosttyPreviousTabShortcut,
+                preservingCmuxSurfaceAction: .prevSurface
+            ) {
 #if DEBUG
             let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
@@ -14694,6 +14743,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         if !action.shortcutContext.isAlwaysAvailable && !action.shortcutContext.isAvailable(shortcutEventFocusContext(event)) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
+    }
+
+    private func shouldRouteGhosttyTabNavigationShortcut(
+        event: NSEvent,
+        shortcut: StoredShortcut?,
+        preservingCmuxSurfaceAction surfaceAction: KeyboardShortcutSettings.Action
+    ) -> Bool {
+        guard let shortcut,
+              matchShortcut(event: event, shortcut: shortcut) else {
+            return false
+        }
+
+        // Ghostty's macOS defaults use Cmd+Shift+[/] for previous/next tab,
+        // which cmux owns as surface navigation. Keep cmux's active surface
+        // shortcut authoritative, while allowing user Ghostty tab bindings
+        // such as Cmd+Option+Arrow or Ctrl+PageUp/PageDown to drive workspaces.
+        return !matchConfiguredShortcut(event: event, action: surfaceAction)
     }
 
     fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {
