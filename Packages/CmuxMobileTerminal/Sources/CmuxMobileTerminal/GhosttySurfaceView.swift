@@ -1439,6 +1439,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // preserved) and hop back to main only for the Swift-side UI state.
         #if DEBUG
         let accessibilityThrottleKey = ObjectIdentifier(self)
+        let forceAccessibilityTextRead = debugAccessibilityProxy.accessibilityLabel?.isEmpty != false
         #endif
         Self.outputQueue.async { [weak self] in
             forwarded.withUnsafeBytes { buffer in
@@ -1460,7 +1461,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let a11yNow = CACurrentMediaTime()
             let lastAccessibilityTextTime = Self.lastAccessibilityTextTimeBySurfaceID[accessibilityThrottleKey]
                 ?? 0
-            if a11yNow - lastAccessibilityTextTime > 0.5 {
+            if forceAccessibilityTextRead || a11yNow - lastAccessibilityTextTime > 0.5 {
                 Self.lastAccessibilityTextTimeBySurfaceID[accessibilityThrottleKey] = a11yNow
                 accessibilityText = Self.accessibilitySurfaceText(surface)
             }
