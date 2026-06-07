@@ -1,119 +1,99 @@
 import Foundation
+import os
 
 final class MobileDebugLogOperationQueue: Sendable {
     static let defaultPendingOperationLimit = 512
 
-    private let mailbox: MobileDebugLogOperationMailbox
+    private let sink: MobileDebugLogSink
+    private let pendingAppendLimit: Int
+    private let state = OSAllocatedUnfairLock(initialState: MobileDebugLogOperationQueueState())
 
     init(
         sink: MobileDebugLogSink,
         pendingOperationLimit: Int = MobileDebugLogOperationQueue.defaultPendingOperationLimit
     ) {
-        self.mailbox = MobileDebugLogOperationMailbox(
-            sink: sink,
-            pendingAppendLimit: pendingOperationLimit
-        )
-    }
-
-    func append(_ message: String) {
-        let mailbox = mailbox
-        Task.detached {
-            await mailbox.append(message)
-        }
-    }
-
-    func clear() -> Task<Void, Never> {
-        let mailbox = mailbox
-        return Task.detached {
-            await mailbox.clear()
-        }
-    }
-}
-
-private actor MobileDebugLogOperationMailbox {
-    private let sink: MobileDebugLogSink
-    private let pendingAppendLimit: Int
-    private var pendingOperations: [MobileDebugLogOperation] = []
-    private var pendingAppendCount = 0
-    private var isConsumerRunning = false
-
-    init(sink: MobileDebugLogSink, pendingAppendLimit: Int) {
         self.sink = sink
-        self.pendingAppendLimit = max(1, pendingAppendLimit)
+        self.pendingAppendLimit = max(1, pendingOperationLimit)
     }
 
     func append(_ message: String) {
         enqueue(.append(message))
     }
 
-    func clear() async {
+    func clear() -> Task<Void, Never> {
         let receipt = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
         enqueue(.clear(receipt.continuation))
-        var iterator = receipt.stream.makeAsyncIterator()
-        _ = await iterator.next()
+        return Task {
+            var iterator = receipt.stream.makeAsyncIterator()
+            _ = await iterator.next()
+        }
     }
 
     private func enqueue(_ operation: MobileDebugLogOperation) {
-        switch operation {
-        case .append:
-            enqueueAppend(operation)
-        case .clear:
-            pendingOperations.append(operation)
+        let shouldStartConsumer = state.withLock { state in
+            switch operation {
+            case .append:
+                enqueueAppend(operation, state: &state)
+            case .clear:
+                state.pendingOperations.append(operation)
+            }
+            guard !state.isConsumerRunning else {
+                return false
+            }
+            state.isConsumerRunning = true
+            return true
         }
-        startConsumerIfNeeded()
+        if shouldStartConsumer {
+            Task {
+                await consume()
+            }
+        }
     }
 
-    private func enqueueAppend(_ operation: MobileDebugLogOperation) {
-        if pendingAppendCount >= pendingAppendLimit,
-           let dropIndex = pendingOperations.firstIndex(where: { pendingOperation in
+    private func enqueueAppend(
+        _ operation: MobileDebugLogOperation,
+        state: inout MobileDebugLogOperationQueueState
+    ) {
+        if state.pendingAppendCount >= pendingAppendLimit,
+           let dropIndex = state.pendingOperations.firstIndex(where: { pendingOperation in
                if case .append = pendingOperation {
                    return true
                }
                return false
            }) {
-            pendingOperations.remove(at: dropIndex)
-            pendingAppendCount -= 1
+            state.pendingOperations.remove(at: dropIndex)
+            state.pendingAppendCount -= 1
         }
-        guard pendingAppendCount < pendingAppendLimit else {
+        guard state.pendingAppendCount < pendingAppendLimit else {
             return
         }
-        pendingOperations.append(operation)
-        pendingAppendCount += 1
-    }
-
-    private func startConsumerIfNeeded() {
-        guard !isConsumerRunning else { return }
-        isConsumerRunning = true
-        Task {
-            await consume()
-        }
+        state.pendingOperations.append(operation)
+        state.pendingAppendCount += 1
     }
 
     private func consume() async {
-        while let operation = dequeue() {
+        while let operation = nextOperationOrStop() {
             await operation.run(on: sink)
         }
-        finishConsuming()
     }
 
-    private func dequeue() -> MobileDebugLogOperation? {
-        guard !pendingOperations.isEmpty else {
-            return nil
-        }
-        let operation = pendingOperations.removeFirst()
-        if case .append = operation {
-            pendingAppendCount -= 1
-        }
-        return operation
-    }
-
-    private func finishConsuming() {
-        guard pendingOperations.isEmpty else {
-            Task {
-                await consume()
+    private func nextOperationOrStop() -> MobileDebugLogOperation? {
+        state.withLock { state in
+            guard !state.pendingOperations.isEmpty else {
+                state.isConsumerRunning = false
+                return nil
             }
-            return
+            let operation = state.pendingOperations.removeFirst()
+            if case .append = operation {
+                state.pendingAppendCount -= 1
+            }
+            return operation
         }
-        isConsumerRunning = false
     }
+}
+
+private struct MobileDebugLogOperationQueueState: Sendable {
+    var pendingOperations: [MobileDebugLogOperation] = []
+    var pendingAppendCount = 0
+    var isConsumerRunning = false
 }
