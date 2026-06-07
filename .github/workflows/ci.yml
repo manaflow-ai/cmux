@@ -682,7 +682,14 @@ jobs:
             exit 1
           fi
 
-          exit "$EXIT_CODE"
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            exit "$EXIT_CODE"
+          fi
+
+          if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$split_theme_output"; then
+            echo "Ghostty split-theme appearance regression completed without executing any tests" >&2
+            exit 1
+          fi
 
       - name: Run bundled Ghostty theme picker helper regression
         run: |
@@ -1677,6 +1684,8 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           DERIVED_DATA_PATH="$PWD/.ci-derived-data/ui-regressions"
+          XCODE_OUTPUT="$(mktemp /tmp/cmux-browser-find-xcodebuild.XXXXXX.log)"
+          set +e
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -derivedDataPath "$DERIVED_DATA_PATH" \
@@ -1684,7 +1693,16 @@ jobs:
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance 180 \
             -only-testing:cmuxUITests/BrowserPaneNavigationKeybindUITests/testCmdFOpensBrowserFindAfterCmdDCmdLNavigation \
-            test-without-building
+            test-without-building 2>&1 | tee "$XCODE_OUTPUT"
+          xcode_status=${PIPESTATUS[0]}
+          set -e
+          if [ "$xcode_status" -ne 0 ]; then
+            exit "$xcode_status"
+          fi
+          if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$XCODE_OUTPUT"; then
+            echo "Browser find focus UI regression completed without executing any tests" >&2
+            exit 1
+          fi
 
       - name: Cleanup persistent virtual display
         if: always()

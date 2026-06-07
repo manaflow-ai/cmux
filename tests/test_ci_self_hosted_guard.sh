@@ -645,13 +645,15 @@ check_split_theme_regression_timeout() {
     in_step && /xcodebuild split-theme regression timeout/ { saw_timeout_message=1 }
     in_step && /Cargo registry download failed during split-theme build, retrying once/ { saw_cargo_retry=1 }
     in_step && /static\\.crates\\.io/ { saw_static_crates_match=1 }
-    END { exit(saw_wrapper && saw_timeout && saw_timeout_message && saw_cargo_retry && saw_static_crates_match ? 0 : 1) }
+    in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
+    in_step && /Ghostty split-theme appearance regression completed without executing any tests/ { saw_no_tests_message=1 }
+    END { exit(saw_wrapper && saw_timeout && saw_timeout_message && saw_cargo_retry && saw_static_crates_match && saw_nonzero_guard && saw_no_tests_message ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: split-theme XCTest regression must use noninteractive xcodebuild, a step timeout, and a Cargo registry retry"
+    echo "FAIL: split-theme XCTest regression must use noninteractive xcodebuild, a step timeout, a Cargo registry retry, and a nonzero test execution guard"
     exit 1
   fi
 
-  echo "PASS: split-theme XCTest regression uses noninteractive xcodebuild with timeout and Cargo registry retry"
+  echo "PASS: split-theme XCTest regression uses noninteractive xcodebuild with timeout, Cargo registry retry, and nonzero test execution guard"
 }
 
 check_command_palette_nucleo_ffi_coverage() {
@@ -1164,6 +1166,19 @@ check_ui_regression_budget() {
     END { exit(saw_wait_pid && saw_stop_pid && saw_wait_cmux && saw_nonzero_guard && saw_no_tests_message && !saw_fixed_retry_sleep ? 0 : 1) }
   ' "$CI_FILE"; then
     echo "FAIL: ui-regressions must wait for app/helper cleanup and reject zero-test display regression runs"
+    exit 1
+  fi
+
+  if ! awk '
+    /^[[:space:]]*- name: Run browser find focus UI regression$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /mktemp \/tmp\/cmux-browser-find-xcodebuild/ { saw_output_file=1 }
+    in_step && /tee "\$XCODE_OUTPUT"/ { saw_output_capture=1 }
+    in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
+    in_step && /Browser find focus UI regression completed without executing any tests/ { saw_no_tests_message=1 }
+    END { exit(saw_output_file && saw_output_capture && saw_nonzero_guard && saw_no_tests_message ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: browser find focus UI regression must capture xcodebuild output and reject zero-test runs"
     exit 1
   fi
 
