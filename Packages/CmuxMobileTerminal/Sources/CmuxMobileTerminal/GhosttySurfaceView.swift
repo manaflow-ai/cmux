@@ -475,11 +475,12 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     }
 
     /// The default on-bar arrangement of the configurable shortcuts: the
-    /// high-traffic agent and control keys first (Tab, ^C/^D, the Claude/Codex
-    /// launchers, the arrow keys, Clear), then the punctuation and navigation
-    /// keys. Curated independently of the enum's `rawValue` order so the default
-    /// bar can be arranged without perturbing the persisted identifiers, which are
-    /// the `rawValue`s.
+    /// high-traffic agent and control keys first (Tab then Esc, ^C/^D, the
+    /// Claude/Codex launchers, the arrow keys, Clear), then the punctuation and
+    /// navigation keys. Esc sits immediately to the right of Tab so the two most
+    /// common terminal keys are adjacent. Curated independently of the enum's
+    /// `rawValue` order so the default bar can be arranged without perturbing the
+    /// persisted identifiers, which are the `rawValue`s.
     ///
     /// Must stay a permutation of ``configurableActions``;
     /// ``TerminalAccessoryLayoutReducer`` defensively appends any omission, so a
@@ -487,11 +488,11 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     public static var defaultConfigurableOrder: [TerminalInputAccessoryAction] {
         [
             .tab,
+            .escape,
             .ctrlC, .ctrlD,
             .claude, .codex,
             .upArrow, .downArrow, .leftArrow, .rightArrow,
             .ctrlL,
-            .escape,
             .tilde, .dollar, .slash, .atSign, .pipe,
             .ctrlZ,
             .home, .end, .pageUp, .pageDown,
