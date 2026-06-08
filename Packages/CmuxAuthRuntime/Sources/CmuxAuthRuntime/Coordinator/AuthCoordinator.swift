@@ -445,6 +445,17 @@ public final class AuthCoordinator {
         do {
             try await completeSignIn()
         } catch {
+            // The macOS hosted-browser flow (Sign in with Apple/Google via the
+            // web app) completes here, so capture its session-validation
+            // failures too; otherwise that primary macOS path stays invisible.
+            // The provider is not known at this seam (the browser ran the OAuth
+            // choice), so only the flow is reported.
+            if AuthError(displaySafe: error) != .cancelled {
+                errorReporter.report(
+                    error: error,
+                    context: AuthErrorContext(flow: "browser_oauth")
+                )
+            }
             throw AuthError(displaySafe: error) ?? error
         }
     }

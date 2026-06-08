@@ -353,4 +353,21 @@ import Testing
         #expect(coordinator.isAuthenticated == false)
         #expect(coordinator.isLoading == false)
     }
+
+    @Test func browserFlowCompletionFailureIsReported() async {
+        // The macOS hosted-browser sign-in (Apple/Google via the web app)
+        // completes through completeExternalSignIn(); a validation failure
+        // there must reach the reporter so the primary macOS path is visible.
+        let client = FakeAuthClient()
+        await client.setThrowOnCurrentUser(AuthError.serverError(500, "auth_failed"))
+        let reporter = FakeAuthErrorReporter()
+        let (coordinator, _) = makeCoordinator(client: client, errorReporter: reporter)
+
+        await #expect(throws: (any Error).self) {
+            try await coordinator.completeExternalSignIn()
+        }
+
+        #expect(reporter.reports.count == 1)
+        #expect(reporter.reports.first?.context.flow == "browser_oauth")
+    }
 }
