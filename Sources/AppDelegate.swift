@@ -13104,6 +13104,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
+        if matchConfiguredShortcut(event: event, action: .scrollbackPageUp) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            return routedManager?.scrollFocusedTerminalScrollbackPage(up: true) ?? false
+        }
+
+        if matchConfiguredShortcut(event: event, action: .scrollbackPageDown) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            return routedManager?.scrollFocusedTerminalScrollbackPage(up: false) ?? false
+        }
+
         if matchConfiguredShortcut(event: event, action: .focusTextBoxInput) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             let handled = routedManager?.focusFocusedTerminalTextBoxInputOrTerminal() ?? false

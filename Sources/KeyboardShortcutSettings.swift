@@ -110,6 +110,8 @@ enum KeyboardShortcutSettings {
         case reopenClosedBrowserPanel
         case newSurface
         case toggleTerminalCopyMode
+        case scrollbackPageUp
+        case scrollbackPageDown
         case focusTextBoxInput
         case attachTextBoxFile
         case sendCtrlFToTerminal
@@ -210,6 +212,8 @@ enum KeyboardShortcutSettings {
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
+            case .scrollbackPageUp: return String(localized: "shortcut.scrollbackPageUp.label", defaultValue: "Scrollback Page Up")
+            case .scrollbackPageDown: return String(localized: "shortcut.scrollbackPageDown.label", defaultValue: "Scrollback Page Down")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
             case .sendCtrlFToTerminal: return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
@@ -395,6 +399,10 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .toggleTerminalCopyMode:
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
+            case .scrollbackPageUp:
+                return StoredShortcut(key: "pageUp", command: false, shift: true, option: false, control: false)
+            case .scrollbackPageDown:
+                return StoredShortcut(key: "pageDown", command: false, shift: true, option: false, control: false)
             case .focusTextBoxInput:
                 return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)
             case .attachTextBoxFile:
@@ -1408,6 +1416,8 @@ struct ShortcutStroke: Equatable, Hashable {
         case "\t":
             return String(localized: "shortcut.key.tab", defaultValue: "Tab")
         case "space": return String(localized: "shortcut.key.space", defaultValue: "Space")
+        case "pageUp": return String(localized: "shortcut.key.pageUp", defaultValue: "Page Up")
+        case "pageDown": return String(localized: "shortcut.key.pageDown", defaultValue: "Page Down")
         case "\r":
             return "↩"
         case "media.brightnessDown":
@@ -1910,6 +1920,8 @@ struct ShortcutStroke: Equatable, Hashable {
         case "media.next": return 17
         case "media.previous": return 18
         case "space": return 49
+        case "pageUp": return UInt16(kVK_PageUp)
+        case "pageDown": return UInt16(kVK_PageDown)
         case "a": return 0
         case "s": return 1
         case "d": return 2
@@ -1969,7 +1981,7 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
-        key == "space" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+        key == "space" || key == "pageUp" || key == "pageDown" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
     }
 
     private static func functionKeyDisplayString(for key: String) -> String? {
@@ -2041,7 +2053,7 @@ struct ShortcutStroke: Equatable, Hashable {
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17,
         18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
         33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
-        50, 123, 124, 125, 126,
+        50, 116, 121, 123, 124, 125, 126,
     ]
 }
 
@@ -2348,6 +2360,10 @@ extension ShortcutStroke {
             return "\r"
         case "space", "spacebar", "<space>":
             return "space"
+        case "pageup", "page-up", "page_up", "pgup", "pg-up", "pg_up":
+            return "pageUp"
+        case "pagedown", "page-down", "page_down", "pgdn", "pg-dn", "pg_dn", "pgdown", "pg-down", "pg_down":
+            return "pageDown"
         case "comma":
             return ","
         case "period", "dot":

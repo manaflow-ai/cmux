@@ -159,6 +159,10 @@ public struct GlobalHotkeySection: View {
             return String(localized: "shortcut.key.tab", defaultValue: "Tab")
         case "space":
             return String(localized: "shortcut.key.space", defaultValue: "Space")
+        case "pageUp":
+            return String(localized: "shortcut.key.pageUp", defaultValue: "Page Up")
+        case "pageDown":
+            return String(localized: "shortcut.key.pageDown", defaultValue: "Page Down")
         case "\r":
             return "↩"
         case "media.brightnessDown":

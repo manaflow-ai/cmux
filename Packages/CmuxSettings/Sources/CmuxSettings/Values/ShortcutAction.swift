@@ -61,6 +61,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case reopenClosedBrowserPanel
     case newSurface
     case toggleTerminalCopyMode
+    case scrollbackPageUp
+    case scrollbackPageDown
     case focusTextBoxInput
     case attachTextBoxFile
 
@@ -141,6 +143,7 @@ extension ShortcutAction {
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
+             .scrollbackPageUp, .scrollbackPageDown,
              .focusTextBoxInput, .attachTextBoxFile:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
@@ -205,6 +208,8 @@ extension ShortcutAction {
         case .reopenClosedBrowserPanel: return "Reopen Last Closed"
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
+        case .scrollbackPageUp: return "Scrollback Page Up"
+        case .scrollbackPageDown: return "Scrollback Page Down"
         case .focusTextBoxInput: return "Focus TextBox Input"
         case .attachTextBoxFile: return "Attach File to TextBox Input"
         case .focusLeft: return "Focus Pane Left"

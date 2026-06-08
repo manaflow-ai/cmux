@@ -66,6 +66,8 @@ extension ShortcutAction {
         case .selectWorkspaceByNumber: return ShortcutStroke(key: "1", command: true)
         case .newSurface: return ShortcutStroke(key: "t", command: true)
         case .toggleTerminalCopyMode: return ShortcutStroke(key: "m", command: true, shift: true)
+        case .scrollbackPageUp: return ShortcutStroke(key: "pageUp", shift: true)
+        case .scrollbackPageDown: return ShortcutStroke(key: "pageDown", shift: true)
         case .focusTextBoxInput: return ShortcutStroke(key: "a", command: true, shift: true)
         case .attachTextBoxFile: return ShortcutStroke(key: "a", command: true, shift: true, option: true)
         case .toggleRightSidebar: return ShortcutStroke(key: "b", command: true, option: true)

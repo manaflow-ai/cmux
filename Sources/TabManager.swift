@@ -2441,6 +2441,12 @@ class TabManager: ObservableObject {
         return panel.surface.toggleKeyboardCopyMode()
     }
 
+    @discardableResult
+    func scrollFocusedTerminalScrollbackPage(up: Bool) -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return panel.performBindingAction(up ? "scroll_page_up" : "scroll_page_down")
+    }
+
     /// Forwards a single Ctrl-F (`^F`) key press to the focused terminal surface,
     /// faithfully encoded through Ghostty so it matches whatever the running TUI
     /// would receive from a real keystroke.

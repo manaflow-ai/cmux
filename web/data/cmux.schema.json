@@ -1135,6 +1135,8 @@
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
+              "scrollbackPageUp",
+              "scrollbackPageDown",
               "focusTextBoxInput",
               "attachTextBoxFile",
               "focusLeft",
