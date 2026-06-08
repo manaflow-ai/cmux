@@ -417,3 +417,36 @@ import Testing
         #expect(replay.patchBytes() == replay.replacementBytes())
     }
 }
+
+@Test func renderGridFrameRoundTripsGeometryGeneration() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 5,
+        geometryGen: 17,
+        columns: 8,
+        rows: 3,
+        rowSpans: [.init(row: 0, column: 0, text: "hi")]
+    )
+    #expect(frame.geometryGen == 17)
+    let decoded = try MobileTerminalRenderGridFrame.decodeJSONObject(frame.jsonObject())
+    #expect(decoded.geometryGen == 17)
+    // The delta filter must carry the generation so a delta frame still orders
+    // against the viewport reply.
+    let delta = try frame.filteredRows([0], full: false)
+    #expect(delta.geometryGen == 17)
+}
+
+@Test func renderGridFrameDefaultsGeometryGenerationToZeroForLegacyHost() throws {
+    // A legacy host omits `geometry_gen`; decoding must default it to 0 (not
+    // fail), so the back-compat path keeps working.
+    let json: [String: Any] = [
+        "format": MobileTerminalRenderGridFrame.currentFormat,
+        "surface_id": "terminal-a",
+        "state_seq": 9,
+        "columns": 8,
+        "rows": 3,
+        "row_spans": [["row": 0, "column": 0, "style_id": 0, "text": "hi"]],
+    ]
+    let decoded = try MobileTerminalRenderGridFrame.decodeJSONObject(json)
+    #expect(decoded.geometryGen == 0)
+}

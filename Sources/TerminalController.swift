@@ -21441,6 +21441,11 @@ class TerminalController {
                 payload["data_b64"] = data.base64EncodedString()
             }
         }
+        // Stamp the authoritative grid generation at the payload level so the
+        // snapshot/raw-tail replay (which carries no render-grid frame) can pin
+        // the surface with a real generation; the render-grid branch already
+        // carries it inside the frame.
+        payload["geometry_gen"] = terminalPanel.surface.currentMobileGeometryGeneration()
         return .ok(payload)
     }
 
@@ -21485,6 +21490,11 @@ class TerminalController {
             payload["columns"] = max(Int(size.columns), 1)
             payload["rows"] = max(Int(size.rows), 1)
         }
+        // Stamp the authoritative grid generation so the phone can order this
+        // out-of-band reply against the ordered render-grid frame stream (a
+        // stale reply must never rewind a newer frame's pin, and a phone-side
+        // resize that produces no render frame must still advance the pin).
+        payload["geometry_gen"] = terminalPanel.surface.currentMobileGeometryGeneration()
         return .ok(payload)
     }
 

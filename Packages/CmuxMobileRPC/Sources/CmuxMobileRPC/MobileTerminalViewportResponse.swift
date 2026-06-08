@@ -12,16 +12,22 @@ public struct MobileTerminalViewportResponse: Decodable, Sendable {
     public let columns: Int?
     /// The effective shared row count, if reported.
     public let rows: Int?
+    /// The authoritative grid generation that produced this effective grid, so
+    /// the phone can order this out-of-band reply against the ordered
+    /// render-grid frame stream. 0 from a legacy host that does not stamp it.
+    public let geometryGen: UInt64
 
     private enum CodingKeys: String, CodingKey {
         case columns
         case rows
+        case geometryGen = "geometry_gen"
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         columns = try container.decodeIfPresent(Int.self, forKey: .columns)
         rows = try container.decodeIfPresent(Int.self, forKey: .rows)
+        geometryGen = try container.decodeIfPresent(UInt64.self, forKey: .geometryGen) ?? 0
     }
 
     /// The effective grid when both dimensions are present and positive.

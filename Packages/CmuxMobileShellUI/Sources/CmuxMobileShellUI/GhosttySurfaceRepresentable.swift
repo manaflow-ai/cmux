@@ -143,7 +143,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     surfaceView?.retryViewportReport()
                     return
                 }
-                surfaceView?.applyViewSize(cols: effective.columns, rows: effective.rows)
+                // The viewport reply is the only acknowledgement of a phone-side
+                // resize the Mac does not push a render frame for (rotation,
+                // keyboard show/hide, zoom while the Mac pane is occluded). Route
+                // it through the SAME authoritative-grid path as the frame
+                // stream, carrying the generation, so the monotonic decision
+                // converges the pin without a stale reply ever rewinding a newer
+                // frame.
+                surfaceView?.confirmViewportReport()
+                surfaceView?.applyAuthoritativeGrid(effective)
             }
         }
 

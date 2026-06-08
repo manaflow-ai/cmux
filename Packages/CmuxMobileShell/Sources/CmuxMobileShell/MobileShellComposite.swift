@@ -2624,7 +2624,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         surfaceID: String,
         columns: Int,
         rows: Int
-    ) async -> (columns: Int, rows: Int)? {
+    ) async -> MobileTerminalGridPin? {
         guard columns > 0, rows > 0,
               let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
@@ -2647,7 +2647,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   let grid = payload.effectiveGrid else {
                 return nil
             }
-            return (grid.columns, grid.rows)
+            // Carry the generation so the surface can order this out-of-band
+            // reply against the live render-grid frame stream.
+            return MobileTerminalGridPin(
+                columns: grid.columns,
+                rows: grid.rows,
+                geometrySeq: payload.geometryGen
+            )
         } catch {
             mobileShellLog.error("viewport report failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
             return nil
@@ -2745,16 +2751,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     deliverGrid = MobileTerminalGridPin(
                         columns: renderGrid.columns,
                         rows: renderGrid.rows,
-                        geometrySeq: renderGrid.stateSeq
+                        geometrySeq: renderGrid.geometryGen
                     )
-                    MobileDebugLog.anchormux("CMUX_REPLAY render_grid surface=\(surfaceID) spans=\(renderGrid.rowSpans.count) seq=\(renderGrid.stateSeq) grid=\(renderGrid.columns)x\(renderGrid.rows)")
+                    MobileDebugLog.anchormux("CMUX_REPLAY render_grid surface=\(surfaceID) spans=\(renderGrid.rowSpans.count) seq=\(renderGrid.stateSeq) gen=\(renderGrid.geometryGen) grid=\(renderGrid.columns)x\(renderGrid.rows)")
                 } else if let snapshotBytes, !snapshotBytes.isEmpty {
                     deliverBytes = Self.terminalSnapshotReplacementBytes(snapshotBytes)
-                    deliverGrid = Self.replayResponseGridPin(payload, seq: replaySeq)
+                    deliverGrid = Self.replayResponseGridPin(payload)
                     MobileDebugLog.anchormux("CMUX_REPLAY snapshot surface=\(surfaceID) bytes=\(snapshotBytes.count) seq=\(replaySeq ?? 0)")
                 } else {
                     deliverBytes = bytes
-                    deliverGrid = Self.replayResponseGridPin(payload, seq: replaySeq)
+                    deliverGrid = Self.replayResponseGridPin(payload)
                     MobileDebugLog.anchormux("CMUX_REPLAY raw_tail surface=\(surfaceID) bytes=\(bytes?.count ?? -1) seq=\(replaySeq ?? 0)")
                 }
                 if let replaySeq {
@@ -2781,14 +2787,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `nil` when the host reported no grid, so the pin is left to the first
     /// live render-grid frame instead.
     private static func replayResponseGridPin(
-        _ payload: MobileTerminalReplayResponse?,
-        seq: UInt64?
+        _ payload: MobileTerminalReplayResponse?
     ) -> MobileTerminalGridPin? {
-        guard let columns = payload?.columns, let rows = payload?.rows,
+        guard let payload, let columns = payload.columns, let rows = payload.rows,
               columns > 0, rows > 0 else {
             return nil
         }
-        return MobileTerminalGridPin(columns: columns, rows: rows, geometrySeq: seq ?? 0)
+        return MobileTerminalGridPin(columns: columns, rows: rows, geometrySeq: payload.geometryGen)
     }
 
     private func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
@@ -2828,10 +2833,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // surface pins its geometry from the same frame whose bytes it applies.
         // This is the one push source for the pin: a Mac-side resize (or the
         // initial attach) updates the grid here with no phone-initiated report.
+        // The generation orders this frame against the out-of-band viewport RPC
+        // reply (`stateSeq` cannot: it is a byte sequence that does not advance
+        // on a pure resize).
         let grid = MobileTerminalGridPin(
             columns: renderGrid.columns,
             rows: renderGrid.rows,
-            geometrySeq: renderGrid.stateSeq
+            geometrySeq: renderGrid.geometryGen
         )
         deliverTerminalBytes(bytes, surfaceID: renderGrid.surfaceID, grid: grid)
     }

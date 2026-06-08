@@ -55,6 +55,18 @@ import Testing
         #expect(response.effectiveGrid == nil)
     }
 
+    @Test func viewportResponseDecodesGeometryGeneration() throws {
+        let response = try MobileTerminalViewportResponse.decode(
+            Data(#"{"columns":120,"rows":40,"geometry_gen":12}"#.utf8)
+        )
+        #expect(response.geometryGen == 12)
+    }
+
+    @Test func viewportResponseDefaultsGeometryGenerationForLegacyHost() throws {
+        let response = try MobileTerminalViewportResponse.decode(Data(#"{"columns":120,"rows":40}"#.utf8))
+        #expect(response.geometryGen == 0)
+    }
+
     @Test func replayResponseDecodesRawTailAndSeq() throws {
         let base64 = Data("hello".utf8).base64EncodedString()
         let json = "{\"data_b64\":\"\(base64)\",\"seq\":99}"
@@ -62,6 +74,16 @@ import Testing
         #expect(response.dataBase64 == base64)
         #expect(response.sequence == 99)
         #expect(response.renderGrid == nil)
+        #expect(response.geometryGen == 0)
+    }
+
+    @Test func replayResponseDecodesGridAndGeometryGenerationForSnapshotFallback() throws {
+        let base64 = Data("hi".utf8).base64EncodedString()
+        let json = "{\"snapshot_data_b64\":\"\(base64)\",\"columns\":90,\"rows\":40,\"geometry_gen\":4,\"seq\":3}"
+        let response = try MobileTerminalReplayResponse.decode(Data(json.utf8))
+        #expect(response.columns == 90)
+        #expect(response.rows == 40)
+        #expect(response.geometryGen == 4)
     }
 
     @Test func replayResponseDecodesNestedRenderGrid() throws {

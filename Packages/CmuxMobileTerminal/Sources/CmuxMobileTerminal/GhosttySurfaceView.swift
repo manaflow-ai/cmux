@@ -2130,7 +2130,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// effective grid, so a transient RPC drop does not leave the render pinned
     /// to a stale effective grid (the "stuck letterbox" freeze). Bounded and
     /// display-link driven (the existing settle machinery re-fires it); a
-    /// confirmed `applyViewSize` resets the counter. No-op once the cap is hit.
+    /// confirmed round-trip (``confirmViewportReport()``) resets the counter.
+    /// No-op once the cap is hit.
     public func retryViewportReport() {
         guard viewportReportRetries < Self.maxViewportReportRetries,
               let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
@@ -2166,39 +2167,65 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "geom.pin eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->"
             + "\(next.columns)x\(next.rows) seq=\(next.geometrySeq)"
         )
-        pinEffectiveGrid(cols: next.columns, rows: next.rows)
+        // Apply the resize eagerly (not via the display-link deferral): the
+        // output-stream consumer calls this immediately before `processOutput`
+        // for the same frame, and `syncSurfaceGeometry` enqueues
+        // `ghostty_surface_set_size` on the serial `outputQueue`. Enqueuing it
+        // synchronously here means it lands on the queue BEFORE this frame's
+        // `process_output`, so libghostty resizes the grid before parsing the
+        // bytes (a full/replay frame is never wrapped at the old cell grid).
+        pinEffectiveGrid(cols: next.columns, rows: next.rows, applyImmediately: true)
     }
 
+    /// Acknowledge that a phone-side viewport report round-trip succeeded.
+    ///
+    /// The reply's grid is applied separately via ``applyAuthoritativeGrid``
+    /// (carrying the Mac's generation), so this only resets the bounded retry
+    /// counter that ``retryViewportReport()`` drives when a round-trip returns
+    /// no effective grid.
+    public func confirmViewportReport() {
+        viewportReportRetries = 0
+    }
+
+    /// Compatibility entry point that pins directly from cols×rows with no
+    /// generation (used by the zoom stress harness's synthetic Mac echo). Routes
+    /// through ``applyAuthoritativeGrid`` with a locally-advancing generation so
+    /// it always counts as a newer grid and the monotonic pin path is exercised.
     public func applyViewSize(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
-        // A value came back from the Mac, so the report round-trip recovered.
-        viewportReportRetries = 0
-        // On a render-grid host the ordered frame stream is the sole pin source
-        // (`applyAuthoritativeGrid`), so the RPC reply must NOT pin: doing so
-        // injects an out-of-band update that races the stream and can rewind a
-        // newer frame's grid. Only pin from the reply when the stream has not
-        // established an authoritative grid yet — i.e. a legacy raw-bytes host
-        // whose live byte events carry no grid, where the reply is the only
-        // geometry source. Once any frame carries a grid, the stream owns it.
-        guard geometryPin == nil else { return }
-        pinEffectiveGrid(cols: cols, rows: rows)
+        confirmViewportReport()
+        let nextGen = (geometryPin?.geometrySeq ?? 0) &+ 1
+        applyAuthoritativeGrid(MobileTerminalGridPin(columns: cols, rows: rows, geometrySeq: nextGen))
     }
 
-    /// Apply a resolved effective grid to the surface, coalescing the geometry
-    /// recompute. Shared by the push path (``applyAuthoritativeGrid``) and the
-    /// viewport-RPC reply path (``applyViewSize``).
-    private func pinEffectiveGrid(cols: Int, rows: Int) {
+    /// Apply a resolved effective grid to the surface. Shared by the push path
+    /// (``applyAuthoritativeGrid``) and the compatibility ``applyViewSize``
+    /// entry point.
+    ///
+    /// - Parameter applyImmediately: When `true`, enqueue the libghostty resize
+    ///   on the serial `outputQueue` now (via ``syncSurfaceGeometry``) so it
+    ///   precedes the frame's bytes; when `false`, defer to the next
+    ///   display-link frame so a burst coalesces into one apply.
+    private func pinEffectiveGrid(cols: Int, rows: Int, applyImmediately: Bool = false) {
         guard cols > 0, rows > 0 else { return }
         if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
         MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
         effectiveGrid = (cols, rows)
-        // Mark dirty instead of recomputing synchronously. This breaks the
-        // feedback loop (didResize → updateTerminalViewport RPC → applyViewSize
-        // → syncSurfaceGeometry → didResize …) that, under fast zoom, drove a
-        // storm of set_size calls + viewport RPCs. Geometry now settles once
-        // per frame, and reassert=false avoids re-reporting the unchanged
+        // For a grid-bearing frame, resize on the output queue NOW so it lands
+        // before this frame's `process_output` (FIFO on the same serial queue),
+        // keeping grid and content atomic. Otherwise mark dirty and let the
+        // display link coalesce: that breaks the feedback loop (didResize →
+        // viewport RPC → applyAuthoritativeGrid → syncSurfaceGeometry →
+        // didResize …) that, under fast zoom, drove a storm of set_size calls +
+        // viewport RPCs. reassert=false avoids re-reporting the unchanged
         // natural grid back through the round trip.
-        setNeedsGeometrySync(reassertNaturalSize: false)
+        if applyImmediately, window != nil {
+            zoomSettleFrames = nil
+            needsDraw = true
+            syncSurfaceGeometry(shouldReassertNaturalSize: false)
+        } else {
+            setNeedsGeometrySync(reassertNaturalSize: false)
+        }
     }
 
     /// Pure libghostty resize refinement; `nonisolated` so it runs on the

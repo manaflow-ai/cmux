@@ -23,6 +23,11 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
     /// The host's authoritative grid row count. Used to pin the surface's
     /// geometry on a snapshot/raw-tail replay that carries no render-grid frame.
     public let rows: Int?
+    /// The authoritative grid generation, so a snapshot/raw-tail replay pins
+    /// with a real generation that orders against the live frame stream. The
+    /// render-grid branch carries its own generation inside ``renderGrid``. 0
+    /// from a legacy host that does not stamp it.
+    public let geometryGen: UInt64
 
     private enum CodingKeys: String, CodingKey {
         case dataBase64 = "data_b64"
@@ -31,6 +36,7 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
         case sequence = "seq"
         case columns
         case rows
+        case geometryGen = "geometry_gen"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -43,6 +49,7 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
         sequence = try container.decodeIfPresent(UInt64.self, forKey: .sequence)
         columns = try container.decodeIfPresent(Int.self, forKey: .columns)
         rows = try container.decodeIfPresent(Int.self, forKey: .rows)
+        geometryGen = try container.decodeIfPresent(UInt64.self, forKey: .geometryGen) ?? 0
     }
 
     /// Decode a replay response from raw JSON data.
