@@ -88,18 +88,26 @@ final class DeviceRegistryClient {
 
     private func registerIfRoutesChanged(routes: [CmxAttachRoute]) async {
         guard let auth else { return }
-        // Resolve the auth scope BEFORE the dedup decision so a team switch with
-        // unchanged routes is detected (and not skipped).
-        let teamID = auth.resolvedTeamID
-        let tag = Self.buildTag()
-        let registration = Registration(teamID: teamID, tag: tag, routes: routes)
-        guard Self.shouldReRegister(previous: lastRegistration, current: registration) else { return }
+        // Await tokens FIRST: this both gates on "signed in" and waits for launch
+        // auth bootstrap. `resolvedTeamID` is derived from `availableTeams`, which
+        // is empty until bootstrap completes, so reading the team before this
+        // await could resolve nil even when the user has a persisted selected team
+        // and publish the Mac into the wrong (Stack-default) team. After bootstrap
+        // `currentTokens()` returns the cached token, so awaiting it per tick is
+        // cheap.
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
         } catch {
             return // not signed in → nothing to do
         }
+        // Resolve the team AFTER bootstrap, and use that same scope for both the
+        // dedup decision and the request header, so a team switch with unchanged
+        // routes is detected and the POST targets the intended team.
+        let teamID = auth.resolvedTeamID
+        let tag = Self.buildTag()
+        let registration = Registration(teamID: teamID, tag: tag, routes: routes)
+        guard Self.shouldReRegister(previous: lastRegistration, current: registration) else { return }
 
         guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
             return
