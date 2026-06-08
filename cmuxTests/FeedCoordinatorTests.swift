@@ -143,7 +143,7 @@ struct FeedCoordinatorTests {
             )
         )
 
-        let dict = FeedCoordinator.itemDict(item)
+        let dict = FeedSocketEncoding.itemDict(item)
         let displayToolInput = try #require(dict["tool_input"] as? String)
         let capabilityToolInput = try #require(dict["tool_input_capabilities"] as? String)
 
