@@ -6748,6 +6748,22 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.newWorkspaceAbove",
+                title: constant(String(localized: "command.newWorkspaceAbove.title", defaultValue: "New Workspace Above")),
+                subtitle: constant(String(localized: "command.newWorkspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["create", "new", "workspace", "above", "before"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newWorkspaceBelow",
+                title: constant(String(localized: "command.newWorkspaceBelow.title", defaultValue: "New Workspace Below")),
+                subtitle: constant(String(localized: "command.newWorkspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["create", "new", "workspace", "below", "after"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.newWindow",
                 title: constant(String(localized: "command.newWindow.title", defaultValue: "New Window")),
                 subtitle: constant(String(localized: "command.newWindow.subtitle", defaultValue: "Window")),
@@ -7951,6 +7967,26 @@ struct ContentView: View {
                 tabManager: tabManager,
                 debugSource: "palette.newWorkspace"
             )
+        }
+        registry.register(commandId: "palette.newWorkspaceAbove") {
+            guard let selectedTabId = tabManager.selectedTabId else {
+                NSSound.beep()
+                return
+            }
+            guard tabManager.createWorkspaceAdjacent(to: selectedTabId, position: .above) != nil else {
+                NSSound.beep()
+                return
+            }
+        }
+        registry.register(commandId: "palette.newWorkspaceBelow") {
+            guard let selectedTabId = tabManager.selectedTabId else {
+                NSSound.beep()
+                return
+            }
+            guard tabManager.createWorkspaceAdjacent(to: selectedTabId, position: .below) != nil else {
+                NSSound.beep()
+                return
+            }
         }
         registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.
@@ -16023,6 +16059,20 @@ struct TabItemView: View, Equatable {
             syncSelectionAfterMutation()
         }
         .disabled(contextMenuPinState == nil)
+
+        Button(String(localized: "contextMenu.newWorkspaceAbove", defaultValue: "New Workspace Above")) {
+            guard tabManager.createWorkspaceAdjacent(to: tab.id, position: .above) != nil else {
+                NSSound.beep()
+                return
+            }
+        }
+
+        Button(String(localized: "contextMenu.newWorkspaceBelow", defaultValue: "New Workspace Below")) {
+            guard tabManager.createWorkspaceAdjacent(to: tab.id, position: .below) != nil else {
+                NSSound.beep()
+                return
+            }
+        }
 
         workspaceGroupContextMenuSection(targetIds: targetIds, isMulti: isMulti)
 

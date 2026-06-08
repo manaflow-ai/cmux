@@ -126,6 +126,11 @@ enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
     }
 }
 
+enum WorkspaceAdjacentInsertionPosition: Sendable {
+    case above
+    case below
+}
+
 enum WorkspaceAutoReorderSettings {
     static let key = "workspaceAutoReorderOnNotification"
     static let defaultValue = true
@@ -2612,11 +2617,12 @@ class TabManager: ObservableObject {
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
+        sourceWorkspaceOverride: Workspace? = nil,
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true
     ) -> Workspace {
-        let sourceWorkspace = selectedWorkspace
+        let sourceWorkspace = sourceWorkspaceOverride ?? selectedWorkspace
         let capturedTabs = tabs
         // Snapshot the selected tab from the pinned workspace instead of rereading the
         // @Published selectedTabId storage after the inheritance helpers. The arm64 Nightly
@@ -4271,6 +4277,122 @@ class TabManager: ObservableObject {
         normalizeWorkspaceGroupContiguity()
         postWorkspaceOrderDidChange(movedWorkspaceIds: [newWorkspace.id])
         return newWorkspace
+    }
+
+    @discardableResult
+    func createWorkspaceAdjacent(
+        to referenceWorkspaceId: UUID,
+        position: WorkspaceAdjacentInsertionPosition,
+        select: Bool = true
+    ) -> Workspace? {
+        guard let referenceWorkspace = tabs.first(where: { $0.id == referenceWorkspaceId }) else {
+            return nil
+        }
+
+        if let groupId = referenceWorkspace.groupId,
+           let group = workspaceGroups.first(where: { $0.id == groupId }) {
+            if group.anchorWorkspaceId == referenceWorkspaceId {
+                return createWorkspaceAdjacentToGroup(
+                    groupId: groupId,
+                    position: position,
+                    select: select
+                )
+            }
+            return createWorkspaceAdjacentWithinGroup(
+                to: referenceWorkspace,
+                groupId: groupId,
+                position: position,
+                select: select
+            )
+        }
+
+        let newWorkspace = addWorkspace(
+            select: select,
+            placementOverride: .end,
+            sourceWorkspaceOverride: referenceWorkspace
+        )
+        reorderCreatedWorkspace(
+            newWorkspace.id,
+            adjacentTo: referenceWorkspaceId,
+            position: position
+        )
+        return newWorkspace
+    }
+
+    private func createWorkspaceAdjacentWithinGroup(
+        to referenceWorkspace: Workspace,
+        groupId: UUID,
+        position: WorkspaceAdjacentInsertionPosition,
+        select: Bool
+    ) -> Workspace? {
+        guard let group = workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
+        let cwd = tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+        let newWorkspace = addWorkspace(
+            workingDirectory: cwd,
+            inheritWorkingDirectory: cwd == nil,
+            select: select,
+            placementOverride: .end,
+            sourceWorkspaceOverride: referenceWorkspace,
+            autoWelcomeIfNeeded: false
+        )
+        assignGroup(workspaceId: newWorkspace.id, groupId: groupId)
+        reorderCreatedWorkspace(
+            newWorkspace.id,
+            adjacentTo: referenceWorkspace.id,
+            position: position
+        )
+        expandGroupIfNeeded(groupId: groupId, select: select)
+        return newWorkspace
+    }
+
+    private func createWorkspaceAdjacentToGroup(
+        groupId: UUID,
+        position: WorkspaceAdjacentInsertionPosition,
+        select: Bool
+    ) -> Workspace? {
+        guard let group = workspaceGroups.first(where: { $0.id == groupId }),
+              let anchorWorkspace = tabs.first(where: { $0.id == group.anchorWorkspaceId }) else {
+            return nil
+        }
+        let newWorkspace = addWorkspace(
+            select: select,
+            placementOverride: .end,
+            sourceWorkspaceOverride: anchorWorkspace
+        )
+        let groupMemberIds = tabs.filter { $0.groupId == groupId && $0.id != newWorkspace.id }.map(\.id)
+        switch position {
+        case .above:
+            if let firstGroupWorkspaceId = groupMemberIds.first {
+                _ = reorderWorkspace(tabId: newWorkspace.id, before: firstGroupWorkspaceId)
+            }
+        case .below:
+            if let lastGroupWorkspaceId = groupMemberIds.last {
+                _ = reorderWorkspace(tabId: newWorkspace.id, after: lastGroupWorkspaceId)
+            }
+        }
+        return newWorkspace
+    }
+
+    private func reorderCreatedWorkspace(
+        _ workspaceId: UUID,
+        adjacentTo referenceWorkspaceId: UUID,
+        position: WorkspaceAdjacentInsertionPosition
+    ) {
+        switch position {
+        case .above:
+            _ = reorderWorkspace(tabId: workspaceId, before: referenceWorkspaceId)
+        case .below:
+            _ = reorderWorkspace(tabId: workspaceId, after: referenceWorkspaceId)
+        }
+    }
+
+    private func expandGroupIfNeeded(groupId: UUID, select: Bool) {
+        guard select,
+              let idx = workspaceGroups.firstIndex(where: { $0.id == groupId }),
+              workspaceGroups[idx].isCollapsed else {
+            return
+        }
+        workspaceGroups[idx].isCollapsed = false
     }
 
     /// Move an existing group member to the requested in-group slot. Called

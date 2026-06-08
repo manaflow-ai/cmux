@@ -118,6 +118,20 @@ extension VerticalTabsSidebar {
                 let resolved = placement ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
                 _ = tabManager.createWorkspaceInGroup(groupId: groupId, placement: resolved)
             },
+            onNewWorkspaceAbove: { [weak tabManager, anchorId = group.anchorWorkspaceId] in
+                guard let tabManager,
+                      tabManager.createWorkspaceAdjacent(to: anchorId, position: .above) != nil else {
+                    NSSound.beep()
+                    return
+                }
+            },
+            onNewWorkspaceBelow: { [weak tabManager, anchorId = group.anchorWorkspaceId] in
+                guard let tabManager,
+                      tabManager.createWorkspaceAdjacent(to: anchorId, position: .below) != nil else {
+                    NSSound.beep()
+                    return
+                }
+            },
             onRunResolvedItem: { [weak tabManager, groupId = group.id] item in
                 guard let tabManager else { return }
                 SidebarWorkspaceGroupContextMenuRunner.run(
