@@ -5364,17 +5364,10 @@ final class BrowserPanel: Panel, ObservableObject {
         ghosttyBackgroundObserver = NotificationCenter.default.addObserver(
             forName: .ghosttyDefaultBackgroundDidChange,
             object: nil,
-            queue: nil
+            queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
-            if Thread.isMainThread {
-                MainActor.assumeIsolated {
-                    self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
-                }
-            } else {
-                Task { @MainActor [weak self] in
-                    self?.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
-                }
+            MainActor.assumeIsolated {
+                self?.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
             }
         }
 
