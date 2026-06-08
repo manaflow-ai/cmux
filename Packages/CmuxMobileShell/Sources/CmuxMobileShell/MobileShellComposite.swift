@@ -268,6 +268,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
+    /// The user pull-to-refresh round-trip, kept on its own handle so the
+    /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
+    /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
+    private var pullToRefreshTask: Task<Void, Never>?
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
@@ -375,6 +379,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createWorkspaceTask = nil
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
+        self.pullToRefreshTask = nil
         self.createWorkspaceTaskID = nil
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
@@ -395,6 +400,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
+        pullToRefreshTask?.cancel()
         if let remoteClient {
             Task { await remoteClient.disconnect() }
         }
@@ -1920,6 +1926,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTaskID = nil
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = nil
+        pullToRefreshTask?.cancel()
+        pullToRefreshTask = nil
     }
 
     private func resetTerminalOutputTracking() {
@@ -2908,22 +2916,68 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func scheduleWorkspaceListRefreshFromEvent() {
-        guard let client = remoteClient else { return }
+        guard remoteClient != nil else { return }
+        // Keep the event path's "latest event wins" semantics: a `workspace.updated`
+        // arriving mid-fetch restarts the fetch so the applied list reflects the
+        // change the Mac pushed *after* this fetch started. This cancels only the
+        // event-driven task handle; the user pull-to-refresh runs on its own
+        // (``pullToRefreshTask``) so an event can never truncate its spinner.
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = Task { @MainActor [weak self] in
             defer { self?.workspaceListRefreshTask = nil }
-            guard let self else { return }
-            do {
-                let request = try MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
-                let data = try await client.sendRequest(request)
-                let response = try MobileSyncWorkspaceListResponse.decode(data)
-                guard self.remoteClient === client, self.connectionState == .connected else { return }
-                self.applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
-                self.syncSelectedTerminalForWorkspace()
-            } catch {
-                mobileShellLog.error("workspace list event refresh failed: \(String(describing: error), privacy: .private)")
-            }
+            await self?.reloadWorkspaceListFromMac()
         }
+    }
+
+    /// Re-fetch the authoritative workspace list from the connected Mac and apply
+    /// it, awaiting the round-trip to completion.
+    ///
+    /// This is the single shared re-sync the `workspace.updated` event refresh and
+    /// the user's pull-to-refresh both funnel through, so the list never has two
+    /// divergent fetch paths. A no-op when not connected. Errors (offline / wedged
+    /// transport) are caught and logged, leaving the existing list intact, because
+    /// ``applyRemoteWorkspaceList(_:preferActiveTicketTarget:mergeExistingWorkspaces:)``
+    /// runs only on a successful decode.
+    private func reloadWorkspaceListFromMac() async {
+        guard let client = remoteClient else { return }
+        do {
+            let request = try MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
+            let data = try await client.sendRequest(
+                request,
+                timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
+            )
+            let response = try MobileSyncWorkspaceListResponse.decode(data)
+            guard remoteClient === client, connectionState == .connected else { return }
+            applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
+            syncSelectedTerminalForWorkspace()
+        } catch {
+            mobileShellLog.error("workspace list event refresh failed: \(String(describing: error), privacy: .private)")
+        }
+    }
+
+    /// Pull-to-refresh entry point: re-sync the workspace list from the connected
+    /// Mac, awaiting real completion so the system refresh spinner reflects the
+    /// actual round-trip (and ends gracefully on failure, leaving the list intact).
+    ///
+    /// Runs on its own ``pullToRefreshTask`` handle, separate from the
+    /// event-driven ``workspaceListRefreshTask`` that a `workspace.updated` push
+    /// cancels and restarts, so a background event can never truncate the pull's
+    /// spinner by cancelling the task it is awaiting. Rapid repeated pulls coalesce
+    /// onto the single in-flight pull task rather than stacking duplicate
+    /// `mobile.workspace.list` calls. Returns immediately when not connected, so an
+    /// offline pull cannot hang the spinner on a transport timeout.
+    public func refreshWorkspaces() async {
+        guard connectionState == .connected, remoteClient != nil else { return }
+        if let inFlight = pullToRefreshTask {
+            await inFlight.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            defer { self?.pullToRefreshTask = nil }
+            await self?.reloadWorkspaceListFromMac()
+        }
+        pullToRefreshTask = task
+        await task.value
     }
 
     private func stopTerminalRefreshPolling() {
