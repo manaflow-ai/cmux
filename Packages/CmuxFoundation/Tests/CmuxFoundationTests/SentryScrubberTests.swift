@@ -175,6 +175,18 @@ import Testing
         #expect(output["count"] as? Int == 3)
     }
 
+    @Test func redactsRawDataValuesSentryWouldHexEncode() {
+        // Sentry stringifies NSData to its hex description after beforeSend, so a
+        // Data value (even under a non-sensitive key) must be dropped wholesale,
+        // not passed through as a "safe scalar".
+        let tokenData = Data("token=secretvalue123".utf8)
+        #expect(scrubber.scrub(value: tokenData) as? String == "<redacted-data>")
+        let dict: [String: Any] = ["payload": tokenData, "count": 2]
+        let output = scrubber.scrub(dictionary: dict)
+        #expect(output["payload"] as? String == "<redacted-data>")
+        #expect(output["count"] as? Int == 2)
+    }
+
     // MARK: - Grouping fields preserved
 
     @Test func preservesNormalErrorText() {

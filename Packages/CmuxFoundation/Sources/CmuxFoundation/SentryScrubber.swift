@@ -36,6 +36,13 @@ public struct SentryScrubber: Sendable {
     public static let redactedEmail = "<redacted-email>"
     /// The placeholder substituted for a token / secret / key / bearer / password match.
     public static let redactedSecret = "<redacted-secret>"
+    /// The placeholder substituted for a raw `Data` value.
+    ///
+    /// Sentry has no JSON binary type, so it serializes `NSData` to its hex
+    /// description *after* `beforeSend` runs. That hex form would carry whatever
+    /// bytes the `Data` holds (e.g. a UTF-8 `token=…`), unreachable by the
+    /// string-content rules, so any `Data` the scrubber walks is dropped wholesale.
+    public static let redactedData = "<redacted-data>"
 
     /// Matches `/Users/<name>/` so the local username can be replaced regardless of the runtime home dir.
     static let userHomePrefix = SentryRegexPattern(#"/Users/[^/\s"']+/"#)
@@ -143,9 +150,13 @@ public struct SentryScrubber: Sendable {
             return scrub(dictionary: dictionary)
         case let array as [Any]:
             return array.map { scrub(value: $0) }
-        case is NSNumber, is Date, is Data, is NSNull:
+        case is NSNumber, is Date, is NSNull:
             // Safe scalars Sentry serializes faithfully; no string content.
             return value
+        case is Data:
+            // Sentry stringifies NSData to its hex description after beforeSend,
+            // which would leak the bytes (e.g. a UTF-8 token). Drop it wholesale.
+            return Self.redactedData
         case let url as URL:
             return scrub(url.absoluteString)
         case let url as NSURL:
