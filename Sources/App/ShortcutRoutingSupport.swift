@@ -747,6 +747,16 @@ func shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
     return true
 }
 
+func shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
+    _ event: NSEvent,
+    pageURL: URL?,
+    inlineVSCodeURLMatcher: (URL?) -> Bool = { VSCodeServeWebController.shared.isServeWebURL($0) },
+    shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
+) -> Bool {
+    guard inlineVSCodeURLMatcher(pageURL) else { return false }
+    return shortcutForAction(.commandPalette).matches(event: event)
+}
+
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
     guard let responder else { return nil }
     if let ghosttyView = responder as? GhosttyNSView {

@@ -86,4 +86,38 @@ describe("appearanceBackgroundColor", () => {
     expect(style.getPropertyValue("--cmux-diff-deletion-fg-dark")).toBe("#ff8a80");
     expect(style.getPropertyValue("--cmux-diff-addition-fg-dark")).toBe("#a6e22e");
   });
+
+  test("paints an opaque surface fill for opaque themes so loading/empty regions match the terminal", () => {
+    dom = new JSDOM("<!doctype html><html><body></body></html>");
+    (globalThis as any).document = dom.window.document;
+
+    applyDiffViewerAppearance(resolveDiffViewerAppearance({
+      backgroundOpacity: 1,
+      themes: {
+        light: { background: "#feffff" },
+        dark: { background: "#272822" },
+      },
+    }));
+
+    const style = dom.window.document.documentElement.style;
+    expect(style.getPropertyValue("--cmux-diff-surface-fill-light")).toBe("#feffff");
+    expect(style.getPropertyValue("--cmux-diff-surface-fill-dark")).toBe("#272822");
+  });
+
+  test("keeps the surface fill transparent for transparent themes so the blurred backdrop shows", () => {
+    dom = new JSDOM("<!doctype html><html><body></body></html>");
+    (globalThis as any).document = dom.window.document;
+
+    applyDiffViewerAppearance(resolveDiffViewerAppearance({
+      backgroundOpacity: 0.6,
+      themes: {
+        light: { background: "#feffff" },
+        dark: { background: "#272822" },
+      },
+    }));
+
+    const style = dom.window.document.documentElement.style;
+    expect(style.getPropertyValue("--cmux-diff-surface-fill-light")).toBe("transparent");
+    expect(style.getPropertyValue("--cmux-diff-surface-fill-dark")).toBe("transparent");
+  });
 });
