@@ -2000,7 +2000,7 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
-        key == "space" || key == "pageUp" || key == "pageDown" || key == "pageup" || key == "pagedown" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+        key == "space" || key == "pageup" || key == "pagedown" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
     }
 
     private static func isArrowShortcutKey(_ key: String) -> Bool {

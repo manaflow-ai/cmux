@@ -210,10 +210,10 @@ extension ShortcutAction {
         case .reopenClosedBrowserPanel: return "Reopen Last Closed"
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
-        case .scrollbackPageUp: return "Scrollback Page Up"
-        case .scrollbackPageDown: return "Scrollback Page Down"
-        case .scrollbackLineUp: return "Scrollback Line Up"
-        case .scrollbackLineDown: return "Scrollback Line Down"
+        case .scrollbackPageUp: return String(localized: "shortcut.scrollbackPageUp.displayName", defaultValue: "Scrollback Page Up")
+        case .scrollbackPageDown: return String(localized: "shortcut.scrollbackPageDown.displayName", defaultValue: "Scrollback Page Down")
+        case .scrollbackLineUp: return String(localized: "shortcut.scrollbackLineUp.displayName", defaultValue: "Scrollback Line Up")
+        case .scrollbackLineDown: return String(localized: "shortcut.scrollbackLineDown.displayName", defaultValue: "Scrollback Line Down")
         case .focusTextBoxInput: return "Focus TextBox Input"
         case .attachTextBoxFile: return "Attach File to TextBox Input"
         case .focusLeft: return "Focus Pane Left"
