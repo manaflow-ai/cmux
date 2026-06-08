@@ -3730,13 +3730,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sends a diagnostic bundle (events + debug log + visible terminal) and your note straight to the paired Mac."
+            "value": "Sends diagnostics (debug log + visible terminal) and your note straight to the paired Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "診断バンドル（イベント＋デバッグログ＋表示中のターミナル）とメモをペアリング済みの Mac に直接送信します。"
+            "value": "診断情報（デバッグログ＋表示中のターミナル）とメモをペアリング済みの Mac に直接送信します。"
           }
         }
       }

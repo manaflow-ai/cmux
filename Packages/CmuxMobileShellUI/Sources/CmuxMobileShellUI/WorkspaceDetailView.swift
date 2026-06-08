@@ -294,9 +294,12 @@ struct WorkspaceDetailView: View {
 
     private var feedbackComposerExplanation: String {
         if feedbackRoutesToAgent {
+            // Intentionally does not promise the structured event log: that log
+            // is only captured in DEBUG builds, so a Release agent bundle carries
+            // the debug log + visible terminal + your note, not the event trace.
             return L10n.string(
                 "mobile.feedback.explanation.agent",
-                defaultValue: "Sends a diagnostic bundle (events + debug log + visible terminal) and your note straight to the paired Mac."
+                defaultValue: "Sends diagnostics (debug log + visible terminal) and your note straight to the paired Mac."
             )
         }
         return L10n.string(
