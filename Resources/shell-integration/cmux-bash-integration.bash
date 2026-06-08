@@ -607,6 +607,14 @@ _cmux_clear_pr_command_hint_file() {
     /bin/rm -f -- "$_CMUX_PR_ACTION_HINT_FILE" >/dev/null 2>&1 || true
 }
 
+_cmux_clear_pr_for_disabled_git_watch() {
+    _cmux_clear_pr_command_hint_file
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _cmux_send_bg "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+}
+
 _cmux_store_pr_command_hint() {
     [[ -n "${_CMUX_PR_ACTION_HINT_FILE:-}" ]] || return 0
     if [[ -z "$_CMUX_LAST_PR_ACTION" ]]; then
@@ -1520,7 +1528,7 @@ _cmux_prompt_command() {
         _CMUX_PR_FORCE=0
         _CMUX_LAST_PR_ACTION=""
         _CMUX_LAST_PR_TARGET=""
-        _cmux_clear_pr_command_hint_file
+        _cmux_clear_pr_for_disabled_git_watch
     else
         if [[ "$pwd" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
             _CMUX_GIT_HEAD_LAST_PWD="$pwd"

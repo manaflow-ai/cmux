@@ -728,9 +728,12 @@ check_swift_file_length_budget_active() {
     in_step && /baseline_ref="HEAD\^"/ { saw_push_baseline=1 }
     in_step && /--budget \.github\/swift-file-length-budget\.tsv/ { saw_budget=1 }
     in_step && /--baseline-ref "\$baseline_ref"/ { saw_baseline_ref=1 }
-    END { exit(saw_step && saw_pr_base_env && saw_base_fetch && saw_push_baseline && saw_budget && saw_baseline_ref ? 0 : 1) }
+    in_step && /ALLOW_SWIFT_BUDGET_INCREASES:/ && /swift-budget-maintenance/ { saw_budget_label=1 }
+    in_step && /GITHUB_EVENT_NAME:-/ && /pull_request/ { saw_pr_only_reject=1 }
+    in_step && /--reject-budget-increases-from "\$baseline_ref"/ { saw_reject_budget_increases=1 }
+    END { exit(saw_step && saw_pr_base_env && saw_base_fetch && saw_push_baseline && saw_budget && saw_baseline_ref && saw_budget_label && saw_pr_only_reject && saw_reject_budget_increases ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: ci.yml must actively enforce the Swift file length budget against a git baseline"
+    echo "FAIL: ci.yml must enforce the Swift file length budget against a git baseline and reject unlabeled PR budget increases"
     exit 1
   fi
 
@@ -781,6 +784,16 @@ check_vm_socket_runners_fail_closed_without_test_retries() {
 check_retryable_submodule_checkout() {
   if ! grep -Fq 'attempts="${CMUX_SUBMODULE_RETRY_ATTEMPTS:-5}"' "$ROOT_DIR/scripts/ci/init-submodules-with-retry.sh"; then
     echo "FAIL: submodule retry wrapper must default to at least 5 attempts for transient GitHub connectivity outages"
+    exit 1
+  fi
+
+  if ! grep -Fq 'Refusing to clean unsafe submodule path' "$ROOT_DIR/scripts/ci/init-submodules-with-retry.sh"; then
+    echo "FAIL: submodule retry wrapper must refuse unsafe .gitmodules paths before cleanup"
+    exit 1
+  fi
+
+  if ! grep -Fq '""|/*|.|..|../*|*/..|*/../*|.git|.git/*)' "$ROOT_DIR/scripts/ci/init-submodules-with-retry.sh"; then
+    echo "FAIL: submodule retry wrapper must reject absolute paths, traversal paths, and .git paths"
     exit 1
   fi
 

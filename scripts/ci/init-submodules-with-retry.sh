@@ -34,6 +34,12 @@ cleanup_partial_submodules() {
   git config --file .gitmodules --get-regexp '^submodule\..*\.path$' |
     awk '{ print $2 }' |
     while IFS= read -r path; do
+      case "$path" in
+        ""|/*|.|..|../*|*/..|*/../*|.git|.git/*)
+          echo "Refusing to clean unsafe submodule path: $path" >&2
+          exit 1
+          ;;
+      esac
       rm -rf "$path" ".git/modules/$path"
     done
 }

@@ -84,12 +84,16 @@ jobs:
       - name: Validate bash shell integration job control
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
+      - name: Validate bash disabled git-watch PR clearing
+        run: python3 tests/test_bash_disabled_git_watch_clears_pr.py
+
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
 
       - name: Validate Swift file length budget
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          ALLOW_SWIFT_BUDGET_INCREASES: ${{ contains(github.event.pull_request.labels.*.name, 'swift-budget-maintenance') && '1' || '' }}
         run: |
           set -euo pipefail
           baseline_ref=""
@@ -103,6 +107,11 @@ jobs:
           args=(--budget .github/swift-file-length-budget.tsv)
           if [ -n "$baseline_ref" ]; then
             args+=(--baseline-ref "$baseline_ref")
+            if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ "${ALLOW_SWIFT_BUDGET_INCREASES:-}" != "1" ]; then
+              args+=(--reject-budget-increases-from "$baseline_ref")
+            elif [ "${ALLOW_SWIFT_BUDGET_INCREASES:-}" = "1" ]; then
+              echo "Swift file length budget increases allowed by swift-budget-maintenance label"
+            fi
           fi
           python3 scripts/swift_file_length_budget.py "${args[@]}"
 
