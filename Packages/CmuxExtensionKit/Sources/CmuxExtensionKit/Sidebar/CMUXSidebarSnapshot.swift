@@ -1,22 +1,22 @@
 import Foundation
 
-public struct CMUXSidebarSnapshot: Codable, Equatable, Sendable {
-    public var apiVersion: CMUXExtensionAPIVersion
+public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
+    public var apiVersion: CmuxExtensionAPIVersion
     public var sequence: UInt64
     public var windowID: UUID?
     public var selectedWorkspaceID: UUID?
-    public var grantedReadScopes: Set<CMUXExtensionScope>
-    public var grantedActionScopes: Set<CMUXExtensionActionScope>
-    public var workspaces: [CMUXSidebarWorkspace]
+    public var grantedReadScopes: Set<CmuxExtensionScope>
+    public var grantedActionScopes: Set<CmuxExtensionActionScope>
+    public var workspaces: [CmuxSidebarWorkspace]
 
     public init(
-        apiVersion: CMUXExtensionAPIVersion = .sidebarV1,
+        apiVersion: CmuxExtensionAPIVersion = .sidebarV2,
         sequence: UInt64,
         windowID: UUID? = nil,
         selectedWorkspaceID: UUID?,
-        grantedReadScopes: Set<CMUXExtensionScope> = [],
-        grantedActionScopes: Set<CMUXExtensionActionScope> = [],
-        workspaces: [CMUXSidebarWorkspace]
+        grantedReadScopes: Set<CmuxExtensionScope> = [],
+        grantedActionScopes: Set<CmuxExtensionActionScope> = [],
+        workspaces: [CmuxSidebarWorkspace]
     ) {
         self.apiVersion = apiVersion
         self.sequence = sequence
@@ -29,23 +29,24 @@ public struct CMUXSidebarSnapshot: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        apiVersion = try container.decode(CMUXExtensionAPIVersion.self, forKey: .apiVersion)
+        apiVersion = try container.decode(CmuxExtensionAPIVersion.self, forKey: .apiVersion)
         sequence = try container.decode(UInt64.self, forKey: .sequence)
         windowID = try container.decodeIfPresent(UUID.self, forKey: .windowID)
         selectedWorkspaceID = try container.decodeIfPresent(UUID.self, forKey: .selectedWorkspaceID)
-        grantedReadScopes = try container.decodeIfPresent(Set<CMUXExtensionScope>.self, forKey: .grantedReadScopes) ?? []
-        grantedActionScopes = try container.decodeIfPresent(Set<CMUXExtensionActionScope>.self, forKey: .grantedActionScopes) ?? []
-        workspaces = try container.decode([CMUXSidebarWorkspace].self, forKey: .workspaces)
+        grantedReadScopes = try container.decodeLossySetIfPresent(CmuxExtensionScope.self, forKey: .grantedReadScopes)
+        grantedActionScopes = try container.decodeLossySetIfPresent(CmuxExtensionActionScope.self, forKey: .grantedActionScopes)
+        workspaces = try container.decode([CmuxSidebarWorkspace].self, forKey: .workspaces)
     }
 
+    @_spi(CmuxHostTransport)
     public func filtered(
-        for scopes: some Sequence<CMUXExtensionScope>,
-        actionScopes: some Sequence<CMUXExtensionActionScope> = []
-    ) -> CMUXSidebarSnapshot {
+        for scopes: some Sequence<CmuxExtensionScope>,
+        actionScopes: some Sequence<CmuxExtensionActionScope> = []
+    ) -> CmuxSidebarSnapshot {
         let scopeSet = Set(scopes)
         let actionScopeSet = Set(actionScopes)
         guard scopeSet.contains(.workspaceList) || scopeSet.contains(.workspaceMetadata) else {
-            return CMUXSidebarSnapshot(
+            return CmuxSidebarSnapshot(
                 apiVersion: apiVersion,
                 sequence: sequence,
                 selectedWorkspaceID: nil,
@@ -54,18 +55,28 @@ public struct CMUXSidebarSnapshot: Codable, Equatable, Sendable {
                 workspaces: []
             )
         }
-        return CMUXSidebarSnapshot(
+        return CmuxSidebarSnapshot(
             apiVersion: apiVersion,
             sequence: sequence,
-            windowID: windowID,
-            selectedWorkspaceID: selectedWorkspaceID,
+            windowID: scopeSet.contains(.workspaceMetadata) ? windowID : nil,
+            selectedWorkspaceID: scopeSet.contains(.workspaceMetadata) ? selectedWorkspaceID : nil,
             grantedReadScopes: scopeSet,
             grantedActionScopes: actionScopeSet,
             workspaces: workspaces.map { workspace in
                 scopeSet.contains(.workspaceMetadata)
                     ? workspace.filtered(for: scopeSet)
-                    : CMUXSidebarWorkspace(id: workspace.id, title: workspace.title)
+                    : CmuxSidebarWorkspace(id: workspace.id, title: "")
             }
         )
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func decodeLossySetIfPresent<Value>(
+        _ type: Value.Type,
+        forKey key: Key
+    ) throws -> Set<Value> where Value: RawRepresentable, Value.RawValue == String, Value: Hashable {
+        guard let rawValues = try decodeIfPresent([String].self, forKey: key) else { return [] }
+        return Set(rawValues.compactMap(type.init(rawValue:)))
     }
 }

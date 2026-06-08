@@ -57,8 +57,6 @@
 1	Sources/KeyboardShortcutSettings.swift	'activateIgnoringOtherApps' was deprecated in macOS 14.0: ignoringOtherApps is deprecated in macOS 14 and will have no effect.
 1	Sources/NotificationsPage.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/Panels/BrowserPanel.swift	'@preconcurrency' on conformance to 'NSWindowDelegate' has no effect
-3	Sources/Panels/BrowserPanel.swift	'WKProcessPool' was deprecated in macOS 12.0: Creating and using multiple instances of WKProcessPool no longer has any effect.
-2	Sources/Panels/BrowserPanel.swift	'processPool' was deprecated in macOS 12.0: Creating and using multiple instances of WKProcessPool no longer has any effect.
 2	Sources/Panels/BrowserPanel.swift	converting non-sendable function value to '@MainActor @Sendable @convention(block) () -> Void' may introduce data races
 2	Sources/Panels/BrowserPanel.swift	main actor-isolated property 'effectiveAppearance' can not be referenced from a nonisolated context
 1	Sources/Panels/BrowserPanel.swift	main actor-isolated static property 'shared' can not be referenced from a nonisolated context

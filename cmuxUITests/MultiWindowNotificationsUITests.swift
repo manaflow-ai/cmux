@@ -1234,10 +1234,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     private func stableSocketPath() -> String {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("cmux", isDirectory: true)
+        // Mirrors CmuxStateDirectory.url() + cmux.sock (non-TCC ~/.local/state/cmux;
+        // see https://github.com/manaflow-ai/cmux/issues/5146).
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux", isDirectory: true)
             .appendingPathComponent("cmux.sock", isDirectory: false)
-            .path ?? "/tmp/cmux.sock"
+            .path
     }
 
     private func socketMatchesRequiredWorkspace(_ candidatePath: String, workspaceId: String?) -> Bool {

@@ -39,7 +39,8 @@
     "contact": "Kontakt",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Språk"
+    "language": "Språk",
+    "assets": "Ressurser"
   },
   "home": {
     "taglinePrefix": "Terminalen bygget for ",
@@ -84,7 +85,7 @@
   },
   "community": {
     "title": "Fellesskap",
-    "description": "Ta kontakt med andre cmux-brukere og teamet bak det.",
+    "description": "Bla gjennom prosjekter bygget av cmux-fellesskapet, fra agent-hooks til multiagent-orkestrering og fjerntilgang.",
     "discord": "Discord",
     "discordAction": "Bli med i vår Discord",
     "discordDesc": "Chat med fellesskapet, få hjelp og del tilbakemeldinger",
@@ -100,7 +101,206 @@
     "linkedinAction": "Følg oss",
     "linkedinDesc": "Bedriftsnyheter og tekniske oppdateringer",
     "metaTitle": "Fellesskap — cmux",
-    "metaDescription": "Bli med i cmux-fellesskapet på Discord, Twitter, GitHub og mer"
+    "metaDescription": "Bla gjennom alle prosjektene fra awesome-cmux på cmux-fellesskapssiden",
+    "sourceAction": "Se awesome-cmux",
+    "sourceRowsLabel": "kuraterte indekserte prosjekter",
+    "projectsLabel": "prosjekter",
+    "areasLabel": "områder",
+    "placementsLabel": "kategoritreff",
+    "areasTitle": "Områder",
+    "projectsTitle": "Prosjekter",
+    "projectAction": "Åpne",
+    "starsLabel": "stjerner",
+    "officialLinksTitle": "Offisielle lenker",
+    "filtersTitle": "Filtre",
+    "searchLabel": "Søk",
+    "searchPlaceholder": "Søk i prosjekter, agenter, språk",
+    "areaLabel": "Område",
+    "allAreas": "Alle områder",
+    "agentLabel": "AI-agent",
+    "allAgents": "Alle agenter",
+    "languageLabel": "Språk",
+    "allLanguages": "Alle språk",
+    "sortLabel": "Sorter",
+    "sortRecommended": "Anbefalt",
+    "sortStars": "Flest stjerner",
+    "sortName": "A til Z",
+    "resetFilters": "Tilbakestill",
+    "showingCount": "Viser {count} av {total}",
+    "noProjectsTitle": "Ingen prosjekter funnet",
+    "noProjectsDescription": "Tøm filtre eller prøv et annet søk.",
+    "moreCategoriesLabel": "+{count} til",
+    "categoryLabels": {
+      "sidebarStatusPills": "Sidefelt og statuspiller",
+      "progressBarsEstimation": "Fremdriftslinjer og estimering",
+      "sidebarLogsActivityFeed": "Sidefeltlogger og aktivitetsfeed",
+      "desktopNotifications": "Skrivebordsvarsler",
+      "multiAgentOrchestration": "Orkestrering av flere agenter",
+      "browserAutomation": "Nettleserautomatisering",
+      "worktreesWorkspaceManagement": "Worktrees og arbeidsområdehåndtering",
+      "monitoringSessionRestore": "Overvåking og øktgjenoppretting",
+      "remoteMobileAccess": "Fjern- og mobiltilgang",
+      "themesLayoutsConfig": "Temaer, oppsett og konfigurasjon",
+      "claudeCode": "Claude Code",
+      "pi": "Pi",
+      "openCode": "OpenCode",
+      "copilotAmp": "Copilot og Amp",
+      "multiAgentAgentAgnostic": "Flere agenter / agentuavhengig",
+      "buildDistribution": "Bygg og distribusjon"
+    },
+    "section": "fellesskap",
+    "projectDescriptions": {
+      "p001": "Bruk cmux' native CLI-kommandoer til å opprette, sende til, fange og lukke synlige worker-ruter når Claude Code kjører med CMUX_SURFACE_ID",
+      "p002": "Opprett OpenCode-worktrees som oppdager CMUX_WORKSPACE_ID og starter eller fokuserer dedikerte cmux-workspaces via native cmux-kommandoer",
+      "p003": "Render en live TUI-widget som sporer forløpt tid og fremdrift per subagent mens Claude Code orkestrerer arbeid på tvers av multiplexer-ruter - forskjellig fra dashboardverktøy ved at den viser timing og fullføringsprosent, ikke sesjonstilstand",
+      "p004": "Samle OpenCode-komponenter for workspace, notify og worktree som kan skrive cmux-status, sende cmux-varsler og starte cmux-workspaces",
+      "p005": "Koordiner agenter på tvers av terminalbackends med en cmux-preset som oppretter og lukker cmux-workspaces for synlige sesjoner",
+      "p006": "Lever native OS-varsler ved fullføring, feil og hendelser som krever input, med klikk-for-å-hente-frem, quiet hours og egendefinerte lyder; den eneste frittstående OpenCode-notifieren med planlagte quiet hours og lydtilpasning",
+      "p007": "Utvider Pi med 7 LLM-kallbare verktøy for workspace- og nettleserstyring lagret i en versjonskontrollert hjemmekatalog, med funksjoner utover sidebar-status som ingen annen Pi-plugin matcher",
+      "p008": "I motsetning til Pi-plugins med ett enkelt skript leveres den som en kuratert utvidelsessamling som legger til kostnads- og tokenstatistikk sammen med sidebar-tilstand og workspace-omdøping - fokuserer på økonomisk synlighet som andre Pi-plugins mangler",
+      "p009": "Kjør Pi-teams gjennom en cmux-adapter som åpner workspaces, oppretter splits, starter ruter på nytt og lukker surfaces fra team-workflows",
+      "p010": "Varsle om tillatelsesforespørsler og subagentaktivitet avgrenset per workspace med ulest-markeringer; sporer unikt ulest varseltilstand per workspace - varsler blir stående til de eksplisitt bekreftes",
+      "p011": "Lær Claude Code å eie og styre sidebar-fremdriftslinjer som en dokumentert skill i et bredere subagent-livssyklusløp, slik at fremdriftskontroll blir en eksplisitt agentfunksjon i stedet for en implisitt sideeffekt",
+      "p012": "Lagre og gjenopprett fulle workspaces, inkludert splits, CWDs, kjørende kommandoer og Markdown-workspace-blueprints med dry-run-forhåndsvisning - blueprint-eksport gjør layoutgjenoppbygging reproduserbar uten å avhenge av sesjons-ID-er",
+      "p013": "Gjenopprett Claude Code-sesjoner i Ghostty eller cmux ved å mappe CMUX_WORKSPACE_ID og spille av sesjoner på nytt med cmux list/send/send-key-flows",
+      "p014": "Åpne en syntaksuthevet diff-viewer i en browser split med inline review-kommentarer og live GitHub CI-status ved siden av terminalen - den eneste browser-pluginen som kombinerer code review og CI-tilbakemelding i én rute",
+      "p015": "Vis en kanban-TUI som administrerer agenter (Claude/Codex/Gemini) på tvers av prosjekter med cmux som en av tre multiplexer-backends - behandler unikt cmux som en utskiftbar transport i stedet for en hard avhengighet",
+      "p016": "Utvid Pi-sesjoner med cmux-varsler, sidebar-status/fremdrift, oppretting av splits, browser-ruter, skjermlesing og zoxide-drevne hopp",
+      "p017": "Utvider statussynlighet helt utenfor skjermen: speil workspace-tilstand, fremdriftslinjer og varselbadges til Elgato Stream Deck-maskinvareknapper - den eneste fysiske maskinvareintegrasjonen i listen",
+      "p018": "Vedlikeholder nøyaktig fire live pills (model, state, thinking, tokens) via en persistent socket-klient og genererer, i motsetning til joelhooks/pi-cmux' heartbeat-tilnærming, kontekstbevisste varseloppsummeringer med LLM-kall",
+      "p019": "Kjør en task-queue-daemon som starter conductor- og worker-subagenter i synlige cmux split-ruter med et TUI-dashboard - skiller seg fra erk ved å kjøre helt i terminalen uten git-worktree-isolasjon",
+      "p020": "Send native macOS-varsler kombinert med attention-cycle-faneindikatorer og automatisk genererte sesjonsnavn; navngir unikt sesjoner automatisk fra oppgavekontekst, slik at varsler får en lesbar etikett",
+      "p021": "Eksponer 43 separate MCP-verktøy for navigasjon, DOM-klikk, skjemautfylling, screenshots, JS eval og nettverksinspeksjon - den bredeste MCP-verktøyflaten blant browser-plugins",
+      "p022": "Lær agenter hele cmux-browserflaten, inkludert DOM-interaksjon, JS eval, cookies, fanehåndtering, dialoger og frames - det mest stjernemerkede frittstående skill-dokumentet for browser-underkommandoer",
+      "p023": "Send ut formaterte sidebar-loggoppføringer for alle seksten lifecycle hooks - den eneste Claude Code-pluginen som knytter git-branch- og commitmetadata til hver oppføring, slik at logger kan brukes som et lett sesjonsauditspor",
+      "p024": "Self-host en PWA-bro som kan lese, bytte og sende input til cmux-surfaces over WebSocket via cmux socket API",
+      "p025": "Samle et PM-orkestratorskript med SKILL.md som leser PRDs og fordeler arbeid til agenter via cmux socket API - den eneste skillen som kombinerer prosjektstyring med cmux-dispatch",
+      "p026": "Eksponer 29 MCP-verktøy over cmux Unix-socket for sidebar-oppdateringer, fremdrift, oppretting av splits, skjermlesing, browserautomatisering og agentorkestrering",
+      "p027": "Speil cmux-varsler til en iPhone via en Go-bridge-server over LAN WebSocket; utvider unikt varsler helt bort fra Mac-en - ingen annen oppføring retter seg mot en sekundær enhet",
+      "p028": "Forhåndsvis Markdown-filer i en browser split med live-reload ved lagring og fuzzy filnavnsmatch - fokusert smalt på Markdown-rendering i stedet for generell browserstyring",
+      "p029": "Formidle meldinger mellom controller-, orchestrator- og worker-cmux-faner med JSON-artefaktruting via filovervåking og send_text - den eneste pluginen som bruker SQLite som control plane for fanekoordinering",
+      "p030": "Koordiner tilstøtende cmux-ruter gjennom en append-only JSONL-meldingsbuss med fileierskapskrav og eskaleringsoppføringer, slik at agenter får et lett auditspor uten daemon, MCP-server eller database",
+      "p031": "Vis et sanntids TUI-dashboard over alle aktive workspaces med tastaturdrevet agentstart og direkte input - en control-plane-visning som utfyller skills med fokus på oppgavedispatch",
+      "p032": "Start underordnede Claude Code-workspaces fra en orkestratorsesjon, gi hver av dem en oppgavebrief og isoler arbeidet i git worktrees, slik at parallell research og implementering kan fortsette uten å stjele fokus",
+      "p033": "Kjør YAML-baserte deterministiske pipelines med Plan-Generate-Evaluate-løkker, en TypeScript-state machine, cmux split-pane-dashboard og MCP-godkjenningsporter - håndhever gjentakbare flertrinnsworkflows",
+      "p034": "Distribuer en cmux-nightly-cask via et personlig Homebrew tap",
+      "p035": "Pakk inn cmux workspace-, split-, send-, read-screen-, status-, progress-, notify- og log-kommandoer for ticket-drevet worktree-oppsett",
+      "p036": "Koble Copilot CLI-hendelser til cmux-sidebaren via socket JSON-RPC, med status pills, fremdriftslinjer, loggoppføringer og skrivebordsvarsler - den eneste dedikerte Copilot-sidebar-pluginen i listen",
+      "p037": "Koble OpenCode-aktivitet til cmux via socket eller CLI med sidebar-status, fremdriftslinjer, logger, varsler, spørsmåls-prompts og tillatelsestilstand",
+      "p038": "Vis needs-attention-bannere som auto-ryddes etter ti sekunder med render-throttling; i motsetning til joelhooks' persistente indikatorer lukker varsler seg selv for å unngå rot i varslingssenteret",
+      "p039": "Koordiner parallelt arbeid via rutedelegering med cmux send/read-screen gjennom worktrees - fremhever git-worktree-isolasjon som koordineringsgrensen i stedet for et delt workspace",
+      "p040": "Tilby Zsh-hjelpere som oppdager CMUX_WORKSPACE_ID, åpner cmux-workspaces, sender kommandoer og oppdaterer cmux-sidebar-status/fremdrift for multiagent-worktrees",
+      "p041": "Orkestrer flere parallelle Claude Code-worktrees fra én sidebar som viser live sesjonsstatus, lar deg starte navngitte agenter per branch og merger alt tilbake med én kommando",
+      "p042": "Administrer parallelle Pi-agenter via en Effect-service med workspaces per oppgave, sidebar-state machine og diff-review-workflow - legger til typet Effect-basert orkestrering oppå Pi's native agentmodell",
+      "p043": "Behold Amp-spesifikke cmux-varslings- og sesjonsgjenopprettingshooks for workflows som trenger adferd utover statusstøtten som nå er innebygd i cmux core",
+      "p044": "Fokuserer på sesjonspersistens i stedet for live-dekorasjon: administrer workspace-til-sesjon-mappinger og bulk-gjenoppta alle sesjoner etter en systemomstart, en gjenopprettingsworkflow andre Claude Code-plugins mangler",
+      "p045": "Start en interaktiv prosjektvelger som åpner yazi, lazygit og Claude Code i et 3-rute-layout og autostarter riktig dev server for det valgte prosjektet",
+      "p046": "Distribuer cmux-workspace-launcheren ovenfor som en Homebrew-formula som løser yazi-, lazygit- og dev-tool-avhengigheter, slik at enhver Mac kan installere den med én kommando",
+      "p047": "Definer TOML-workspace-presets med rolle-prompts, split-layouts og single/team/manual-moduser, og start deretter gjentakbare Claude Code-workspaces fra et interaktivt kontrolltårn i stedet for ad hoc-shellhistorikk",
+      "p048": "Utløs cmux notify ved Pomodoro-faseskift fra en terminal-TUI-timer - det eneste frittstående produktivitetsverktøyet som bruker cmux-varsler som alarmmekanisme",
+      "p049": "Start Pi i navngitte cmux-workspaces og eksponer slash commands for status pills, fremdriftslinjer, logger, browser splits og skjermlesing, slik at workspace-oppsett og live sidebar-rapportering samles i én liten Pi-pakke",
+      "p050": "Fordel én prompt til synlige Claude-, Codex- og Antigravity-ruter, samle deterministiske agree/disagree-markører og støtt co-work-oppgaver basert på midlertidige filer i stedet for skjult broker-tilstand",
+      "p051": "Åpne vitenskapelige figurer i en cmux-browserrute når CMUX_SOCKET_PATH eller CMUX_WORKSPACE_ID er til stede, med ferskhetstidsstempler og auto-refresh",
+      "p052": "Inspiser og bruk cmux-layouts via Unix-socket JSON-RPC, med workspace-, pane- og surface-lister for gjenbrukbare topologibeskrivelser",
+      "p053": "Speil Claude/tmux-workers inn i cmux-splits mens cmux-sidebar-status, fremdrift og logger oppdateres for teamorkestrering",
+      "p054": "Speil et eksternt cmux-layout til en lokal instans over SSH med inkrementell sync-støtte - et observerbarhetsverktøy fokusert på ekstern-til-lokal layoutreplikering i stedet for agenttilstand",
+      "p055": "Self-host et eksternt speil via lokal bridge + Cloudflare tunnel med en telefonwebapp over WebSocket for terminalforhåndsvisning og workspace-bytte - ekstern tilgang uten konfigurasjon via tunnel",
+      "p056": "Driv worktree-oppretting fra en deklarativ YAML-workspace-definisjon med støtte for egendefinerte pre/post-workflows, konfigurerbare split-layouts og isolert browserlagring per rute",
+      "p057": "Tving cmux-browserverktøy til alltid å prioriteres via tre slash commands (/browse, /browse-check, /browse-compare) - den eneste pluginen som løfter browseren til standard verktøyvalg på koreansk",
+      "p058": "Kartlegg alle 40+ browser-underkommandoer sammen med workspace-navigasjon og en tmux-to-cmux-migreringstabell, skrevet på koreansk - hjelper unikt utviklere som flytter eksisterende tmux-muskelminne",
+      "p059": "Installer Claude Code- og Codex-adaptere som åpner code-server som en cmux-sidecar-rute, slik at agenter får en nærliggende editorflate uten å bundle eller installere editoravhengigheter i det skjulte",
+      "p060": "Eksperimentell tmux-to-cmux-kommandomapping for Claude Code-skills; upstream README markerer den som ustabil og ikke klar for pålitelige workflows",
+      "p061": "Lær Claude Code cmux-splits, browser refs, CMUX_SOCKET_PATH-workflows og cmux notify-baserte beslutninger om når det skal varsles eller åpnes ruter",
+      "p062": "Aktiver browserautomatisering og rutestyring via cmux tree, read-screen og send, med all dokumentasjon på koreansk - skiller seg ut ved å fremheve pane-tree-introspeksjonskommandoer som ikke dekkes i engelskspråklige skills",
+      "p063": "Utløs fullføringsvarsler sammen med faneomdøping og live fremdriftslinjer; samler unikt tre UX-hensyn (notify + rename + progress) i én shell-plugin i stedet for bare varsler",
+      "p064": "Tilby et browserbasert dev cockpit med deklarative workflow.yml-gates, sporing av undertrinn og Autopilot via cmux send - eksponerer unikt en Ctrl+K-kommandopalett for manuell overstyring under automatiserte kjøringer",
+      "p065": "Fang og gjenopprett sesjoner ved hjelp av stabile layoutkoordinater i stedet for flyktige surface UUIDs med en layout-change hook for live-remapping - løser UUID-ustabilitetsproblemet som ødelegger andre gjenopprettingsverktøy",
+      "p066": "Repliker Conductor's IDE-lignende 3-rute-layout - Claude-agent, lazygit og dev server - i én bootstrap-kommando med et mørkt teal-fargeoppsett",
+      "p067": "Vis Shiki-drevne syntaksuthevede diffs i en browser split med valg av flere filer og AI-genererte commit-meldingsforslag - skiller seg fra azu/cmux-hub ved å pare diff-visning med commit-skriving",
+      "p068": "Lær Claude Code Neovim-sentrerte redigeringsmønstre: åpne filer på riktig linje, render delta-diffs og kjør tester i tilstøtende ruter uten å forlate agentvinduet",
+      "p069": "Rapporter OpenCode-status, fremdrift, logger, varsler og prosjektstyringskontekst til cmux, med Azure DevOps- og Jira-signaler som valgfri sidebar-metadata",
+      "p070": "Rut varsler gjennom cmux notify med forhåndsgodkjente CLI-tillatelser; skiller seg ut ved å løse permission-prompt-problemet slik at varsler sendes stille ved første kjøring",
+      "p071": "Tilby tre skills: /cmux-control for fjernstyring av sesjoner med 8-state-deteksjon, /cmux-get for kontekstimport og /cmux-md-preview for interaktive Markdown-sjekklister - detaljert skill-separasjon per funksjon",
+      "p072": "Opprett et japansk 4-rute-layout: yazi + glow/watchexec Markdown preview + lazygit + AI-terminal med symlinks til cmux-kommandopaletten - et meningssterkt utviklingscockpit for japanskspråklige workflows",
+      "p073": "Rut HTTP/WebSocket/TCP-trafikk gjennom en headerbasert reverse proxy med nettverksisolasjon per workspace",
+      "p074": "Registrer Claude Code- og Codex-resume-metadata ved hver tur, og gjenopprett deretter ett gjenopprettet cmux-workspace om gangen etter krasj eller oppdateringer uten blindt å bulk-starte gamle sesjoner",
+      "p075": "Installer en full AI-stack (cmux + Ghostty + Zed + Starship + JetBrainsMono) via én Homebrew-formula med idempotente omkjøringer og dry-run-modus - developer environment bootstrap med én kommando",
+      "p076": "Bygg en Chromium content shell for cmux' browsermotor med forhåndsbygde framework-nedlastinger for plugin-utviklere",
+      "p077": "Tilby installerbare cmux-skills for enhver Agent Skills-kompatibel runtime, med CLI-styring, innstillinger, browserautomatisering, artefakter, workspace refs og tilpasning fra én vedlikeholdt offentlig kilde",
+      "p078": "Tilby det offisielle Homebrew tap for cmux med stabile og nightly casks vedlikeholdt av Manaflow",
+      "p079": "Lær Claude Code browserautomatisering på tvers av fire autosynkroniserende skill-filer med skjemautfylling, screenshots og debug window capture - strukturert som en skill-suite med flere filer i stedet for ett monolittisk dokument",
+      "p080": "Implementer et master-worker-mønster med worktrees, cmux-workspaces og Agent Teams (lead+tester+reviewer+security) med deterministisk porttildeling - tildeler unikt faste porter per agentrolle",
+      "p081": "Drop-in-erstatning for GSD/Pi's @gsd/cmux-modul som legger til WezTerm som en andre multiplexer-backend med OSC 1337-brukervariabler og Windows toast-varsler - den eneste Pi-pluginen med støtte for to multiplexer-mål",
+      "p082": "Render assistentens Markdown-svar som stylet HTML i en cmux-browserrute med inline terminal-screenshots og filforhåndsvisninger - gjør browserruten til en rik samtalerenderer i stedet for en nettleser",
+      "p083": "Opprett worktrees fra ramo.json, kjør oppsettskommandoer, kopier env-filer og åpne resultatet i cmux-workspaces og splits",
+      "p084": "Spor worker-subagenters fremdrift fra cmux-sidebaren ved hjelp av strukturerte handoff-notater skrevet til en dedikert katalog - en filbasert koordineringsmodell i kontrast til socket- eller daemon-drevne monitorer",
+      "p085": "Koble Google Antigravity CLI-hooks til cmux-varsler gjennom Antigravity's hooks.json-kontrakt med stdout-sikker JSON-håndtering, slik at varslingshooken ikke invaliderer agentruntime",
+      "p086": "Dekk browserautomatisering som del av en bred CLI-taksonomi som unikt dokumenterer capture-pane-internals og CMUX_SOCKET_PASSWORD-autentisering - mer referanse enn tutorial",
+      "p087": "Fan cmux-aware hooks ut til SSH hosts, Hermes og omp/Pi, og relay deretter agentaktivitet tilbake som lokale varsler og sidebar-badges via en stdlib-hjelper i stedet for håndskrevne skript per agent",
+      "p088": "Tilby c-help CLI: offline søkbart cheatsheet for alle cmux-tastatursnarveier, CLI-kommandoer, sidebar APIs, browserautomatisering og env vars på engelsk og japansk",
+      "p089": "Hopper over status pills til fordel for IDE-ergonomi: autoåpne redigerte filer i en Vim-subrute og slå en broot-filbrowser-sidebar av eller på, slik at cmux blir et lett editormiljø",
+      "p090": "Åpne eller fokuser workspaces med ws, scaffold med CLAUDE.md og tillatelser via ws init, og integrer Flox envs pluss 1Password CLI secrets - kombinerer workspace-administrasjon med secret-injisering",
+      "p091": "Send skrivebordsvarsler ved inaktivitet eller feil sammen med subagent viewer-ruter og browserverktøy; skiller seg ut ved å pare varselhendelser med synlige subagent viewer-ruter i samme plugin",
+      "p092": "Eksponer 81 MCP-verktøy for agentstart, sidebar-metadata, varsler, browserautomatisering og sesjonsgjenoppretting - den største MCP-flaten blant pluginene her, i motsetning til EtanHey/cmuxlayer's fokuserte sett med 22 verktøy",
+      "p093": "Lagre oppsettskommandoer per repo i .cmux-workspace.json og start cmux-workspaces fra den konfigurasjonen, slik at prosjektbootstrap, worktree-oppretting og workspace-start forblir én gjentakbar kommando",
+      "p094": "Styr cmux fra en iPhone over Tailscale med en SwiftUI-klient og Swift-relay-daemon, slik at terminalspegling, tastinput og workspace-operasjoner holdes inne i brukerens private tailnet",
+      "p095": "Orkestrer 124 domenespesialister via en 802-linjers skill-fil med 18 hooks, 28 scripts og surface watcher som oppdager IDLE/ERROR/STALL-tilstander - den mest granulære koreanskspråklige sidebar-state machine for Claude Code",
+      "p096": "Oversett tmux-kommandoer til cmux-ekvivalenter, slik at --teammate-mode tmux (Agent Teams) kan brukes inne i cmux ved å mappe pane IDs til surface IDs - løser tmux-kompatibilitetsgapet for agent team mode",
+      "p097": "Poll ruter fra enhver agent, trekk ut strukturert kontekst, lagre snapshots i SQLite og autoinjiser komprimerte handoff-briefer i nye sesjoner - persistenslaget skiller det fra in-memory-gjenopprettingsverktøy",
+      "p098": "Stream cmux-terminalsesjoner til enhver enhet med en TypeScript-relayagent og valgfri ACP-chatintegrasjon, med vekt på telefonvennlig overvåking av Claude Code-, Codex- og Gemini-ruter",
+      "p099": "Videresend OSC 777-rings fra en ekstern DGX Spark til den lokale MacBook-en som kjører cmux via Mosh; løser unikt remote-GPU-til-lokal-desktop-varslingsgapet - ingen annen oppføring dekker forwarding på tvers av hosts",
+      "p100": "Løs opp delvise katalognavn via zoxide frecency, sjekk cmux-workspaces med 4-tier fuzzy matching, og bytt eller opprett med j - den eneste zoxide-integrerte workspace-bytteren med 45 tester",
+      "p101": "Tilby en iOS-ledsagerapp (React Native/Expo) over Tailscale med full workspace-liste, ANSI-terminalrendering, tastatursnarveier og APNs-pushvarsler - den mest funksjonskomplette mobilklienten",
+      "p102": "Koordiner Claude-, Codex- og A2A-agenter med cmux surface IDs, send/read/spawn/move APIs og persistent swarm-tilstand",
+      "p103": "Korreler agenter, branches og PRs gjennom et utviklingsflåte-dashboard med cmux som én støttet multiplexer-provider",
+      "p104": "Autoeksporter Pencil-designfiler til PDF og hot-reload dem i browserruten ved hver lagring - spesialbygd for designiterasjonsløkker, ikke generelt webinnhold",
+      "p105": "Auto-reload difit web diff viewer i en cmux-browserrute utløst av Claude Code-regler etter filendringer med portisolasjon per workspace - spesialbygd for kontinuerlig visuell diff-overvåking",
+      "p106": "Fokuserer spesifikt på sikker kommandokjøring: legger til en eksplisitt allowlist for workspace-verktøy sammen med fokusbevisste debounced macOS-varsler, et sikkerhetslag andre Pi-plugins mangler",
+      "p107": "Tilby Pi typede browserautomatiseringshandlinger (click, fill, screenshot, snapshot) pluss en dedikert spawnbar web-dev-subagent - unik ved å tilby en spesialbygd subagent for frontend-utviklingsoppgaver",
+      "p108": "Vis ringi-drevne code reviews i cmux-browserruter sammen med split-pane- og agent-handoff-slash commands - den eneste Pi-pluginen som integrerer et strukturert review-workflow i browserruten",
+      "p109": "Samle cmux browser-, pane-, status-, progress-, log- og notify-skills med en bredere Claude Code skill marketplace-pakke",
+      "p110": "Registrer prosjekter og presets, og start dem deretter som cmux-workspaces og splits gjennom et koreanskspråklig prosjektregister",
+      "p111": "Logg Pi-verktøykjøringer til sidebar-feeden samtidig som ett enkelt passthrough cmux_cli-verktøy eksponeres, slik at Pi kan utstede enhver cmux-kommando direkte og gjøre agenten selv til en førsteklasses loggforfatter",
+      "p112": "Dokumenter browser-, CLI- og snarveisreferanser med konkrete Python socket API-eksempler for WebKit-automatisering - den eneste skillen som bygger bro fra cmux Python socket API til browserstyring",
+      "p113": "Spor Pi-kjøringsoppsummeringer og skyv fullføringsstatus inn i cmux-varsler og sidebar pills, der automatisk run-end-rapportering pares med passive skills som lar Pi oppdatere status under builds, tester og deploys",
+      "p114": "Søk etter, fokuser og administrer cmux-workspaces og ruter direkte fra Raycast med tastaturdrevne kommandoer, slik at du slipper å bruke musen eller bytte apper",
+      "p115": "Utstyr Pi med to browsermoduser: cmux in-app WebKit for visuell debugging og Playwright for headless CI-workflows - den eneste Pi-pluginen som lar agenten bytte mellom visuell og headless modus per oppgave",
+      "p116": "Map hvert Claude Code session ID til dets surface UUID via en SessionStart-hook, og gjenoppta deretter eksakte sesjoner etter cmux-omstarter - den hook-drevne tilnærmingen unngår polling og overlever raske omstarter",
+      "p117": "Send ut OSC 777-varsler for tool-use approvals og agent-stop-varsler, slik at cmux-kompatible terminaler kan vise Copilot-aktivitet",
+      "p118": "Spesialiserer seg på context-window-bevissthet i motsetning til generelle statusplugins - visualiser fyllprosent, linjetall og rate limits som fargekodede fremdriftslinjer på tvers av alle åpne workspaces samtidig",
+      "p119": "Tilby to skills: selvrefererende cmux-dokumentasjonsoppslag (live cmux -h + scraped cmux.com) og /pane reader for andre terminaler - den eneste skillen som dynamisk scraper upstream-dokumentasjon ved runtime",
+      "p120": "Opprett eller gjenbruk cmux-workspaces for tickets og worktrees, slik at oppgavetilstand holdes på linje med synlige cmux-sesjoner",
+      "p121": "Fang opp Agent-verktøykall via en PreToolUse-hook og omdiriger dem til synlige cmux split-ruter - den hook-baserte tilnærmingen krever null endringer i agentens egne prompts eller skills",
+      "p122": "Opprett worktrees fra GitHub- og Linear-issues: wt gh henter tittelen, oppretter en branch og åpner en cmux-fane - fzf-velger for å velge blant åpne issues",
+      "p123": "Bygg en egendefinert cmux-t3code-app fra et cmux-submodule, med t3code-sidecars innebygd i native cmux-paneler for AI-kodingsworkflows",
+      "p124": "Legger til emoji-merkede verktøynavn i status pills og bruker en logaritmisk fremdriftskurve som tar hensyn til avtagende utbytte, i motsetning til lineære linjer i andre Shell-baserte Claude Code-plugins",
+      "p125": "Fokuserer på sporing av subagent-livssyklus sammen med skrivebordsvarsler for spørsmål, tillatelser og feil - i motsetning til Attamusc/opencode-cmux throttler den ikke og prioriterer fullstendighet over ytelse",
+      "p126": "Lær fan-out-kjøring med spawn, og synkroniser deretter via wait-for/wait-for --signal-signaler og eksplisitt pane-topologiadministrasjon - unikt fokus på barrier-style-synkroniseringsprimitiver",
+      "p127": "Lever framework-agnostiske skills symlinket inn i Claude Code, Codex, Coco/Trae eller OpenCode med cmux-orkestrering og Feishu/Lark CLI-integrasjon - det eneste skill-settet rettet mot fem agent-runtimes",
+      "p128": "Automatiser Intel Mac x86_64-builds ved å polle upstream releases hver 6. time og publisere usignerte DMGs",
+      "p129": "Start navngitte lokale prosjekter som cmux-workspaces fra en Rust TUI, og merk Claude Code-sesjoner med aktivitetsbadges",
+      "p130": "Offload én enkelt oppgave til en dedikert split-rute med en autonom worker, mens hovedsesjonens kontekst og tokenbudsjett bevares - minimal enkeltoppgavedelegering i stedet for full grid-orkestrering",
+      "p131": "Planlegg underoppgaver, start et grid med 2-8 workers, overvåk via read-screen-polling, review leveranser og dispatch fix-iterasjoner - dekker hele orkestratorløkken i én skill",
+      "p132": "Lever en cmux-avledet distribusjon og Homebrew-fork for worktree-agenter, MCP-handoff og mobile overvåkingsworkflows",
+      "p133": "Tilby Claude Code-skills for cmux-layoutautomatisering, workspace-snapshots, sesjonsgjenoppretting og Markdown preview-workflows",
+      "p134": "Samle skills, hooks, recipes og prompts for orkestrering av AI-agenter gjennom cmux socket-, browser-, varslings- og workspace-workflows",
+      "p135": "Snapshot og gjenopprett cmux-workspaces med gjenopptakelse av Claude Code-sesjoner, inkludert lagret rutetilstand og kontrollerte relaunch-flows",
+      "p136": "Eksponer cmux som en lokal provider for RigKit/Freestyle-utviklingsflows gjennom provider-cmux- og fdev-cmux-pakker",
+      "p137": "Lær Claude Code å starte cmux-ruter, overvåke agenter, automatisere browser-surfaces, oppdatere sidebar-metadata og sende varsler fra én plugin",
+      "p138": "Åpne en live git diff viewer i en cmux-browserrute med localhost-first WebSocket-oppdateringer og automatisk refresh når filer endres",
+      "p139": "Tilby Claude Code skill commands for cmux-splits, CMUX_SOCKET_PATH-workflows, browserautomatisering, Markdown preview, fremdrift og varsler",
+      "p140": "Publiser en Pi-pakke for cmux-status- og varslingsintegrasjon gjennom npm som @devnazim/pi-cmux",
+      "p141": "Lever Pi-utvidelsespakker inkludert @catdaemon/pi-cmux for cmux-status- og varslingsworkflows",
+      "p142": "Start synlige underordnede Codex TUI-ruter i cmux på tvers av isolerte git worktree-baner for parallell implementering og review",
+      "p143": "La Vim sende filreferanser og valgte linjeområder inn i AI CLI-sesjoner som kjører i cmux-ruter",
+      "p144": "Start cmux-workspaces, ruter, surfaces og browser-visninger fra tmuxinator-lignende YAML-prosjektdefinisjoner",
+      "p145": "Inkluder en Claude/Codex cmux-skill som starter ruter, sender prompts, leser skjermer, fokuserer ruter og administrerer worktrees",
+      "p146": "Publiser codex-cmux-hooks for Codex-status, fremdrift, varsler, logger og SSH socket forwarding gjennom cmux socket- eller CLI-integrasjon",
+      "p147": "Bla gjennom og gjenoppta Claude Code-sesjoner fra en TUI, og åpne gjenopprettede sesjoner i ferske cmux-workspaces ved behov",
+      "p148": "Lever en cmux-plugin-suite for remote bridging, teamdispatch, bruksregistrering og Claude/Codex-workflows inne i cmux-sesjoner",
+      "p149": "Gjør det mulig for OpenCode-agenter å kommunisere på tvers av cmux-workspaces ved å sende meldinger og lese peer-surfaces",
+      "p150": "Publiser en OpenCode-plugin for prosjekt- og aktivitetsfeedback i cmux, distribuert som @luisurrutia/opencode-cmux"
+    }
   },
   "blog": {
     "title": "Blogg",
@@ -242,6 +442,22 @@
         "p3": "Det sender gjeldende workspace bakerst i den uleste syklusen, slik at du kan fortsette å bla gjennom ulest arbeid uten å fjerne statusen.",
         "p4": "Cmd+Option+U veksler gjeldende workspace mellom lest og ulest.",
         "p5": "Dette er nyttig når du hopper til et nytt ulest workspace med Cmd+Shift+U, men må bytte kontekst før du svarer."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Gjenåpne lukkede terminaler, nettlesere, workspaces og agent-økter med Cmd+Shift+T, og gå tilbake gjennom fokuset ditt med Cmd+[ og Cmd+].",
+        "date": "2. juni 2026",
+        "p1": "Du lukker en terminalfane for å rydde, og innser så at du trengte den. Eller du lukker et helt workspace og mister agenten som var midt i en oppgave. cmux fører nå en historikk over det du har lukket og hatt i fokus, så det holder med én snarvei for å få det tilbake.",
+        "reopenTitle": "Gjenåpne det du lukket",
+        "reopenP": "Trykk <code>Cmd+Shift+T</code> for å gjenåpne det siste du lukket. Det fungerer for terminalfaner, nettleserfaner, workspaces og vinduer, og gjenoppretter dem én om gangen i rekkefølgen du lukket dem. Hver flate kommer tilbake der den var, med rutene intakte.",
+        "agentTitle": "Agent-økter kommer også tilbake",
+        "agentP": "Historikken gjenåpner også lukkede agent-økter. Gjenåpne en Claude Code-, Codex- eller OpenCode-økt, og den fortsetter der den slapp. Kjør <code>cmux hooks setup</code> én gang så cmux kan holde styr på agent-økter; deretter gjenåpnes de som alt annet.",
+        "agentP2": "Dette bygger på cmux <link>øktgjenoppretting</link>, som gjenopptar støttede agenter via deres egne native gjenopptakelseskommandoer.",
+        "focusTitle": "Tilbake til der du var",
+        "focusP": "Frem- og tilbake-knappene i tittellinjen, eller <code>Cmd+[</code> og <code>Cmd+]</code>, hopper til forrige og neste workspace eller vindu du jobbet i, på samme måte som frem og tilbake i en nettleser.",
+        "fullHistoryTitle": "Det fullstendige historikkpanelet",
+        "fullHistoryP": "Når du trenger mer enn det siste elementet, åpne det fullstendige historikkpanelet: en søkbar visning gruppert etter dag over alt du har lukket og hatt i fokus, med tidsstempler og en Clear Closed-handling.",
+        "docsCta": "Se <link>hurtigtaster</link> for hele listen, inkludert hvordan du binder om historikknavigasjonen."
       }
     },
     "zenOfCmux": {
@@ -367,6 +583,10 @@
         "AI-kodeagenter",
         "workspace ulest"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: gjenåpne lukkede terminaler og økter",
+      "metaDescription": "cmux fører en historikk over det du har lukket og hatt i fokus. Gjenåpne lukkede terminaler, nettlesere, workspaces og Claude Code-, Codex- og OpenCode-økter med Cmd+Shift+T, og flytt fokus frem og tilbake med Cmd+[ og Cmd+]."
     }
   },
   "docs": {
@@ -489,6 +709,7 @@
       "metaTitle": "Konfigurasjon",
       "schemaDescriptions": {
         "automation": {
+          "ampIntegration": "Aktiver cmux-integrasjonskroker for Amp. Når deaktivert, forblir den medfølgende programtillegget inaktivt uten å måtte fjernes.",
           "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri."
         },
         "app": {
@@ -499,14 +720,34 @@
           "forkConversationDefaultDestination": "Standardmål for den primære Fork Conversation-handlingen i fanehurtigmenyen. Undermenyen viser fortsatt alle mål."
         },
         "terminal": {
-          "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk."
+          "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk.",
+          "showTextBoxOnNewTerminals": "Viser beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",
+          "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox."
         },
         "browser": {
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
           "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
           "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, + knappen i gruppehodet og konfigurerte gruppehandlinger plasserer det nye workspace: `afterCurrent` (etter aktivt workspace i gruppen, med top som fallback), `top` (andre plass, rett etter ankeret) eller `end` (etter siste medlem).",
+          "byCwd": {
+            "newWorkspacePlacement": "Cwd-spesifikk overstyring for hvor Cmd-N i gruppen, + knappen i gruppehodet og konfigurerte gruppehandlinger plasserer det nye workspace: `afterCurrent` (etter aktivt workspace i gruppen, med top som fallback), `top` (andre plass, rett etter ankeret) eller `end` (etter siste medlem). Hvis utelatt brukes global standard."
+          }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "diffViewer": {
+          "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "Egendefinerte kommandoer",
@@ -627,7 +868,8 @@
         "notifications": "Varsler",
         "find": "Finn",
         "terminal": "Terminal",
-        "window": "Vindu"
+        "window": "Vindu",
+        "diffViewer": "Diff-viser"
       },
       "sc": {
         "ws-new": "Nytt arbeidsområde",
@@ -920,7 +1162,8 @@
       "changelog": "Endringslogg",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (beta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1054,6 +1297,21 @@
       "daemonSession": "Sesjonsledelse",
       "daemonSessionHow": "Vedvarer økter på tvers av gjentilkoblinger, koordinerer PTY-endring på tvers av flere vedlegg",
       "daemonPath": "Daemon-binæren er lagret på ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote på den eksterne verten og verifisert mot et SHA-256-manifest innebygd i appen."
+    },
+    "textBox": {
+      "title": "TextBox (beta)",
+      "metaTitle": "TextBox (beta)",
+      "metaDescription": "Konfigurer cmux sin beta-TextBox-inndata for nye terminalfaner, splitt og arbeidsområder.",
+      "intro": "TextBox er cmux sin rike terminalflate for å skrive prompter før de sendes til en terminal.",
+      "betaCallout": "TextBox er en betafunksjon. Standardverdier og oppførsel kan endres mens den testes.",
+      "defaultsTitle": "Standardverdier",
+      "defaultsDesc": "TextBox-innstillingene ligger i Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals åpner nye arbeidsområder, terminalfaner og terminalsplitt med TextBox synlig, mens fokus blir i terminalen.",
+      "focusSetting": "Focus TextBox on New Terminals setter tastaturfokus i TextBox. Fokus viser også TextBox.",
+      "maxLinesSetting": "TextBox Max Lines begrenser høyden på TextBox før innholdet begynner å rulle.",
+      "configTitle": "cmux.json",
+      "configDesc": "Sett de samme standardverdiene i ~/.config/cmux/cmux.json under terminal:",
+      "focusNote": "Gjenopprettede økter beholder lagret TextBox-synlighet og fokusstatus. Disse standardverdiene gjelder bare nyopprettede terminalflater."
     }
   },
   "legal": {
@@ -1145,7 +1403,31 @@
       "fallback": "cmux viser reglene først og spør før de limes inn i gjeldende arbeidsområde. Hvis cmux ikke åpnes, installer cmux og klikk Åpne i cmux igjen."
     }
   },
+  "download": {
+    "section": "last ned",
+    "metaTitle": "Takk for at du lastet ned cmux",
+    "metaDescription": "Nedlastingen av cmux starter. Utforsk dokumentasjonen, bli med på Discord, og følg cmux på X.",
+    "heading": "Takk for at du lastet ned cmux!",
+    "subtext": "Klikk <link>her</link> hvis nedlastingen ikke har startet."
+  },
   "testimonialSubtitles": {
     "steipete": "Skaperen av OpenClaw. Grunnlegger av PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Merkeressurser",
+    "metaDescription": "Last ned de lyse og mørke cmux-appikonene som macOS-appen bruker.",
+    "title": "Merkeressurser",
+    "description": "Last ned de lyse og mørke cmux-appikonene som macOS-appen bruker.",
+    "iconSection": "macOS-appikoner",
+    "download": "Last ned",
+    "assetAlt": "Forhåndsvisning av {name}",
+    "lightPreview": "Appikon for lys modus.",
+    "darkPreview": "Appikon for mørk modus."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Last ned lyst ikon",
+    "downloadDark": "Last ned mørkt ikon",
+    "brandPage": "Merkevareressurser"
   }
 }

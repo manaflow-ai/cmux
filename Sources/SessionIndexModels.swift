@@ -331,12 +331,10 @@ struct SessionEntry: Identifiable, Hashable {
             if let model, !model.isEmpty {
                 parts.append("-m \(Self.shellQuote(model))")
             }
-            if let approval, !approval.isEmpty {
-                parts.append("-a \(Self.shellQuote(approval))")
-            }
-            if let sandbox, !sandbox.isEmpty {
-                parts.append("-s \(Self.shellQuote(sandbox))")
-            }
+            parts.append(contentsOf: Self.codexApprovalSandboxArguments(
+                approvalPolicy: approval,
+                sandboxMode: sandbox
+            ))
             if let effort, !effort.isEmpty {
                 parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
             }
@@ -438,6 +436,49 @@ struct SessionEntry: Identifiable, Hashable {
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     static func shellQuote(_ value: String) -> String {
         TerminalStartupShellQuoting.shellToken(value, allowingBareASCII: true)
+    }
+
+    /// Sandbox-policy values the Codex CLI `--sandbox` flag accepts.
+    ///
+    /// cmux captures Codex's *internal* sandbox-policy `type`, which is a
+    /// superset of the CLI vocabulary (it also includes `disabled`, `managed`,
+    /// and may grow further). Those extra types have no `--sandbox` equivalent
+    /// and must never be forwarded as `-s`, or Codex rejects the resumed command
+    /// (see https://github.com/manaflow-ai/cmux/issues/5262).
+    static let codexCLISandboxModes: Set<String> = [
+        "read-only",
+        "workspace-write",
+        "danger-full-access",
+    ]
+
+    /// Builds the approval/sandbox CLI tokens for a `codex resume` command from
+    /// the per-session policy cmux captured, always yielding a valid invocation.
+    ///
+    /// A `--dangerously-bypass-approvals-and-sandbox` launch round-trips to a
+    /// captured `(approval: "never", sandbox: "disabled")`. This reproduces that
+    /// single combined flag rather than the invalid, contradictory `-a never -s
+    /// disabled`. Sandbox types with no CLI equivalent (`disabled`, `managed`,
+    /// future values) are dropped instead of emitted as an invalid `-s`; valid
+    /// values pass through unchanged.
+    static func codexApprovalSandboxArguments(
+        approvalPolicy: String?,
+        sandboxMode: String?
+    ) -> [String] {
+        // The exact inverse of `--dangerously-bypass-approvals-and-sandbox`:
+        // emit that one flag and nothing else, since `-a`/`-s` here would be both
+        // invalid (`-s disabled`) and contradictory with the bypass flag.
+        if approvalPolicy == "never", sandboxMode == "disabled" {
+            return ["--dangerously-bypass-approvals-and-sandbox"]
+        }
+
+        var parts: [String] = []
+        if let approvalPolicy, !approvalPolicy.isEmpty {
+            parts.append("-a \(shellQuote(approvalPolicy))")
+        }
+        if let sandboxMode, !sandboxMode.isEmpty, codexCLISandboxModes.contains(sandboxMode) {
+            parts.append("-s \(shellQuote(sandboxMode))")
+        }
+        return parts
     }
 
     var displayTitle: String {

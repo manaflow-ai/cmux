@@ -15,6 +15,7 @@ public struct SettingsRuntime: @unchecked Sendable {
     public let catalog: SettingCatalog
     public let userDefaultsStore: UserDefaultsSettingsStore
     public let jsonStore: JSONConfigStore
+    public let secretStore: SecretFileStore
     public let errorLog: SettingsErrorLog
     public let accountFlow: AccountFlow?
     public let hostActions: SettingsHostActions
@@ -24,6 +25,7 @@ public struct SettingsRuntime: @unchecked Sendable {
         catalog: SettingCatalog,
         userDefaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
+        secretStore: SecretFileStore,
         errorLog: SettingsErrorLog,
         accountFlow: AccountFlow? = nil,
         hostActions: SettingsHostActions = NoopSettingsHostActions()
@@ -31,6 +33,7 @@ public struct SettingsRuntime: @unchecked Sendable {
         self.catalog = catalog
         self.userDefaultsStore = userDefaultsStore
         self.jsonStore = jsonStore
+        self.secretStore = secretStore
         self.errorLog = errorLog
         self.accountFlow = accountFlow
         self.hostActions = hostActions
@@ -53,8 +56,8 @@ extension EnvironmentValues {
 
 extension View {
     /// Injects ``runtime`` into the view tree so any descendant
-    /// `@Setting` property wrapper or section can resolve its store,
-    /// catalog, and account flow.
+    /// `@LiveSetting` property wrapper or settings section can resolve its
+    /// store, catalog, and account flow.
     public func settingsRuntime(_ runtime: SettingsRuntime) -> some View {
         environment(\.settingsRuntime, runtime)
     }

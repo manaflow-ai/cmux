@@ -83,6 +83,9 @@ struct TerminalPanelView: View {
             .id(panel.id)
             .background(Color.clear)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+#if DEBUG
+            .reportTerminalViewportGeometryForUITest(panel: panel)
+#endif
             .layoutPriority(1)
 
             if panel.isTextBoxActive {
@@ -169,6 +172,78 @@ private struct AgentHibernationPlaceholderView: View {
         .background(Color(nsColor: appearance.contentBackgroundColor))
     }
 }
+
+#if DEBUG
+private extension View {
+    func reportTerminalViewportGeometryForUITest(panel: TerminalPanel) -> some View {
+        modifier(TerminalViewportGeometryReporter(panel: panel))
+    }
+}
+
+private struct TerminalViewportGeometryReporter: ViewModifier {
+    @ObservedObject var panel: TerminalPanel
+
+    func body(content: Content) -> some View {
+        content.background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear {
+                        recordTerminalViewportGeometryForUITest(proxy: proxy, panel: panel)
+                    }
+                    .onChange(of: proxy.size) {
+                        recordTerminalViewportGeometryForUITest(proxy: proxy, panel: panel)
+                    }
+            }
+        }
+    }
+}
+
+@MainActor
+private func recordTerminalViewportGeometryForUITest(proxy: GeometryProxy, panel: TerminalPanel) {
+    let env = ProcessInfo.processInfo.environment
+    guard env["CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+        return
+    }
+
+    let hostedView = panel.hostedView
+    let hostedFrame = hostedView.frame
+    let hostedBounds = hostedView.bounds
+    let hostedSuperviewBounds = hostedView.superview?.bounds ?? .zero
+    let windowContentBounds = hostedView.window?.contentView?.bounds ?? .zero
+    let hostedFrameInContent: NSRect
+    if let contentView = hostedView.window?.contentView {
+        hostedFrameInContent = contentView.convert(hostedView.convert(hostedView.bounds, to: nil), from: nil)
+    } else {
+        hostedFrameInContent = .zero
+    }
+
+    _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH") { payload in
+        payload["terminalViewportPanelId"] = panel.id.uuidString
+        payload["terminalViewportPanelWidth"] = terminalViewportFormat(proxy.size.width)
+        payload["terminalViewportPanelHeight"] = terminalViewportFormat(proxy.size.height)
+        payload["terminalViewportHostedFrameMinX"] = terminalViewportFormat(hostedFrame.minX)
+        payload["terminalViewportHostedFrameMinY"] = terminalViewportFormat(hostedFrame.minY)
+        payload["terminalViewportHostedFrameMaxX"] = terminalViewportFormat(hostedFrame.maxX)
+        payload["terminalViewportHostedFrameMaxY"] = terminalViewportFormat(hostedFrame.maxY)
+        payload["terminalViewportHostedFrameWidth"] = terminalViewportFormat(hostedFrame.width)
+        payload["terminalViewportHostedFrameHeight"] = terminalViewportFormat(hostedFrame.height)
+        payload["terminalViewportHostedBoundsWidth"] = terminalViewportFormat(hostedBounds.width)
+        payload["terminalViewportHostedBoundsHeight"] = terminalViewportFormat(hostedBounds.height)
+        payload["terminalViewportHostedSuperviewWidth"] = terminalViewportFormat(hostedSuperviewBounds.width)
+        payload["terminalViewportHostedSuperviewHeight"] = terminalViewportFormat(hostedSuperviewBounds.height)
+        payload["terminalViewportWindowContentWidth"] = terminalViewportFormat(windowContentBounds.width)
+        payload["terminalViewportWindowContentHeight"] = terminalViewportFormat(windowContentBounds.height)
+        payload["terminalViewportHostedContentMinX"] = terminalViewportFormat(hostedFrameInContent.minX)
+        payload["terminalViewportHostedContentMinY"] = terminalViewportFormat(hostedFrameInContent.minY)
+        payload["terminalViewportHostedContentMaxX"] = terminalViewportFormat(hostedFrameInContent.maxX)
+        payload["terminalViewportHostedContentMaxY"] = terminalViewportFormat(hostedFrameInContent.maxY)
+    }
+}
+
+private func terminalViewportFormat(_ value: CGFloat) -> String {
+    String(format: "%.3f", Double(value))
+}
+#endif
 
 /// Shared appearance settings for panels
 struct PanelAppearance {

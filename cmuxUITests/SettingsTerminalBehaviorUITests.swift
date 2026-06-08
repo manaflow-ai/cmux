@@ -1,18 +1,20 @@
 import XCTest
 
-/// Behavioral UI tests for the Settings **Terminal** section.
+/// Behavioral UI tests for the Settings **Terminal** and **TextBox** sections.
 ///
-/// The Terminal section exposes seven controls:
-/// Show Terminal Scroll Bar, TextBox Max Lines, Copy on Selection,
-/// Resume Agent Sessions on Reopen, Agent Hibernation (enable),
-/// Hibernate After Idle Seconds, and Max Live Agent Terminals.
+/// The Terminal section exposes six controls:
+/// Show Terminal Scroll Bar, Copy on Selection, Resume Agent Sessions on Reopen,
+/// Agent Hibernation (enable), Hibernate After Idle Seconds, and Max Live Agent
+/// Terminals. The TextBox section exposes three controls:
+/// Show TextBox on New Terminals, Focus TextBox on New Terminals, and TextBox
+/// Max Lines.
 ///
 /// Most of these settings only become observable inside the
 /// Ghostty/Metal terminal surface, the system clipboard, or across an
 /// app relaunch — none of which a single in-process XCUITest can drive
 /// deterministically without adding a runtime seam (which this task
 /// forbids). What *is* observable through XCUITest is the Settings row
-/// itself: four of the rows render a description (`subtitle`) whose text
+/// itself: six of the rows render a description (`subtitle`) whose text
 /// is bound to the live setting value and flips between an "on" and
 /// "off" sentence when the control changes, and the three numeric rows
 /// render a value label that updates when the stepper is driven.
@@ -28,12 +30,14 @@ import XCTest
 /// (`Sources/cmuxApp.swift`, the `Settings…` window) and in the
 /// migrated `CmuxSettingsUI.TerminalSection`:
 ///   SettingsTerminalScrollBarToggle,
-///   SettingsTerminalTextBoxMaxLinesStepper,
 ///   SettingsTerminalCopyOnSelectToggle,
 ///   SettingsTerminalAgentAutoResumeToggle,
 ///   SettingsTerminalAgentHibernationToggle,
 ///   SettingsTerminalAgentHibernationIdleSecondsStepper,
 ///   SettingsTerminalAgentHibernationMaxLiveStepper.
+///   SettingsTextBoxShowOnNewTerminalsToggle,
+///   SettingsTextBoxFocusOnNewTerminalsToggle,
+///   SettingsTextBoxMaxLinesStepper.
 ///
 /// ---------------------------------------------------------------------
 /// TIER 2 (needs runtime seam) — deep runtime effects not e2e-observable
@@ -103,6 +107,8 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
         "terminal.agentHibernation.enabled",
         "terminal.agentHibernation.idleSeconds",
         "terminal.agentHibernation.maxLiveTerminals",
+        "terminal.showTextBoxOnNewTerminals",
+        "terminal.focusTextBoxOnNewTerminals",
         "terminal.textBoxMaxLines",
     ]
 
@@ -122,6 +128,13 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
     private func openTerminalSettings(_ app: XCUIApplication) -> XCUIElement {
         let window = openSettings(app)
         navigate(window, to: "Terminal")
+        return window
+    }
+
+    /// Opens Settings and navigates to the TextBox section.
+    private func openTextBoxSettings(_ app: XCUIApplication) -> XCUIElement {
+        let window = openSettings(app)
+        navigate(window, to: "TextBox (Beta)")
         return window
     }
 
@@ -149,6 +162,10 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
         static let resumeOff = "stay idle until you resume them manually"
         static let hibernateOn = "Idle background agent terminals can be suspended"
         static let hibernateOff = "Agent terminals stay live until you close them"
+        static let showTextBoxOn = "open with the TextBox visible"
+        static let showTextBoxOff = "start with the TextBox hidden"
+        static let focusTextBoxOn = "put keyboard focus in the TextBox"
+        static let focusTextBoxOff = "keep keyboard focus in the terminal surface"
     }
 
     // MARK: - TIER 1: bound description flips with the setting
@@ -266,6 +283,60 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
         closeSettings(app, window)
     }
 
+    /// Show TextBox on New Terminals defaults OFF; toggling on switches
+    /// the bound description to the visible-on-new-terminals sentence and back.
+    func testShowTextBoxOnNewTerminalsToggleFlipsBoundDescription() {
+        let app = makeLaunchedApp()
+        let window = openTextBoxSettings(app)
+
+        XCTAssertTrue(
+            waitForStaticText(window, Subtitle.showTextBoxOff),
+            "Show TextBox row should start with the off-state description (default false)"
+        )
+
+        let control = toggle(window, id: "SettingsTextBoxShowOnNewTerminalsToggle")
+        control.click()
+        XCTAssertTrue(
+            waitForStaticText(window, Subtitle.showTextBoxOn),
+            "Enabling show TextBox should switch the description to the visible sentence"
+        )
+
+        control.click()
+        XCTAssertTrue(
+            waitForStaticText(window, Subtitle.showTextBoxOff),
+            "Disabling show TextBox should restore the hidden sentence"
+        )
+
+        closeSettings(app, window)
+    }
+
+    /// Focus TextBox on New Terminals defaults OFF; toggling on switches
+    /// the bound description to the focus-TextBox sentence and back.
+    func testFocusTextBoxOnNewTerminalsToggleFlipsBoundDescription() {
+        let app = makeLaunchedApp()
+        let window = openTextBoxSettings(app)
+
+        XCTAssertTrue(
+            waitForStaticText(window, Subtitle.focusTextBoxOff),
+            "Focus TextBox row should start with the off-state description (default false)"
+        )
+
+        let control = toggle(window, id: "SettingsTextBoxFocusOnNewTerminalsToggle")
+        control.click()
+        XCTAssertTrue(
+            waitForStaticText(window, Subtitle.focusTextBoxOn),
+            "Enabling focus TextBox should switch the description to the focus sentence"
+        )
+
+        control.click()
+        XCTAssertTrue(
+            waitForStaticText(window, Subtitle.focusTextBoxOff),
+            "Disabling focus TextBox should restore the terminal-focus sentence"
+        )
+
+        closeSettings(app, window)
+    }
+
     // MARK: - TIER 1: numeric value label tracks the stepper
 
     /// TextBox Max Lines defaults to 10. Incrementing the stepper must
@@ -276,7 +347,7 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
     /// surfaces as a queryable static text.
     func testTextBoxMaxLinesStepperUpdatesValueLabel() {
         let app = makeLaunchedApp()
-        let window = openTerminalSettings(app)
+        let window = openTextBoxSettings(app)
 
         // Default value 10 should be visible somewhere in the section.
         XCTAssertTrue(
@@ -284,7 +355,7 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
             "TextBox Max Lines should display its default value of 10"
         )
 
-        let stepper = window.steppers["SettingsTerminalTextBoxMaxLinesStepper"]
+        let stepper = window.steppers["SettingsTextBoxMaxLinesStepper"]
         XCTAssertTrue(poll(timeout: 4.0) { stepper.exists }, "TextBox Max Lines stepper should exist")
 
         stepper.incrementArrows.firstMatch.click()

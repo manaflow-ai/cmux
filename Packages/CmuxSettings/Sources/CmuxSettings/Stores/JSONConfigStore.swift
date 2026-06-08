@@ -1,3 +1,4 @@
+import CmuxFileWatch
 import Foundation
 
 /// Typed read/write/observe access to settings persisted in the cmux JSON config file.
@@ -12,7 +13,7 @@ import Foundation
 /// `JSONSerialization` with sorted, pretty-printed output; comment-preserving
 /// edits are a follow-up.
 ///
-/// Observation uses a single ``JSONConfigFileWatcher`` owned by the store
+/// Observation uses a single ``CmuxFileWatch/FileWatcher`` owned by the store
 /// and fans out file-change events to per-subscriber `AsyncStream<Void>`
 /// signals. One file event causes exactly one cache invalidation and one
 /// notification per active subscriber, regardless of how many keys are being
@@ -32,7 +33,7 @@ public actor JSONConfigStore {
     public nonisolated let fileURL: URL
 
     private let sanitizer: JSONCSanitizer
-    private let watcher: JSONConfigFileWatcher
+    private let watcher: FileWatcher
 
     private var cachedRoot: [String: Any] = [:]
     private var cacheValid = false
@@ -52,7 +53,7 @@ public actor JSONConfigStore {
     public init(fileURL: URL, sanitizer: JSONCSanitizer = JSONCSanitizer()) {
         self.fileURL = fileURL
         self.sanitizer = sanitizer
-        self.watcher = JSONConfigFileWatcher(fileURL: fileURL)
+        self.watcher = FileWatcher(path: fileURL.path)
     }
 
     deinit {
@@ -152,7 +153,7 @@ public actor JSONConfigStore {
     }
 
     /// Spawns the watcher-consumer task on the first subscribe. The task
-    /// drains ``JSONConfigFileWatcher/events`` and fans out to every
+    /// drains the ``CmuxFileWatch/FileWatcher`` events and fans out to every
     /// registered subscriber after invalidating the cache.
     private func ensureWatcherTask() {
         guard watcherTask == nil else { return }

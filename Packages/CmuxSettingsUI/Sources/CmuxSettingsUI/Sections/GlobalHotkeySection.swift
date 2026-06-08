@@ -36,7 +36,7 @@ public struct GlobalHotkeySection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"))
+            SettingsSectionHeader(String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"), section: .globalHotkey)
                 .accessibilityIdentifier("SettingsGlobalHotkeySection")
             mainCard
             SettingsCardNote(
@@ -53,6 +53,7 @@ public struct GlobalHotkeySection: View {
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .settingsOnly,
+                searchAnchorID: "setting:globalHotkey:enable-hotkey",
                 String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"),
                 subtitle: enabled.current
                     ? String(localized: "settings.globalHotkey.enable.subtitleOn", defaultValue: "Press the shortcut from any app to show or hide all cmux windows.")
@@ -65,6 +66,7 @@ public struct GlobalHotkeySection: View {
             }
             SettingsCardDivider()
             recorderRow
+                .settingsSearchAnchors(["setting:globalHotkey:shortcut"])
         }
     }
 

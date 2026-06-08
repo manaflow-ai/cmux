@@ -23,6 +23,7 @@ enum HeaderChromeControlMetrics {
     static let iconSize: CGFloat = 12
     static let iconFrameSize: CGFloat = 14
     static let cornerRadius: CGFloat = 6
+    static let titlebarControlsLeadingPadding: CGFloat = 4
 
     static func iconFrameSize(forIconSize iconSize: CGFloat) -> CGFloat {
         max(Self.iconFrameSize, iconSize + 2)

@@ -5,7 +5,7 @@
 	<key>EXAppExtensionAttributes</key>
 	<dict>
 		<key>EXExtensionPointIdentifier</key>
-		<string>com.manaflow.cmux.sidebar</string>
+		<string>$(CMUX_SIDEBAR_EXTENSION_POINT_ID)</string>
 	</dict>
 </dict>
 </plist>

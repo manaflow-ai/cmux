@@ -412,7 +412,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertFalse(effects.shouldSelectAll)
     }
 
-    func testRefocusRequestPreservesEditingBuffer() throws {
+    func testExplicitRefocusRequestPreservesEditingBufferAndSelectsAll() throws {
         var state = OmnibarState()
 
         _ = omnibarReduce(
@@ -424,7 +424,9 @@ final class OmnibarStateMachineTests: XCTestCase {
         let effects = omnibarReduce(
             state: &state,
             event: .focusReasserted(
-                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: state.isUserEditing)
+                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
+                    selectionIntent: .selectAll
+                )
             )
         )
 
@@ -432,12 +434,63 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertTrue(state.isUserEditing)
         XCTAssertEqual(state.currentURLString, "https://example.com/")
         XCTAssertEqual(state.buffer, "abcdef")
-        XCTAssertFalse(effects.shouldSelectAll)
+        XCTAssertTrue(effects.shouldSelectAll)
     }
 
-    func testFocusReassertionDoesNotSelectAllDuringUserEdit() throws {
-        XCTAssertFalse(browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: true))
-        XCTAssertTrue(browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: false))
+    func testFocusReassertionHonorsSelectionIntent() throws {
+        XCTAssertTrue(
+            browserOmnibarShouldSelectAllOnFocusReassertion(
+                selectionIntent: .selectAll
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldSelectAllOnFocusReassertion(
+                selectionIntent: .preserveFieldEditorSelection
+            )
+        )
+    }
+
+    // State 1 (issue #5459): the single click that moves first responder into the
+    // omnibar selects the whole URL so the next keystroke replaces it (Chrome parity).
+    func testFocusGainingClickSelectsAll() throws {
+        XCTAssertTrue(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: true,
+                isShiftClick: false,
+                didDrag: false
+            )
+        )
+    }
+
+    // State 2 (issue #5268 must not regress): a click while the omnibar is already
+    // first responder keeps the caret placed at the click point — no select-all.
+    func testAlreadyFocusedClickPlacesCaret() throws {
+        XCTAssertFalse(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: false,
+                isShiftClick: false,
+                didDrag: false
+            )
+        )
+    }
+
+    // A Shift-click or a drag expresses an explicit range, so the focus-gaining
+    // select-all defers to it even on the click that gains focus.
+    func testFocusGainingClickDefersToExplicitSelection() throws {
+        XCTAssertFalse(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: true,
+                isShiftClick: true,
+                didDrag: false
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: true,
+                isShiftClick: false,
+                didDrag: true
+            )
+        )
     }
 
     func testEscapeRevertsWhenEditingThenBlursOnSecondEscape() throws {
@@ -447,7 +500,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertTrue(state.isFocused)
         XCTAssertEqual(state.buffer, "https://example.com/")
         XCTAssertFalse(state.isUserEditing)
-        XCTAssertTrue(effects.shouldSelectAll)
+        XCTAssertFalse(effects.shouldSelectAll)
 
         effects = omnibarReduce(state: &state, event: .bufferChanged("exam"))
         XCTAssertTrue(state.isUserEditing)
@@ -843,6 +896,7 @@ private final class OmnibarInlineDeletionHarness {
         OmnibarTextFieldRepresentable.Coordinator(
             parent: OmnibarTextFieldRepresentable(
                 panelId: UUID(),
+                fontSize: 12,
                 text: Binding(
                     get: { self.state.buffer },
                     set: { self.state.buffer = $0 }

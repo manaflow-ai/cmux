@@ -1,7 +1,11 @@
 import AppKit
+import CMUXMobileCore
 import CmuxSettingsUI
 import Foundation
+import OSLog
 import SwiftUI
+
+private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
 /// App-side implementation of the package's `SettingsHostActions`
 /// protocol. Routes UI-triggered actions to the existing host
@@ -11,6 +15,9 @@ import SwiftUI
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
+
+    /// Serializes font-size config writes so rapid slider saves persist in order.
+    private let fontConfigWriter = FontConfigWriter()
 
     /// AppKit window identifier the dedicated terminal-config window carries.
     /// Matches the value `ConfigSettingsView.configureWindow` assigns so the
@@ -64,7 +71,11 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openConfigInExternalEditor() {
-        NSWorkspace.shared.open(configFileURL)
+        // Honor the user's configured editor (`preferredEditorCommand`),
+        // falling back to the OS default. Opening the config file directly
+        // through `NSWorkspace.shared.open` would route to the default
+        // `.json` handler and ignore the cmux setting.
+        PreferredEditorSettings.open(configFileURL)
     }
 
     func sendFeedback() {
@@ -129,6 +140,10 @@ final class HostSettingsActions: SettingsHostActions {
         window.orderFrontRegardless()
     }
 
+    func openMobilePairingWindow() {
+        MobilePairingWindowController.shared.show()
+    }
+
     private func existingConfigWindow() -> NSWindow? {
         if let configWindow, configWindow.isVisible || configWindow.isMiniaturized {
             return configWindow
@@ -138,13 +153,209 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
-    func previewNotificationSound() {
-        NSSound(named: NSSound.Name("Glass"))?.play()
+    func previewNotificationSound(value: String, customFilePath: String) {
+        NotificationSoundSettings.previewSound(value: value, customFilePath: customFilePath)
     }
 
     func browserHistoryEntryCount() -> Int? {
         guard BrowserHistoryStore.shared.isLoaded else { return nil }
         return BrowserHistoryStore.shared.entries.count
+    }
+
+    func sidebarFontSize() -> SettingsFontSize {
+        // Reads the in-memory cache (kept current by config reloads) rather than
+        // forcing a synchronous disk read on the main actor when Settings opens.
+        SettingsFontSize(
+            points: Double(GhosttyConfig.load().sidebarFontSize),
+            minimum: CmuxGhosttyConfigSettingEditor.minSidebarFontSize,
+            maximum: CmuxGhosttyConfigSettingEditor.maxSidebarFontSize,
+            defaultValue: CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
+        )
+    }
+
+    func setSidebarFontSize(_ points: Double) async -> Bool {
+        await persistFontSize(
+            key: CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
+            points: CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(points),
+            reloadSource: "settings.sidebar.fontSize"
+        )
+    }
+
+    func surfaceTabBarFontSize() -> SettingsFontSize {
+        // See ``sidebarFontSize()`` — uses the cached config to avoid main-actor disk I/O.
+        SettingsFontSize(
+            points: Double(GhosttyConfig.load().surfaceTabBarFontSize),
+            minimum: CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize,
+            maximum: CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize,
+            defaultValue: CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize
+        )
+    }
+
+    func setSurfaceTabBarFontSize(_ points: Double) async -> Bool {
+        await persistFontSize(
+            key: CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey,
+            points: CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize(points),
+            reloadSource: "settings.terminal.tabBarFontSize"
+        )
+    }
+
+    func formattedFontSize(_ points: Double) -> String {
+        CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
+    }
+
+    func mobilePairingStatus() -> MobilePairingStatusSnapshot? {
+        Self.mobilePairingSnapshot(from: MobileHostService.shared.statusSnapshot())
+    }
+
+    func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot> {
+        AsyncStream { continuation in
+            // Bridge the notification through a Sendable `Void` signal stream so
+            // the non-Sendable `Notification` never crosses into the MainActor
+            // drain task. Mirrors `UserDefaultsSettingsStore.values(for:)`.
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = MobileHostStatusObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: .mobileHostStatusDidChange,
+                    object: nil,
+                    queue: nil
+                ) { _ in
+                    signalContinuation.yield(())
+                }
+            )
+            let drainTask = Task { @MainActor in
+                // Seed with the current status, then forward every change.
+                continuation.yield(Self.mobilePairingSnapshot(from: MobileHostService.shared.statusSnapshot()))
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    continuation.yield(Self.mobilePairingSnapshot(from: MobileHostService.shared.statusSnapshot()))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
+    }
+
+    /// Maps the host's ``MobileHostServiceStatus`` into the settings package's
+    /// Foundation-only ``MobilePairingStatusSnapshot``. Static so the status
+    /// stream's forwarding task does not retain this host bridge.
+    private static func mobilePairingSnapshot(from status: MobileHostServiceStatus) -> MobilePairingStatusSnapshot {
+        let routes = status.routes.compactMap { route -> MobilePairingRoute? in
+            guard case let .hostPort(host, port) = route.endpoint else { return nil }
+            return MobilePairingRoute(
+                id: route.id,
+                kindLabel: routeKindLabel(route.kind),
+                host: host,
+                port: port
+            )
+        }
+        return MobilePairingStatusSnapshot(
+            isRunning: status.isRunning,
+            configuredPort: status.configuredPort,
+            boundPort: status.port,
+            usesEphemeralFallback: status.usesEphemeralFallback,
+            activeConnectionCount: status.activeConnectionCount,
+            routes: routes
+        )
+    }
+
+    func mobilePairingDefaultDisplayName() -> String {
+        // The Mac's system name, the pairing name used when no override is set.
+        // Stable across override edits, so the placeholder never goes stale.
+        Host.current().localizedName ?? ""
+    }
+
+    func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult {
+        switch await MobileHostService.shared.applyConfiguredPort(port) {
+        case .applied(let bound):
+            return .applied(port: bound)
+        case .portInUse:
+            return .portInUse(requestedPort: port)
+        case .savedWhileDisabled:
+            return .savedForLater(port: port)
+        case .invalid:
+            return .invalid(requestedPort: port)
+        }
+    }
+
+    /// Localized transport label for a pairing route shown in diagnostics.
+    private static func routeKindLabel(_ kind: CmxAttachTransportKind) -> String {
+        switch kind {
+        case .tailscale:
+            return String(localized: "settings.mobile.route.tailscale", defaultValue: "Tailscale")
+        case .debugLoopback:
+            return String(localized: "settings.mobile.route.loopback", defaultValue: "Loopback")
+        case .iroh:
+            return String(localized: "settings.mobile.route.iroh", defaultValue: "Iroh")
+        case .websocket:
+            return String(localized: "settings.mobile.route.websocket", defaultValue: "WebSocket")
+        }
+    }
+
+    /// Writes a clamped font-size value to cmux's editable Ghostty config and
+    /// triggers a live reload so open windows re-render at the new size.
+    ///
+    /// The disk write runs on the serial ``fontConfigWriter`` actor so the main
+    /// actor is never blocked on file I/O during a slider drag or Reset tap, and
+    /// rapid successive saves persist in submission order (last value wins). The
+    /// reload then resumes on the main actor.
+    ///
+    /// - Returns: `true` on success, `false` if the write failed (a generic
+    ///   warning is logged here; the Settings UI surfaces a save-failed message).
+    private func persistFontSize(key: String, points: Double, reloadSource: String) async -> Bool {
+        let formatted = CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
+        guard await fontConfigWriter.write(key: key, value: formatted) else {
+            hostSettingsLogger.warning("failed to persist \(key, privacy: .public)")
+            return false
+        }
+        GhosttyApp.shared.reloadConfiguration(source: reloadSource)
+        return true
+    }
+}
+
+/// Wraps the opaque observer returned by `NotificationCenter.addObserver` so the
+/// `@Sendable` stream-termination closure can hold it for removal. Objective-C
+/// doesn't model `Sendable`; the token is immutable and only hands the opaque
+/// observer back to NotificationCenter's thread-safe removal API. CmuxSettings
+/// has an identical internal token, which isn't `public`, so it's duplicated.
+final class MobileHostStatusObserverToken: @unchecked Sendable {
+    private let token: NSObjectProtocol
+
+    init(_ token: NSObjectProtocol) {
+        self.token = token
+    }
+
+    func remove() {
+        NotificationCenter.default.removeObserver(token)
+    }
+}
+
+/// Serializes cmux Ghostty config writes for the font-size settings so rapid
+/// successive saves apply in submission order instead of racing.
+///
+/// The Settings sliders fire a save on every release and Reset tap. Routed
+/// through this single actor, the writes run one-at-a-time in arrival order —
+/// each write is a full overwrite of the key, so the most recently submitted
+/// value is always the one left on disk. The work runs off the main actor.
+private actor FontConfigWriter {
+    /// Writes a single cmux-editable Ghostty config setting to disk.
+    ///
+    /// - Parameters:
+    ///   - key: The Ghostty config key to write (e.g. `sidebar-font-size`).
+    ///   - value: The already-formatted value to persist.
+    /// - Returns: `true` if the write succeeded, `false` otherwise.
+    func write(key: String, value: String) -> Bool {
+        do {
+            try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, value: value)
+            return true
+        } catch {
+            return false
+        }
     }
 }
 

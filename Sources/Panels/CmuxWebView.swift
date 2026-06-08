@@ -51,6 +51,12 @@ struct BrowserImageCopyPasteboardPayload {
     let sourceURL: URL?
 }
 
+enum BrowserFocusModeKeyDecision: Equatable {
+    case inactive
+    case forwardToWebView
+    case consume
+}
+
 enum BrowserImageCopyPasteboardBuilder {
     private static let pngPasteboardType = NSPasteboard.PasteboardType(UTType.png.identifier)
     private static let tiffPasteboardType = NSPasteboard.PasteboardType(UTType.tiff.identifier)
@@ -141,6 +147,8 @@ final class CmuxWebView: WKWebView {
     private static var lastMiddleClickIntent: MiddleClickIntent?
     private static let middleClickIntentMaxAge: TimeInterval = 0.8
     private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
+    private static let browserFocusModeContextMenuItemIdentifier =
+        NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
     private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
     private static let pasteAsPlainTextSharedHelpersScriptSource = """
     const __cmuxPasteAsPlainTextHelpers = (() => {
@@ -375,6 +383,10 @@ final class CmuxWebView: WKWebView {
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
     var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
+    /// Called for physical mouse back/forward buttons so BrowserPanel can use
+    /// its restored-session history fallback instead of raw WKWebView history.
+    var onMouseBackButton: (() -> Void)?
+    var onMouseForwardButton: (() -> Void)?
     var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
     var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
@@ -625,11 +637,36 @@ final class CmuxWebView: WKWebView {
 #else
         func finish(_ result: Bool) -> Bool { result }
 #endif
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
+            event,
+            webView: self,
+            source: "web.performKeyEquivalent"
+        ), decision != .inactive {
+            switch decision {
+            case .inactive:
+                break
+            case .forwardToWebView:
+                let isReturnKey = event.keyCode == 36 || event.keyCode == 76
+                if (normalizedFlags.isEmpty && event.keyCode == 53) ||
+                    (isReturnKey && !normalizedFlags.contains(.command)) {
+                    super.keyDown(with: event)
+                    return finish(true)
+                }
+                let result = super.performKeyEquivalent(with: event)
+                // While focus mode is active, the page gets the shortcut once and cmux/main-menu
+                // fallback must not see unhandled command equivalents.
+                return finish(result || normalizedFlags.contains(.command))
+            case .consume:
+                return finish(true)
+            }
+        }
+
         if event.keyCode == 36 || event.keyCode == 76 {
             return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
         }
 
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // Menu/app shortcut routing is only needed for Command equivalents
         // (New Tab, Close Tab, tab switching, split commands, etc).
         guard flags.contains(.command) else {
@@ -710,6 +747,28 @@ final class CmuxWebView: WKWebView {
             )
         }
 #endif
+        if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
+            event,
+            webView: self,
+            source: "web.keyDown"
+        ), decision != .inactive {
+            switch decision {
+            case .inactive:
+                break
+            case .forwardToWebView:
+#if DEBUG
+                route = "focusModeWebView"
+#endif
+                super.keyDown(with: event)
+                return
+            case .consume:
+#if DEBUG
+                route = "focusModeExit"
+#endif
+                return
+            }
+        }
+
         if Self.isPasteAsPlainTextCommandEquivalent(event) {
             if shouldSkipRepeatedPasteAsPlainTextPreflight(for: event) {
 #if DEBUG
@@ -755,13 +814,46 @@ final class CmuxWebView: WKWebView {
             "pointerDepth=\(pointerFocusAllowanceDepth) win=\(windowNumber) fr=\(firstResponderType)"
         )
 #endif
-        NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
-        withPointerFocusAllowance {
+        performBrowserClickFocusHandoff {
             super.mouseDown(with: event)
         }
     }
 
+    private func performBrowserClickFocusHandoff(_ action: () -> Void) {
+        NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
+        withPointerFocusAllowance(action)
+    }
+
     // MARK: - Mouse back/forward buttons
+
+    private func handleMouseNavigationButton(_ event: NSEvent) -> Bool {
+        // Button 3 = back, button 4 = forward (multi-button mice like Logitech).
+        // Consume the event so WebKit/page content does not also handle it.
+        switch event.buttonNumber {
+        case 3:
+#if DEBUG
+            cmuxDebugLog("browser.mouse.navigation web=\(ObjectIdentifier(self)) kind=back canGoBack=\(canGoBack ? 1 : 0)")
+#endif
+            if let onMouseBackButton {
+                onMouseBackButton()
+            } else {
+                goBack()
+            }
+            return true
+        case 4:
+#if DEBUG
+            cmuxDebugLog("browser.mouse.navigation web=\(ObjectIdentifier(self)) kind=forward canGoForward=\(canGoForward ? 1 : 0)")
+#endif
+            if let onMouseForwardButton {
+                onMouseForwardButton()
+            } else {
+                goForward()
+            }
+            return true
+        default:
+            return false
+        }
+    }
 
     override func otherMouseDown(with event: NSEvent) {
         if event.buttonNumber == 2 {
@@ -775,23 +867,13 @@ final class CmuxWebView: WKWebView {
             "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
         )
 #endif
-        // Button 3 = back, button 4 = forward (multi-button mice like Logitech).
-        // Consume the event so WebKit doesn't handle it.
-        switch event.buttonNumber {
-        case 3:
-#if DEBUG
-            cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goBack canGoBack=\(canGoBack ? 1 : 0)")
-#endif
-            goBack()
+        if event.buttonNumber == 3 || event.buttonNumber == 4 {
+            performBrowserClickFocusHandoff {
+                _ = window?.makeFirstResponder(self)
+            }
+        }
+        if handleMouseNavigationButton(event) {
             return
-        case 4:
-#if DEBUG
-            cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goForward canGoForward=\(canGoForward ? 1 : 0)")
-#endif
-            goForward()
-            return
-        default:
-            break
         }
         super.otherMouseDown(with: event)
     }
@@ -808,6 +890,9 @@ final class CmuxWebView: WKWebView {
             "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
         )
 #endif
+        if event.buttonNumber == 3 || event.buttonNumber == 4 {
+            return
+        }
         super.otherMouseUp(with: event)
     }
 
@@ -1152,6 +1237,9 @@ final class CmuxWebView: WKWebView {
 
     private func isOurContextMenuAction(target: AnyObject?, action: Selector?) -> Bool {
         guard target === self else { return false }
+        if action == #selector(contextMenuToggleBrowserFocusMode(_:)) {
+            return true
+        }
         if action == #selector(contextMenuCopyImage(_:)) {
             return true
         }
@@ -1527,6 +1615,35 @@ final class CmuxWebView: WKWebView {
             return
         }
         _ = NSWorkspace.shared.open(url)
+    }
+
+    private func appendBrowserFocusModeContextMenuItem(to menu: NSMenu) {
+        let state = AppDelegate.shared?.browserFocusModeContextMenuState(for: self) ?? (isActive: false, canToggle: false)
+        guard state.isActive || state.canToggle else { return }
+
+        let title = state.isActive
+            ? String(localized: "browser.focusMode.context.exit", defaultValue: "Exit Browser Focus Mode")
+            : String(localized: "browser.focusMode.context.enter", defaultValue: "Enter Browser Focus Mode")
+        if let item = menu.items.first(where: { $0.identifier == Self.browserFocusModeContextMenuItemIdentifier }) {
+            item.title = title
+            item.target = self
+            item.action = #selector(contextMenuToggleBrowserFocusMode(_:))
+            item.state = state.isActive ? NSControl.StateValue.on : NSControl.StateValue.off
+            return
+        }
+
+        if menu.items.last?.isSeparatorItem == false {
+            menu.addItem(.separator())
+        }
+        let item = NSMenuItem(
+            title: title,
+            action: #selector(contextMenuToggleBrowserFocusMode(_:)),
+            keyEquivalent: ""
+        )
+        item.identifier = Self.browserFocusModeContextMenuItemIdentifier
+        item.target = self
+        item.state = state.isActive ? NSControl.StateValue.on : NSControl.StateValue.off
+        menu.addItem(item)
     }
 
     private func runContextMenuFallback(
@@ -2151,7 +2268,16 @@ final class CmuxWebView: WKWebView {
         }
         appendScreenshotContextMenuItems(to: menu)
         appendMoveTabToNewWorkspaceContextMenuItem(to: menu)
+        appendBrowserFocusModeContextMenuItem(to: menu)
     }
+
+    @objc private func contextMenuToggleBrowserFocusMode(_ sender: Any?) {
+        _ = sender
+        if AppDelegate.shared?.toggleBrowserFocusModeFromContextMenu(for: self) != true {
+            NSSound.beep()
+        }
+    }
+
     @objc private func contextMenuOpenLinkInDefaultBrowser(_ sender: Any?) {
         _ = sender
         let point = lastContextMenuPoint

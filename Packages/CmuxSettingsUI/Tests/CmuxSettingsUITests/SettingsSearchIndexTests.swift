@@ -31,4 +31,29 @@ struct SettingsSearchIndexTests {
         let withDiacritics = index.match("autómation")
         #expect(plain.count == withDiacritics.count)
     }
+
+    /// The search-result highlight depends on a row being able to map
+    /// the dotted cmux.json path it declares (e.g. the "Show Branch +
+    /// Directory in Sidebar" row's `sidebar.showBranchDirectory`) to the
+    /// same anchor id the sidebar search hit carries. This is the bridge
+    /// that lets `scrollTo` + the pulse find the row.
+    @Test func resolvesCuratedPathToSidebarHitAnchor() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let anchor = index.anchorID(forSettingsPath: "sidebar.showBranchDirectory")
+        #expect(anchor == "setting:sidebarAppearance:show-branch-directory")
+    }
+
+    /// A resolved anchor must correspond to a real indexed entry,
+    /// otherwise the navigation layer would scroll to / highlight an id
+    /// no row carries.
+    @Test func resolvedAnchorMatchesAnIndexedEntry() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let anchor = try #require(index.anchorID(forSettingsPath: "terminal.copyOnSelect"))
+        #expect(index.entries.contains { $0.id == anchor })
+    }
+
+    @Test func unknownPathHasNoAnchor() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        #expect(index.anchorID(forSettingsPath: "totally.bogus.path") == nil)
+    }
 }

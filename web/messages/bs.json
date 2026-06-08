@@ -39,7 +39,8 @@
     "contact": "Kontakt",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Jezik"
+    "language": "Jezik",
+    "assets": "Materijali"
   },
   "home": {
     "taglinePrefix": "Terminal napravljen za ",
@@ -84,7 +85,7 @@
   },
   "community": {
     "title": "Zajednica",
-    "description": "Povežite se sa drugim cmux korisnicima i timom iza njega.",
+    "description": "Pregledajte projekte koje je napravila cmux zajednica, od agent hookova do multi-agent orkestracije i udaljenog pristupa.",
     "discord": "Discord",
     "discordAction": "Pridružite se našem Discord-u",
     "discordDesc": "Razgovarajte sa zajednicom, dobijte pomoć i podijelite povratne informacije",
@@ -100,7 +101,206 @@
     "linkedinAction": "Pratite nas",
     "linkedinDesc": "Vijesti o kompaniji i inženjerska ažuriranja",
     "metaTitle": "Zajednica — cmux",
-    "metaDescription": "Pridružite se cmux zajednici na Discordu, Twitteru, GitHubu i više"
+    "metaDescription": "Pregledajte sve projekte iz awesome-cmux na cmux stranici zajednice",
+    "sourceAction": "Pogledaj awesome-cmux",
+    "sourceRowsLabel": "kuriranih indeksiranih projekata",
+    "projectsLabel": "projekti",
+    "areasLabel": "oblasti",
+    "placementsLabel": "poklapanja kategorija",
+    "areasTitle": "Oblasti",
+    "projectsTitle": "Projekti",
+    "projectAction": "Otvori",
+    "starsLabel": "zvjezdica",
+    "officialLinksTitle": "Zvanični linkovi",
+    "filtersTitle": "Filteri",
+    "searchLabel": "Pretraga",
+    "searchPlaceholder": "Pretraži projekte, agente, jezike",
+    "areaLabel": "Oblast",
+    "allAreas": "Sve oblasti",
+    "agentLabel": "AI agent",
+    "allAgents": "Svi agenti",
+    "languageLabel": "Jezik",
+    "allLanguages": "Svi jezici",
+    "sortLabel": "Sortiraj",
+    "sortRecommended": "Preporučeno",
+    "sortStars": "Najviše zvjezdica",
+    "sortName": "A do Z",
+    "resetFilters": "Resetuj",
+    "showingCount": "Prikazuje se {count} od {total}",
+    "noProjectsTitle": "Nema pronađenih projekata",
+    "noProjectsDescription": "Očisti filtere ili pokušaj drugu pretragu.",
+    "moreCategoriesLabel": "+{count} još",
+    "categoryLabels": {
+      "sidebarStatusPills": "Bočna traka i statusne oznake",
+      "progressBarsEstimation": "Trake napretka i procjene",
+      "sidebarLogsActivityFeed": "Logovi bočne trake i feed aktivnosti",
+      "desktopNotifications": "Desktop obavještenja",
+      "multiAgentOrchestration": "Orkestracija više agenata",
+      "browserAutomation": "Automatizacija browsera",
+      "worktreesWorkspaceManagement": "Worktreeovi i upravljanje workspaceom",
+      "monitoringSessionRestore": "Nadzor i vraćanje sesije",
+      "remoteMobileAccess": "Udaljeni i mobilni pristup",
+      "themesLayoutsConfig": "Teme, rasporedi i konfiguracija",
+      "claudeCode": "Claude Code",
+      "pi": "Pi",
+      "openCode": "OpenCode",
+      "copilotAmp": "Copilot i Amp",
+      "multiAgentAgentAgnostic": "Više agenata / nezavisno od agenta",
+      "buildDistribution": "Build i distribucija"
+    },
+    "section": "zajednica",
+    "projectDescriptions": {
+      "p001": "Koristite cmux izvorne CLI komande za stvaranje, slanje, snimanje i zatvaranje vidljivih radnih okna kada Claude Code radi sa CMUX_SURFACE_ID",
+      "p002": "Kreirajte OpenCode radna stabla koja detektuju CMUX_WORKSPACE_ID i pokreću/focus namjenske cmux radne prostore putem izvornih cmux komandi",
+      "p003": "Izradite TUI widget uživo koji prati proteklo vrijeme i napredak po podagentu, dok Claude Code orkestrira rad preko panela multipleksera - različito od alata na kontrolnoj tabli po tome što prikazuje vrijeme i procenat završetka, a ne stanje sesije",
+      "p004": "Skupite OpenCode radni prostor, obavijesti i komponente radnog stabla koje mogu pisati cmux status, slati cmux obavijesti i pokrenuti cmux radne prostore",
+      "p005": "Koordinirajte agente u pozadinskim dijelovima terminala sa unaprijed postavljenim cmux koji kreira i zatvara cmux radne prostore za vidljive sesije",
+      "p006": "Isporučite izvorna OS obavještenja o završetku, greškama i događajima potrebnim za unos pomoću klika u prvi plan, tihih sati i prilagođenih zvukova; jedini samostalni OpenCode notifier sa zakazivanjem tihih sati i prilagođavanjem zvuka",
+      "p007": "Proširuje Pi sa 7 LLM-pozivnih alata za radni prostor i kontrolu pretraživača pohranjenih u početnom direktoriju pod kontrolom verzije, dodajući mogućnosti izvan statusa bočne trake koje ne odgovara nijedan drugi dodatak Pi",
+      "p008": "Za razliku od dodataka Pi sa jednom skriptom, isporučuje se kao odabrana kolekcija ekstenzija koja dodaje statistiku troškova i tokena uz preimenovanje stanja bočne trake i radnog prostora - fokusira se na finansijsku vidljivost drugim Pi dodacima koji nedostaju",
+      "p009": "Pokrenite Pi timove kroz cmux adapter koji otvara radne prostore, kreira podjele, ponovo otvara okna i zatvara površine iz timskih tokova rada",
+      "p010": "Obavijesti o zahtjevima za dozvolu i aktivnosti podagenta po radnom prostoru s nepročitanim oznakama; jedinstveno prati nepročitano stanje obavijesti po radnom prostoru - upozorenja traju dok se izričito ne priznaju",
+      "p011": "Naučite Claude Code da posjeduje i pokreće trake napretka na bočnoj traci kao dokumentovanu vještinu u okviru šireg nastavnog plana i programa životnog ciklusa podagenta, čineći kontrolu napretka eksplicitnom sposobnošću agenta, a ne implicitnim nuspojavama",
+      "p012": "Sačuvajte i vratite pune radne prostore uključujući podjele, CWDs, komande za izvođenje i Markdown nacrte radnog prostora sa pregledom na suhom - izvoz nacrta čini reproduciranje izgleda reproduciranih bez oslanjanja na ID-ove sesije",
+      "p013": "Vratite Claude Code sesije u Ghostty ili cmux mapiranjem CMUX_WORKSPACE_ID i reproduciranjem sesija sa cmux list/send/send-key tokovima",
+      "p014": "Otvorite sintaksom istaknuti diff preglednik u podijeljenom pregledniku sa umetnutim komentarima pregleda i živim GitHub CI statusom pored terminala - jedini dodatak preglednika koji kombinira pregled koda i CI povratne informacije u jednom oknu",
+      "p015": "Predstavite kanban TUI agente za upravljanje (Claude/Codex/Gemini) u projektima sa cmux kao jednim od tri pozadina multipleksera - jedinstveno tretira cmux kao transport koji se može priključiti, a ne kao čvrstu zavisnost",
+      "p016": "Proširite Pi sesije sa cmux obavijestima, statusom bočne trake/progress, podjelom kreiranja, oknima pretraživača, čitanjem ekrana i skokovima na osnovu zoxide",
+      "p017": "Proširuje vidljivost statusa izvan ekrana u potpunosti: zrcali stanje radnog prostora, trake napretka i značke obavještenja na Elgato Stream Deck hardverske tipke - jedina fizička-hardverska integracija na listi",
+      "p018": "Održava tačno četiri žive pilule (model, stanje, razmišljanje, tokeni) preko trajnog socket klijenta, i za razliku od joelhooks/pi-cmux-ovog pristupa otkucajima srca, generiše sažetke obavještenja svjesni konteksta koristeći LLM pozive",
+      "p019": "Pokrenite demon reda zadataka koji pokreće pod-agente provodnika i radnika u vidljivim cmux podijeljenim oknima sa TUI kontrolnom pločom - razlikuje se od erka po tome što radi u potpunosti unutar terminala bez izolacije git-worktree-a",
+      "p020": "Šaljite izvorna obaveštenja macOS u kombinaciji sa indikatorima kartice ciklusa pažnje i automatski generisanim nazivima sesija; jedinstveno automatski imenuje sesije iz konteksta zadatka tako da obavijesti nose oznaku čitljivu ljudima",
+      "p021": "Izložite 43 diskretna MCP alata koji pokrivaju navigaciju, DOM klikanje, popunjavanje obrazaca, snimke ekrana, JS eval i inspekciju mreže - najšira MCP alatna površina bilo kojeg dodatka za pretraživač",
+      "p022": "Naučite agente punu cmux površinu pretraživača koja pokriva DOM interakciju, JS eval, kolačiće, upravljanje karticama, dijalozima i okvirima - najistaknutiji samostalni dokument vještina za podkomande pretraživača",
+      "p023": "Emitujte formatirane unose dnevnika bočne trake za svih šesnaest kukica životnog ciklusa - jedini dodatak Claude Code koji pričvršćuje git granu i urezuje metapodatke na svaki unos, čineći dnevnike navigacijskim kao lagani trag revizije sesije",
+      "p024": "Samostalno hostujte PWA most koji može čitati, prebacivati i slati ulaz na cmux površine preko WebSocket preko cmux utičnice API",
+      "p025": "Povežite PM orkestratorsku skriptu sa SKILL.md koja čita PRDs i distribuira posao agentima preko cmux utičnice API - jedina vještina koja uparuje upravljanje projektom sa cmux dispečerom",
+      "p026": "Izložite 29 MCP alata preko cmux Unix socketa za ažuriranja bočne trake, napredak, kreiranje podjela, čitanje ekrana, automatizaciju pretraživača i orkestraciju agenta",
+      "p027": "Preslikavanje cmux obaveštenja na iPhone preko Go bridge servera preko LAN WebSocket; jedinstveno u potpunosti proširuje obavijesti sa Mac-a - nijedan drugi unos ne cilja na sekundarni uređaj",
+      "p028": "Pregledajte Markdown datoteke u podijeljenom pretraživaču sa ponovnim učitavanjem uživo pri spremanju i nejasnim podudaranjem imena fajla - fokusirano usko na Markdown renderiranje, a ne na opštu kontrolu pretraživača",
+      "p029": "Poruke posrednika između kontrolora, orkestratora i radnika cmux kartice sa JSON rutiranjem artefakata putem praćenja fajlova i send_text - jedini dodatak koji koristi SQLite kao kontrolnu ravan za koordinaciju kartica",
+      "p030": "Koordinirajte susjedna cmux okna kroz sabirnicu poruka JSONL samo za dodavanje sa zahtjevima za vlasništvo nad fajlovima i zapisima o eskalaciji, dajući agentima lagani revizorski trag bez demona, MCP servera ili baze podataka",
+      "p031": "Prikažite u realnom vremenu TUI kontrolnu tablu svih aktivnih radnih prostora sa pokretanjem agenta vođenom tastaturom i direktnim unosom - prikaz u ravni kontrole koji dopunjuje veštine koje se fokusiraju na slanje zadataka",
+      "p032": "Stvorite podređene Claude Code radne prostore iz sesije orkestratora, informišite svaki o zadatku i izolujte rad u git radnim stablima tako da se paralelno istraživanje i implementacija mogu nastaviti bez krađe fokusa",
+      "p033": "Izvršite determinističke cjevovode zasnovane na YAML sa petljama Plan-Generi-Evaluate, TypeScript State Machine, cmux kontrolne table s podijeljenim oknom i MCP kapija odobrenja - provodi ponovljive tokove rada u više koraka",
+      "p034": "Distribuirajte cmux-nightly bačvu preko lične Homebrew slavine",
+      "p035": "Obmotajte cmux radni prostor, podijelite, pošaljite, read-screen, status, napredak, obavijestite i zabilježite komande za podešavanje radnog stabla vođeno ulaznicama",
+      "p036": "Premostite Copilot CLI događaje na cmux bočnu traku preko utičnice JSON-RPC, pokrivajući statusne pilule, trake napretka, unose u dnevnik i obavijesti na radnoj površini - jedini namjenski dodatak Copilot bočne trake na listi",
+      "p037": "Premostite OpenCode aktivnost na cmux preko utičnice ili CLI sa statusom bočne trake, trakama napretka, zapisnicima, obavještenjima, upitima za pitanja i stanjem dozvole",
+      "p038": "Prikažite banere za potrebe pažnje koji se automatski brišu nakon deset sekundi sa smanjenjem renderiranja; za razliku od joelhooksovih upornih indikatora, samoodbacivanje upozorenja kako bi se izbjeglo zatrpavanje centra za obavijesti",
+      "p039": "Koordinirajte paralelni rad putem delegiranja okna sa cmux send/read-screen kroz radna stabla - naglašava izolaciju git-radnog stabla kao granicu koordinacije, a ne zajednički radni prostor",
+      "p040": "Obezbedite Zsh pomoćnike koji otkrivaju CMUX_WORKSPACE_ID, otvaraju cmux radne prostore, šalju komande i ažuriraju cmux status bočne trake/progress za radna stabla sa više agenata",
+      "p041": "Orkestrirajte više paralelnih Claude Code stabala rada sa jedne bočne trake koja prikazuje aktivni status sesije, omogućava vam da pokrenete imenovane agente po grani i spaja sve nazad u jednoj komandi",
+      "p042": "Upravljajte paralelnim Pi agentima preko Effect usluge sa radnim prostorima po zadatku, mašinom stanja bočne trake i tokom rada za pregled razlika - dodaje ukucanu orkestraciju zasnovanu na Effect na vrhu izvornog modela agenta Pi",
+      "p043": "Zadržite Amp-specifične cmux obavijesti i zakačice za vraćanje sesije za tokove rada kojima je potrebno ponašanje izvan statusne podrške koja je sada ugrađena u jezgro cmux",
+      "p044": "Fokusira se na postojanost sesije, a ne na dekoraciju uživo: upravljajte mapiranjem radnog prostora u sesiju i masovno nastavite sve sesije nakon ponovnog pokretanja sistema, tok rada oporavka odsutan u drugim dodacima Claude Code",
+      "p045": "Pokrenite interaktivni birač projekta koji otvara yazi, lazygit i Claude Code u rasporedu sa 3 okna i automatski pokreće odgovarajući dev server za odabrani projekat",
+      "p046": "Distribuirajte cmux pokretač radnog prostora iznad kao Homebrew formulu, rješavajući ovisnosti yazi, lazygit i alata za razvoj tako da ga bilo koji Mac može instalirati u jednoj komandi",
+      "p047": "Definirajte TOML unaprijed postavljene radne prostore s upitima za uloge, podijeljenim rasporedima i pojedinačnim/team/manual načinima, zatim pokrenite ponovljive Claude Code radne prostore iz interaktivnog kontrolnog tornja umjesto ad hoc historije ljuske",
+      "p048": "Zapalite cmux notify na Pomodoro promjene faze sa terminalnog TUI tajmera - jedini samostalni alat za produktivnost koji koristi cmux obavijesti kao svoj mehanizam upozorenja",
+      "p049": "Pokrenite Pi unutar radnih prostora pod nazivom cmux i izložite komande kosih crta za statusne pilule, trake napretka, dnevnike, podjele pretraživača i čitanja na ekranu, kombinujući podešavanje radnog prostora i izvještavanje na bočnoj traci uživo u jednom malom Pi paketu",
+      "p050": "Razvijajte jedan upit u vidljiva okna Claude, Codex i Antigravity, prikupite markere determinističkog dogovora/disagree i podržite zajedničke zadatke podržane privremenim fajlovima umjesto skrivenim brokerskim stanjem",
+      "p051": "Otvorite naučne brojke u oknu pretraživača cmux kada je prisutan CMUX_SOCKET_PATH ili CMUX_WORKSPACE_ID, sa vremenskim oznakama svježine i automatskim osvježavanjem",
+      "p052": "Pregledajte i primenite cmux rasporede kroz Unix socket JSON-RPC, pokrivajući radni prostor, okno i listu površina za deskriptore topologije koji se mogu ponovo koristiti",
+      "p053": "Preslikajte Claude/tmux radnike na cmux podjele dok ažurirate status bočne trake cmux, napredak i zapisnike za timsku orkestraciju",
+      "p054": "Preslikajte udaljeni cmux raspored na lokalnu instancu preko SSH sa inkrementalnom podrškom za sinhronizaciju - alat za posmatranje fokusiran na replikaciju rasporeda sa daljine na lokalno, a ne na stanje agenta",
+      "p055": "Samostalno hostujte udaljeno ogledalo preko lokalnog mosta + Cloudflare tunel sa telefonskom web aplikacijom preko WebSocket za pregled terminala i prebacivanje radnog prostora - daljinski pristup nulte konfiguracije preko tunela",
+      "p056": "Pokreni kreiranje radnog stabla iz deklarativne YAML definicije radnog prostora, podržavajući prilagođene pre/post tokove rada, konfigurabilne podijeljene rasporede i izolovanu pohranu pretraživača po oknu",
+      "p057": "Prisilite cmux alate pretraživača da uvijek imaju prioritet preko tri komande kosice (/browse, /browse-check, /browse-compare) - jedini dodatak koji podiže pretraživač na zadani izbor alata u Korean",
+      "p058": "Mapirajte svih 40+ podkomandi pretraživača uz navigaciju radnog prostora i tabelu migracije tmux-to-cmux, napisanu u Korean - jedinstveno služi programerima koji migriraju postojeću tmux mišićnu memoriju",
+      "p059": "Instalirajte Claude Code i Codex adaptere koji otvaraju code-server kao cmux bočno okno, dajući agentima susjednu uređivačku površinu bez povezivanja ili tihog instaliranja zavisnosti uređivača",
+      "p060": "Eksperimentalno tmux-to-cmux mapiranje komandi za Claude Code vještine; uzvodno README označava ga kao nestabilnog i nespremnog za pouzdan radni tok",
+      "p061": "Naučite Claude Code cmux podjele, reference pretraživača, CMUX_SOCKET_PATH tokove posla i odluke na osnovu cmux notify o tome kada treba upozoriti ili otvoriti okna",
+      "p062": "Omogućite automatizaciju pretraživača i kontrolu okna putem cmux tree, read-screen i pošaljite, sa svom dokumentacijom u Korean - različito naglašavanjem komandi introspekcije stabla okna koje nisu pokrivene u English-jezičkim vještinama",
+      "p063": "Obavještenja o završetku pokreta uz preimenovanje kartica i trake napretka uživo; jedinstveno objedinjuje tri UX problema (obavijesti + preimenuj + napredak) u jednom dodatku za školjku umjesto samo obavijesti",
+      "p064": "Obezbedite kokpit za programere zasnovan na pretraživaču sa deklarativnim workflow.yml kapijama, praćenjem podkoraka i autopilotom preko cmux send - jedinstveno izlaže Ctrl+K paletu komandi za ručno nadjačavanje tokom automatizovanih pokretanja",
+      "p065": "Snimite i vratite sesije koristeći stabilne koordinate rasporeda umjesto nestabilne površine UUIDs sa kukom za promjenu rasporeda za ponovno mapiranje uživo - rješava problem UUID-nestabilnosti koji razbija druge alate za vraćanje",
+      "p066": "Replicirajte Conductor-ov IDE-stil raspored sa 3 okna - Claude agent, lazygit i dev server - u jednoj komandi za pokretanje sa tamno-teal šemom boja",
+      "p067": "Prikaži Shiki-pokrenute sintaksom istaknute razlike u podijeljenom pretraživaču sa odabirom više datoteka i prijedlozima poruka za urezivanje generiranih AI - različito od azu/cmux-hub uparivanje diff pregleda s urezivanjem autorstva",
+      "p068": "Naučite Claude Code Neovim-centrične obrasce za uređivanje: otvarajte datoteke u desnoj liniji, renderirajte delta diffs i pokrenite testove u susjednim oknima bez napuštanja prozora agenta",
+      "p069": "Prijavi OpenCode status, napredak, evidencije, obavještenja i kontekst upravljanja projektom u cmux, sa Azure DevOps i Jira signalima kao opcionalnim metapodacima bočne trake",
+      "p070": "Preusmjerite obavještenja kroz cmux notify sa automatski odobrenim CLI dozvolama unaprijed konfigurisanim; razlikuje se po rješavanju problema s promptom za dozvolu tako da se obavijesti nečujno aktiviraju pri prvom pokretanju",
+      "p071": "Obezbedite tri veštine: /cmux-control za daljinsku kontrolu sesije sa detekcijom 8 stanja, /cmux-get za uvoz konteksta i /cmux-md-preview za interaktivne Markdown kontrolne liste - granularno odvajanje veština po karakteristikama",
+      "p072": "Kreirajte Japanese raspored sa 4 okna: yazi + glow/watchexec Markdown pregled + lazygit + AI terminal sa simboličkim vezama do palete komandi cmux - tvrda razvojna kokpit za Japanese-jezičke tokove rada",
+      "p073": "Rutirati HTTP/WebSocket/TCP saobraćaj kroz obrnuti proxy baziran na zaglavlju sa izolacijom mreže po radnom prostoru",
+      "p074": "Snimite Claude Code i Codex nastavite metapodatke pri svakom okretu, a zatim oporavite jedan po jedan obnovljeni cmux radni prostor nakon rušenja ili ažuriranja bez masovnog pokretanja zastarjelih sesija na slijepo",
+      "p075": "Instalirajte puni AI stack (cmux + Ghostty + Zed + Starship + JetBrainsMono) preko jedne formule Homebrew sa idempotentnim ponovnim izvođenjem i načinom rada na suho - pokretanje okruženja programera s jednom komandom",
+      "p076": "Napravite Chromium sadržajnu ljusku za cmux-ov pretraživač s unaprijed izgrađenim preuzimanjima okvira za programere dodataka",
+      "p077": "Obezbedite veštine koje se mogu instalirati za bilo koje Agent Skills-kompatibilno vreme izvođenja, pokrivajući CLI kontrolu, podešavanja, automatizaciju pretraživača, artefakte, reference radnog prostora i prilagođavanje iz jednog održavanog javnog izvora",
+      "p078": "Obezbedite zvaničnu Homebrew slavinu za cmux sa stabilnim i noćnim bačvama koje održava Manaflow",
+      "p079": "Naučite Claude Code automatizaciju pretraživača kroz četiri datoteke vještina za automatsku sinhronizaciju koje pokrivaju popunjavanje obrazaca, snimke ekrana i snimanje prozora za otklanjanje grešaka - strukturirano kao paket vještina s više datoteka, a ne kao jedan monolitni dokument",
+      "p080": "Implementirajte obrazac master-worker koristeći stabla rada, cmux radne prostore i Agent Teams (vodeći+tester+recenzent+sigurnost) sa determinističkom alokacijom portova - jedinstveno dodjeljuje fiksne portove po ulozi agenta",
+      "p081": "Zamjena za GSD/Pi @gsd/cmux modul dodavanjem WezTerm kao drugog pozadinskog dijela multipleksora sa korisničkim varijablama OSC 1337 i Windows obavještenjima o tostu - jedini dodatak Pi koji podržava dualne multiplekserske ciljeve",
+      "p082": "Renderirajte asistentove Markdown odgovore kao stilizovani HTML u cmux oknu pretraživača sa ugrađenim snimcima ekrana terminala i pregledom fajlova - pretvara okno pretraživača u bogati renderer razgovora, a ne u web pretraživač",
+      "p083": "Kreirajte stabla rada iz ramo.json, pokrenite komande za podešavanje, kopirajte env fajlove i otvorite rezultat u cmux radnim prostorima i podelama",
+      "p084": "Pratite napredak pod-agenta radnika sa bočne trake cmux koristeći strukturirane beleške o primopredaji napisanim u namenski direktorijum - pristup koordinaciji zasnovan na fajlovima je u suprotnosti sa monitorima vođenim utičnicom ili demonima",
+      "p085": "Povežite Google Antigravity CLI zakačice za cmux obavijesti preko Antigravity hooks.json ugovora, uz rukovanje JSON bezbednim za stdout tako da kuka za obavještenje ne poništi vrijeme izvođenja agenta",
+      "p086": "Pokrijte automatizaciju pretraživača kao deo široke taksonomije CLI koja jedinstveno dokumentuje unutrašnje elemente okna za snimanje i CMUX_SOCKET_PASSWORD autentifikaciju - više reference nego vodič",
+      "p087": "Razdvojite cmux-svjesne kuke na SSH hostove, Hermes i omp/Pi, a zatim prenesite aktivnost agenta nazad kao lokalna obavještenja i bedževe bočne trake preko stdlib pomoćnika, a ne ručno pisanih skripti po agentu",
+      "p088": "Obezbedite c-help CLI: cheatsheet koji se može pretraživati van mreže za sve cmux prečice na tastaturi, CLI komande, bočnu traku API, automatizaciju pretraživača i env vars u English i Japanese",
+      "p089": "Preskače statusne pilule u korist IDE ergonomije: automatski otvara editovane fajlove u Vim podokviru i prebacuje bočnu traku broot pretraživača datoteka, pretvarajući cmux u lako okruženje za uređivanje",
+      "p090": "Otvorite ili fokusirajte radne prostore sa ws , skele sa CLAUDE.md i dozvole preko ws init, i integrišite Flox envs plus 1Password CLI tajne - kombinuje upravljanje radnim prostorom sa ubacivanjem tajni",
+      "p091": "Push desktop notifikacije o neaktivnosti ili grešci zajedno sa prozorima za pregled subagenta i alatima pretraživača; razlikuje se tako što uparuje događaje obavještenja s vidljivim oknima preglednika subagenta u istom dodatku",
+      "p092": "Izložite 81 MCP alate koji obuhvataju pokretanje agenata, metapodatke na bočnoj traci, obaveštenja, automatizaciju pretraživača i oporavak sesije - najveća MCP površina bilo kojeg dodatka ovde, za razliku od EtanHey/cmuxlayer-ovog fokusiranog skupa od 22 alata",
+      "p093": "Čuvajte komande za podešavanje po repo u .cmux-workspace.json i stvarajte cmux radne prostore iz te konfiguracije, tako da pokretanje projekta, kreiranje radnog stabla i pokretanje radnog prostora ostaju jedna ponovljiva komanda",
+      "p094": "Kontrolišite cmux iz iPhone nad Tailscale sa SwiftUI klijentom i Swift relejnim demonom, zadržavajući zrcaljenje terminala, unos ključeva i operacije radnog prostora unutar korisničkog privatnog tailnet-a",
+      "p095": "Orkestrirajte 124 specijalista za domene putem datoteke vještina od 802 reda sa 18 kukica, 28 skripti i nadzornikom površine koji detektuje stanja IDLE/ERROR/STALL - najprecizniji stroj stanja bočne trake Korean za Claude Code",
+      "p096": "Prevedite tmux komande u cmux ekvivalente, omogućavajući --teammate-mode tmux (Agent Teams) unutar cmux mapiranjem ID-ova okna u ID-ove površine - rješava jaz u tmux-kompatibilnosti za način rada tima agenta",
+      "p097": "Okna za anketiranje iz bilo kojeg agenta, izdvajanje strukturiranog konteksta, zadržavanje snimaka na SQLite i automatsko ubacivanje komprimiranih sažetaka primopredaje u nove sesije - sloj postojanosti ga razlikuje od alata za vraćanje u memoriju",
+      "p098": "Strimujte cmux terminalske sesije na bilo koji uređaj sa TypeScript relejnim agentom i opcionom ACP integracijom ćaskanja, naglašavajući praćenje prilagođeno telefonu za okna Claude Code, Codex i Gemini",
+      "p099": "Prosleđivanje OSC 777 zvona sa udaljenog DGX Spark na lokalni MacBook koji izvodi cmux preko Mosh; jedinstveno rješava jaz u obavijesti od udaljenog-GPU-na-local-desktop - nijedan drugi unos ne pokriva prosljeđivanje između hosta",
+      "p100": "Rešite delimična imena direktorijuma preko zoxide učestalosti, proverite cmux radne prostore sa 4-slojnim nejasnim podudaranjem i prebacite se ili kreirajte sa j - jedinim zoxide integrisanim preklopnikom radnog prostora sa 45 testova",
+      "p101": "Obezbedite iOS prateću aplikaciju (React Native/Expo) preko Tailscale sa punim listingom radnog prostora, ANSI renderovanjem terminala, prečicama na tastaturi i APNs push obaveštenjima - najkompletniji mobilni klijent",
+      "p102": "Koordinirajte Claude, Codex i A2A agente sa cmux ID-ovima površine, send/read/spawn/move API i stalnim stanjem roja",
+      "p103": "Povezivanje agenata, ogranaka i PR-a kroz kontrolnu tablu razvojne flote sa cmux kao jednim podržanim dobavljačem multipleksera",
+      "p104": "Automatski izvezite Pencil fajlove dizajna u PDF i ponovo ih učitajte u oknu pretraživača pri svakom čuvanju - namenski napravljeno za petlje iteracije dizajna, a ne za opšti veb sadržaj",
+      "p105": "Automatski ponovo učitajte difit preglednik web diff u oknu pretraživača cmux pokrenut pravilima Claude Code nakon promjene fajla sa izolacijom portova po radnom prostoru - namenski napravljen za kontinuirano vizuelno praćenje diff",
+      "p106": "Posebno se fokusira na bezbedno izvršavanje komandi: dodaje eksplicitnu listu dozvoljenih alata za radni prostor zajedno sa odbačenim obaveštenjima macOS sa svesnim fokusom, bezbednosni sloj koji nedostaje u drugim Pi dodacima",
+      "p107": "Obezbedite Pi sa upisanim akcijama automatizacije pretraživača (klik, popuni, snimak ekrana, snimak) plus namenski podagent za razvoj web-a - jedinstven po tome što nudi namenski napravljen podagent za zadatke razvoja frontenda",
+      "p108": "Prikažite ringi-pokrenut pregled koda u cmux oknima pretraživača zajedno sa split-pane-om i komandama kosom crtom za predaju agenta - jedini dodatak Pi koji integriše strukturirani tok rada pregleda u okno pretraživača",
+      "p109": "Skupite cmux pretraživač, okno, status, napredak, evidenciju i obavijestite vještine sa širim paketom tržišta vještina Claude Code",
+      "p110": "Registrirajte projekte i unaprijed postavljene postavke, a zatim ih pokrenite kao cmux radne prostore i podijelite ih kroz registar projekata na jeziku Korean",
+      "p111": "Zabilježite izvršenja alata Pi na feed bočne trake, istovremeno izlažući jedan prolazni cmux_cli alat koji omogućava Pi da direktno izdaje bilo koju cmux komandu, čineći samog agenta prvoklasnim autorom dnevnika",
+      "p112": "Pregledač dokumenata, CLI i reference na prečice sa konkretnim primjerima Python utičnice API za WebKit automatizaciju - jedina vještina koja premošćuje cmux Python socket API u kontrolu pretraživača",
+      "p113": "Pratite sažetke Pi pokretanja i gurnite status završetka u cmux obavijesti i tablete na bočnoj traci, uparujući automatsko izvješćivanje o završetku s pasivnim vještinama koje omogućavaju Pi da ažurira status tokom izgradnje, testiranja i implementacije",
+      "p114": "Pretražujte, fokusirajte i upravljajte cmux radnim prostorima i oknima direktno iz Raycast pomoću komandi vođenih tastaturom, eliminišući potrebu za dodirivanjem miša ili prebacivanjem aplikacija",
+      "p115": "Opremite Pi sa dvostrukim modovima pretraživača: cmux u aplikaciji WebKit za vizuelno otklanjanje grešaka i Playwright za bezglavi CI rad - jedini dodatak Pi koji dozvoljava agentu da prelazi između vizuelnog i bezglavog režima po zadatku",
+      "p116": "Mapirajte svaki ID sesije Claude Code na njegovu površinu UUID preko SessionStart kuke, a zatim nastavite sa tačnim sesijama nakon ponovnog pokretanja cmux - pristup vođen zakačicom izbjegava prozivanje i preživljava brza ponovna pokretanja",
+      "p117": "Emitujte OSC 777 obavještenja za odobrenja za korištenje alata i upozorenja o zaustavljanju agenta tako da terminali kompatibilni sa cmux mogu prikazati aktivnost Copilot",
+      "p118": "Specijaliziran je za svijest o kontekstu prozora za razliku od dodataka za opći status - vizualizirajte postotak popunjenosti, broj redova i ograničenja brzine kao trake napretka u boji u svim otvorenim radnim prostorima istovremeno",
+      "p119": "Ponudite dvije vještine: samoreferentno cmux traženje dokumenata (uživo cmux -h + scraped cmux.com) i /pane čitač za druge terminale - jedina vještina koja dinamički skrapa uzvodnu dokumentaciju u toku rada",
+      "p120": "Kreirajte ili ponovo koristite cmux radne prostore za karte i stabla rada, održavajući stanje zadatka usklađenim sa vidljivim cmux sesijama",
+      "p121": "Presretnite pozive alata agenta preko PreToolUse kuke i preusmjerite ih na vidljiva cmux podijeljena okna - pristup baziran na kuki znači nula promjena u agentovim vlastitim upitima ili vještinama",
+      "p122": "Kreirajte stabla rada iz GitHub i Linear izdanja: wt gh dohvaća naslov, kreira granu i otvara karticu cmux - fzf birač za odabir iz otvorenih pitanja",
+      "p123": "Napravite prilagođenu cmux-t3code aplikaciju iz cmux podmodula, ugrađujući t3code bočne prikolice u izvorne cmux panele za radne tokove AI kodiranja",
+      "p124": "Dodaje nazive alata označene emoji simbolima u statusne pilule i koristi logaritamsku krivulju napretka koja uzima u obzir smanjenje povrata, za razliku od linearnih traka u drugim dodacima Claude Code baziranim na Shell",
+      "p125": "Fokusira se na praćenje životnog ciklusa subagenta zajedno sa obaveštenjima na radnoj površini za pitanja, dozvole i greške - za razliku od Attamusc/opencode-cmux, ne gasi i cilja na kompletnost u odnosu na performanse",
+      "p126": "Naučite izvršavanje fan-out sa spawn, zatim sinhronizujte putem wait-for/wait-for --signal signala i eksplicitnog upravljanja topologijom okna - jedinstven fokus na primitivima sinhronizacije u stilu barijere",
+      "p127": "Isporučite vještine agnostičke strukture koje su simbolizirane u Claude Code, Codex, Coco/Trae ili OpenCode sa cmux orkestracijom i Feishu/Lark CLI integracijom - jedini skup vještina koji cilja pet vremena izvršavanja agenta",
+      "p128": "Automatizirajte gradnje Intel Mac x86_64 tako što ćete provjeravati upstream izdanja svakih 6 sati i objavljivati nepotpisani DMGs",
+      "p129": "Pokrenite imenovane lokalne projekte kao cmux radne prostore iz Rust TUI i označite Claude Code sesije bedževima aktivnosti",
+      "p130": "Prebacite jedan zadatak na namjensko podijeljeno okno s autonomnim radnikom, čuvajući kontekst glavne sesije i budžet tokena - minimalno delegiranje jednog zadatka umjesto pune mrežne orkestracije",
+      "p131": "Planirajte podzadatke, stvorite mrežu od 2-8 radnika, nadgledajte putem read-screen anketiranja, pregledajte rezultate i iteracije ispravljanja otpreme - pokriva punu petlju orkestratora u jednoj vještini",
+      "p132": "Pošaljite distribuciju izvedenu iz cmux i Homebrew fork za agente radnog stabla, MCP handoff i mobilno praćenje radnih tokova",
+      "p133": "Obezbedite Claude Code vještine za cmux automatizaciju izgleda, snimke radnog prostora, vraćanje sesije i Markdown pregled tokova rada",
+      "p134": "Skupite vještine, kuke, recepte i upite za orkestriranje AI agenata kroz cmux socket, pretraživač, obavijest i radni prostor",
+      "p135": "Snimak i vraćanje cmux radnih prostora sa Claude Code nastavkom sesije, uključujući sačuvano stanje okna i kontrolisane tokove ponovnog pokretanja",
+      "p136": "Izložite cmux kao lokalnog dobavljača za RigKit/Freestyle razvojne tokove kroz provider-cmux i fdev-cmux pakete",
+      "p137": "Naučite Claude Code da pokreće cmux okna, nadgleda agente, automatizuje površine pretraživača, ažurira metapodatke bočne trake i šalje obaveštenja sa jednog dodatka",
+      "p138": "Otvorite git diff preglednik uživo u oknu pretraživača cmux sa ažuriranjima WebSocket na prvom mjestu lokalnog hosta i automatskim osvježavanjem kako se fajlovi mijenjaju",
+      "p139": "Obezbedite Claude Code komande veština za cmux podele, CMUX_SOCKET_PATH tokove rada, automatizaciju pretraživača, Markdown pregled, napredak i obaveštenja",
+      "p140": "Objavite Pi paket za cmux status i integraciju obavještenja kroz npm kao @devnazim/pi-cmux",
+      "p141": "Pošaljite Pi pakete proširenja uključujući @catdaemon/pi-cmux za cmux status i tokove posla",
+      "p142": "Pokrenite vidljiva podređena Codex TUI okna u cmux preko izolovanih git stabala radnog stabla za paralelnu implementaciju i pregled",
+      "p143": "Neka Vim šalje reference datoteka i odabrane opsege linija u AI CLI sesije koje se pokreću unutar cmux okna",
+      "p144": "Pokrenite cmux radne prostore, okna, površine i preglednik za preglede iz tmuxinator-stil YAML definicije projekta",
+      "p145": "Uključite Claude/Codex cmux vještinu koja pokreće okna, šalje upite, čita ekrane, fokusira okna i upravlja radnim stablima",
+      "p146": "Objavite codex-cmux kuke za Codex status, napredak, obavještenja, dnevnike i prosljeđivanje SSH utičnice kroz cmux socket ili CLI integraciju",
+      "p147": "Pregledajte i nastavite Claude Code sesije iz TUI, otvarajući obnovljene sesije u svježe cmux radne prostore kada se to zatraži",
+      "p148": "Pošaljite cmux paket dodataka za daljinsko premošćivanje, timsko otpremanje, praćenje upotrebe i Claude/Codex tokove rada unutar cmux sesija",
+      "p149": "Omogućite OpenCode agentima da komuniciraju preko cmux radnih prostora slanjem poruka i čitanjem vršnjaka",
+      "p150": "Objavite dodatak OpenCode za povratne informacije o projektu i aktivnostima u cmux, distribuiran kao @luisurrutia/opencode-cmux"
+    }
   },
   "blog": {
     "title": "Blog",
@@ -242,6 +442,22 @@
         "p3": "To šalje trenutni workspace na kraj nepročitanog ciklusa, pa možete nastaviti prolaziti kroz nepročitani rad bez brisanja statusa.",
         "p4": "Cmd+Option+U mijenja trenutni workspace između pročitanog i nepročitanog.",
         "p5": "Korisno je kada skočite na novi nepročitani workspace preko Cmd+Shift+U, ali želite promijeniti kontekst prije odgovora."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Ponovo otvorite zatvorene terminale, preglednike, workspace-ove i sesije agenata pomoću Cmd+Shift+T i vratite se kroz svoj fokus pomoću Cmd+[ i Cmd+].",
+        "date": "2. juni 2026.",
+        "p1": "Zatvorite karticu terminala da raščistite, a onda shvatite da vam je trebala. Ili zatvorite cijeli workspace i izgubite agenta usred zadatka. cmux sada vodi historiju onoga što ste zatvorili i fokusirali, pa je za povratak dovoljna jedna prečica.",
+        "reopenTitle": "Ponovo otvorite ono što ste zatvorili",
+        "reopenP": "Pritisnite <code>Cmd+Shift+T</code> da ponovo otvorite posljednje što ste zatvorili. Radi za kartice terminala, kartice preglednika, workspace-ove i prozore i vraća ih jedan po jedan redoslijedom kojim ste ih zatvarali. Svaka površina se vraća na svoje mjesto, s netaknutim oknima.",
+        "agentTitle": "I sesije agenata se vraćaju",
+        "agentP": "Historija ponovo otvara i zatvorene sesije agenata. Ponovo otvorite sesiju Claude Code, Codex ili OpenCode i nastavlja se tamo gdje je stala. Jednom pokrenite <code>cmux hooks setup</code> da cmux može pratiti sesije agenata; nakon toga se otvaraju kao i sve ostalo.",
+        "agentP2": "Ovo se oslanja na cmux <link>obnavljanje sesije</link>, koje nastavlja podržane agente putem njihovih vlastitih nativnih komandi za nastavak.",
+        "focusTitle": "Vratite se tamo gdje ste bili",
+        "focusP": "Dugmad naprijed i nazad u naslovnoj traci, ili <code>Cmd+[</code> i <code>Cmd+]</code>, skaču na prethodni i sljedeći workspace ili prozor u kojem ste radili, isto kao naprijed i nazad u pregledniku.",
+        "fullHistoryTitle": "Potpuni panel historije",
+        "fullHistoryP": "Kada vam treba više od posljednje stavke, otvorite potpuni panel historije: pretraživi prikaz grupisan po danima svega što ste zatvorili i fokusirali, s vremenskim oznakama i akcijom Clear Closed.",
+        "docsCta": "Pogledajte <link>prečice na tastaturi</link> za potpunu listu, uključujući kako ponovo dodijeliti navigaciju historijom."
       }
     },
     "zenOfCmux": {
@@ -367,6 +583,10 @@
         "AI agenti za kodiranje",
         "workspace nepročitan"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: ponovno otvaranje zatvorenih terminala i sesija",
+      "metaDescription": "cmux vodi historiju onoga što ste zatvorili i fokusirali. Ponovo otvorite zatvorene terminale, preglednike, workspace-ove i sesije Claude Code, Codex i OpenCode pomoću Cmd+Shift+T, a fokus pomjerajte naprijed i nazad pomoću Cmd+[ i Cmd+]."
     }
   },
   "docs": {
@@ -489,6 +709,7 @@
       "metaTitle": "Konfiguracija",
       "schemaDescriptions": {
         "automation": {
+          "ampIntegration": "Omogući cmux integracijske kuke za Amp. Kada je onemogućeno, priloženi dodatak ostaje neaktivan bez potrebe za uklanjanjem.",
           "suppressSubagentNotifications": "Sakrij vidljiva obavještenja o završetku i promjene statusa od ugniježđenih Codex ili Claude podagenata, uz zadržavanje njihovih događaja u Feed telemetriji."
         },
         "app": {
@@ -499,14 +720,34 @@
           "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta."
         },
         "terminal": {
-          "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom."
+          "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom.",
+          "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
+          "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
         },
         "browser": {
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
           "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "Globalna zadana vrijednost za mjesto gdje Cmd-N unutar grupe, + dugme u zaglavlju grupe i podešene grupne akcije stavljaju novi workspace: `afterCurrent` (poslije aktivnog workspacea u grupi, uz povratak na top), `top` (druga pozicija, odmah poslije sidra) ili `end` (poslije zadnjeg člana).",
+          "byCwd": {
+            "newWorkspacePlacement": "Podešavanje po cwd za mjesto gdje Cmd-N unutar grupe, + dugme u zaglavlju grupe i podešene grupne akcije stavljaju novi workspace: `afterCurrent` (poslije aktivnog workspacea u grupi, uz povratak na top), `top` (druga pozicija, odmah poslije sidra) ili `end` (poslije zadnjeg člana). Ako je izostavljeno, koristi se globalna zadana vrijednost."
+          }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "diffViewer": {
+          "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "Prilagođene komande",
@@ -627,7 +868,8 @@
         "notifications": "Notifikacije",
         "find": "Pretraga",
         "terminal": "Terminal",
-        "window": "Prozor"
+        "window": "Prozor",
+        "diffViewer": "Preglednik diffa"
       },
       "sc": {
         "ws-new": "Novi radni prostor",
@@ -920,7 +1162,8 @@
       "changelog": "Zapisnik promjena",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (Beta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1054,6 +1297,21 @@
       "daemonSession": "Upravljanje sesijama",
       "daemonSessionHow": "Zadržava sesije preko ponovnog povezivanja, koordinira promjenu veličine PTY-a u više priloga",
       "daemonPath": "Daemon binarni fajl je pohranjen na ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote na udaljenom hostu i provjeren prema SHA-256 manifestu ugrađenom u aplikaciju."
+    },
+    "textBox": {
+      "title": "TextBox (Beta)",
+      "metaTitle": "TextBox (Beta)",
+      "metaDescription": "Podesite cmux beta TextBox unos za nove terminalske tabove, podjele i radne prostore.",
+      "intro": "TextBox je cmuxova bogata terminalska površina za unos, za sastavljanje promptova prije slanja u terminal.",
+      "betaCallout": "TextBox je beta funkcija. Zadane vrijednosti i ponašanje mogu se promijeniti tokom testiranja.",
+      "defaultsTitle": "Zadane vrijednosti",
+      "defaultsDesc": "TextBox postavke su u Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals otvara nove radne prostore, terminalske tabove i podjele s vidljivim TextBoxom, dok fokus ostaje u terminalu.",
+      "focusSetting": "Focus TextBox on New Terminals postavlja fokus tastature u TextBox. Fokusiranje također prikazuje TextBox.",
+      "maxLinesSetting": "TextBox Max Lines ograničava visinu TextBoxa prije nego što se sadržaj počne skrolati.",
+      "configTitle": "cmux.json",
+      "configDesc": "Iste zadane vrijednosti postavite u ~/.config/cmux/cmux.json pod terminal:",
+      "focusNote": "Obnovljene sesije zadržavaju spremljenu vidljivost TextBoxa i stanje fokusa. Ove zadane vrijednosti važe samo za novokreirane terminalske površine."
     }
   },
   "legal": {
@@ -1145,7 +1403,31 @@
       "fallback": "cmux prvo prikazuje pravila i pita prije nego što ih zalijepi u trenutni radni prostor. Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmux."
     }
   },
+  "download": {
+    "section": "preuzimanje",
+    "metaTitle": "Hvala što ste preuzeli cmux",
+    "metaDescription": "Vaše preuzimanje cmux-a počinje. Istražite dokumentaciju, pridružite se Discordu i pratite cmux na X-u.",
+    "heading": "Hvala što ste preuzeli cmux!",
+    "subtext": "Kliknite <link>ovdje</link> ako preuzimanje nije počelo."
+  },
   "testimonialSubtitles": {
     "steipete": "Kreator OpenClawa. Osnivač PSPDFKita."
+  },
+  "brandAssets": {
+    "metaTitle": "Brend materijali",
+    "metaDescription": "Preuzmite svijetlu i tamnu cmux ikonu koju koristi macOS aplikacija.",
+    "title": "Brend materijali",
+    "description": "Preuzmite svijetlu i tamnu cmux ikonu koju koristi macOS aplikacija.",
+    "iconSection": "Ikone macOS aplikacije",
+    "download": "Preuzmi",
+    "assetAlt": "Pregled za {name}",
+    "lightPreview": "Ikona aplikacije za svijetli način.",
+    "darkPreview": "Ikona aplikacije za tamni način."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Preuzmi svijetlu ikonu",
+    "downloadDark": "Preuzmi tamnu ikonu",
+    "brandPage": "Materijali brenda"
   }
 }

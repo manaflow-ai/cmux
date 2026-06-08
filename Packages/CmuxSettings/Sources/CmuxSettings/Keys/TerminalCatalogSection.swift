@@ -28,7 +28,7 @@ public struct TerminalCatalogSection: SettingCatalogSection {
 
     public let agentHibernationIdleSeconds = DefaultsKey<Double>(
         id: "terminal.agentHibernation.idleSeconds",
-        defaultValue: 3600,
+        defaultValue: 5,
         userDefaultsKey: "terminal.agentHibernation.idleSeconds"
     )
 
@@ -36,6 +36,18 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         id: "terminal.agentHibernation.maxLiveTerminals",
         defaultValue: 12,
         userDefaultsKey: "terminal.agentHibernation.maxLiveTerminals"
+    )
+
+    public let showTextBoxOnNewTerminals = DefaultsKey<Bool>(
+        id: "terminal.showTextBoxOnNewTerminals",
+        defaultValue: false,
+        userDefaultsKey: "terminal.showTextBoxOnNewTerminals"
+    )
+
+    public let focusTextBoxOnNewTerminals = DefaultsKey<Bool>(
+        id: "terminal.focusTextBoxOnNewTerminals",
+        defaultValue: false,
+        userDefaultsKey: "terminal.focusTextBoxOnNewTerminals"
     )
 
     public let textBoxMaxLines = DefaultsKey<Int>(

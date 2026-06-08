@@ -5,21 +5,23 @@ import Foundation
 /// Most extension authors should use `CmuxSidebarExtensionScene(_:)`, which owns
 /// ExtensionKit scene setup and `NSXPCConnection` handling. This type remains
 /// internal so the public SDK keeps extension authors on typed CMUX protocols.
+/// `@unchecked Sendable` is safe because mutable transport state is guarded by
+/// `lock` or `lifecycleLock`, and callbacks cross back to `@MainActor`.
 final class CMUXSidebarExtensionConnection: @unchecked Sendable {
     /// Receives a filtered workspace snapshot from CMUX.
-    typealias SnapshotHandler = @MainActor @Sendable (CMUXSidebarSnapshot) -> Void
+    typealias SnapshotHandler = @MainActor @Sendable (CmuxSidebarSnapshot) -> Void
 
     /// Receives connection state changes and transport errors.
-    typealias ErrorHandler = @MainActor @Sendable (String?) -> Void
+    typealias StatusHandler = @MainActor @Sendable (CmuxSidebarConnectionStatus) -> Void
 
     /// Receives the result for a host action request.
-    typealias ActionReplyHandler = @MainActor @Sendable (CMUXExtensionActionResult) -> Void
+    typealias ActionReplyHandler = @MainActor @Sendable (CmuxSidebarActionResult) -> Void
 
     /// Manifest presented to CMUX for identity, compatibility, and permissions.
-    let manifest: CMUXExtensionManifest
+    let manifest: CmuxExtensionManifest
 
     private let onSnapshot: SnapshotHandler
-    private let onError: ErrorHandler
+    private let onStatus: StatusHandler
     private let lifecycleLock = NSLock()
     private let lock = NSLock()
     private var state = ConnectionState()
@@ -28,13 +30,13 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
     ///
     /// Prefer `CmuxSidebarExtensionScene(_:)` for new extensions.
     init(
-        manifest: CMUXExtensionManifest,
+        manifest: CmuxExtensionManifest,
         onSnapshot: @escaping SnapshotHandler,
-        onError: @escaping ErrorHandler = { _ in }
+        onStatus: @escaping StatusHandler = { _ in }
     ) {
         self.manifest = manifest
         self.onSnapshot = onSnapshot
-        self.onError = onError
+        self.onStatus = onStatus
     }
 
     /// Accepts a host-provided XPC connection.
@@ -64,27 +66,26 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
         }
 
         let hostProxy = connection.remoteObjectProxyWithErrorHandler { [weak self, generation] error in
-            self?.report(error.localizedDescription, ifCurrentGeneration: generation)
+            self?.report(.error(error.localizedDescription), ifCurrentGeneration: generation)
         } as? CMUXSidebarHostXPC
         setHost(hostProxy, ifCurrentGeneration: generation)
         connection.resume()
-        refreshSnapshot()
         return true
     }
 
     /// Requests a fresh snapshot from CMUX.
     func refreshSnapshot() {
         guard let target = currentHost() else {
-            report("Waiting for cmux", ifCurrentGeneration: currentGeneration())
+            report(.waitingForHost, ifCurrentGeneration: currentGeneration())
             return
         }
         target.host.requestSidebarSnapshot { [weak self, generation = target.generation] payload, error in
             if let error {
-                self?.report(String(error), ifCurrentGeneration: generation)
+                self?.report(.error(String(error)), ifCurrentGeneration: generation)
                 return
             }
             guard let payload else {
-                self?.report("cmux did not send a workspace snapshot", ifCurrentGeneration: generation)
+                self?.report(.error("cmux did not send a workspace snapshot"), ifCurrentGeneration: generation)
                 return
             }
             self?.receive(snapshot: Data(referencing: payload), ifCurrentGeneration: generation)
@@ -93,19 +94,19 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
 
     /// Sends a host action to CMUX.
     func perform(
-        _ action: CMUXSidebarAction,
+        _ action: CmuxSidebarAction,
         reply: @escaping ActionReplyHandler = { _ in }
     ) -> CmuxSidebarActionCancellation? {
         guard let target = currentHost() else {
             let message = "Waiting for cmux"
-            report(message, ifCurrentGeneration: currentGeneration())
+            report(.waitingForHost, ifCurrentGeneration: currentGeneration())
             deliver(.rejected(message), to: reply)
             return nil
         }
 
         let generation = target.generation
         do {
-            let payload = try CMUXSidebarXPCCodec.encodeAction(action)
+            let payload = try CmuxSidebarXPCCodec.encodeAction(action)
             let actionID = UUID()
             guard storePendingAction(id: actionID, generation: generation, reply: reply) else {
                 deliver(.rejected("cmux connection changed"), to: reply)
@@ -119,27 +120,25 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
                 if let error {
                     let message = String(error)
                     guard self.completePendingAction(id: actionID, result: .rejected(message)) else { return }
-                    self.report(message, ifCurrentGeneration: generation)
+                    self.report(.error(message), ifCurrentGeneration: generation)
                     return
                 }
                 guard let resultPayload else {
                     let message = "cmux did not send an action result"
                     guard self.completePendingAction(id: actionID, result: .rejected(message)) else { return }
-                    self.report(message, ifCurrentGeneration: generation)
+                    self.report(.error(message), ifCurrentGeneration: generation)
                     return
                 }
                 do {
-                    let result = try CMUXSidebarXPCCodec.decodeActionResult(resultPayload)
+                    let result = try CmuxSidebarXPCCodec.decodeActionResult(resultPayload)
                     guard self.completePendingAction(id: actionID, result: result) else { return }
                     if result.accepted {
-                        self.report(nil, ifCurrentGeneration: generation)
-                    } else {
-                        self.report(result.message, ifCurrentGeneration: generation)
+                        self.report(.connected, ifCurrentGeneration: generation)
                     }
                 } catch {
                     let message = error.localizedDescription
                     guard self.completePendingAction(id: actionID, result: .rejected(message)) else { return }
-                    self.report(message, ifCurrentGeneration: generation)
+                    self.report(.error(message), ifCurrentGeneration: generation)
                 }
             }
             return CmuxSidebarActionCancellation { [weak self] in
@@ -147,7 +146,7 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
             }
         } catch {
             let message = error.localizedDescription
-            report(message, ifCurrentGeneration: generation)
+            report(.error(message), ifCurrentGeneration: generation)
             deliver(.rejected(message), to: reply)
             return nil
         }
@@ -166,36 +165,36 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
         }
         connection?.invalidate()
         deliver(.rejected("cmux connection was closed"), to: pendingReplies)
-        report("Waiting for cmux", ifCurrentGeneration: generation)
+        report(.waitingForHost, ifCurrentGeneration: generation)
     }
 
     private func receive(snapshot payload: Data, ifCurrentGeneration generation: UInt64) {
         guard isCurrent(generation) else { return }
         do {
-            let snapshot = try CMUXSidebarXPCCodec.decodeSnapshot(payload as NSData)
+            let snapshot = try CmuxSidebarXPCCodec.decodeSnapshot(payload as NSData)
             deliver(snapshot, ifCurrentGeneration: generation)
         } catch {
-            report(error.localizedDescription, ifCurrentGeneration: generation)
+            report(.error(error.localizedDescription), ifCurrentGeneration: generation)
         }
     }
 
-    private func deliver(_ snapshot: CMUXSidebarSnapshot, ifCurrentGeneration generation: UInt64) {
+    private func deliver(_ snapshot: CmuxSidebarSnapshot, ifCurrentGeneration generation: UInt64) {
         Task { @MainActor [weak self] in
             guard let self, self.isCurrent(generation) else { return }
             onSnapshot(snapshot)
-            onError(nil)
+            onStatus(.connected)
         }
     }
 
-    private func report(_ message: String?, ifCurrentGeneration generation: UInt64) {
+    private func report(_ status: CmuxSidebarConnectionStatus, ifCurrentGeneration generation: UInt64) {
         Task { @MainActor [weak self] in
             guard let self, self.isCurrent(generation) else { return }
-            onError(message)
+            onStatus(status)
         }
     }
 
     private func deliver(
-        _ result: CMUXExtensionActionResult,
+        _ result: CmuxSidebarActionResult,
         to reply: @escaping ActionReplyHandler
     ) {
         Self.deliver(result, to: reply)
@@ -210,7 +209,7 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
         }
         if let repliesToDrain {
             deliver(.rejected("cmux connection was interrupted"), to: repliesToDrain)
-            report("Waiting for cmux", ifCurrentGeneration: generation)
+            report(.waitingForHost, ifCurrentGeneration: generation)
         }
     }
 
@@ -224,7 +223,7 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
         }
         if let repliesToDrain {
             deliver(.rejected("cmux connection was closed"), to: repliesToDrain)
-            report("Waiting for cmux", ifCurrentGeneration: generation)
+            report(.waitingForHost, ifCurrentGeneration: generation)
         }
     }
 
@@ -281,7 +280,7 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
         }
     }
 
-    private func completePendingAction(id: UUID, result: CMUXExtensionActionResult) -> Bool {
+    private func completePendingAction(id: UUID, result: CmuxSidebarActionResult) -> Bool {
         let reply = withState { state in
             state.pendingActions.removeValue(forKey: id)?.reply
         }
@@ -310,7 +309,7 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
     }
 
     private func deliver(
-        _ result: CMUXExtensionActionResult,
+        _ result: CmuxSidebarActionResult,
         to replies: [ActionReplyHandler]
     ) {
         for reply in replies {
@@ -319,7 +318,7 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
     }
 
     private static func deliver(
-        _ result: CMUXExtensionActionResult,
+        _ result: CmuxSidebarActionResult,
         to reply: @escaping ActionReplyHandler
     ) {
         Task { @MainActor in
@@ -347,12 +346,12 @@ private struct PendingAction {
 }
 
 private final class CMUXSidebarExtensionXPCReceiver: NSObject, CMUXSidebarExtensionXPC {
-    private let manifest: CMUXExtensionManifest
+    private let manifest: CmuxExtensionManifest
     private let receiveSnapshot: @Sendable (NSData, UInt64) -> Void
     private let generation: UInt64
 
     init(
-        manifest: CMUXExtensionManifest,
+        manifest: CmuxExtensionManifest,
         receiveSnapshot: @escaping @Sendable (NSData, UInt64) -> Void,
         generation: UInt64
     ) {
@@ -363,7 +362,7 @@ private final class CMUXSidebarExtensionXPCReceiver: NSObject, CMUXSidebarExtens
 
     func requestExtensionManifest(reply: @escaping (NSData?, NSString?) -> Void) {
         do {
-            reply(try CMUXSidebarXPCCodec.encodeManifest(manifest), nil)
+            reply(try CmuxSidebarXPCCodec.encodeManifest(manifest), nil)
         } catch {
             reply(nil, error.localizedDescription as NSString)
         }

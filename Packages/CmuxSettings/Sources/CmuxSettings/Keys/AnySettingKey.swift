@@ -1,6 +1,6 @@
 import Foundation
 
-/// Type-erased view onto a ``DefaultsKey`` or ``JSONKey``.
+/// Type-erased view onto a ``DefaultsKey``, ``JSONKey``, or ``SecretFileKey``.
 ///
 /// Used to enumerate every catalog entry uniformly — for example when running
 /// legacy-key migrations at app startup, building schema docs, or driving the
@@ -25,6 +25,13 @@ public struct AnySettingKey: Sendable {
 
         /// The key persists in the cmux JSON config file at the key's ``id``.
         case jsonConfig
+
+        /// The key persists in its own private `0600` file managed by
+        /// ``SecretFileStore``, never in the shared `cmux.json`.
+        ///
+        /// - Parameter fileName: The secret's file name under the secret
+        ///   store's base directory.
+        case secretFile(fileName: String)
     }
 
     /// The dotted identifier from the underlying key.
@@ -73,6 +80,16 @@ public struct AnySettingKey: Sendable {
         }
     }
 
+    /// Wraps a secret-file-backed key. Secrets are reset through
+    /// ``SecretFileStore`` rather than ``JSONConfigStore``, so ``resetInJSON``
+    /// is a no-op here.
+    public init(_ key: SecretFileKey) {
+        self.id = key.id
+        self.kind = .secretFile(fileName: key.fileName)
+        self.migrateUserDefaultsLegacyKeys = { _ in }
+        self.resetInJSON = { _ in }
+    }
+
     private static func migrateLegacyDefaultsKey<Value>(
         _ key: DefaultsKey<Value>,
         defaults: UserDefaults
@@ -119,5 +136,9 @@ extension DefaultsKey: AnySettingKeyConvertible {
 }
 
 extension JSONKey: AnySettingKeyConvertible {
+    var asAnySettingKey: AnySettingKey { AnySettingKey(self) }
+}
+
+extension SecretFileKey: AnySettingKeyConvertible {
     var asAnySettingKey: AnySettingKey { AnySettingKey(self) }
 }

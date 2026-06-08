@@ -13,15 +13,15 @@ struct JSONConfigStoreTests {
     }
 
     @Test func readsDefaultWhenFileMissing() async {
-        let (store, _, catalog) = makeStore()
-        let value = await store.value(for: catalog.automation.socketPassword)
+        let (store, _, _) = makeStore()
+        let value = await store.value(for: JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))
         #expect(value == "")
     }
 
     @Test func roundTripsNestedKey() async throws {
-        let (store, fileURL, catalog) = makeStore()
-        try await store.set("hunter2", for: catalog.automation.socketPassword)
-        let value = await store.value(for: catalog.automation.socketPassword)
+        let (store, fileURL, _) = makeStore()
+        try await store.set("hunter2", for: JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))
+        let value = await store.value(for: JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))
         #expect(value == "hunter2")
 
         let data = try Data(contentsOf: fileURL)
@@ -31,10 +31,10 @@ struct JSONConfigStoreTests {
     }
 
     @Test func resetRemovesEntryAndPrunesEmptyParents() async throws {
-        let (store, fileURL, catalog) = makeStore()
-        try await store.set("hunter2", for: catalog.automation.socketPassword)
-        try await store.reset(catalog.automation.socketPassword)
-        let value = await store.value(for: catalog.automation.socketPassword)
+        let (store, fileURL, _) = makeStore()
+        try await store.set("hunter2", for: JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))
+        try await store.reset(JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))
+        let value = await store.value(for: JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))
         #expect(value == "")
         let data = try Data(contentsOf: fileURL)
         let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -42,7 +42,7 @@ struct JSONConfigStoreTests {
     }
 
     @Test func toleratesJSONCComments() async throws {
-        let (store, fileURL, catalog) = makeStore()
+        let (store, fileURL, _) = makeStore()
         let json = """
         {
           // commented
@@ -52,17 +52,17 @@ struct JSONConfigStoreTests {
         }
         """
         try Data(json.utf8).write(to: fileURL)
-        let value = await store.value(for: catalog.automation.socketPassword)
+        let value = await store.value(for: JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))
         #expect(value == "test")
     }
 
     @Test func observesExternalEdit() async throws {
-        let (store, fileURL, catalog) = makeStore()
+        let (store, fileURL, _) = makeStore()
         try Data("{}".utf8).write(to: fileURL)
 
         let observed = Task<[String], Never> {
             var collected: [String] = []
-            for await value in store.values(for: catalog.automation.socketPassword) {
+            for await value in store.values(for: JSONKey<String>(id: "automation.socketPassword", defaultValue: "")) {
                 collected.append(value)
                 if collected.count == 2 { break }
             }
