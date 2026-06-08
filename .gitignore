@@ -20,7 +20,8 @@ ios/Config/AppStoreConnect.local.plist
 .ci-source-packages/
 
 # GhosttyKit binary (built from ghostty submodule via scripts/setup.sh)
-GhosttyKit.xcframework
+# Glob covers Finder-style duplicate symlinks like "GhosttyKit 2.xcframework".
+GhosttyKit*.xcframework
 GhosttyKit.xcframework.bak-*/
 
 # Release artifacts
