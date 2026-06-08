@@ -1,0 +1,105 @@
+import CMUXMobileCore
+import Foundation
+import Testing
+@testable import CmuxMobileShell
+
+/// Tests the pure reconnect-route policy and registry-response parsing. These
+/// are the heart of the auto-pair-on-reload path: the policy decides when a
+/// stale-route Mac is rescued by registry routes versus when the locally
+/// persisted routes win (so pairing survives the registry being down).
+@Suite struct DeviceRegistryRouteSelectionTests {
+    private func route(host: String, port: Int, id: String = "r", priority: Int = 0) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: id,
+            kind: .tailscale,
+            endpoint: .hostPort(host: host, port: port),
+            priority: priority
+        )
+    }
+
+    @Test func registryUnavailableFallsBackToLocal() throws {
+        let local = [try route(host: "100.0.0.1", port: 51000)]
+        // nil == registry unreachable / unauthorized / Mac not registered.
+        #expect(DeviceRegistryRouteSelection.selectReconnectRoutes(local: local, registry: nil) == nil)
+    }
+
+    @Test func registryEmptyFallsBackToLocal() throws {
+        let local = [try route(host: "100.0.0.1", port: 51000)]
+        #expect(DeviceRegistryRouteSelection.selectReconnectRoutes(local: local, registry: []) == nil)
+    }
+
+    @Test func identicalRegistryRoutesAreANoOp() throws {
+        let routes = [try route(host: "100.0.0.1", port: 51000)]
+        #expect(DeviceRegistryRouteSelection.selectReconnectRoutes(local: routes, registry: routes) == nil)
+    }
+
+    @Test func differentRegistryRoutesWin() throws {
+        // The Mac moved networks / changed port: registry has the current route.
+        let local = [try route(host: "100.0.0.1", port: 51000)]
+        let registry = [try route(host: "100.9.9.9", port: 51999)]
+        let selected = DeviceRegistryRouteSelection.selectReconnectRoutes(local: local, registry: registry)
+        #expect(selected == registry)
+    }
+
+    @Test func parsesRoutesForMatchingMacFromListResponse() throws {
+        let json = """
+        {
+          "teamId": "team-a",
+          "devices": [
+            {
+              "deviceId": "AAAA1111-1111-4111-8111-111111111111",
+              "platform": "mac",
+              "displayName": "Other Mac",
+              "instances": [{ "tag": "stable", "routes": [] }]
+            },
+            {
+              "deviceId": "BBBB2222-2222-4222-8222-222222222222",
+              "platform": "mac",
+              "displayName": "Lawrence's Mac",
+              "instances": [
+                { "tag": "stale", "routes": [] },
+                {
+                  "tag": "stable",
+                  "routes": [
+                    { "id": "r1", "kind": "tailscale", "priority": 0,
+                      "endpoint": { "type": "host_port", "host": "100.9.9.9", "port": 51999 } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        // Case-insensitive id match (the wire id may be upper- or lower-cased).
+        let routes = DeviceRegistryService.routes(
+            forMacDeviceID: "bbbb2222-2222-4222-8222-222222222222",
+            in: json
+        )
+        #expect(routes?.count == 1)
+        if case let .hostPort(host, port) = routes?.first?.endpoint {
+            #expect(host == "100.9.9.9")
+            #expect(port == 51999)
+        } else {
+            Issue.record("expected a host_port route")
+        }
+    }
+
+    @Test func returnsNilWhenMacNotInListResponse() {
+        let json = #"{ "teamId": "team-a", "devices": [] }"#.data(using: .utf8)!
+        #expect(DeviceRegistryService.routes(forMacDeviceID: "missing", in: json) == nil)
+    }
+
+    @Test func deviceIdentityPersistsAcrossLookups() {
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let first = MobileDeviceIdentity.deviceID(defaults: defaults)
+        let second = MobileDeviceIdentity.deviceID(defaults: defaults)
+        #expect(first == second)
+        #expect(!first.isEmpty)
+        // Stable across a fresh accessor reading the same store (relaunch proxy).
+        #expect(UUID(uuidString: first) != nil)
+    }
+}

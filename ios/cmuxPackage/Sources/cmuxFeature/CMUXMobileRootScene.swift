@@ -107,6 +107,28 @@ public struct CMUXMobileRootScene: View {
         }
     }
 
+    /// Build the team-scoped device-registry client over the auth coordinator.
+    ///
+    /// Tokens and the target team are read live through the coordinator so the
+    /// registry call always uses the current session and selected team. The
+    /// service is failure-tolerant, so a missing API base URL or a registry
+    /// outage simply means reconnect falls back to local paired-Mac routes.
+    @MainActor
+    private func makeDeviceRegistry() -> DeviceRegistryService? {
+        let baseURL = auth.config.apiBaseURL
+        guard !baseURL.isEmpty else { return nil }
+        let coordinator = auth.coordinator
+        return DeviceRegistryService(
+            apiBaseURL: baseURL,
+            deviceID: MobileDeviceIdentity.deviceID(),
+            tokenSource: DeviceRegistryService.TokenSource(
+                accessToken: { try? await coordinator.accessToken() },
+                refreshToken: { await coordinator.refreshToken() }
+            ),
+            teamIDProvider: { await coordinator.resolvedTeamID }
+        )
+    }
+
     public var body: some View {
         content
             .environment(auth.coordinator)
@@ -133,10 +155,12 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     private func makeStore() -> CMUXMobileShellStore {
         let identityProvider = AuthCoordinatorIdentityProvider(coordinator: auth.coordinator)
+        let deviceRegistry = makeDeviceRegistry()
         #if DEBUG
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: pairedMacStore,
+            deviceRegistry: deviceRegistry,
             identityProvider: identityProvider,
             reachability: reachability,
             analytics: analytics,
@@ -146,6 +170,7 @@ public struct CMUXMobileRootScene: View {
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: pairedMacStore,
+            deviceRegistry: deviceRegistry,
             identityProvider: identityProvider,
             reachability: reachability,
             analytics: analytics

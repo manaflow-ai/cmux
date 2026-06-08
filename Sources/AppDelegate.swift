@@ -1908,6 +1908,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         VMClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
+        DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(
             coordinator: auth.coordinator,
             browserSignIn: auth.browserSignIn
