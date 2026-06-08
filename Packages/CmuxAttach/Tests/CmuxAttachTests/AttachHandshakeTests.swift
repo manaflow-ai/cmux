@@ -51,6 +51,24 @@ import Testing
         }
     }
 
+    @Test func booleanDimensionsAreRejectedNotCoercedToOne() {
+        // A Swift Bool must not coerce to 1 (true) / 0 (false).
+        #expect(throws: AttachRequestError.invalidColumns(0)) {
+            try AttachHandshake.parse(params: ["surface": "a", "cols": true, "rows": 24])
+        }
+    }
+
+    @Test func jsonBooleanDimensionsAreRejected() throws {
+        // The real wire path: JSONSerialization decodes a JSON `true` into a
+        // CFBoolean-backed NSNumber that bridges to Int 1. The handshake must
+        // still reject it rather than validating a 1x1 terminal.
+        let data = Data(#"{"surface":"a","cols":true,"rows":true}"#.utf8)
+        let params = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(throws: AttachRequestError.invalidColumns(0)) {
+            try AttachHandshake.parse(params: params)
+        }
+    }
+
     @Test func unsupportedVersionThrows() {
         #expect(throws: AttachRequestError.unsupportedVersion(2)) {
             try AttachHandshake.parse(params: ["surface": "a", "cols": 80, "rows": 24, "v": 2])

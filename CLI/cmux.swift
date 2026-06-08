@@ -10628,6 +10628,15 @@ struct CMUXCLI {
         let positional = remaining.first(where: { !Self.isFlagToken($0) })
         let surfaceRaw = surfaceOpt ?? positional ?? Self.normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
 
+        // A relay-backed client closes its socket after every request/response
+        // (`send` sets shouldCloseAfterSend when relayEndpoint != nil), so the
+        // long-lived raw stream attach needs cannot run over it - rawFileDescriptor
+        // would already be -1 by the time we stream. Refuse with a clear message
+        // instead of a confusing "not connected".
+        if client.isRelayBacked {
+            throw CLIError(message: "attach: not supported over the relay/remote socket. Run `cmux attach` against a direct cmux control socket on the host.")
+        }
+
         let winId = try normalizeWindowHandle(windowOpt, client: client)
         let wsId = try normalizeWorkspaceHandle(workspaceOpt, client: client, windowHandle: winId)
         guard let handle = try normalizeSurfaceHandle(
@@ -10655,10 +10664,14 @@ struct CMUXCLI {
             throw CLIError(message: surfaceSelfAttachMessage(handle))
         }
         if let myTTY = ttyBasename(fd: STDIN_FILENO),
-           let surfaceTTY = surfaceTTYName(uuid: surfaceUUID, client: client),
-           !surfaceTTY.isEmpty,
-           myTTY == surfaceTTY {
-            throw CLIError(message: surfaceSelfAttachMessage(handle))
+           let surfaceTTYRaw = surfaceTTYName(uuid: surfaceUUID, client: client) {
+            // The host may report the tty as a bare name ("ttys024") or a full
+            // device path ("/dev/ttys024"); compare on the leaf so the guard
+            // holds either way.
+            let surfaceTTY = surfaceTTYRaw.split(separator: "/").last.map(String.init) ?? surfaceTTYRaw
+            if !surfaceTTY.isEmpty, myTTY == surfaceTTY {
+                throw CLIError(message: surfaceSelfAttachMessage(handle))
+            }
         }
 
         let fd = client.rawFileDescriptor
@@ -10740,14 +10753,26 @@ struct CMUXCLI {
         var outBuffer = [UInt8](repeating: 0, count: 65536)
         let stdout = FileHandle.standardOutput
         let errorPrefix = Data("ERROR:".utf8)
+        // A single output frame is base64 of at most AttachFrame.maxPayloadBytes
+        // (4 MiB), so one wire line tops out near 6 MiB. Cap a little above that:
+        // beyond it the host is sending a newline-free / oversized stream, so bail
+        // instead of growing `pending` until the CLI OOMs.
+        let maxPending = 12 * 1024 * 1024
         while true {
             let count = Darwin.read(fd, &outBuffer, outBuffer.count)
             if count > 0 {
                 pending.append(contentsOf: outBuffer[0..<count])
-                while let newline = pending.firstIndex(of: 0x0A) {
-                    let lineRange = pending.startIndex...newline
-                    let line = Data(pending[lineRange])
-                    pending.removeSubrange(lineRange)
+                if pending.count > maxPending {
+                    rawMode?.restore()
+                    throw CLIError(message: "attach: stream framing error (oversized line from host)")
+                }
+                // Process every complete line, then drop the consumed prefix once.
+                // Removing per line would re-shift the tail each time (quadratic on
+                // high-throughput output); a cursor keeps it linear.
+                var cursor = pending.startIndex
+                while let newline = pending[cursor...].firstIndex(of: 0x0A) {
+                    let line = Data(pending[cursor...newline])
+                    cursor = pending.index(after: newline)
                     // The host can emit a plain-text access/mode error before any
                     // frame (e.g. cmux-only rejection). Surface it with a hint.
                     if line.starts(with: errorPrefix) {
@@ -10770,6 +10795,9 @@ struct CMUXCLI {
                     default:
                         break
                     }
+                }
+                if cursor > pending.startIndex {
+                    pending.removeSubrange(pending.startIndex..<cursor)
                 }
             } else if count == 0 {
                 return

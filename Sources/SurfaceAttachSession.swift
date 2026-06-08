@@ -13,14 +13,27 @@ protocol SurfaceAttachBridge: AnyObject {
     func resolveTerminalSurface(reference: String) -> UUID?
     /// Bounded scrollback tail and its sequence for a cold attach, if any.
     func replayState(surfaceID: UUID) -> (seq: UInt64, data: Data)?
-    /// Register for live raw bytes; returns a token for `unsubscribe`.
-    func subscribe(surfaceID: UUID, _ onBytes: @escaping @MainActor (Data) -> Void) -> Int
+    /// Register for live raw bytes; returns a token for `unsubscribe`. `onDrop`
+    /// fires if the surface is closed out from under the attachment so the
+    /// session can tear down instead of hanging.
+    func subscribe(
+        surfaceID: UUID,
+        onBytes: @escaping @MainActor (Data) -> Void,
+        onDrop: @escaping @MainActor () -> Void
+    ) -> Int
     func unsubscribe(surfaceID: UUID, token: Int)
     /// Feed raw stdin bytes to the surface's PTY (no-op when read-only).
     func writeInput(surfaceID: UUID, bytes: Data)
-    /// Apply this client's size to the surface (min-arbitrated with the GUI).
+    /// Apply this client's size to the surface. The concrete bridge mins it
+    /// against the GUI's own size, but does NOT yet arbitrate across multiple
+    /// concurrent viewers (a paired phone or a second attach): the most recent
+    /// caller wins. Single-viewer attach - the common case - is correct; true
+    /// cross-viewer min-arbitration is a known follow-up (it must route through
+    /// TerminalController's mobileViewportReportsBySurfaceID registry).
     func applyAttachmentSize(surfaceID: UUID, size: SurfaceSize)
-    /// Drop this client's size contribution, restoring the GUI's own size.
+    /// Drop this client's size contribution, restoring the GUI's own size. Same
+    /// single-viewer caveat as `applyAttachmentSize`: with another viewer still
+    /// attached this clears the shared cap rather than recomputing the min.
     func clearAttachmentSize(surfaceID: UUID)
     /// Nudge the surface to repaint a clean frame after a raw-tail replay so a
     /// full-screen TUI is not left rendering from a mid-escape-sequence tail.
@@ -101,14 +114,16 @@ final class SurfaceAttachSession {
         // Clean repaint after a raw-tail replay (KTD7).
         bridge.requestRedraw(surfaceID: surfaceID)
 
-        subscriptionToken = bridge.subscribe(surfaceID: surfaceID) { [weak self] data in
+        subscriptionToken = bridge.subscribe(surfaceID: surfaceID, onBytes: { [weak self] data in
             guard let self else { return }
             let frame = AttachFrame.output(seq: self.liveSeq, bytes: data)
             self.liveSeq &+= UInt64(data.count)
             if !self.write(frame.encodedLine()) {
                 self.teardown()
             }
-        }
+        }, onDrop: { [weak self] in
+            self?.teardown()
+        })
 
         startReader(surfaceID: surfaceID)
     }
@@ -119,11 +134,22 @@ final class SurfaceAttachSession {
         let (stream, continuation) = AsyncStream.makeStream(of: AttachFrame.self)
 
         let thread = Thread {
+            // The accepted client socket carries the transport's receive timeout
+            // (SO_RCVTIMEO). For a long-lived attach that would fire on an idle
+            // viewer - e.g. watching a slow build without typing - and tear the
+            // session down mid-stream. Block instead: teardown() shuts the socket
+            // down, which wakes this read so the thread still exits promptly.
+            var noTimeout = timeval(tv_sec: 0, tv_usec: 0)
+            _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &noTimeout, socklen_t(MemoryLayout<timeval>.size))
             var pending = Data()
             var buffer = [UInt8](repeating: 0, count: 4096)
             while true {
                 let n = read(fd, &buffer, buffer.count)
-                if n <= 0 { break }
+                if n < 0 {
+                    if errno == EINTR { continue }
+                    break
+                }
+                if n == 0 { break }
                 pending.append(contentsOf: buffer[0..<n])
                 // Inbound frames are tiny; a newline-free stream must not grow
                 // this buffer without bound and OOM the host.
@@ -271,8 +297,12 @@ final class TerminalSurfaceAttachBridge: SurfaceAttachBridge {
         MobileTerminalByteTee.shared.replayState(surfaceID: surfaceID)
     }
 
-    func subscribe(surfaceID: UUID, _ onBytes: @escaping @MainActor (Data) -> Void) -> Int {
-        MobileTerminalByteTee.shared.addConsumer(surfaceID: surfaceID, onBytes)
+    func subscribe(
+        surfaceID: UUID,
+        onBytes: @escaping @MainActor (Data) -> Void,
+        onDrop: @escaping @MainActor () -> Void
+    ) -> Int {
+        MobileTerminalByteTee.shared.addConsumer(surfaceID: surfaceID, onBytes: onBytes, onDrop: onDrop)
     }
 
     func unsubscribe(surfaceID: UUID, token: Int) {

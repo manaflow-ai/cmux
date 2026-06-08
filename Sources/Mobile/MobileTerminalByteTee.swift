@@ -49,8 +49,16 @@ final class MobileTerminalByteTee {
     /// opaque token so a session can unregister exactly its own callback. Read
     /// and written only on the main actor (`publishFromMain`, `addConsumer`,
     /// `removeConsumer`).
-    private var attachConsumersBySurfaceID: [UUID: [Int: @MainActor (Data) -> Void]] = [:]
+    private var attachConsumersBySurfaceID: [UUID: [Int: AttachConsumer]] = [:]
     private var nextAttachConsumerToken: Int = 0
+
+    /// One registered attach consumer: where live bytes go, plus how to notify the
+    /// session if the surface is dropped out from under it (so it can tear down
+    /// instead of hanging with no output and no EOF).
+    private struct AttachConsumer {
+        let deliver: @MainActor (Data) -> Void
+        let onDrop: @MainActor () -> Void
+    }
 
     /// Count of registered attach consumers across all surfaces. The output hot
     /// path (`append`, off the main actor) reads this to decide whether to
@@ -123,6 +131,12 @@ final class MobileTerminalByteTee {
         statesBySurfaceID.removeValue(forKey: surfaceID)
         if let stranded = attachConsumersBySurfaceID.removeValue(forKey: surfaceID), !stranded.isEmpty {
             attachConsumerCount.withLock { $0 -= stranded.count }
+            // The surface closed under a live attach. Tell each session so it
+            // tears down (shuts its socket, ending the client's read) rather than
+            // leaving the client blocked forever with no output and no EOF.
+            // teardown() is idempotent and its unsubscribe is a no-op now that the
+            // entry is already removed, so this cannot double-count the gate.
+            for consumer in stranded.values { consumer.onDrop() }
         }
     }
 
@@ -130,10 +144,14 @@ final class MobileTerminalByteTee {
     /// Returns a token to pass to `removeConsumer`. Registering a consumer makes
     /// the output hot path start capturing this surface's bytes even with no
     /// phone paired, so a cold attach can replay and then stream live.
-    func addConsumer(surfaceID: UUID, _ deliver: @escaping @MainActor (Data) -> Void) -> Int {
+    func addConsumer(
+        surfaceID: UUID,
+        onBytes deliver: @escaping @MainActor (Data) -> Void,
+        onDrop: @escaping @MainActor () -> Void
+    ) -> Int {
         nextAttachConsumerToken += 1
         let token = nextAttachConsumerToken
-        attachConsumersBySurfaceID[surfaceID, default: [:]][token] = deliver
+        attachConsumersBySurfaceID[surfaceID, default: [:]][token] = AttachConsumer(deliver: deliver, onDrop: onDrop)
         attachConsumerCount.withLock { $0 += 1 }
         return token
     }
@@ -167,8 +185,8 @@ final class MobileTerminalByteTee {
         // unencoded `Data` directly (the attach session does its own framing),
         // independent of whether a mobile client is subscribed.
         if let consumers = attachConsumersBySurfaceID[surfaceID] {
-            for deliver in consumers.values {
-                deliver(data)
+            for consumer in consumers.values {
+                consumer.deliver(data)
             }
         }
 

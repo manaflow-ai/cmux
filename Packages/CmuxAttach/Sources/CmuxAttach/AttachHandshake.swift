@@ -79,6 +79,10 @@ public enum AttachHandshake {
     /// fractional numbers and non-numeric strings. Mirrors the port-field
     /// coercion the v2 socket contract documents.
     static func intValue(_ raw: Any?) -> Int? {
+        // A JSON boolean decodes to an NSNumber that bridges to Int (true -> 1,
+        // false -> 0), so without this guard `cols: true` would validate as a
+        // 1x1 terminal instead of being rejected. Booleans are not numeric here.
+        if raw is Bool { return nil }
         switch raw {
         case let value as Int:
             return value
