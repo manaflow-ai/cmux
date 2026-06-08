@@ -25,7 +25,7 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
         )
         // Snapshot the canned GET response synchronously so the response is ready
         // before this loader finishes (the recorder actor read is deferred).
-        let cannedResponse = Self.responses[host]
+        let cannedResponse = Self.responseStore.response(for: host)
         Task { await RecordingURLProtocol.recorder.record(captured) }
         let status = (method == "GET") ? (cannedResponse?.status ?? 200) : 200
         let response = HTTPURLResponse(
@@ -43,11 +43,12 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
         client?.urlProtocolDidFinishLoading(self)
     }
 
-    /// Per-host canned GET responses, keyed by the test's unique API host. Set
-    /// synchronously before the service performs its GET. `nonisolated(unsafe)`
-    /// is acceptable here because each test uses a distinct host and sets its
-    /// entry before kicking off the request that reads it.
-    nonisolated(unsafe) static var responses: [String: CannedResponse] = [:]
+    /// Per-host canned GET responses, keyed by the test's unique API host.
+    /// `startLoading()` is synchronous and cannot await the recorder actor, so a
+    /// lock-guarded store provides real synchronization for parallel test writes
+    /// + protocol reads (distinct keys alone do NOT make a `Dictionary` thread
+    /// safe).
+    static let responseStore = CannedResponseStore()
 
     struct CannedResponse: Sendable {
         var status: Int = 200
@@ -70,6 +71,24 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
             data.append(buffer, count: read)
         }
         return data
+    }
+}
+
+/// Thread-safe canned-response store for ``RecordingURLProtocol``.
+final class CannedResponseStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var responses: [String: RecordingURLProtocol.CannedResponse] = [:]
+
+    func set(_ response: RecordingURLProtocol.CannedResponse, for host: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        responses[host] = response
+    }
+
+    func response(for host: String) -> RecordingURLProtocol.CannedResponse? {
+        lock.lock()
+        defer { lock.unlock() }
+        return responses[host]
     }
 }
 
@@ -261,13 +280,36 @@ struct FakeTokenProvider: TokenProviding {
         #expect(await service.mutedWorkspaceIDs == ["ws-stale"])
 
         // The signed-in user's server set is ["ws-server-1", "ws-server-2"].
-        RecordingURLProtocol.responses[host] = .init(
-            body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": ["ws-server-1", "ws-server-2"]])
+        RecordingURLProtocol.responseStore.set(
+            .init(body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": ["ws-server-1", "ws-server-2"]])),
+            for: host
         )
         let hydrated = await service.hydrateMutedWorkspacesFromServer()
         // Local is replaced wholesale by the server set; the stale id is gone.
         #expect(hydrated == ["ws-server-1", "ws-server-2"])
         #expect(await service.mutedWorkspaceIDs == ["ws-server-1", "ws-server-2"])
+    }
+
+    @Test func hydrateDoesNotClobberAConcurrentLocalMutation() async {
+        let (service, _, host) = makeService()
+        // Server set differs from what the user is about to tap.
+        RecordingURLProtocol.responseStore.set(
+            .init(body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": ["ws-server"]])),
+            for: host
+        )
+        // Deterministically interleave a local mutation into the hydration's
+        // reentrancy window (after the GET resolves, before the generation
+        // re-check) via the test seam. The local change is newer, so hydration
+        // must keep local and NOT overwrite it with the stale server set.
+        await service.setAfterHydrationFetchForTesting { [service] in
+            await service.setWorkspaceMuted("ws-just-tapped", muted: true)
+        }
+        let hydrated = await service.hydrateMutedWorkspacesFromServer()
+        // The just-tapped local change is never lost.
+        #expect(await service.mutedWorkspaceIDs.contains("ws-just-tapped"))
+        #expect(hydrated.contains("ws-just-tapped"))
+        // And the stale server-only id did not replace it.
+        #expect(!(await service.mutedWorkspaceIDs).contains("ws-server"))
     }
 
     @Test func hydrateKeepsLocalWhenServerUnreachable() async {
@@ -284,7 +326,7 @@ struct FakeTokenProvider: TokenProviding {
         let (service, _, host) = makeService()
         await service.setWorkspaceMuted("ws-local", muted: true)
         // Server returns 500 → keep local rather than clobber to empty.
-        RecordingURLProtocol.responses[host] = .init(status: 500, body: nil)
+        RecordingURLProtocol.responseStore.set(.init(status: 500, body: nil), for: host)
         let hydrated = await service.hydrateMutedWorkspacesFromServer()
         #expect(hydrated == ["ws-local"])
         #expect(await service.mutedWorkspaceIDs == ["ws-local"])
@@ -294,8 +336,9 @@ struct FakeTokenProvider: TokenProviding {
         let (service, _, host) = makeService()
         await service.setWorkspaceMuted("ws-stale", muted: true)
         // The signed-in user has no server mutes → local should end up empty.
-        RecordingURLProtocol.responses[host] = .init(
-            body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": [String]()])
+        RecordingURLProtocol.responseStore.set(
+            .init(body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": [String]()])),
+            for: host
         )
         let hydrated = await service.hydrateMutedWorkspacesFromServer()
         #expect(hydrated.isEmpty)

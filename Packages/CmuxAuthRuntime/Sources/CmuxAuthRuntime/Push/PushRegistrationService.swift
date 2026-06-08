@@ -30,6 +30,12 @@ public actor PushRegistrationService: PushRegistering {
     /// persisted set — so the final server state always matches local.
     private var isUploadingMutes = false
     private var mutesNeedResync = false
+    /// Bumped on every local mute mutation. A server hydration snapshots this
+    /// before its GET and refuses to overwrite local state if it changed during
+    /// the (awaited, actor-reentrant) fetch — the local change is newer and is
+    /// already being PUT to the server, so the GET result is stale and must not
+    /// clobber it (which would otherwise drop a just-tapped mute/unmute).
+    private var localMutationGeneration = 0
 
     private static let enabledKey = "cmux.notifications.pushEnabled"
     private static let cachedTokenKey = "cmux.notifications.deviceTokenHex"
@@ -113,16 +119,39 @@ public actor PushRegistrationService: PushRegistering {
             set.remove(trimmed)
         }
         // Persist first (synchronously, before any await) so the choice survives
-        // even if the upload fails or the app dies mid-flight.
+        // even if the upload fails or the app dies mid-flight. Bump the
+        // generation so an in-flight hydration knows a newer local change landed.
         defaults.set(Array(set).sorted(), forKey: Self.mutedWorkspacesKey)
+        localMutationGeneration &+= 1
         await syncMutedWorkspaces()
+    }
+
+    /// Test-only seam: awaited inside ``hydrateMutedWorkspacesFromServer()``
+    /// after the server GET resolves but before the generation re-check, so a
+    /// test can deterministically interleave a local mutation into the
+    /// reentrancy window and prove the guard keeps local state. Always `nil` in
+    /// production. Set via ``setAfterHydrationFetchForTesting(_:)``.
+    private var afterHydrationFetchForTesting: (@Sendable () async -> Void)?
+
+    /// Install the test-only hydration interleave hook. See
+    /// ``afterHydrationFetchForTesting``.
+    func setAfterHydrationFetchForTesting(_ hook: @escaping @Sendable () async -> Void) {
+        afterHydrationFetchForTesting = hook
     }
 
     @discardableResult
     public func hydrateMutedWorkspacesFromServer() async -> Set<String> {
+        let generationAtStart = localMutationGeneration
         guard let serverSet = await fetchMutedWorkspaces() else {
             // Signed out or network failure: keep the local set so an offline
             // sign-in never wipes valid local state.
+            return cachedMutedWorkspaceIDs
+        }
+        await afterHydrationFetchForTesting?()
+        // A local mute/unmute happened during the GET: that change is newer and
+        // is already syncing to the server, so the GET response is stale. Keep
+        // local instead of clobbering the just-tapped change.
+        guard localMutationGeneration == generationAtStart else {
             return cachedMutedWorkspaceIDs
         }
         let bounded = Array(serverSet).sorted().prefix(Self.maxMutedWorkspaces)
@@ -132,6 +161,7 @@ public actor PushRegistrationService: PushRegistering {
 
     public func clearLocalMutedWorkspaces() async {
         defaults.removeObject(forKey: Self.mutedWorkspacesKey)
+        localMutationGeneration &+= 1
     }
 
     private var cachedTokenHex: String? {
