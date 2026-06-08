@@ -1514,6 +1514,57 @@
         }
       }
     },
+    "mobile.settings.terminalFontSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォントサイズ"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminalFontSizeReset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset to Default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトに戻す"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminalFontSizeFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sets the terminal's base text size on this device. The font family follows the Mac you pair with."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この端末のターミナル文字の基準サイズを設定します。フォントの種類はペアリングしている Mac に従います。"
+          }
+        }
+      }
+    },
     "mobile.shortcuts.addAction": {
       "extractionState": "manual",
       "localizations": {

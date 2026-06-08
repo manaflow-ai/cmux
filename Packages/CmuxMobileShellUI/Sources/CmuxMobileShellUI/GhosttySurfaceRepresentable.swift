@@ -15,7 +15,12 @@ import UIKit
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let surfaceID: String
     let store: CMUXMobileShellStore
-    let fontSize: Float32
+    /// The shared persisted terminal font-size base, injected from the scene
+    /// root. The surface launches at `effectiveFontSize` and the overlay's
+    /// save/reset actions write this same instance, so Settings and the overlay
+    /// stay in sync. Reading it here also makes `updateUIView` re-run when a
+    /// Settings change flips the size (the @Observable invalidates the body).
+    let zoomPreference: MobileTerminalZoomPreference
     /// Whether the mounted surface should grab the keyboard when it attaches to
     /// a window. Driven by the host's autofocus-suppression state so chrome
     /// actions (create workspace/terminal, switch terminal) do not pop the
@@ -41,7 +46,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let view = GhosttySurfaceView(
             runtime: runtime,
             delegate: context.coordinator,
-            fontSize: fontSize
+            fontSize: zoomPreference.effectiveFontSize,
+            zoomPreference: zoomPreference
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         context.coordinator.attach(surfaceView: view)
@@ -49,7 +55,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        (uiView as? GhosttySurfaceView)?.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        guard let surfaceView = uiView as? GhosttySurfaceView else { return }
+        surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        // A Settings stepper / reset change flips the @Observable preference,
+        // which re-runs the host body and this update. `applyBaseFontSize`
+        // no-ops unless the base actually changed, so an unrelated re-render
+        // never snaps a transient pinch back to the persisted base.
+        surfaceView.applyBaseFontSize(zoomPreference.effectiveFontSize)
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
@@ -79,6 +91,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputTask = Task { @MainActor [weak surfaceView] in
                 for await data in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
+                    // Inherit the Mac's resolved font-family before painting this
+                    // chunk. The store records it (from full render-grid frames)
+                    // before yielding the bytes, so it is current here; the
+                    // surface no-ops unless the family actually changed.
+                    if let family = store.inheritedFontFamily(surfaceID: surfaceID) {
+                        surfaceView?.applyInheritedFontFamily(family)
+                    }
                     surfaceView?.processOutput(data)
                 }
             }

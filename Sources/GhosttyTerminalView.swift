@@ -7321,9 +7321,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let ptr = exported.ptr, exported.len > 0 else { return nil }
 
         let data = Data(bytes: ptr, count: Int(exported.len))
-        guard let fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
+        guard var fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
             return nil
         }
+        // Surface the Mac's resolved primary `font-family` so the phone's local
+        // libghostty inherits it instead of hardcoding Menlo. libghostty's JSON
+        // export does not carry it, so populate it here from the surface config.
+        // Only meaningful on a full snapshot (like the dynamic colors), and
+        // `filteredRows(full:)` carries it forward / nils it for deltas.
+        fullFrame.terminalFontFamily = resolvedTerminalFontFamily()
         let frame: MobileTerminalRenderGridFrame
         if full, changedRows == nil {
             frame = fullFrame
@@ -7335,6 +7341,23 @@ final class TerminalSurface: Identifiable, ObservableObject {
             frame = filtered
         }
         return (frame, frame.plainRows())
+    }
+
+    /// The Mac's resolved primary terminal `font-family`, read from the surface's
+    /// finalized ghostty config, or `nil` when the user has not set one (so the
+    /// phone keeps its built-in default rather than an assumed "Menlo"). Returns
+    /// the first family libghostty resolved; the phone applies it as its primary
+    /// family and keeps its own fallback chain for glyph coverage.
+    private func resolvedTerminalFontFamily() -> String? {
+        guard let config = GhosttyApp.shared.config else { return nil }
+        var value: UnsafePointer<Int8>?
+        let key = "font-family"
+        guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
+              let value else {
+            return nil
+        }
+        let family = String(cString: value).trimmingCharacters(in: .whitespacesAndNewlines)
+        return family.isEmpty ? nil : family
     }
 
     /// Send text with control characters (Return, Tab, etc.) delivered as key

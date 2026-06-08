@@ -21,6 +21,10 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    /// Shared persisted terminal font-size base, injected from the scene root.
+    /// Passed to the surface so its launch size and zoom overlay use the same
+    /// instance the Settings stepper binds.
+    @Environment(MobileTerminalZoomPreference.self) private var terminalZoomPreference
     @State private var isTerminalPickerPresented = false
     #if DEBUG && canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
@@ -49,7 +53,7 @@ struct WorkspaceDetailView: View {
                 GhosttySurfaceRepresentable(
                     surfaceID: terminalID,
                     store: store,
-                    fontSize: MobileTerminalFontPreference.defaultSize,
+                    zoomPreference: terminalZoomPreference,
                     autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
                 )
                 // Identity must track the selected terminal. The representable's

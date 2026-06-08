@@ -2555,9 +2555,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Mac hosts.
     private var terminalByteContinuationsBySurfaceID: [String: AsyncStream<Data>.Continuation] = [:]
 
+    /// The Mac's resolved terminal `font-family` per surface, carried on full
+    /// render-grid frames so the phone's local libghostty inherits it. Only set
+    /// when a frame actually carries a family (deltas omit it), so the last known
+    /// family survives across delta frames. The mounted surface reads it via
+    /// ``inheritedFontFamily(surfaceID:)`` and applies it on change.
+    private var inheritedFontFamilyBySurfaceID: [String: String] = [:]
+
     /// Yield a chunk of output bytes to the surface's stream, if one is attached.
     private func deliverTerminalBytes(_ bytes: Data, surfaceID: String) {
         terminalByteContinuationsBySurfaceID[surfaceID]?.yield(bytes)
+    }
+
+    /// Record the Mac's resolved terminal font-family for `surfaceID`. Called
+    /// before the frame's bytes are delivered, so the surface's output loop sees
+    /// the current family before processing that snapshot.
+    private func recordInheritedFontFamily(_ family: String, surfaceID: String) {
+        inheritedFontFamilyBySurfaceID[surfaceID] = family
+    }
+
+    /// The Mac's resolved terminal font-family the phone should inherit for
+    /// `surfaceID`, or `nil` if none has been seen (keep the built-in default).
+    public func inheritedFontFamily(surfaceID: String) -> String? {
+        inheritedFontFamilyBySurfaceID[surfaceID]
     }
 
     /// Whether a surface currently has an attached output stream consumer.
@@ -2580,6 +2600,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func unregisterTerminalOutput(surfaceID: String) {
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+        inheritedFontFamilyBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
@@ -2725,6 +2746,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 let deliverBytes: Data?
                 if let renderGrid {
+                    if let family = renderGrid.terminalFontFamily {
+                        self.recordInheritedFontFamily(family, surfaceID: surfaceID)
+                    }
                     deliverBytes = renderGrid.vtPatchBytes()
                     MobileDebugLog.anchormux("CMUX_REPLAY render_grid surface=\(surfaceID) spans=\(renderGrid.rowSpans.count) seq=\(renderGrid.stateSeq)")
                 } else if let snapshotBytes, !snapshotBytes.isEmpty {
@@ -2779,6 +2803,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "sync.render_grid_stale surface=\(renderGrid.surfaceID) delivered=\(deliveredSeq) frame=\(renderGrid.stateSeq)"
             )
             return
+        }
+        if let family = renderGrid.terminalFontFamily {
+            recordInheritedFontFamily(family, surfaceID: renderGrid.surfaceID)
         }
         let bytes = renderGrid.vtPatchBytes()
         markTerminalBytesDelivered(surfaceID: renderGrid.surfaceID, endSeq: renderGrid.stateSeq)
