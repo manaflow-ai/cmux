@@ -3,6 +3,7 @@ import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileShell
+import CmuxMobileShellModel
 @_exported import CmuxMobileShellUI
 import CmuxMobileTransport
 import Foundation
@@ -156,6 +157,10 @@ public struct CMUXMobileRootScene: View {
     private func makeStore() -> CMUXMobileShellStore {
         let identityProvider = AuthCoordinatorIdentityProvider(coordinator: auth.coordinator)
         let deviceRegistry = makeDeviceRegistry()
+        let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
+        let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
+            MobileFeedbackStampFactory.current()
+        }
         #if DEBUG
         return CMUXMobileShellStore(
             runtime: runtime,
@@ -164,7 +169,9 @@ public struct CMUXMobileRootScene: View {
             identityProvider: identityProvider,
             reachability: reachability,
             analytics: analytics,
-            diagnosticLog: diagnosticLog
+            diagnosticLog: diagnosticLog,
+            feedbackEmailSubmitter: feedbackEmailSubmitter,
+            feedbackStampProvider: feedbackStampProvider
         )
         #else
         return CMUXMobileShellStore(
@@ -173,7 +180,9 @@ public struct CMUXMobileRootScene: View {
             deviceRegistry: deviceRegistry,
             identityProvider: identityProvider,
             reachability: reachability,
-            analytics: analytics
+            analytics: analytics,
+            feedbackEmailSubmitter: feedbackEmailSubmitter,
+            feedbackStampProvider: feedbackStampProvider
         )
         #endif
     }

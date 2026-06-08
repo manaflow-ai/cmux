@@ -21,10 +21,12 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
-    #if DEBUG && canImport(UIKit)
+    #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
+    @State private var feedbackEmail = ""
     @State private var isSubmittingFeedback = false
+    @State private var feedbackErrorMessage: String?
     #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
@@ -109,7 +111,7 @@ struct WorkspaceDetailView: View {
             }
         #endif
         }
-        #if DEBUG && canImport(UIKit)
+        #if canImport(UIKit)
         .sheet(isPresented: $isFeedbackComposerPresented) {
             feedbackComposer
         }
@@ -184,24 +186,29 @@ struct WorkspaceDetailView: View {
             .accessibilityIdentifier("MobileNewTerminalMenuItem")
         }
 
-        #if DEBUG && canImport(UIKit)
+        #if canImport(UIKit)
         Section {
+            #if DEBUG
             Button(action: copyDebugLogsFromMenu) {
                 // DEV-only debug tooling; not shipped, so not localized.
                 Label("Copy Debug Logs", systemImage: "doc.on.clipboard")
             }
             .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
+            #endif
 
             Button(action: openFeedbackComposerFromMenu) {
-                // DEV-only debug tooling; not shipped, so not localized.
-                Label("Send to agent", systemImage: "paperplane")
+                Label(
+                    L10n.string("mobile.feedback.send", defaultValue: "Send Feedback"),
+                    systemImage: "paperplane"
+                )
             }
             .accessibilityIdentifier("MobileSendFeedbackMenuItem")
         }
         #endif
     }
 
-    #if DEBUG && canImport(UIKit)
+    #if canImport(UIKit)
+    #if DEBUG
     private func copyDebugLogsFromMenu() {
         // Include "what the user sees" (the visible terminal text) above the
         // debug log so a pasted bug report shows the on-screen content too.
@@ -212,37 +219,72 @@ struct WorkspaceDetailView: View {
             NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)
         }
     }
+    #endif
 
     private func openFeedbackComposerFromMenu() {
         feedbackText = ""
+        feedbackErrorMessage = nil
+        // Prefill the reply-to address with the signed-in email on the email
+        // path; the privileged agent path never reads it.
+        feedbackEmail = store.signedInUserEmail ?? ""
         isFeedbackComposerPresented = true
     }
 
-    // DEV-only dogfood feedback composer; not shipped, so its strings are not
-    // localized. Lets the dogfooder type an optional note and ship the structured
-    // diagnostic log + debug log + visible terminal text to the paired Mac.
+    /// Whether the current submission will go straight to the agent (privileged
+    /// `@manaflow.ai` user on an active connection) vs the email inbox.
+    private var feedbackRoutesToAgent: Bool {
+        store.currentFeedbackRoute == .privilegedAgent
+    }
+
+    // Release-safe Send Feedback composer. Privileged @manaflow.ai users on an
+    // active connection ship a diagnostic bundle straight to the paired Mac's
+    // agent sink; everyone else emails the feedback inbox. Either way the
+    // submission is stamped with build type + version + device.
     private var feedbackComposer: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Send a structured diagnostic bundle (events + debug log + visible terminal) to the paired Mac. Add an optional note.")
+                Text(feedbackComposerExplanation)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                TextField("What happened? (optional)", text: $feedbackText, axis: .vertical)
-                    .lineLimit(3...8)
+                TextField(
+                    L10n.string("mobile.feedback.placeholder", defaultValue: "What happened?"),
+                    text: $feedbackText,
+                    axis: .vertical
+                )
+                .lineLimit(3...8)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("MobileFeedbackComposerField")
+                if !feedbackRoutesToAgent {
+                    TextField(
+                        L10n.string("mobile.feedback.emailPlaceholder", defaultValue: "Your email"),
+                        text: $feedbackEmail
+                    )
+                    .keyboardType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
                     .textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("MobileFeedbackComposerField")
+                    .accessibilityIdentifier("MobileFeedbackComposerEmailField")
+                }
+                if let feedbackErrorMessage {
+                    Text(feedbackErrorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("MobileFeedbackComposerError")
+                }
                 Spacer()
             }
             .padding(16)
-            .navigationTitle("Send to agent")
+            .navigationTitle(L10n.string("mobile.feedback.send", defaultValue: "Send Feedback"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { isFeedbackComposerPresented = false }
+                    Button(L10n.string("mobile.feedback.cancel", defaultValue: "Cancel")) {
+                        isFeedbackComposerPresented = false
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Send", action: submitFeedbackFromComposer)
-                        .disabled(isSubmittingFeedback)
+                    Button(L10n.string("mobile.feedback.sendAction", defaultValue: "Send"), action: submitFeedbackFromComposer)
+                        .disabled(isSubmittingFeedback || !isFeedbackSubmittable)
                         .accessibilityIdentifier("MobileFeedbackComposerSend")
                 }
             }
@@ -250,27 +292,62 @@ struct WorkspaceDetailView: View {
         .presentationDetents([.medium])
     }
 
+    private var feedbackComposerExplanation: String {
+        if feedbackRoutesToAgent {
+            return L10n.string(
+                "mobile.feedback.explanation.agent",
+                defaultValue: "Sends a diagnostic bundle (events + debug log + visible terminal) and your note straight to the paired Mac."
+            )
+        }
+        return L10n.string(
+            "mobile.feedback.explanation.email",
+            defaultValue: "Emails your feedback to the cmux team, stamped with your app version and device."
+        )
+    }
+
+    private var isFeedbackSubmittable: Bool {
+        let messageOK = !feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if feedbackRoutesToAgent {
+            return messageOK
+        }
+        // The email route requires a valid reply-to address; the web route's
+        // zod schema rejects an empty/invalid email with a 400.
+        return messageOK && feedbackEmail.contains("@")
+    }
+
     private func submitFeedbackFromComposer() {
-        guard !isSubmittingFeedback else { return }
+        guard !isSubmittingFeedback, isFeedbackSubmittable else { return }
         isSubmittingFeedback = true
+        feedbackErrorMessage = nil
         let note = feedbackText
+        let email = feedbackEmail
+        let routesToAgent = feedbackRoutesToAgent
+        // Only the agent path reads the terminal/debug snapshots; reading them is
+        // cheap and harmless on the email path, but skip the work when unused.
         // `visibleTerminalSnapshot()` reads off the output queue with a bounded
         // wait (never a main-thread `ghostty_surface_read_text`, which blanks the
         // terminal). The debug-log snapshot is awaited from its actor.
-        let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
+        let terminalText = routesToAgent ? GhosttySurfaceView.visibleTerminalSnapshot() : ""
         Task { @MainActor in
-            defer {
-                isSubmittingFeedback = false
-                isFeedbackComposerPresented = false
-            }
-            let (_, debugLogText) = await MobileDebugLog.shared.sink.snapshotWithCount()
-            let ok = await store.submitDogfoodFeedback(
-                text: note,
+            let debugLogText = routesToAgent ? await MobileDebugLog.shared.sink.snapshotWithCount().1 : ""
+            let outcome = await store.submitFeedback(
+                message: note,
+                emailOverride: email,
                 debugLogText: debugLogText,
                 terminalText: terminalText
             )
-            UINotificationFeedbackGenerator().notificationOccurred(ok ? .success : .error)
-            NSLog("cmux.dogfood feedback submit ok=%@", ok ? "1" : "0")
+            isSubmittingFeedback = false
+            switch outcome {
+            case .sentToAgent, .emailed:
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                isFeedbackComposerPresented = false
+            case .failed:
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                feedbackErrorMessage = L10n.string(
+                    "mobile.feedback.error",
+                    defaultValue: "Could not send feedback. Check your connection and try again."
+                )
+            }
         }
     }
     #endif

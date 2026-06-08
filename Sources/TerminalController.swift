@@ -20688,10 +20688,8 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
-#if DEBUG
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
-#endif
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method
@@ -20700,13 +20698,12 @@ class TerminalController {
         return mobileHostResult(result)
     }
 
-#if DEBUG
-    /// Hard caps for the DEV dogfood feedback sink. A debug client is the only
-    /// caller, but a malformed or hostile request must not be able to allocate
-    /// huge buffers, block the Mac UI, or grow the cache without bound. Strings
-    /// are capped by character count before any large allocation; the base64
-    /// blob is rejected outright past its cap (so it is never decoded), and a
-    /// decoded blob past the byte cap is dropped.
+    /// Hard caps for the agent feedback sink. The only intended caller is a
+    /// paired phone, but a malformed or hostile request must not be able to
+    /// allocate huge buffers, block the Mac UI, or grow the cache without bound.
+    /// Strings are capped by character count before any large allocation; the
+    /// base64 blob is rejected outright past its cap (so it is never decoded),
+    /// and a decoded blob past the byte cap is dropped.
     nonisolated private static let dogfoodFeedbackMaxTextChars = 16_384
     nonisolated private static let dogfoodFeedbackMaxTerminalChars = 262_144
     nonisolated private static let dogfoodFeedbackMaxBuildStampChars = 512
@@ -20716,15 +20713,17 @@ class TerminalController {
     /// each write so a retrying client can't grow the cache without bound.
     nonisolated private static let dogfoodFeedbackMaxRetainedBundles = 50
 
-    /// DEV-only dogfood feedback sink (P1 of the Mac↔phone feedback loop).
+    /// Privileged agent feedback sink (the Mac↔phone feedback loop).
     ///
     /// Decodes `{ text, terminal_text, build_stamp, diagnostic_blob_base64 }`,
     /// writes a self-contained bundle directory under
     /// `~/.cache/cmux-dogfood-feedback/<ISO8601>_<shortid>/` (a `bundle.json`
     /// manifest plus the decoded `diagnostic.log`), and returns the bundle path.
-    /// Gated behind `#if DEBUG` and the same-account Stack-auth authorization the
-    /// rest of the mobile data plane enforces, so it never exists in a release
-    /// build and never accepts an unauthenticated caller.
+    /// It is protected by the same-account Stack-auth authorization the rest of
+    /// the mobile data plane enforces, so it never accepts an unauthenticated
+    /// caller. The phone only ever routes here for `@manaflow.ai` users on an
+    /// active connection, so this exists in Release builds too (the team can
+    /// dogfood beta/prod), and only a Mac that runs the watcher acts on it.
     ///
     /// Field sizes are capped on the main actor *before* any large allocation,
     /// invalid/oversized base64 is rejected without decoding, and the decode +
@@ -20875,7 +20874,6 @@ class TerminalController {
             try? fileManager.removeItem(at: stale)
         }
     }
-#endif
 
     /// The `workspace.action` sub-actions the mobile data plane may invoke.
     ///
