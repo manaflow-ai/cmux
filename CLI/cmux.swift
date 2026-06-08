@@ -7751,7 +7751,7 @@ struct CMUXCLI {
         do {
             try process.run()
         } catch {
-            throw CLIError(message: "ssh-tmux: failed to launch ssh: \(error.localizedDescription)")
+            throw CLIError(message: "ssh-tmux: failed to launch ssh: \(String(describing: error))")
         }
         if originalForegroundProcessGroup > 0 {
             let childProcessGroup = getpgid(process.processIdentifier)
@@ -7766,7 +7766,7 @@ struct CMUXCLI {
                     _ = Darwin.kill(-childProcessGroup, SIGCONT)
                     process.terminate()
                     throw CLIError(
-                        message: "ssh-tmux: couldn't hand the terminal to ssh for \(destination); aborting to avoid a hang (\(error.localizedDescription))"
+                        message: "ssh-tmux: couldn't hand the terminal to ssh for \(destination); aborting to avoid a hang (\(String(describing: error)))"
                     )
                 }
                 _ = Darwin.kill(-childProcessGroup, SIGCONT)

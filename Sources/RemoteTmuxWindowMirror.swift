@@ -62,10 +62,12 @@ final class RemoteTmuxWindowMirror {
     /// The surface rendering `tmuxPaneId`, if it exists.
     func surface(forPane tmuxPaneId: Int) -> TerminalSurface? { panelsByPaneId[tmuxPaneId]?.surface }
 
-    /// The stable synthetic bonsplit pane id for `tmuxPaneId` (minted in
-    /// ``reconcile(layout:)``; a pure read here so it's body-safe).
-    func syntheticPaneID(forPane tmuxPaneId: Int) -> PaneID {
-        syntheticPaneIds[tmuxPaneId] ?? PaneID()
+    /// The stable synthetic bonsplit pane id for `tmuxPaneId`, or `nil` if no panel
+    /// exists for it (minted in ``reconcile(layout:)``; a pure read here so it's
+    /// body-safe). Returns `nil` rather than minting a throwaway `PaneID()` on a miss,
+    /// which would churn the portal-host lease keyed off this id.
+    func syntheticPaneID(forPane tmuxPaneId: Int) -> PaneID? {
+        syntheticPaneIds[tmuxPaneId]
     }
 
     /// Updates the layout, creating panels for new panes and tearing down panels

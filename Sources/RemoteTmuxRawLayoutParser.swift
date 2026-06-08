@@ -16,7 +16,10 @@ enum RemoteTmuxRawLayoutParser {
     ///
     /// - Returns: the root layout node, or `nil` if the string is malformed.
     static func parse(_ raw: String) -> RemoteTmuxLayoutNode? {
-        var chars = Array(raw)
+        // Normalize first: the strict `cursor == chars.count` completion check below
+        // would otherwise reject an otherwise-valid layout that carries a trailing
+        // newline/space.
+        var chars = Array(raw.trimmingCharacters(in: .whitespacesAndNewlines))
         // Strip a leading 4-hex-char checksum followed by a comma, if present.
         if chars.count > 5,
            chars[4] == ",",

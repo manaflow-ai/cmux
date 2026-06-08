@@ -98,7 +98,14 @@ struct RemoteTmuxControlStreamParser {
         }
 
         if line.hasPrefix("%begin ") {
-            blockNumber = Self.field(line, 2).flatMap { Int($0) } ?? 0
+            guard let number = Self.field(line, 2).flatMap({ Int($0) }) else {
+                // Malformed `%begin` (missing/non-numeric command number): do NOT enter
+                // block mode — `blockNumber = 0` would swallow every later line until a
+                // matching `%end ... 0` and wedge the mirror until reconnect. Treat the
+                // bad line as a normal notification instead.
+                return prefixMessages + [parseNotification(line)]
+            }
+            blockNumber = number
             inBlock = true
             blockLines = []
             return prefixMessages

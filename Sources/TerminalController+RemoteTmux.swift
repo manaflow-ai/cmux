@@ -46,6 +46,10 @@ extension TerminalController {
             !Self.remoteTmuxValueHasHiddenCharacter(destination)
         else { return nil }
         let port = params["port"] as? Int
+        // Reject an out-of-range port at the trust boundary (consistent with the
+        // dash-prefix/hidden-char rejections above) instead of silently falling back
+        // to the SSH default.
+        if let port, !(1...65535).contains(port) { return nil }
         let identityFile = (params["identity_file"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let identityFile, identityFile.hasPrefix("-") { return nil }
@@ -185,8 +189,11 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "host and session are required")
         }
         return v2VmCall(id: id, timeoutSeconds: 10) {
-            await MainActor.run {
-                AppDelegate.shared?.remoteTmuxController.detach(host: host, sessionName: session)
+            try await MainActor.run {
+                guard let controller = AppDelegate.shared?.remoteTmuxController else {
+                    throw RemoteTmuxError.unreachable("app not ready")
+                }
+                controller.detach(host: host, sessionName: session)
             }
             return ["host": host.destination, "session": session, "detached": true]
         }

@@ -62,7 +62,8 @@ private struct RemoteTmuxLayoutContainer: View {
 
     @ViewBuilder
     private func leaf(paneId: Int) -> some View {
-        if let panel = mirror.panel(forPane: paneId) {
+        if let panel = mirror.panel(forPane: paneId),
+           let syntheticPaneId = mirror.syntheticPaneID(forPane: paneId) {
             VStack(spacing: 0) {
                 RemoteTmuxPaneHeader(
                     isActive: mirror.activePaneId == paneId,
@@ -74,7 +75,7 @@ private struct RemoteTmuxLayoutContainer: View {
                 )
                 TerminalPanelView(
                     panel: panel,
-                    paneId: mirror.syntheticPaneID(forPane: paneId),
+                    paneId: syntheticPaneId,
                     isFocused: mirror.activePaneId == paneId,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,

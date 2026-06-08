@@ -42,7 +42,7 @@ final class RemoteTmuxControlConnection {
     private(set) var connectionState: ConnectionState = .connecting {
         didSet {
             guard oldValue != connectionState else { return }
-            for callback in stateObservers.values { callback(connectionState) }
+            for callback in Array(stateObservers.values) { callback(connectionState) }
         }
     }
     /// `true` once the connection has permanently ended (genuine tmux `%exit`, a
@@ -203,23 +203,27 @@ final class RemoteTmuxControlConnection {
     }
 
     private func emitPaneOutput(_ paneId: Int, _ data: Data) {
-        for callback in paneOutputObservers.values { callback(paneId, data) }
+        // Snapshot before iterating: a callback may unregister an observer (mutating
+        // the dict) synchronously, which would trap on the live collection.
+        for callback in Array(paneOutputObservers.values) { callback(paneId, data) }
     }
 
     private func emitPaneCwd(_ paneId: Int, _ path: String) {
-        for callback in paneCwdObservers.values { callback(paneId, path) }
+        for callback in Array(paneCwdObservers.values) { callback(paneId, path) }
     }
 
     private func emitActivePaneChanged(_ windowId: Int, _ paneId: Int) {
-        for callback in activePaneObservers.values { callback(windowId, paneId) }
+        for callback in Array(activePaneObservers.values) { callback(windowId, paneId) }
     }
 
     private func notifyTopologyChanged() {
-        for callback in topologyObservers.values { callback() }
+        for callback in Array(topologyObservers.values) { callback() }
     }
 
     private func notifyExit() {
-        for callback in exitObservers.values { callback() }
+        // Snapshot: notifyExit -> handleSessionEndedRemotely -> detachObserver ->
+        // removeObserver mutates exitObservers synchronously during this loop.
+        for callback in Array(exitObservers.values) { callback() }
     }
 
     /// Spawns the SSH `tmux -CC` process and begins streaming.
@@ -723,8 +727,12 @@ final class RemoteTmuxControlConnection {
             paneOutputByteCounts[paneId, default: 0] += data.count
             totalOutputBytes += data.count
             emitPaneOutput(paneId, data)
-        case let .sessionChanged(id, _):
+        case let .sessionChanged(id, name):
             sessionId = id
+            // Track the new name too: `sessionName` is the value reused for
+            // attach/reconnect, so a remote rename must update it or the next
+            // reconnect targets a stale session and is wrongly declared gone.
+            sessionName = name
             record("session-changed $\(id)")
             requestWindows()
         case .sessionsChanged:
@@ -786,6 +794,7 @@ final class RemoteTmuxControlConnection {
         switch kind {
         case .listWindows:
             var order: [Int] = []
+            var next: [Int: RemoteTmuxWindow] = [:]
             for line in lines {
                 // "@<id> <layout> <name with spaces…>" — id and layout never
                 // contain spaces, so split into at most 3 fields.
@@ -795,7 +804,7 @@ final class RemoteTmuxControlConnection {
                       let node = RemoteTmuxRawLayoutParser.parse(String(parts[1]))
                 else { continue }
                 let name = parts.count >= 3 ? String(parts[2]) : ""
-                windowsByID[id] = RemoteTmuxWindow(
+                next[id] = RemoteTmuxWindow(
                     id: id, name: name, width: node.width, height: node.height, layout: node
                 )
                 order.append(id)
@@ -808,6 +817,17 @@ final class RemoteTmuxControlConnection {
             // stream-end (see `handleConnectionExited` → `handleSessionEndedRemotely`),
             // which is the path that closes the workspace / dedicated window.
             if !order.isEmpty {
+                // Replace the topology, don't merge: a window closed remotely while we
+                // were disconnected never delivers a %window-close (it lands on the dead
+                // connection), so merging would leave it lingering in
+                // windowsByID/activePaneByWindow/paneOutputByteCounts and
+                // reseedAfterReconnect (which iterates windowsByID) would re-capture its
+                // dead panes. Prune anything not in the fresh reply.
+                let liveIDs = Set(order)
+                windowsByID = next
+                activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
+                let livePanes = Set(next.values.flatMap { $0.paneIDsInOrder })
+                paneOutputByteCounts = paneOutputByteCounts.filter { livePanes.contains($0.key) }
                 windowOrder = order
                 notifyTopologyChanged()
                 // Now that the attach block is drained and the topology is fresh, run
