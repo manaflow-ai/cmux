@@ -1631,6 +1631,9 @@ class TerminalController {
 
         case "screenshot":
             return captureScreenshot(args)
+
+        case "dogfood_checklist_set":
+            return setDogfoodChecklist(args)
 #endif
 
         case "help":
@@ -16054,6 +16057,7 @@ class TerminalController {
           flash_count <id|idx>            - Read flash count for a panel
           reset_flash_counts              - Reset flash counters
           screenshot [label]              - Capture window screenshot
+          dogfood_checklist_set <json>    - Push a DEV dogfood checklist to paired phones (test-only)
           set_shortcut <name> <combo|clear> - Set a keyboard shortcut (test-only)
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
           simulate_type <text>            - Insert text into the current first responder (test-only)
@@ -17986,6 +17990,34 @@ class TerminalController {
 
         // Return OK with screenshot ID and path for easy reference
         return "OK \(screenshotId) \(outputPath.path)"
+    }
+
+    /// DEV-only `dogfood_checklist_set <json>`: store the agent's "what to check"
+    /// checklist on ``MobileHostService`` and push it to every subscribed phone.
+    ///
+    /// The agent drives this via
+    /// `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh dogfood_checklist_set '<json>'`
+    /// where `<json>` is a top-level object, for example:
+    /// `{"title":"Pane test","items":[{"id":"drag","prompt":"Drag works?","kind":"pass_fail"}]}`.
+    /// Pass an empty body, `clear`, `null`, or `{}` to clear the checklist (the
+    /// phone is pushed an empty checklist and shows its empty state). The Mac
+    /// treats a non-empty checklist as opaque (the phone owns the typed decode),
+    /// validating only that it is a size-capped top-level object.
+    private func setDogfoodChecklist(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Explicit clear forms: empty, the `clear` keyword, or a JSON null.
+        if trimmed.isEmpty || trimmed.lowercased() == "clear" || trimmed == "null" {
+            v2MainSync { MobileHostService.shared.clearDogfoodChecklist() }
+            return "OK dogfood checklist cleared"
+        }
+        guard let data = trimmed.data(using: .utf8) else {
+            return "ERROR: checklist is not valid UTF-8"
+        }
+        let ok = v2MainSync { MobileHostService.shared.setDogfoodChecklist(rawJSON: data) }
+        guard ok else {
+            return "ERROR: checklist must be a top-level JSON object under \(MobileHostService.dogfoodChecklistMaxBytes) bytes"
+        }
+        return "OK dogfood checklist set (\(data.count) bytes)"
     }
 
     private func captureCompositedWindowPNGData(_ window: NSWindow) -> Data? {
@@ -20689,6 +20721,8 @@ class TerminalController {
 #if DEBUG
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
+        case "dogfood.checklist.fetch":
+            result = v2MobileDogfoodChecklistFetch()
 #endif
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
@@ -20710,24 +20744,34 @@ class TerminalController {
     nonisolated private static let dogfoodFeedbackMaxBuildStampChars = 512
     nonisolated private static let dogfoodFeedbackMaxBlobBase64Chars = 8_388_608 // ~6 MiB decoded
     nonisolated private static let dogfoodFeedbackMaxBlobBytes = 6_291_456 // 6 MiB
+    /// P2 additive caps: the multiple-choice answers JSON (capped by character
+    /// count before parse) and the chrome screenshot PNG (rejected past its
+    /// base64 cap so it is never decoded; a decoded PNG past the byte cap is
+    /// dropped without failing the rest of the bundle).
+    nonisolated private static let dogfoodFeedbackMaxAnswersChars = 65_536
+    nonisolated private static let dogfoodFeedbackMaxScreenshotBase64Chars = 8_388_608 // ~6 MiB decoded
+    nonisolated private static let dogfoodFeedbackMaxScreenshotBytes = 6_291_456 // 6 MiB
     /// Keep at most this many bundle directories; older ones are pruned after
     /// each write so a retrying client can't grow the cache without bound.
     nonisolated private static let dogfoodFeedbackMaxRetainedBundles = 50
 
-    /// DEV-only dogfood feedback sink (P1 of the Mac↔phone feedback loop).
+    /// DEV-only dogfood feedback sink (P1 + P2 of the Mac↔phone feedback loop).
     ///
-    /// Decodes `{ text, terminal_text, build_stamp, diagnostic_blob_base64 }`,
-    /// writes a self-contained bundle directory under
+    /// Decodes `{ text, terminal_text, build_stamp, diagnostic_blob_base64 }`
+    /// plus the P2-additive `{ answers_json, screenshot_png_base64 }`, writes a
+    /// self-contained bundle directory under
     /// `~/.cache/cmux-dogfood-feedback/<ISO8601>_<shortid>/` (a `bundle.json`
-    /// manifest plus the decoded `diagnostic.log`), and returns the bundle path.
-    /// Gated behind `#if DEBUG` and the same-account Stack-auth authorization the
-    /// rest of the mobile data plane enforces, so it never exists in a release
-    /// build and never accepts an unauthenticated caller.
+    /// manifest, the decoded `diagnostic.log`, and `screenshot.png` when present),
+    /// and returns the bundle path. Gated behind `#if DEBUG` and the same-account
+    /// Stack-auth authorization the rest of the mobile data plane enforces, so it
+    /// never exists in a release build and never accepts an unauthenticated
+    /// caller.
     ///
     /// Field sizes are capped on the main actor *before* any large allocation,
     /// invalid/oversized base64 is rejected without decoding, and the decode +
     /// filesystem writes run off the main actor so a large payload cannot block
-    /// the Mac UI.
+    /// the Mac UI. The P2 fields are optional, so a P1 phone's request is handled
+    /// exactly as before.
     private func v2MobileDogfoodFeedbackSubmit(params: [String: Any]) async -> V2CallResult {
         // Cheap main-actor validation first: cap each field by character count
         // before allocating anything large, and reject an oversized base64 blob
@@ -20743,9 +20787,24 @@ class TerminalController {
                 data: nil
             )
         }
+        // P2 answers: a capped JSON string, validated as a top-level object off
+        // the request hot path but cheap enough to parse here. An invalid/missing
+        // answers blob is simply dropped (P1 compatibility), never an error.
+        let answersJSONString = String((v2RawString(params, "answers_json") ?? "").prefix(Self.dogfoodFeedbackMaxAnswersChars))
+        // P2 screenshot: reject an oversized base64 PNG outright (never decoded);
+        // an absent one is the P1 path. Dropping it must not fail the bundle.
+        let screenshotBase64 = v2RawString(params, "screenshot_png_base64") ?? ""
+        guard screenshotBase64.count <= Self.dogfoodFeedbackMaxScreenshotBase64Chars else {
+            return .err(
+                code: "invalid_params",
+                message: "screenshot_png_base64 exceeds size limit",
+                data: nil
+            )
+        }
 
         let maxBlobBytes = Self.dogfoodFeedbackMaxBlobBytes
-        // Off-main: decode the blob and write the bundle. A `Task.detached`
+        let maxScreenshotBytes = Self.dogfoodFeedbackMaxScreenshotBytes
+        // Off-main: decode the blobs and write the bundle. A `Task.detached`
         // keeps the (potentially multi-MiB) decode + synchronous file I/O off the
         // main actor so it never stalls the Mac UI. Returns a Sendable result.
         let outcome = await Task.detached(priority: .utility) { () -> DogfoodFeedbackWriteOutcome in
@@ -20753,11 +20812,19 @@ class TerminalController {
             guard decoded.count <= maxBlobBytes else {
                 return .rejected(reason: "diagnostic blob exceeds size limit")
             }
+            // A decoded screenshot past the byte cap (or undecodable) is dropped,
+            // not fatal: the rest of the bundle still ships.
+            var screenshot = screenshotBase64.isEmpty ? nil : Data(base64Encoded: screenshotBase64)
+            if let s = screenshot, s.count > maxScreenshotBytes {
+                screenshot = nil
+            }
             return Self.writeDogfoodFeedbackBundle(
                 text: text,
                 terminalText: terminalText,
                 buildStamp: buildStamp,
-                diagnosticData: decoded
+                diagnosticData: decoded,
+                answersJSONString: answersJSONString.isEmpty ? nil : answersJSONString,
+                screenshotData: screenshot
             )
         }.value
 
@@ -20779,6 +20846,18 @@ class TerminalController {
         }
     }
 
+    /// DEV-only `dogfood.checklist.fetch`: return the current agent-pushed
+    /// checklist so the phone can pull it on open (closing the subscribe-after-push
+    /// race). Returns `{ checklist: {...} }` when one is set, or `{ checklist:
+    /// null }` when none has been pushed. Auth-gated like the rest of the mobile
+    /// data plane (`requiresAuthorization` defaults to `true`).
+    private func v2MobileDogfoodChecklistFetch() -> V2CallResult {
+        if let checklist = MobileHostService.shared.currentDogfoodChecklist() {
+            return .ok(["checklist": checklist])
+        }
+        return .ok(["checklist": NSNull()])
+    }
+
     /// The result of writing a dogfood feedback bundle off the main actor.
     private enum DogfoodFeedbackWriteOutcome: Sendable {
         case written(bundlePath: String, byteCount: Int)
@@ -20789,11 +20868,21 @@ class TerminalController {
     /// Persist a validated dogfood feedback bundle to disk. Runs off the main
     /// actor (called from a detached task), so its synchronous file I/O never
     /// blocks the Mac UI. All inputs are already size-capped by the caller.
+    ///
+    /// - Parameters:
+    ///   - answersJSONString: The P2 multiple-choice answers as a JSON string,
+    ///     parsed into the manifest's `answers` object; `nil` for the P1 path or
+    ///     when unparseable.
+    ///   - screenshotData: The P2 chrome screenshot PNG written as
+    ///     `screenshot.png` and referenced from the manifest; `nil` when absent
+    ///     or dropped past the size cap.
     nonisolated private static func writeDogfoodFeedbackBundle(
         text: String,
         terminalText: String,
         buildStamp: String,
-        diagnosticData: Data
+        diagnosticData: Data,
+        answersJSONString: String? = nil,
+        screenshotData: Data? = nil
     ) -> DogfoodFeedbackWriteOutcome {
         let fileManager = FileManager.default
         let root = fileManager.homeDirectoryForCurrentUser
@@ -20829,7 +20918,7 @@ class TerminalController {
             let diagnosticURL = bundleDir.appendingPathComponent("diagnostic.log")
             try diagnosticData.write(to: diagnosticURL)
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: diagnosticURL.path)
-            let manifest: [String: Any] = [
+            var manifest: [String: Any] = [
                 "schema": "cmux.dogfood.feedback.v1",
                 "received_at": formatter.string(from: Date()),
                 "text": text,
@@ -20838,6 +20927,24 @@ class TerminalController {
                 "diagnostic_log_file": "diagnostic.log",
                 "diagnostic_log_bytes": diagnosticData.count,
             ]
+            // P2: parse the answers JSON into the manifest as a nested object so a
+            // reader can map answers back to checklist item ids. A non-object or
+            // unparseable answers blob is omitted rather than failing the bundle.
+            if let answersJSONString,
+               let answersData = answersJSONString.data(using: .utf8),
+               let answersObject = try? JSONSerialization.jsonObject(with: answersData) as? [String: Any] {
+                manifest["answers"] = answersObject
+            }
+            // P2: write the chrome screenshot alongside the manifest and reference
+            // it. The terminal renders blank in a UIView snapshot, which is why
+            // the terminal *text* is also in `terminal_text`.
+            if let screenshotData {
+                let screenshotURL = bundleDir.appendingPathComponent("screenshot.png")
+                try screenshotData.write(to: screenshotURL)
+                try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: screenshotURL.path)
+                manifest["screenshot_file"] = "screenshot.png"
+                manifest["screenshot_bytes"] = screenshotData.count
+            }
             let manifestData = try JSONSerialization.data(
                 withJSONObject: manifest,
                 options: [.prettyPrinted, .sortedKeys]
