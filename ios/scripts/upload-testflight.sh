@@ -433,7 +433,13 @@ if [[ "$SIGNING" == "manual" ]]; then
     echo "error: could not read current entitlements from the exported app: $RESIGN_APP" >&2
     exit 1
   }
-  /usr/libexec/PlistBuddy -c "Merge $RELEASE_ENTITLEMENTS" "$MERGED_ENTITLEMENTS" >/dev/null
+  # `|| true`: PlistBuddy Merge prints "Duplicate Entry Was Skipped" if a future
+  # Release key ever overlaps a baseline key. That is the intended behavior
+  # (baseline wins), but its exit code on that path is not contractually 0 across
+  # OS versions, and a stray non-zero would kill the script under `set -e`. The
+  # exit code is non-load-bearing anyway: a genuinely failed merge produces no
+  # aps-environment and is caught by the hard gate below with a clear error.
+  /usr/libexec/PlistBuddy -c "Merge $RELEASE_ENTITLEMENTS" "$MERGED_ENTITLEMENTS" >/dev/null || true
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
 
   codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"
