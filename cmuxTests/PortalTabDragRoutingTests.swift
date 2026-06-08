@@ -258,7 +258,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
         )
     }
 
-    func testHostViewTrustsRegisteredTabStripRegionAboveHostedTerminal() {
+    func testHostViewKeepsHostedTerminalAboveRegisteredTabStripRegion() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -302,9 +302,10 @@ final class PortalTabDragRoutingTests: XCTestCase {
         let pointInHost = host.convert(pointInWindow, from: nil)
         let event = makeMouseEvent(type: .leftMouseDown, at: pointInWindow, window: window)
 
-        XCTAssertNil(
-            host.performHitTest(at: pointInHost, currentEvent: event),
-            "Terminal portal should defer to the registered minimal tab strip even when a hosted terminal view overlaps it"
+        let hitView = host.performHitTest(at: pointInHost, currentEvent: event)
+        XCTAssertTrue(
+            hitView === hostedTerminal || hitView?.isDescendant(of: hostedTerminal) == true,
+            "Terminal content should keep the hit when a registered tab-strip region overlaps it"
         )
     }
 
