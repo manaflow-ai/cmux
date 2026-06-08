@@ -142,6 +142,7 @@
 		D35110010000000000000001 /* CmuxApplicationSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */; };
 		D35110010000000000000003 /* CmuxApplicationSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */; };
 		C0FFEEA77AC400000000BEEF /* CmuxAttach in Frameworks */ = {isa = PBXBuildFile; productRef = C0FFEEA77AC400000000D00D /* CmuxAttach */; };
+		C0FFEEA77AC400000000BFFF /* CmuxAttach in Frameworks */ = {isa = PBXBuildFile; productRef = C0FFEEA77AC400000000D11D /* CmuxAttach */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */; };
 		B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */; };
@@ -1474,6 +1475,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
+				C0FFEEA77AC400000000BFFF /* CmuxAttach in Frameworks */,
 				C8000314C8000314C8000314 /* CmuxFileWatch in Frameworks */,
 				CF00F00000000000000000A4 /* CmuxFoundation in Frameworks */,
 				C8000304C8000304C8000304 /* CmuxProcess in Frameworks */,
@@ -2325,6 +2327,7 @@
 				A5001251 /* Sentry */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A5354305A5354305A5354305 /* CmuxSocketControl */,
+				C0FFEEA77AC400000000D11D /* CmuxAttach */,
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
 				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
@@ -3847,6 +3850,11 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		C0FFEEA77AC400000000D00D /* CmuxAttach */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0FFEEA77AC400000000C0DE /* XCLocalSwiftPackageReference "CmuxAttach" */;
+			productName = CmuxAttach;
+		};
+		C0FFEEA77AC400000000D11D /* CmuxAttach */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C0FFEEA77AC400000000C0DE /* XCLocalSwiftPackageReference "CmuxAttach" */;
 			productName = CmuxAttach;

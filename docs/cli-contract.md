@@ -124,6 +124,8 @@ Environment:
 | `debug-terminals` | Print debug terminal state. |
 | `trigger-flash` | Trigger a visual flash on a workspace or surface. |
 | `list-panels` | List panels. Compatibility alias over pane/surface data. |
+| `list-surfaces` | List terminal surfaces that `attach` can target. |
+| `attach` | Attach a bare terminal to a running GUI surface's PTY. |
 | `focus-panel` | Focus a panel. Compatibility alias over surface focus. |
 | `close-workspace` | Close a workspace. |
 | `select-workspace` | Select a workspace. |
@@ -456,6 +458,8 @@ the expected text without connecting to a cmux socket.
 - `cmux debug-terminals --help` -> `Usage: cmux debug-terminals`
 - `cmux trigger-flash --help` -> `Usage: cmux trigger-flash`
 - `cmux list-panels --help` -> `Usage: cmux list-panels`
+- `cmux list-surfaces --help` -> `Usage: cmux list-surfaces`
+- `cmux attach --help` -> `Usage: cmux attach`
 - `cmux focus-panel --help` -> `Usage: cmux focus-panel`
 - `cmux close-workspace --help` -> `Usage: cmux close-workspace`
 - `cmux select-workspace --help` -> `Usage: cmux select-workspace`
