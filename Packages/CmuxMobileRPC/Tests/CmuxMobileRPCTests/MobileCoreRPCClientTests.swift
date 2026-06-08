@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileRPC
@@ -158,6 +159,45 @@ import Testing
         #expect(workspace.isSelected)
         #expect(workspace.terminals.first?.isFocused == true)
         #expect(workspace.terminals.first?.isReady == true)
+        // Absent `has_unread` decodes to nil and maps to a non-unread preview, so
+        // an older Mac that doesn't emit the field hides the read/unread swipe.
+        #expect(workspace.hasUnread == nil)
+        #expect(MobileWorkspacePreview(remote: workspace).hasUnread == false)
+    }
+
+    @Test func workspaceListResponseDecodesHasUnreadAndMapsToPreview() throws {
+        let json = Data("""
+        {
+          "workspaces": [
+            {
+              "id": "ws-unread",
+              "title": "agent",
+              "is_selected": false,
+              "is_pinned": true,
+              "has_unread": true,
+              "terminals": []
+            },
+            {
+              "id": "ws-read",
+              "title": "docs",
+              "is_selected": true,
+              "is_pinned": false,
+              "has_unread": false,
+              "terminals": []
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        let unread = try #require(response.workspaces.first { $0.id == "ws-unread" })
+        let read = try #require(response.workspaces.first { $0.id == "ws-read" })
+        #expect(unread.hasUnread == true)
+        #expect(read.hasUnread == false)
+        // The remote mapping carries the unread flag into the value model that
+        // drives the row's Mark Read vs Mark Unread swipe direction.
+        #expect(MobileWorkspacePreview(remote: unread).hasUnread == true)
+        #expect(MobileWorkspacePreview(remote: read).hasUnread == false)
     }
 
     @Test func attachTicketInputDecodesAttachURL() throws {

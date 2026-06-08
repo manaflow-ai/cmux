@@ -20883,19 +20883,20 @@ class TerminalController {
 
     /// The `workspace.action` sub-actions the mobile data plane may invoke.
     ///
-    /// Mobile gets pin/unpin/rename only. The other sub-actions of
+    /// Mobile gets pin/unpin/rename plus mark_read/mark_unread. These all mutate
+    /// a single targeted workspace's own state. The remaining sub-actions of
     /// ``v2WorkspaceAction(params:)`` (`move_*`, `close_*`, `set_color`,
-    /// `set_description`, `mark_*`, …) reorder the global sidebar or destroy
-    /// sibling workspaces, so they stay on the Mac/automation socket. The action
-    /// is normalized exactly as ``v2ActionKey(_:_:)`` so this gate and the
-    /// handler can never disagree on which action runs.
+    /// `set_description`, …) reorder the global sidebar or destroy sibling
+    /// workspaces, so they stay on the Mac/automation socket. The action is
+    /// normalized exactly as ``v2ActionKey(_:_:)`` so this gate and the handler
+    /// can never disagree on which action runs.
     /// - Parameter rawAction: The raw `action` param value.
     /// - Returns: `true` when the normalized action is mobile-allowed.
     nonisolated static func mobileAllowsWorkspaceAction(_ rawAction: String?) -> Bool {
         guard let trimmed = rawAction?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else { return false }
         let normalized = trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
-        return ["pin", "unpin", "rename"].contains(normalized)
+        return ["pin", "unpin", "rename", "mark_read", "mark_unread"].contains(normalized)
     }
 
     /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``: rejects every
@@ -21222,12 +21223,21 @@ class TerminalController {
             ]
         }
 
+        // The phone mirrors the Mac's per-workspace unread state so its swipe
+        // action can offer Mark Read vs Mark Unread in the correct direction.
+        // Use the store's canonical `workspaceIsUnread` (the same source the
+        // sidebar badge uses) so this can't drift from the manual/panel/restored
+        // axes: a phone `mark_unread` sets the manual axis, and reading only the
+        // notification index would miss it and make the toggle look stuck.
+        let hasUnread = AppDelegate.shared?.notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false
+
         return [
             "id": workspace.id.uuidString,
             "title": workspace.title,
             "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
             "is_selected": isSelected,
             "is_pinned": workspace.isPinned,
+            "has_unread": hasUnread,
             "terminals": terminals
         ]
     }

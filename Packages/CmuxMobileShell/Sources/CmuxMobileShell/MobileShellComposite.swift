@@ -576,6 +576,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Mark a workspace read or unread on the Mac.
+    ///
+    /// Unlike pin (whose `$isPinned` change the mobile workspace-list observer
+    /// already watches), unread state lives in the Mac's notification store,
+    /// which the observer does not subscribe to and whose value is not in its
+    /// dedup hash. So a pure read/unread toggle never pushes `workspace.updated`
+    /// on its own. We therefore explicitly refresh the authoritative list after
+    /// the action completes (mirroring the delete path) so the row's Mark
+    /// Read/Unread direction reflects the Mac. The Mac applies the mark
+    /// synchronously, so by the time the action RPC returns the new `has_unread`
+    /// is already current. No local optimistic mutation; the refresh is the
+    /// single source of truth.
+    /// - Parameters:
+    ///   - id: The workspace to mark.
+    ///   - read: `true` to mark read (clear the unread indicator), `false` to
+    ///     mark unread.
+    public func setWorkspaceRead(id: MobileWorkspacePreview.ID, _ read: Bool) async {
+        guard let client = remoteClient else { return }
+        let generation = connectionGeneration
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "workspace.action",
+                params: [
+                    "workspace_id": id.rawValue,
+                    "action": read ? "mark_read" : "mark_unread",
+                    "client_id": clientID,
+                ]
+            )
+            _ = try await client.sendRequest(request)
+            guard isCurrentRemoteOperation(client: client, generation: generation),
+                  !Task.isCancelled else { return }
+            try await refreshRemoteWorkspaceListAfterMutation(client: client, generation: generation)
+        } catch {
+            handleRemoteMutationError(error, generation: generation)
+        }
+    }
+
     /// Close a workspace through the Mac's existing workspace-close path.
     ///
     /// The phone moves selection to the same-order neighbor before the remote

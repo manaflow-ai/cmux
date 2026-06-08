@@ -18,6 +18,10 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         /// Whether this workspace is pinned, if the Mac reported it. `nil` when
         /// connected to a Mac old enough not to emit `is_pinned`.
         public let isPinned: Bool?
+        /// Whether this workspace has an unread indicator on the Mac, if
+        /// reported. `nil` when connected to a Mac old enough not to emit
+        /// `has_unread`; the mobile row then hides the read/unread swipe action.
+        public let hasUnread: Bool?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
 
@@ -27,6 +31,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case currentDirectory = "current_directory"
             case isSelected = "is_selected"
             case isPinned = "is_pinned"
+            case hasUnread = "has_unread"
             case terminals
         }
     }

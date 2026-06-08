@@ -32,6 +32,9 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// Whether the workspace is pinned on the Mac. Pinned workspaces sort to the
     /// top of the mobile list.
     public var isPinned: Bool
+    /// Whether the workspace currently has an unread indicator on the Mac. Drives
+    /// the row's Mark Read vs Mark Unread swipe action so it points the right way.
+    public var hasUnread: Bool
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
 
@@ -40,11 +43,13 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - id: The workspace's stable identifier.
     ///   - name: The workspace's user-facing display name.
     ///   - isPinned: Whether the workspace is pinned on the Mac. Defaults to `false`.
+    ///   - hasUnread: Whether the workspace has an unread indicator on the Mac. Defaults to `false`.
     ///   - terminals: The terminals contained in the workspace, in display order.
-    public init(id: ID, name: String, isPinned: Bool = false, terminals: [MobileTerminalPreview]) {
+    public init(id: ID, name: String, isPinned: Bool = false, hasUnread: Bool = false, terminals: [MobileTerminalPreview]) {
         self.id = id
         self.name = name
         self.isPinned = isPinned
+        self.hasUnread = hasUnread
         self.terminals = terminals
     }
 }

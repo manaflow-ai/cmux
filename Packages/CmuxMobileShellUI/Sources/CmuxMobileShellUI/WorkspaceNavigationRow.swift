@@ -15,6 +15,9 @@ struct WorkspaceNavigationRow: View {
     /// Pin or unpin the workspace on the Mac. When `nil` the pin affordance is
     /// hidden.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    /// Mark the workspace read or unread on the Mac. When `nil` the read/unread
+    /// affordance is hidden.
+    var setRead: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     /// Delete the workspace on the Mac. When `nil` the destructive swipe
     /// affordance is hidden.
     var deleteWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
@@ -51,16 +54,14 @@ struct WorkspaceNavigationRow: View {
             }
         }
         .contextMenu { contextMenu }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            readSwipeAction
+        }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            if let deleteWorkspace {
-                Button(role: .destructive) {
-                    deleteWorkspace(workspace.id)
-                } label: {
-                    Label(L10n.string("mobile.common.delete", defaultValue: "Delete"), systemImage: "trash")
-                }
-                .tint(.red)
-                .accessibilityIdentifier("MobileWorkspaceDeleteButton-\(workspace.id.rawValue)")
-            }
+            // Delete is declared first so it stays the full-swipe action; Pin is
+            // a deliberate tap so a careless full swipe can never pin/unpin.
+            deleteSwipeAction
+            pinSwipeAction
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
@@ -74,8 +75,83 @@ struct WorkspaceNavigationRow: View {
         }
     }
 
+    /// Leading swipe: mark the workspace read or unread, mirroring the Mac's
+    /// unread indicator so the direction always matches current state.
+    @ViewBuilder
+    private var readSwipeAction: some View {
+        if let setRead {
+            Button {
+                setRead(workspace.id, workspace.hasUnread)
+            } label: {
+                if workspace.hasUnread {
+                    Label(
+                        L10n.string("mobile.workspace.markRead", defaultValue: "Read"),
+                        systemImage: "envelope.open"
+                    )
+                } else {
+                    Label(
+                        L10n.string("mobile.workspace.markUnread", defaultValue: "Unread"),
+                        systemImage: "envelope.badge"
+                    )
+                }
+            }
+            .tint(.blue)
+            .accessibilityIdentifier("MobileWorkspaceMarkReadButton-\(workspace.id.rawValue)")
+        }
+    }
+
+    /// Trailing swipe: pin or unpin the workspace.
+    @ViewBuilder
+    private var pinSwipeAction: some View {
+        if let setPinned {
+            Button {
+                setPinned(workspace.id, !workspace.isPinned)
+            } label: {
+                if workspace.isPinned {
+                    Label(L10n.string("mobile.workspace.unpin", defaultValue: "Unpin"), systemImage: "pin.slash")
+                } else {
+                    Label(L10n.string("mobile.workspace.pin", defaultValue: "Pin"), systemImage: "pin")
+                }
+            }
+            .tint(.orange)
+            .accessibilityIdentifier("MobileWorkspacePinSwipeButton-\(workspace.id.rawValue)")
+        }
+    }
+
+    /// Trailing swipe: destructively delete the workspace (full-swipe target).
+    @ViewBuilder
+    private var deleteSwipeAction: some View {
+        if let deleteWorkspace {
+            Button(role: .destructive) {
+                deleteWorkspace(workspace.id)
+            } label: {
+                Label(L10n.string("mobile.common.delete", defaultValue: "Delete"), systemImage: "trash")
+            }
+            .tint(.red)
+            .accessibilityIdentifier("MobileWorkspaceDeleteButton-\(workspace.id.rawValue)")
+        }
+    }
+
     @ViewBuilder
     private var contextMenu: some View {
+        if let setRead {
+            Button {
+                setRead(workspace.id, workspace.hasUnread)
+            } label: {
+                if workspace.hasUnread {
+                    Label(
+                        L10n.string("mobile.workspace.markRead", defaultValue: "Read"),
+                        systemImage: "envelope.open"
+                    )
+                } else {
+                    Label(
+                        L10n.string("mobile.workspace.markUnread", defaultValue: "Unread"),
+                        systemImage: "envelope.badge"
+                    )
+                }
+            }
+            .accessibilityIdentifier("MobileWorkspaceMarkReadMenuButton-\(workspace.id.rawValue)")
+        }
         if let setPinned {
             Button {
                 setPinned(workspace.id, !workspace.isPinned)

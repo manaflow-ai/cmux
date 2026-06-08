@@ -69,6 +69,7 @@ struct WorkspaceShellView: View {
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
+                setRead: setWorkspaceReadClosure,
                 deleteWorkspace: deleteWorkspaceClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
@@ -124,6 +125,7 @@ struct WorkspaceShellView: View {
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
+                setRead: setWorkspaceReadClosure,
                 deleteWorkspace: deleteWorkspaceClosure
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
@@ -163,6 +165,12 @@ struct WorkspaceShellView: View {
         guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
+    }
+
+    private var setWorkspaceReadClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
+        guard store.supportsWorkspaceActions else { return nil }
+        let store = store
+        return { id, read in Task { await store.setWorkspaceRead(id: id, read) } }
     }
 
     /// Delete is advertised separately from rename/pin because older Mac builds
