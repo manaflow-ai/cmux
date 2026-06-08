@@ -155,6 +155,13 @@ jobs:
         run: |
           ./scripts/install-zig-ci.sh
 
+      - name: Cache Zig packages
+        if: ${{ !matrix.skip_zig }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
@@ -300,10 +307,28 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" build
+          for attempt in 1 2 3 4; do
+            set +e
+            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" build 2>&1 | tee /tmp/cmux-compat-smoke-build-output.txt
+            exit_code=${PIPESTATUS[0]}
+            set -e
+            if [ "$exit_code" -eq 0 ]; then
+              exit 0
+            fi
+            if ! grep -Eq "(bad HTTP response code: '5[0-9][0-9]|curl: \([0-9]+\) The requested URL returned error: 5[0-9][0-9])" /tmp/cmux-compat-smoke-build-output.txt; then
+              exit "$exit_code"
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo "Compat smoke app build failed after 4 attempts" >&2
+              exit "$exit_code"
+            fi
+            delay=$((attempt * 20))
+            echo "Compat smoke app build hit a transient Zig package download failure on attempt $attempt, retrying in ${delay}s..."
+            sleep "$delay"
+          done
 
       - name: Smoke test
         if: matrix.primary_shard && matrix.startup_smoke

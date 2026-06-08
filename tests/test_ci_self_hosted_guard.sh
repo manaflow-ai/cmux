@@ -900,6 +900,38 @@ check_command_palette_nucleo_ffi_coverage() {
   echo "PASS: command palette nucleo FFI assertions run in a focused CI lane"
 }
 
+check_compat_smoke_zig_resilience() {
+  if ! awk '
+    /^[[:space:]]*- name: Cache Zig packages$/ { in_step=1; saw_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /if: \$\{\{ !matrix\.skip_zig \}\}/ { saw_skip_guard=1 }
+    in_step && /~\/\.cache\/zig/ { saw_cache=1 }
+    in_step && /key: zig-packages-\$\{\{ hashFiles\('\''ghostty\/build\.zig\.zon'\''/ { saw_key=1 }
+    END { exit(saw_step && saw_skip_guard && saw_cache && saw_key ? 0 : 1) }
+  ' "$COMPAT_FILE"; then
+    echo "FAIL: ci-macos-compat.yml must cache Zig packages for the macOS 15 compat smoke build so it does not depend on cold package downloads"
+    exit 1
+  fi
+
+  if ! awk '
+    /^[[:space:]]*- name: Build app for smoke test$/ { in_step=1; saw_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /for attempt in 1 2 3 4/ { saw_attempts=1 }
+    in_step && /xcodebuild -project cmux\.xcodeproj -scheme cmux -configuration Debug/ { saw_xcodebuild=1 }
+    in_step && /tee \/tmp\/cmux-compat-smoke-build-output\.txt/ { saw_output=1 }
+    in_step && /bad HTTP response code: '\''5\[0-9\]\[0-9\]/ { saw_bad_http=1 }
+    in_step && /The requested URL returned error: 5\[0-9\]\[0-9\]/ { saw_curl_5xx=1 }
+    in_step && /exit "\$exit_code"/ { saw_non_retry_exit=1 }
+    in_step && /Compat smoke app build hit a transient Zig package download failure/ { saw_retry_message=1 }
+    END { exit(saw_step && saw_attempts && saw_xcodebuild && saw_output && saw_bad_http && saw_curl_5xx && saw_non_retry_exit && saw_retry_message ? 0 : 1) }
+  ' "$COMPAT_FILE"; then
+    echo "FAIL: compat smoke app build must retry only transient Zig package 5xx downloads and fail closed for all other xcodebuild failures"
+    exit 1
+  fi
+
+  echo "PASS: compat smoke app build caches Zig packages and retries only transient Zig 5xx downloads"
+}
+
 check_terminal_corpus_requires_live_ghostty_surface() {
   if ! awk '
     /^[[:space:]]*- name: Run terminal corpus unit tests$/ { in_step=1; next }
@@ -1652,6 +1684,7 @@ check_activation_artifacts_are_required
 check_retryable_submodule_checkout
 check_split_theme_regression_timeout
 check_command_palette_nucleo_ffi_coverage
+check_compat_smoke_zig_resilience
 check_terminal_corpus_requires_live_ghostty_surface
 check_web_db_behavior_test_coverage
 check_bundled_ghostty_helper_regression_coverage
