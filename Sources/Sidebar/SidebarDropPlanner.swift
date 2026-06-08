@@ -17,6 +17,7 @@ enum SidebarDropPlanner {
         targetTabId: UUID?,
         tabIds: [UUID],
         pinnedTabIds: Set<UUID>,
+        legalInsertionRange: ClosedRange<Int>? = nil,
         pointerY: CGFloat? = nil,
         targetHeight: CGFloat? = nil
     ) -> SidebarDropIndicator? {
@@ -41,7 +42,8 @@ enum SidebarDropPlanner {
             draggedTabId: draggedTabId,
             proposedInsertionPosition: insertionPosition,
             tabIds: tabIds,
-            pinnedTabIds: pinnedTabIds
+            pinnedTabIds: pinnedTabIds,
+            legalInsertionRange: legalInsertionRange
         )
         let legalTargetIndex = resolvedTargetIndex(
             from: fromIndex,
@@ -57,7 +59,8 @@ enum SidebarDropPlanner {
         targetTabId: UUID?,
         indicator: SidebarDropIndicator?,
         tabIds: [UUID],
-        pinnedTabIds: Set<UUID>
+        pinnedTabIds: Set<UUID>,
+        legalInsertionRange: ClosedRange<Int>? = nil
     ) -> Int? {
         guard let fromIndex = tabIds.firstIndex(of: draggedTabId) else { return nil }
 
@@ -78,7 +81,8 @@ enum SidebarDropPlanner {
             draggedTabId: draggedTabId,
             proposedInsertionPosition: insertionPosition,
             tabIds: tabIds,
-            pinnedTabIds: pinnedTabIds
+            pinnedTabIds: pinnedTabIds,
+            legalInsertionRange: legalInsertionRange
         )
         return resolvedTargetIndex(from: fromIndex, insertionPosition: legalInsertionPosition, totalCount: tabIds.count)
     }
@@ -278,22 +282,30 @@ enum SidebarDropPlanner {
         draggedTabId: UUID,
         proposedInsertionPosition: Int,
         tabIds: [UUID],
-        pinnedTabIds: Set<UUID>
+        pinnedTabIds: Set<UUID>,
+        legalInsertionRange: ClosedRange<Int>?
     ) -> Int {
-        let clampedInsertion = max(0, min(proposedInsertionPosition, tabIds.count))
-        guard !pinnedTabIds.isEmpty else { return clampedInsertion }
+        var clampedInsertion = max(0, min(proposedInsertionPosition, tabIds.count))
 
-        let pinnedCount = tabIds.reduce(into: 0) { count, tabId in
-            if pinnedTabIds.contains(tabId) {
-                count += 1
+        if !pinnedTabIds.isEmpty {
+            let pinnedCount = tabIds.reduce(into: 0) { count, tabId in
+                if pinnedTabIds.contains(tabId) {
+                    count += 1
+                }
+            }
+            if pinnedCount > 0 {
+                if pinnedTabIds.contains(draggedTabId) {
+                    clampedInsertion = min(clampedInsertion, pinnedCount)
+                } else {
+                    clampedInsertion = max(clampedInsertion, pinnedCount)
+                }
             }
         }
-        guard pinnedCount > 0 else { return clampedInsertion }
 
-        if pinnedTabIds.contains(draggedTabId) {
-            return min(clampedInsertion, pinnedCount)
+        if let legalInsertionRange {
+            return min(max(clampedInsertion, legalInsertionRange.lowerBound), legalInsertionRange.upperBound)
         }
-        return max(clampedInsertion, pinnedCount)
+        return clampedInsertion
     }
 
     static func edgeForPointer(locationY: CGFloat, targetHeight: CGFloat) -> SidebarDropEdge {
