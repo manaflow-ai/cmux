@@ -76,3 +76,7 @@ fi
 )
 write_agent_session_html "$OUT_DIR"
 normalize_webviews_output "$OUT_DIR"
+
+# Keep the iOS read-only diff viewer's embedded copy of this bundle in lockstep
+# with the desktop one (SwiftPM resources must live inside the package).
+"$ROOT/scripts/sync-ios-diff-viewer-bundle.sh"

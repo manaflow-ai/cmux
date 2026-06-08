@@ -1,4 +1,5 @@
 import CmuxMobileDiagnostics
+import CmuxMobileDiffViewer
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -22,6 +23,8 @@ struct WorkspaceDetailView: View {
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
     @State private var isTerminalPickerPresented = false
+    @State private var isDiffViewerPresented = false
+    @Environment(\.colorScheme) private var colorScheme
     #if DEBUG && canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
@@ -101,6 +104,7 @@ struct WorkspaceDetailView: View {
         .toolbar {
             #if os(iOS)
             ToolbarItemGroup(placement: .topBarTrailing) {
+                diffViewerToolbarButton
                 newWorkspaceToolbarButton
                 terminalPickerToolbarButton
             }
@@ -110,12 +114,60 @@ struct WorkspaceDetailView: View {
             }
         #endif
         }
+        #if os(iOS)
+        .sheet(isPresented: $isDiffViewerPresented) {
+            diffViewerSheet
+        }
+        #endif
         #if DEBUG && canImport(UIKit)
         .sheet(isPresented: $isFeedbackComposerPresented) {
             feedbackComposer
         }
         #endif
     }
+
+    #if os(iOS)
+    // Intentionally always shown rather than gated on the Mac's
+    // `workspace.diff.v1` capability: an older paired Mac that lacks the RPC
+    // answers `method_not_found`, which the diff sheet surfaces as the friendly
+    // "Couldn't load diff" error state with a Retry. Gating the button on the
+    // capability would instead make it silently vanish, which is a worse signal
+    // for a feature the user is looking for.
+    private var diffViewerToolbarButton: some View {
+        Button {
+            dismissTerminalKeyboardForChrome()
+            isDiffViewerPresented = true
+        } label: {
+            Label(
+                L10n.string("mobile.diff.open", defaultValue: "View diff"),
+                systemImage: "plus.forwardslash.minus"
+            )
+            .labelStyle(.iconOnly)
+        }
+        .foregroundStyle(TerminalPalette.foreground)
+        .accessibilityIdentifier("MobileWorkspaceViewDiffButton")
+    }
+
+    private var diffViewerSheet: some View {
+        let workspaceID = workspace.id
+        let prefersDark = colorScheme == .dark
+        return NavigationStack {
+            MobileDiffViewerView(
+                workspaceName: workspace.name,
+                prefersDark: prefersDark
+            ) {
+                try await store.fetchWorkspaceDiff(workspaceID: workspaceID)
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
+                        isDiffViewerPresented = false
+                    }
+                }
+            }
+        }
+    }
+    #endif
 
     @ViewBuilder
     private var terminalToolbarButtons: some View {

@@ -571,6 +571,63 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Fetch a workspace's read-only git diff from the paired Mac for the mobile
+    /// diff/file viewer.
+    ///
+    /// Issues `mobile.workspace.diff`, which the Mac resolves to the workspace's
+    /// working directory and answers with its unstaged working-tree patch (the
+    /// same source the desktop "View diff" affordance defaults to). The patch can
+    /// be large but is capped by the Mac; decoding the (already size-bounded)
+    /// JSON result off the main actor keeps the `@MainActor` store from stalling
+    /// on a multi-megabyte patch.
+    ///
+    /// - Parameter workspaceID: The workspace whose diff to fetch.
+    /// - Returns: The decoded diff snapshot.
+    /// - Throws: ``MobileShellConnectionError`` when no client is connected or the
+    ///   request fails.
+    public func fetchWorkspaceDiff(
+        workspaceID: MobileWorkspacePreview.ID
+    ) async throws -> MobileWorkspaceDiff {
+        guard let client = remoteClient else {
+            throw MobileShellConnectionError.connectionClosed
+        }
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.workspace.diff",
+            params: [
+                "workspace_id": workspaceID.rawValue,
+                "client_id": clientID,
+            ]
+        )
+        let data = try await client.sendRequest(request)
+        return try await Task.detached(priority: .userInitiated) { () -> MobileWorkspaceDiff in
+            let decoded = try JSONDecoder().decode(WorkspaceDiffPayload.self, from: data)
+            return MobileWorkspaceDiff(
+                patch: decoded.patch ?? "",
+                sourceLabel: decoded.sourceLabel,
+                currentDirectory: decoded.currentDirectory,
+                truncated: decoded.truncated ?? false
+            )
+        }.value
+    }
+
+    /// Off-main decode shape for the `mobile.workspace.diff` result. Lives here
+    /// (rather than in the diff-viewer package) so the shell has no dependency on
+    /// the UI-layer package; the UI package consumes the ``MobileWorkspaceDiff``
+    /// value model from `CmuxMobileShellModel`.
+    private struct WorkspaceDiffPayload: Decodable, Sendable {
+        let patch: String?
+        let sourceLabel: String?
+        let currentDirectory: String?
+        let truncated: Bool?
+
+        private enum CodingKeys: String, CodingKey {
+            case patch
+            case sourceLabel = "source_label"
+            case currentDirectory = "current_directory"
+            case truncated
+        }
+    }
+
     #if DEBUG
     /// DEV dogfood feedback round-trip (P1): export the structured diagnostic
     /// log, package it with the supplied debug-log text, visible terminal text,
