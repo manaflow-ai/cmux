@@ -121,8 +121,12 @@ public struct SentryScrubber: Sendable {
 
     /// Recursively scrubs every string found inside a JSON-like value tree.
     ///
-    /// Strings are scrubbed; dictionaries and arrays are walked; all other
-    /// values (numbers, booleans, dates, `NSNull`) pass through untouched.
+    /// Strings are scrubbed; dictionaries and arrays are walked; safe scalars
+    /// (`NSNumber`/`Bool`/`Int`/`Double`, `Date`, `Data`, `NSNull`) pass through
+    /// untouched. Any other object (notably `URL` / `NSURL`, which carry a file
+    /// path) is converted to its string form and scrubbed, because Sentry
+    /// serializes unsupported Foundation objects to their description *after*
+    /// `beforeSend` runs, which would otherwise leak the unscrubbed path.
     ///
     /// - Parameter value: A `String`, `[String: Any]`, `[Any]`, or scalar.
     /// - Returns: The value with all nested strings scrubbed.
@@ -134,8 +138,17 @@ public struct SentryScrubber: Sendable {
             return scrub(dictionary: dictionary)
         case let array as [Any]:
             return array.map { scrub(value: $0) }
-        default:
+        case is NSNumber, is Date, is Data, is NSNull:
+            // Safe scalars Sentry serializes faithfully; no string content.
             return value
+        case let url as URL:
+            return scrub(url.absoluteString)
+        case let url as NSURL:
+            return scrub((url.absoluteString ?? url.description))
+        default:
+            // Unknown objects are serialized to their description by Sentry, so
+            // scrub that string form rather than letting it pass through.
+            return scrub(String(describing: value))
         }
     }
 

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import CmuxFoundation
@@ -219,6 +220,30 @@ import Testing
         #expect(!SentryScrubber.isSensitiveKey("username"))
         #expect(!SentryScrubber.isSensitiveKey("count"))
         #expect(!SentryScrubber.isSensitiveKey("path"))
+    }
+
+    @Test func scrubsUrlValuesWhichSentryStringifies() {
+        // A URL value carries a path; Sentry serializes it to its description
+        // after beforeSend, so the scrubber must catch it.
+        let fileURL = URL(fileURLWithPath: "/Users/alice/secret.txt")
+        let output = scrubber.scrub(value: fileURL) as? String
+        #expect(output == "file:///Users/<redacted>/secret.txt")
+
+        let webURL = URL(string: "https://x.com/?token=abcdef0123456789zz")!
+        let webOut = scrubber.scrub(value: webURL) as? String
+        #expect(webOut == "https://x.com/?token=<redacted-secret>")
+    }
+
+    @Test func scrubsUrlNestedInDictionaryValue() {
+        let input: [String: Any] = ["where": URL(fileURLWithPath: "/Users/bob/x")]
+        let output = scrubber.scrub(dictionary: input)
+        #expect(output["where"] as? String == "file:///Users/<redacted>/x")
+    }
+
+    @Test func preservesNumericAndBoolScalars() {
+        #expect(scrubber.scrub(value: 7) as? Int == 7)
+        #expect(scrubber.scrub(value: 3.5) as? Double == 3.5)
+        #expect(scrubber.scrub(value: true) as? Bool == true)
     }
 
     @Test func scrubsArraysOfStrings() {
