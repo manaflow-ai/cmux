@@ -33,7 +33,7 @@
 2026	cmuxTests/CJKIMEInputTests.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1899	cmuxTests/CmuxConfigTests.swift
-1879	Sources/FileExplorerView.swift
+2511	Sources/FileExplorerView.swift
 1826	Sources/SessionIndexStore.swift
 1765	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1602	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
@@ -46,7 +46,7 @@
 1215	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1187	cmuxUITests/MultiWindowNotificationsUITests.swift
 1165	Sources/Auth/AuthManager.swift
-1003	Sources/FileExplorerStore.swift
+1573	Sources/FileExplorerStore.swift
 1001	cmuxTests/SidebarOrderingTests.swift
 987	Sources/CommandPalette/CommandPaletteSearch.swift
 976	cmuxTests/OmnibarAndToolsTests.swift

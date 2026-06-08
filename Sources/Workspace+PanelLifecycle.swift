@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import Darwin
 import Foundation
@@ -38,6 +39,120 @@ extension Workspace {
             return key
         }
         return String(key[..<dotIndex])
+    }
+
+    // MARK: - Dynamic agent tab icons
+
+    private static let agentTabIconResolver = AgentTabIconResolver()
+
+    /// Status keys attributed to `panelId` from both the live agent-hook signal and the periodic
+    /// process scan, used to choose the pane's brand tab icon.
+    private func agentTabIconStatusKeys(forPanelId panelId: UUID) -> Set<String> {
+        var statusKeys = Set<String>()
+        for key in agentPIDKeysByPanelId[panelId] ?? [] {
+            statusKeys.insert(agentStatusKey(forAgentPIDKey: key))
+        }
+        statusKeys.formUnion(agentTabIconScanStatusKeysByPanelId[panelId] ?? [])
+        return statusKeys
+    }
+
+    /// Recomputes and applies the brand tab icon for `panelId`, resetting to the default terminal
+    /// icon when no recognized agent is active. No-op for non-terminal panels.
+    func refreshAgentTabIcon(forPanelId panelId: UUID) {
+        guard panels[panelId] is TerminalPanel else { return }
+        let statusKeys = agentTabIconStatusKeys(forPanelId: panelId)
+        let assetName = Self.agentTabIconResolver.assetName(forStatusKeys: statusKeys)
+        applyAgentTabIcon(assetName: assetName, toPanelId: panelId)
+    }
+
+    /// Updates the panel's Bonsplit tab to show `assetName`'s logo, or the default terminal icon
+    /// when `assetName` is `nil`. Skips the update when nothing changed.
+    private func applyAgentTabIcon(assetName: String?, toPanelId panelId: UUID) {
+        let appliedSentinel = assetName ?? ""
+        guard appliedAgentTabIconAssetNameByPanelId[panelId] != appliedSentinel else { return }
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        if let assetName, let pngData = agentTabIconPNGData(forAssetName: assetName) {
+            bonsplitController.updateTab(tabId, iconImageData: .some(pngData))
+        } else {
+            bonsplitController.updateTab(tabId, icon: .some("terminal.fill"), iconImageData: .some(nil))
+        }
+        appliedAgentTabIconAssetNameByPanelId[panelId] = appliedSentinel
+    }
+
+    private func agentTabIconPNGData(forAssetName assetName: String) -> Data? {
+        if let cached = agentTabIconPNGCacheByAssetName[assetName] {
+            return cached
+        }
+        guard let image = NSImage(named: assetName),
+              let pngData = Self.makeAgentTabIconPNGData(from: image, targetPx: 32) else {
+            return nil
+        }
+        agentTabIconPNGCacheByAssetName[assetName] = pngData
+        return pngData
+    }
+
+    /// Rasterizes `image` into a square, aspect-fit PNG suitable for a Bonsplit raster tab icon.
+    private static func makeAgentTabIconPNGData(from image: NSImage, targetPx: Int) -> Data? {
+        let px = max(16, min(128, targetPx))
+        let size = NSSize(width: px, height: px)
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: px,
+            pixelsHigh: px,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return nil
+        }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        let context = NSGraphicsContext(bitmapImageRep: rep)
+        context?.imageInterpolation = .high
+        context?.shouldAntialias = true
+        NSGraphicsContext.current = context
+        NSColor.clear.setFill()
+        NSRect(origin: .zero, size: size).fill()
+        let sourceSize = image.size
+        let scale = min(size.width / max(1, sourceSize.width), size.height / max(1, sourceSize.height))
+        let drawSize = NSSize(width: sourceSize.width * scale, height: sourceSize.height * scale)
+        let drawRect = NSRect(
+            x: round((size.width - drawSize.width) / 2.0),
+            y: round((size.height - drawSize.height) / 2.0),
+            width: round(drawSize.width),
+            height: round(drawSize.height)
+        )
+        image.draw(
+            in: drawRect,
+            from: NSRect(origin: .zero, size: sourceSize),
+            operation: .sourceOver,
+            fraction: 1.0,
+            respectFlipped: true,
+            hints: [.interpolation: NSImageInterpolation.high]
+        )
+        return rep.representation(using: .png, properties: [:])
+    }
+
+    /// Applies the result of a periodic agent process scan, replacing each terminal pane's
+    /// scan-derived status keys and refreshing any whose brand icon changed. `statusKeysBySurfaceID`
+    /// is keyed by cmux surface ID, which equals the pane's panel ID. Covers agents without a
+    /// `set_agent_pid` hook (Augment, Codex, Grok, Antigravity).
+    func applyAgentTabIconScan(statusKeysBySurfaceID: [UUID: Set<String>]) {
+        for (panelId, panel) in panels where panel is TerminalPanel {
+            let desired = statusKeysBySurfaceID[panelId] ?? []
+            let current = agentTabIconScanStatusKeysByPanelId[panelId] ?? []
+            guard desired != current else { continue }
+            if desired.isEmpty {
+                agentTabIconScanStatusKeysByPanelId.removeValue(forKey: panelId)
+            } else {
+                agentTabIconScanStatusKeysByPanelId[panelId] = desired
+            }
+            refreshAgentTabIcon(forPanelId: panelId)
+        }
     }
 
     private func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
@@ -106,6 +221,9 @@ extension Workspace {
         }
         if refreshPorts {
             refreshTrackedAgentPorts()
+        }
+        if let panelId {
+            refreshAgentTabIcon(forPanelId: panelId)
         }
         return didClearOtherStructuredAgentRuntime
     }
@@ -236,6 +354,9 @@ extension Workspace {
         }
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
+        }
+        if let iconPanelId = ownedPanelId ?? panelId {
+            refreshAgentTabIcon(forPanelId: iconPanelId)
         }
         return didChange
     }

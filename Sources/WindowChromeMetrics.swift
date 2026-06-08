@@ -9,6 +9,11 @@ enum WindowChromeMetrics {
     static let maximumTitlebarHeight: CGFloat = 72
     static let defaultTitlebarHeight: CGFloat = sharedChromeBarHeight
 
+    /// Height of the persistent bottom status bar (branch / directory / context).
+    /// Slightly shorter than the titlebar to read as a lighter strip, matching
+    /// the proportions of editor status bars such as VS Code / Cursor.
+    static let statusBarHeight: CGFloat = 22
+
     static func clampedTitlebarHeight(_ height: CGFloat) -> CGFloat {
         max(minimumTitlebarHeight, min(maximumTitlebarHeight, height))
     }
