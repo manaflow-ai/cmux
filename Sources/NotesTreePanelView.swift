@@ -17,6 +17,10 @@ struct NotesTreePanelView: NSViewRepresentable {
     let onResumeMarker: (NotesSessionMarker) -> Void
 
     static let movePasteboardType = NSPasteboard.PasteboardType("com.cmux.notes-tree-move")
+    /// Set on the drag pasteboard when the dragged item is a session folder, so
+    /// the drop side can reject nesting a session under another session without
+    /// reading the filesystem during drag-over.
+    static let sessionFlagPasteboardType = NSPasteboard.PasteboardType("com.cmux.notes-tree-move.session")
 
     func makeCoordinator() -> Coordinator {
         Coordinator(store: store, onOpenNote: onOpenNote, onResumeMarker: onResumeMarker)
@@ -179,12 +183,13 @@ struct NotesTreePanelView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
             guard let node = item as? NotesTreeNode, !node.path.isEmpty else { return nil }
-            // Session folders are auto-managed (one per Claude session); they must
-            // not be dragged — e.g. nested under another session. Only notes and
-            // plain user folders are movable.
-            if case .sessionFolder = node.kind { return nil }
             let pbItem = NSPasteboardItem()
             pbItem.setString(node.path, forType: NotesTreePanelView.movePasteboardType)
+            // Notes, plain folders, and session folders are all draggable; tag
+            // sessions so a drop onto another session can be rejected.
+            if case .sessionFolder = node.kind {
+                pbItem.setString("1", forType: NotesTreePanelView.sessionFlagPasteboardType)
+            }
             return pbItem
         }
 
@@ -199,6 +204,11 @@ struct NotesTreePanelView: NSViewRepresentable {
             }
             let destNode = item as? NotesTreeNode
             if let destNode, !destNode.kind.isDirectory { return [] }
+            // A session folder must not be nested under another session.
+            if info.draggingPasteboard.string(forType: NotesTreePanelView.sessionFlagPasteboardType) == "1",
+               let destNode, case .sessionFolder = destNode.kind {
+                return []
+            }
             guard let destFolder = destNode?.path ?? store.resolvedRootPath else { return [] }
             // Reject dropping a directory onto itself or a descendant, and a no-op
             // move into the item's current parent.

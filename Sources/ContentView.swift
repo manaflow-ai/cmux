@@ -2588,15 +2588,16 @@ struct ContentView: View {
                 cwd: cwd
             )
         }
-        guard notesTreeStore.loadClaudeSessions == nil else { return }
-        notesTreeStore.loadClaudeSessions = { [weak sessionIndexStore] cwd in
+        guard notesTreeStore.loadSessions == nil else { return }
+        notesTreeStore.loadSessions = { [weak sessionIndexStore] cwd in
             guard let sessionIndexStore else { return [] }
+            // cwd-scoped snapshot → only sessions from the current workspace.
+            // Include every agent (Claude, Codex, …), not just Claude.
             let snapshot = await sessionIndexStore.loadDirectorySnapshot(cwd: cwd)
-            return snapshot.entries.compactMap { entry in
-                guard entry.agent == .claude else { return nil }
+            return snapshot.entries.map { entry in
                 let resolvedCwd = (entry.cwd?.isEmpty == false) ? entry.cwd! : cwd
                 return NotesSessionDescriptor(
-                    agent: "claude",
+                    agent: entry.agent.rawValue,
                     sessionId: entry.sessionId,
                     title: entry.title,
                     cwd: resolvedCwd,

@@ -255,7 +255,12 @@ enum NotesTreeStorage {
             } else {
                 continue  // Older session with no notes — don't materialize.
             }
-            try? writeJSON(marker, toPath: (dir as NSString).appendingPathComponent(sessionMarkerName))
+            // Only rewrite the marker when it actually changed; rewriting it on
+            // every sync would bump the file's mtime and storm the per-folder
+            // file watchers (the source of the Notes-tab lag).
+            if sessionMarker(inDirectory: dir) != marker {
+                try? writeJSON(marker, toPath: (dir as NSString).appendingPathComponent(sessionMarkerName))
+            }
         }
     }
 

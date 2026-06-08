@@ -21,9 +21,9 @@ final class NotesTreeStore: ObservableObject {
     /// Whether a local workspace is currently bound (false ⇒ empty/disabled tree).
     @Published private(set) var hasWorkspace = false
 
-    /// Loads the Claude sessions for a cwd. Injected by the composition root so
-    /// the store stays decoupled from `SessionIndexStore` and testable.
-    var loadClaudeSessions: (@MainActor (String) async -> [NotesSessionDescriptor])?
+    /// Loads the sessions (any agent) for a cwd. Injected by the composition root
+    /// so the store stays decoupled from `SessionIndexStore` and testable.
+    var loadSessions: (@MainActor (String) async -> [NotesSessionDescriptor])?
 
     private var projectRoot: String?
     private var workspaceTitle: String = ""
@@ -32,11 +32,14 @@ final class NotesTreeStore: ObservableObject {
     /// not necessarily created yet — materialized on first mutation/sync).
     private(set) var resolvedRootPath: String?
 
-    private var expandedPaths: Set<String> = []
+    /// Paths the user has explicitly collapsed. Everything is expanded by
+    /// default; only entries listed here stay collapsed across reloads.
+    private var collapsedPaths: Set<String> = []
 
     private var watchers: [FileWatcher] = []
     private var watcherTasks: [Task<Void, Never>] = []
     private var watchedDirs: Set<String> = []
+    private var reloadCoalesceTask: Task<Void, Never>?
 
     private let maxDepth = 12
     private let nodeBudget = 5000
@@ -72,6 +75,8 @@ final class NotesTreeStore: ObservableObject {
     func clear() {
         guard hasWorkspace || !rootNodes.isEmpty else { return }
         stopWatchers()
+        reloadCoalesceTask?.cancel()
+        reloadCoalesceTask = nil
         hasWorkspace = false
         projectRoot = nil
         cwd = nil
@@ -102,6 +107,20 @@ final class NotesTreeStore: ObservableObject {
         refreshWatchers(forRoot: root)
     }
 
+    /// Coalesce a burst of file-watch events into a single reload, so many
+    /// watchers firing at once don't each trigger a full main-thread rebuild
+    /// (the Notes-tab lag). Bounded, cancellable delay (intended coalescing
+    /// window), cancelled on teardown.
+    func scheduleReload() {
+        guard reloadCoalesceTask == nil else { return }
+        reloadCoalesceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard let self, !Task.isCancelled else { return }
+            self.reloadCoalesceTask = nil
+            self.reload()
+        }
+    }
+
     private func buildChildren(ofDirectory directory: String, depth: Int, budget: inout Int) -> [NotesTreeNode] {
         guard depth < maxDepth, budget > 0 else { return [] }
         let entries = NotesTreeStorage.listEntries(inDirectory: directory)
@@ -119,17 +138,17 @@ final class NotesTreeStore: ObservableObject {
 
     // MARK: - Session folders
 
-    /// Materialize/refresh a session folder for every Claude session in the
-    /// workspace cwd. No-op when no session loader is wired or no workspace bound.
+    /// Materialize/refresh a session folder for every session (any agent) in
+    /// the workspace cwd. No-op when no session loader is wired or no workspace bound.
     func syncSessionFolders() {
         guard let root = resolvedRootPath,
               let cwd,
-              let loadClaudeSessions,
+              let loadSessions,
               let projectRoot
         else { return }
         let title = workspaceTitle
         Task { @MainActor [weak self] in
-            let descriptors = await loadClaudeSessions(cwd)
+            let descriptors = await loadSessions(cwd)
             guard let self, self.resolvedRootPath == root else { return }
             guard !descriptors.isEmpty else { return }
             // Materialize the workspace root (+ _workspace.json) lazily, only once
@@ -199,10 +218,11 @@ final class NotesTreeStore: ObservableObject {
 
     // MARK: - Expansion
 
-    func isExpanded(_ node: NotesTreeNode) -> Bool { expandedPaths.contains(node.path) }
+    /// Expanded by default; collapsed only if the user collapsed this path.
+    func isExpanded(_ node: NotesTreeNode) -> Bool { !collapsedPaths.contains(node.path) }
 
     func setExpanded(_ node: NotesTreeNode, expanded: Bool) {
-        if expanded { expandedPaths.insert(node.path) } else { expandedPaths.remove(node.path) }
+        if expanded { collapsedPaths.remove(node.path) } else { collapsedPaths.insert(node.path) }
     }
 
     // MARK: - File watching
@@ -228,7 +248,7 @@ final class NotesTreeStore: ObservableObject {
             watcherTasks.append(Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
-                    self.reload()
+                    self.scheduleReload()
                 }
             })
         }
@@ -263,5 +283,6 @@ final class NotesTreeStore: ObservableObject {
 
     deinit {
         for task in watcherTasks { task.cancel() }
+        reloadCoalesceTask?.cancel()
     }
 }
