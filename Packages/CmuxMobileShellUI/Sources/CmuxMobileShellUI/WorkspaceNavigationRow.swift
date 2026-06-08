@@ -4,10 +4,10 @@ import SwiftUI
 
 struct WorkspaceNavigationRow: View {
     let workspace: MobileWorkspacePreview
-    let host: String
     let connectionStatus: MobileMacConnectionStatus
     let isSelected: Bool
     let navigationStyle: WorkspaceNavigationStyle
+    let wrapWorkspaceTitles: Bool
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
@@ -23,7 +23,12 @@ struct WorkspaceNavigationRow: View {
             switch navigationStyle {
             case .push:
                 NavigationLink(value: workspace.id) {
-                    WorkspaceRow(workspace: workspace, host: host, connectionStatus: connectionStatus, isSelected: false)
+                    WorkspaceRow(
+                        workspace: workspace,
+                        connectionStatus: connectionStatus,
+                        isSelected: false,
+                        wrapWorkspaceTitles: wrapWorkspaceTitles
+                    )
                 }
                 .simultaneousGesture(TapGesture().onEnded {
                     selectWorkspace(workspace.id)
@@ -32,7 +37,12 @@ struct WorkspaceNavigationRow: View {
                 Button {
                     selectWorkspace(workspace.id)
                 } label: {
-                    WorkspaceRow(workspace: workspace, host: host, connectionStatus: connectionStatus, isSelected: isSelected)
+                    WorkspaceRow(
+                        workspace: workspace,
+                        connectionStatus: connectionStatus,
+                        isSelected: isSelected,
+                        wrapWorkspaceTitles: wrapWorkspaceTitles
+                    )
                 }
                 .buttonStyle(.plain)
             }
@@ -42,7 +52,7 @@ struct WorkspaceNavigationRow: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
         .accessibilityLabel(workspace.name)
-        .accessibilityValue(workspace.accessibilitySummary(host: host, connectionStatus: connectionStatus))
+        .accessibilityValue(workspace.accessibilitySummary(connectionStatus: connectionStatus))
         .sheet(isPresented: $isRenaming) {
             WorkspaceRenameSheet(currentName: workspace.name) { newName in
                 renameWorkspace?(workspace.id, newName)

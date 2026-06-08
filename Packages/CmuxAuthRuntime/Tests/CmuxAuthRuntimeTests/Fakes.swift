@@ -110,6 +110,24 @@ actor HookFlag {
     func fire() { fired = true }
 }
 
+/// Captures a value observed inside an async hook, for ordering assertions.
+actor TokenProbe {
+    private(set) var value: String?
+    func set(_ token: String?) { value = token }
+}
+
+/// Records the lifecycle of a sign-out teardown hook so a test can prove the
+/// teardown is structured (joined + cancelled before sign-out returns) rather
+/// than detached.
+actor TeardownOutcomeProbe {
+    private(set) var started = false
+    private(set) var finished = false
+    private(set) var cancelled = false
+    func markStarted() { started = true }
+    func markFinished() { finished = true }
+    func markCancelled() { cancelled = true }
+}
+
 extension AuthLaunchOptions {
     static func plain(includesDevAuth: Bool = false) -> AuthLaunchOptions {
         AuthLaunchOptions(

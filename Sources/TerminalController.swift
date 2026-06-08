@@ -200,35 +200,10 @@ class TerminalController {
         "feed.jump"
     ]
 
-    enum V2HandleKind: String, CaseIterable {
-        case window
-        case workspace
-        case workspaceGroup = "workspace_group"
-        case pane
-        case surface
-    }
-
-    private var v2NextHandleOrdinal: [V2HandleKind: Int] = [
-        .window: 1,
-        .workspace: 1,
-        .workspaceGroup: 1,
-        .pane: 1,
-        .surface: 1,
-    ]
-    private var v2RefByUUID: [V2HandleKind: [UUID: String]] = [
-        .window: [:],
-        .workspace: [:],
-        .workspaceGroup: [:],
-        .pane: [:],
-        .surface: [:],
-    ]
-    private var v2UUIDByRef: [V2HandleKind: [String: UUID]] = [
-        .window: [:],
-        .workspace: [:],
-        .workspaceGroup: [:],
-        .pane: [:],
-        .surface: [:],
-    ]
+    /// Mints/resolves the stable `kind:N` handle refs handed to v2 callers
+    /// (`ControlHandleKind` + `ControlHandleRegistry` live in
+    /// CmuxControlSocket; main-actor isolation is provided here).
+    private var v2Handles = ControlHandleRegistry()
 
     private struct V2BrowserElementRefEntry {
         let surfaceId: UUID
@@ -270,10 +245,7 @@ class TerminalController {
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
 
-            if let surfaceRef = v2RefByUUID[.surface]?[surfaceId] {
-                v2UUIDByRef[.surface]?.removeValue(forKey: surfaceRef)
-            }
-            v2RefByUUID[.surface]?.removeValue(forKey: surfaceId)
+            v2Handles.removeRef(kind: .surface, uuid: surfaceId)
         }
     }
 
@@ -886,89 +858,41 @@ class TerminalController {
         return nil
     }
 
-    private enum SocketCommandExecutionPolicy: Equatable {
-        case mainActor
-        case socketWorker
-    }
-
+    /// Interim bridged view of a decoded `ControlRequest` with Foundation
+    /// (`Any`) field shapes, so the existing command bodies keep their
+    /// `[String: Any]` params until they migrate onto the typed DTOs in the
+    /// ControlCommandCoordinator stage.
     private struct V2SocketRequest {
         let id: Any?
         let method: String
         let params: [String: Any]
+
+        init(bridging request: ControlRequest) {
+            id = request.id.map(\.foundationObject)
+            method = request.method
+            params = request.params.mapValues { $0.foundationObject }
+        }
     }
 
-    private nonisolated static let socketWorkerV2Methods: Set<String> = [
-        "system.ping",
-        "system.capabilities",
-        "auth.status",
-        "auth.begin_sign_in",
-        "auth.sign_out",
-        "feedback.submit",
-        "feed.push",
-        "feed.permission.reply",
-        "feed.question.reply",
-        "feed.exit_plan.reply",
-        "browser.download.wait",
-        "browser.profiles.list",
-        "browser.profiles.create",
-        "browser.profiles.rename",
-        "browser.profiles.clear",
-        "browser.profiles.delete",
-        "browser.import.cookies",
-        "mobile.attach_ticket.create",
-        "system.top",
-        "system.memory",
-        "workspace.remote.pty_sessions",
-        "workspace.remote.pty_close",
-        "workspace.remote.pty_detach",
-        "workspace.remote.pty_bridge",
-        "workspace.remote.pty_resize",
-        "sidebar.custom.validate",
-        "sidebar.custom.reload",
-        "sidebar.custom.select",
-        // debug.sidebar.simulate_drag intentionally runs on the socket worker
-        // so its Thread.sleep between drag-state ticks doesn't block the main
-        // actor (which still owns the SidebarDragState mutations via
-        // v2MainSync). Running on .mainActor would deadlock the UI for the
-        // entire simulation, defeating the profiling workload.
-        "debug.sidebar.simulate_drag",
-    ]
+    /// Wire-protocol helpers (parse/encode) shared with the package;
+    /// stateless, so single instances serve every thread.
+    private nonisolated static let v2Parser = ControlRequestParser()
+    private nonisolated static let v2Encoder = ControlResponseEncoder()
 
-    private nonisolated static let mainThreadCallableSocketWorkerV2Methods: Set<String> = [
-        "system.ping",
-        "system.capabilities",
-    ]
-
-    private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
-        if method.hasPrefix("vm.") || socketWorkerV2Methods.contains(method) {
-            return .socketWorker
-        }
-        return .mainActor
+    private nonisolated static func executionPolicy(forV2Method method: String) -> ControlCommandExecutionPolicy {
+        ControlCommandExecutionPolicy(forMethod: method)
     }
 
     private nonisolated func parseV2SocketRequest(_ command: String) -> V2SocketRequest? {
-        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedCommand.hasPrefix("{"),
-              let data = trimmedCommand.data(using: .utf8),
-              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+        guard let request = Self.v2Parser.lenientRequest(fromLine: command) else {
             return nil
         }
-
-        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !method.isEmpty else {
-            return nil
-        }
-
-        return V2SocketRequest(
-            id: dict["id"],
-            method: method,
-            params: dict["params"] as? [String: Any] ?? [:]
-        )
+        return V2SocketRequest(bridging: request)
     }
 
     private nonisolated func socketWorkerV2ResponseIfHandled(for command: String) -> (handled: Bool, response: String?) {
         guard let request = parseV2SocketRequest(command),
-              Self.executionPolicy(forV2Method: request.method) == .socketWorker else {
+              Self.executionPolicy(forV2Method: request.method).runsOnSocketWorker else {
             return (false, nil)
         }
 
@@ -1368,8 +1292,7 @@ class TerminalController {
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {
         if Thread.isMainThread,
            let request = parseV2SocketRequest(command),
-           Self.executionPolicy(forV2Method: request.method) == .socketWorker,
-           !Self.mainThreadCallableSocketWorkerV2Methods.contains(request.method) {
+           Self.executionPolicy(forV2Method: request.method) == .socketWorker(mainThreadCallable: false) {
             return v2Error(
                 id: request.id,
                 code: "invalid_dispatch",
@@ -1791,28 +1714,18 @@ class TerminalController {
         // v1 access-mode gating applies to v2 as well. We can't know which v2 method maps
         // to which v1 command without parsing, so parse first and then apply allow-list.
 
-        guard let data = jsonLine.data(using: .utf8) else {
-            return v2Encode(["ok": false, "error": ["code": "invalid_utf8", "message": "Invalid UTF-8"]])
+        let request: ControlRequest
+        switch Self.v2Parser.request(fromLine: jsonLine) {
+        case .failure(let parseError):
+            return Self.v2Encoder.response(for: parseError)
+        case .success(let parsed):
+            request = parsed
         }
 
-        let object: Any
-        do {
-            object = try JSONSerialization.jsonObject(with: data, options: [])
-        } catch {
-            return v2Encode(["ok": false, "error": ["code": "parse_error", "message": "Invalid JSON"]])
-        }
-
-        guard let dict = object as? [String: Any] else {
-            return v2Encode(["ok": false, "error": ["code": "invalid_request", "message": "Expected JSON object"]])
-        }
-
-        let id: Any? = dict["id"]
-        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let params = dict["params"] as? [String: Any] ?? [:]
-
-        guard !method.isEmpty else {
-            return v2Error(id: id, code: "invalid_request", message: "Missing method")
-        }
+        let bridged = V2SocketRequest(bridging: request)
+        let id: Any? = bridged.id
+        let method = bridged.method
+        let params = bridged.params
 
         guard Self.executionPolicy(forV2Method: method) == .mainActor else {
             return v2Error(
@@ -2329,7 +2242,7 @@ class TerminalController {
         case "debug.terminal.simulate_file_drop":
             return v2Result(id: id, self.v2DebugSimulateTerminalFileDrop(params: params))
         // debug.sidebar.simulate_drag is dispatched on the socket worker
-        // (see socketWorkerV2Methods + the worker switch in processCommand)
+        // (see ControlCommandExecutionPolicy + the worker switch in processCommand)
         // so its inter-tick Thread.sleep never blocks the main actor.
 #endif
         case "debug.terminal.read_text":
@@ -3625,11 +3538,19 @@ class TerminalController {
     }
 
     private nonisolated func v2Ok(id: Any?, result: Any) -> String {
-        return v2Encode([
-            "id": v2OrNull(id),
-            "ok": true,
-            "result": result
-        ])
+        guard let idValue = Self.v2WireId(id),
+              let payload = JSONValue(foundationObject: result) else {
+            return ControlResponseEncoder.encodeFailureResponse
+        }
+        return Self.v2Encoder.ok(id: idValue, result: payload)
+    }
+
+    /// Bridges a legacy `Any?` request id to the wire value: missing ids
+    /// encode as JSON `null`; an unencodable id reports overall encode
+    /// failure (the legacy `isValidJSONObject` behavior).
+    private nonisolated static func v2WireId(_ id: Any?) -> JSONValue? {
+        guard let id else { return .null }
+        return JSONValue(foundationObject: id)
     }
 
     /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
@@ -3706,17 +3627,22 @@ class TerminalController {
     }
 
     nonisolated func v2Error(id: Any?, code: String, message: String, data: Any? = nil) -> String {
-        var err: [String: Any] = ["code": code, "message": message]
-        if let data {
-            err["data"] = data
+        guard let idValue = Self.v2WireId(id) else {
+            return ControlResponseEncoder.encodeFailureResponse
         }
-        return v2Encode([
-            "id": v2OrNull(id),
-            "ok": false,
-            "error": err
-        ])
+        var dataValue: JSONValue?
+        if let data {
+            guard let bridgedData = JSONValue(foundationObject: data) else {
+                return ControlResponseEncoder.encodeFailureResponse
+            }
+            dataValue = bridgedData
+        }
+        return Self.v2Encoder.error(id: idValue, code: code, message: message, data: dataValue)
     }
 
+    /// Interim `Any`-shaped twin of the package's `ControlCallResult`, kept
+    /// while the command bodies still build Foundation payloads. Bodies
+    /// migrate onto the typed DTO in the ControlCommandCoordinator stage.
     enum V2CallResult {
         case ok(Any)
         case err(code: String, message: String, data: Any?)
@@ -3748,50 +3674,21 @@ class TerminalController {
     }
 
     private nonisolated func v2Encode(_ object: Any) -> String {
-        guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object, options: []),
-              var s = String(data: data, encoding: .utf8) else {
-            return "{\"ok\":false,\"error\":{\"code\":\"encode_error\",\"message\":\"Failed to encode JSON\"}}"
+        guard let value = JSONValue(foundationObject: object) else {
+            return ControlResponseEncoder.encodeFailureResponse
         }
-
-        // Ensure single-line responses for the line-oriented socket protocol.
-        s = s.replacingOccurrences(of: "\n", with: "\\n")
-        return s
+        return Self.v2Encoder.encode(value)
     }
 
-    private func v2EnsureHandleRef(kind: V2HandleKind, uuid: UUID) -> String {
-        if let existing = v2RefByUUID[kind]?[uuid] {
-            return existing
-        }
-        let next = v2NextHandleOrdinal[kind] ?? 1
-        let ref = "\(kind.rawValue):\(next)"
-        var byUUID = v2RefByUUID[kind] ?? [:]
-        var byRef = v2UUIDByRef[kind] ?? [:]
-        byUUID[uuid] = ref
-        byRef[ref] = uuid
-        v2RefByUUID[kind] = byUUID
-        v2UUIDByRef[kind] = byRef
-        v2NextHandleOrdinal[kind] = next + 1
-        return ref
+    private func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
+        v2Handles.ensureRef(kind: kind, uuid: uuid)
     }
 
     func v2ResolveHandleRef(_ handle: String) -> UUID? {
-        for kind in V2HandleKind.allCases {
-            if let id = v2UUIDByRef[kind]?[handle] {
-                return id
-            }
-        }
-        // Tab refs are aliases for surface refs in tab-facing APIs.
-        let trimmed = handle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if trimmed.hasPrefix("tab:"),
-           let ordinal = Int(trimmed.replacingOccurrences(of: "tab:", with: "")),
-           let id = v2UUIDByRef[.surface]?["surface:\(ordinal)"] {
-            return id
-        }
-        return nil
+        v2Handles.uuid(forRef: handle)
     }
 
-    func v2Ref(kind: V2HandleKind, uuid: UUID?) -> Any {
+    func v2Ref(kind: ControlHandleKind, uuid: UUID?) -> Any {
         guard let uuid else { return NSNull() }
         return v2EnsureHandleRef(kind: kind, uuid: uuid)
     }
@@ -4942,16 +4839,16 @@ class TerminalController {
         }
         let childIds = parsedChildIds
         // When the caller explicitly listed children, refuse to create an
-        // anchor-only group if every one of them was ineligible (pinned or
-        // already an anchor of another group). The keyboard-shortcut path
+        // anchor-only group if every one of them was already an anchor of
+        // another group. The keyboard-shortcut path
         // already enforces this; the socket/CLI path used to return OK with
         // a fresh empty group, hiding the real failure.
         if childrenExplicit, !parsedChildIds.isEmpty {
             let ineligible: [String] = v2MainSync {
                 let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
                 return parsedChildIds.compactMap { id -> String? in
-                    guard let tab = tabManager.tabs.first(where: { $0.id == id }) else { return nil }
-                    if tab.isPinned || existingAnchorIds.contains(id) {
+                    guard tabManager.tabs.contains(where: { $0.id == id }) else { return nil }
+                    if existingAnchorIds.contains(id) {
                         return id.uuidString
                     }
                     return nil
@@ -4960,7 +4857,10 @@ class TerminalController {
             if ineligible.count == parsedChildIds.count {
                 return .err(
                     code: "invalid_state",
-                    message: "All requested children are ineligible (pinned or already an anchor); ungroup or unpin them first",
+                    message: String(
+                        localized: "workspaceGroup.error.allChildrenAreAnchors",
+                        defaultValue: "All requested children are ineligible because they are already group anchors; ungroup them first"
+                    ),
                     data: ["ineligible_workspace_ids": ineligible]
                 )
             }
@@ -5105,20 +5005,19 @@ class TerminalController {
             guard let tab = tabManager.tabs.first(where: { $0.id == wsId }), hasGroup else {
                 return
             }
-            // addWorkspaceToGroup silently no-ops for pinned workspaces and
-            // for anchors of other groups. Confirm membership actually
-            // changed before reporting success so scripts don't get OK on a
-            // no-op.
+            // addWorkspaceToGroup silently no-ops for anchors of other
+            // groups. Confirm membership actually changed before reporting
+            // success so scripts don't get OK on a no-op.
             tabManager.addWorkspaceToGroup(workspaceId: wsId, groupId: gid)
             if tab.groupId == gid {
                 ok = true
             } else {
-                if tab.isPinned {
+                if tabManager.workspaceGroups.contains(where: { $0.id != gid && $0.anchorWorkspaceId == wsId }) {
                     failureCode = "invalid_state"
-                    failureMessage = "Workspace is pinned and cannot join a group"
-                } else if tabManager.workspaceGroups.contains(where: { $0.id != gid && $0.anchorWorkspaceId == wsId }) {
-                    failureCode = "invalid_state"
-                    failureMessage = "Workspace is the anchor of another group; ungroup it first"
+                    failureMessage = String(
+                        localized: "workspaceGroup.error.workspaceIsOtherGroupAnchor",
+                        defaultValue: "Workspace is the anchor of another group; ungroup it first"
+                    )
                 }
             }
         }
@@ -15578,11 +15477,11 @@ class TerminalController {
     /// generate a deterministic 60Hz-style drag load without HID synthesis.
     /// Never commits the reorder; calls back with the synthesized step path.
     ///
-    /// Runs on the socket worker (see `socketWorkerV2Methods`) so the
+    /// Runs on the socket worker (see `ControlCommandExecutionPolicy`) so the
     /// inter-tick `Thread.sleep` doesn't block the main actor — every
     /// dragState mutation hops to main via `v2MainSync`.
     private nonisolated func v2DebugSidebarSimulateDrag(params: [String: Any]) -> V2CallResult {
-        // Dispatched on the socket worker (see socketWorkerV2Methods) so the
+        // Dispatched on the socket worker (see ControlCommandExecutionPolicy) so the
         // inter-tick Thread.sleep doesn't block the main actor. All parameter
         // resolution (including workspace:N -> UUID ref-resolution) and the
         // SidebarDragState mutations hop to main via v2MainSync.
@@ -20777,6 +20676,8 @@ class TerminalController {
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
+        case "mobile.terminal.paste_image", "terminal.paste_image":
+            result = v2MobileTerminalPasteImage(params: request.params)
         case "mobile.terminal.replay", "terminal.replay":
             result = v2MobileTerminalReplay(params: request.params)
         case "mobile.terminal.viewport", "terminal.viewport":
@@ -20787,6 +20688,10 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+#if DEBUG
+        case "dogfood.feedback.submit":
+            result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
+#endif
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method
@@ -20794,6 +20699,183 @@ class TerminalController {
         }
         return mobileHostResult(result)
     }
+
+#if DEBUG
+    /// Hard caps for the DEV dogfood feedback sink. A debug client is the only
+    /// caller, but a malformed or hostile request must not be able to allocate
+    /// huge buffers, block the Mac UI, or grow the cache without bound. Strings
+    /// are capped by character count before any large allocation; the base64
+    /// blob is rejected outright past its cap (so it is never decoded), and a
+    /// decoded blob past the byte cap is dropped.
+    nonisolated private static let dogfoodFeedbackMaxTextChars = 16_384
+    nonisolated private static let dogfoodFeedbackMaxTerminalChars = 262_144
+    nonisolated private static let dogfoodFeedbackMaxBuildStampChars = 512
+    nonisolated private static let dogfoodFeedbackMaxBlobBase64Chars = 8_388_608 // ~6 MiB decoded
+    nonisolated private static let dogfoodFeedbackMaxBlobBytes = 6_291_456 // 6 MiB
+    /// Keep at most this many bundle directories; older ones are pruned after
+    /// each write so a retrying client can't grow the cache without bound.
+    nonisolated private static let dogfoodFeedbackMaxRetainedBundles = 50
+
+    /// DEV-only dogfood feedback sink (P1 of the Mac↔phone feedback loop).
+    ///
+    /// Decodes `{ text, terminal_text, build_stamp, diagnostic_blob_base64 }`,
+    /// writes a self-contained bundle directory under
+    /// `~/.cache/cmux-dogfood-feedback/<ISO8601>_<shortid>/` (a `bundle.json`
+    /// manifest plus the decoded `diagnostic.log`), and returns the bundle path.
+    /// Gated behind `#if DEBUG` and the same-account Stack-auth authorization the
+    /// rest of the mobile data plane enforces, so it never exists in a release
+    /// build and never accepts an unauthenticated caller.
+    ///
+    /// Field sizes are capped on the main actor *before* any large allocation,
+    /// invalid/oversized base64 is rejected without decoding, and the decode +
+    /// filesystem writes run off the main actor so a large payload cannot block
+    /// the Mac UI.
+    private func v2MobileDogfoodFeedbackSubmit(params: [String: Any]) async -> V2CallResult {
+        // Cheap main-actor validation first: cap each field by character count
+        // before allocating anything large, and reject an oversized base64 blob
+        // outright so it is never decoded into a giant Data.
+        let text = String((v2RawString(params, "text") ?? "").prefix(Self.dogfoodFeedbackMaxTextChars))
+        let terminalText = String((v2RawString(params, "terminal_text") ?? "").prefix(Self.dogfoodFeedbackMaxTerminalChars))
+        let buildStamp = String((v2RawString(params, "build_stamp") ?? "").prefix(Self.dogfoodFeedbackMaxBuildStampChars))
+        let diagnosticBlobBase64 = v2RawString(params, "diagnostic_blob_base64") ?? ""
+        guard diagnosticBlobBase64.count <= Self.dogfoodFeedbackMaxBlobBase64Chars else {
+            return .err(
+                code: "invalid_params",
+                message: "diagnostic_blob_base64 exceeds size limit",
+                data: nil
+            )
+        }
+
+        let maxBlobBytes = Self.dogfoodFeedbackMaxBlobBytes
+        // Off-main: decode the blob and write the bundle. A `Task.detached`
+        // keeps the (potentially multi-MiB) decode + synchronous file I/O off the
+        // main actor so it never stalls the Mac UI. Returns a Sendable result.
+        let outcome = await Task.detached(priority: .utility) { () -> DogfoodFeedbackWriteOutcome in
+            let decoded = Data(base64Encoded: diagnosticBlobBase64) ?? Data()
+            guard decoded.count <= maxBlobBytes else {
+                return .rejected(reason: "diagnostic blob exceeds size limit")
+            }
+            return Self.writeDogfoodFeedbackBundle(
+                text: text,
+                terminalText: terminalText,
+                buildStamp: buildStamp,
+                diagnosticData: decoded
+            )
+        }.value
+
+        switch outcome {
+        case let .written(bundlePath, byteCount):
+            return .ok([
+                "ok": true,
+                "bundle_path": bundlePath,
+                "diagnostic_log_bytes": byteCount,
+            ])
+        case let .rejected(reason):
+            return .err(code: "invalid_params", message: reason, data: nil)
+        case .failed:
+            return .err(
+                code: "internal_error",
+                message: "Failed to persist dogfood feedback bundle",
+                data: nil
+            )
+        }
+    }
+
+    /// The result of writing a dogfood feedback bundle off the main actor.
+    private enum DogfoodFeedbackWriteOutcome: Sendable {
+        case written(bundlePath: String, byteCount: Int)
+        case rejected(reason: String)
+        case failed
+    }
+
+    /// Persist a validated dogfood feedback bundle to disk. Runs off the main
+    /// actor (called from a detached task), so its synchronous file I/O never
+    /// blocks the Mac UI. All inputs are already size-capped by the caller.
+    nonisolated private static func writeDogfoodFeedbackBundle(
+        text: String,
+        terminalText: String,
+        buildStamp: String,
+        diagnosticData: Data
+    ) -> DogfoodFeedbackWriteOutcome {
+        let fileManager = FileManager.default
+        let root = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache", isDirectory: true)
+            .appendingPathComponent("cmux-dogfood-feedback", isDirectory: true)
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        // Colons are legal in HFS+/APFS but awkward in shell globs; swap for `-`
+        // so the directory name is paste-safe.
+        let timestamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let shortID = String(UUID().uuidString.prefix(8)).lowercased()
+        let bundleDir = root.appendingPathComponent("\(timestamp)_\(shortID)", isDirectory: true)
+
+        do {
+            // The bundle holds visible terminal text and debug logs, which can
+            // contain credentials or other private data. Create the root and
+            // bundle dirs owner-only (0700) so no other local user can traverse
+            // into them, and chmod the written files to 0600. The dir is created
+            // 0700 first, so even the brief window before the file chmod is not
+            // world-readable through a traversable parent.
+            let dirAttributes: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
+            try fileManager.createDirectory(
+                at: root,
+                withIntermediateDirectories: true,
+                attributes: dirAttributes
+            )
+            try fileManager.createDirectory(
+                at: bundleDir,
+                withIntermediateDirectories: true,
+                attributes: dirAttributes
+            )
+            let diagnosticURL = bundleDir.appendingPathComponent("diagnostic.log")
+            try diagnosticData.write(to: diagnosticURL)
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: diagnosticURL.path)
+            let manifest: [String: Any] = [
+                "schema": "cmux.dogfood.feedback.v1",
+                "received_at": formatter.string(from: Date()),
+                "text": text,
+                "terminal_text": terminalText,
+                "build_stamp": buildStamp,
+                "diagnostic_log_file": "diagnostic.log",
+                "diagnostic_log_bytes": diagnosticData.count,
+            ]
+            let manifestData = try JSONSerialization.data(
+                withJSONObject: manifest,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+            let manifestURL = bundleDir.appendingPathComponent("bundle.json")
+            try manifestData.write(to: manifestURL)
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: manifestURL.path)
+        } catch {
+            return .failed
+        }
+
+        pruneDogfoodFeedbackBundles(root: root, keep: dogfoodFeedbackMaxRetainedBundles)
+        return .written(bundlePath: bundleDir.path, byteCount: diagnosticData.count)
+    }
+
+    /// Keep only the newest `keep` bundle directories under `root`, deleting the
+    /// rest. The directory names start with an ISO8601 timestamp, so a
+    /// lexicographic sort is chronological. Best-effort: a failure to enumerate
+    /// or remove is ignored (it only affects cleanup, not the just-written
+    /// bundle). Runs off the main actor with its writer.
+    nonisolated private static func pruneDogfoodFeedbackBundles(root: URL, keep: Int) {
+        let fileManager = FileManager.default
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let directories = entries
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard directories.count > keep else { return }
+        for stale in directories.dropLast(keep) {
+            try? fileManager.removeItem(at: stale)
+        }
+    }
+#endif
 
     /// The `workspace.action` sub-actions the mobile data plane may invoke.
     ///
@@ -20995,10 +21077,6 @@ class TerminalController {
         createdWorkspaceID: String? = nil,
         createdTerminalID: String? = nil
     ) -> V2CallResult {
-        guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
-        }
-
         let requestedWorkspaceID = v2UUID(params, "workspace_id")
         if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceID == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -21014,54 +21092,87 @@ class TerminalController {
         case .conflict:
             return .err(code: "invalid_params", message: "Conflicting terminal identifiers", data: nil)
         }
-        let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
-            tabManager.tabs.filter { $0.id == workspaceID }
-        } ?? tabManager.tabs
-        if let requestedWorkspaceID, visibleWorkspaces.isEmpty {
-            return .err(
-                code: "not_found",
-                message: "Workspace not found",
-                data: ["workspace_id": requestedWorkspaceID.uuidString]
-            )
-        }
 
-        let workspaces = visibleWorkspaces.enumerated().map { _, workspace in
-            let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
-                if let requestedTerminalID, terminal.id != requestedTerminalID {
-                    return nil
-                }
-                return [
-                    "id": terminal.id.uuidString,
-                    "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
-                    "current_directory": v2OrNull(
-                        mobileNonEmpty(workspace.panelDirectories[terminal.id])
-                            ?? mobileNonEmpty(terminal.directory)
-                            ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
-                    ),
-                    "is_ready": terminal.surface.surface != nil,
-                    "is_focused": terminal.id == workspace.focusedPanelId
-                ]
+        // The phone shows workspaces from *every* open Mac window. Enumerate all
+        // registered main windows and flatten their workspaces into one list,
+        // but only when the caller has not named a specific target. When a
+        // `workspace_id`, `window_id`, terminal alias, or an explicit
+        // `resolvedTabManager` (the create/terminal-create paths pass one) is
+        // present, keep today's single-window scoped behavior so those requests
+        // resolve exactly the named target.
+        let scopeToSingleWindow = resolvedTabManager != nil
+            || requestedWorkspaceID != nil
+            || v2HasNonNullParam(params, "window_id")
+            || requestedTerminalID != nil
+
+        // `is_selected` has no single answer across multiple windows. Mark only
+        // the frontmost/key window's selected workspace as selected; in the old
+        // single-window path this is exactly the one selected workspace. Using
+        // `currentScriptableMainWindow()` (not `isKeyWindow`) means a backgrounded
+        // app, where no window is key, still reports the same selection the old
+        // path would have, instead of marking nothing selected.
+        let selectedWorkspaceID = scopeToSingleWindow
+            ? nil
+            : AppDelegate.shared?.currentScriptableMainWindow()?.tabManager.selectedTabId
+
+        let workspaces: [[String: Any]]
+        if scopeToSingleWindow {
+            guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
+                return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
             }
-
-            return [
-                "id": workspace.id.uuidString,
-                "title": workspace.title,
-                "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
-                "is_selected": workspace.id == tabManager.selectedTabId,
-                "is_pinned": workspace.isPinned,
-                "terminals": terminals
-            ]
-        }
-        if let requestedTerminalID,
-           !workspaces.contains(where: { workspace in
-               guard let terminals = workspace["terminals"] as? [[String: Any]] else { return false }
-               return terminals.contains { ($0["id"] as? String) == requestedTerminalID.uuidString }
-           }) {
-            return .err(
-                code: "not_found",
-                message: "Terminal not found",
-                data: ["surface_id": requestedTerminalID.uuidString]
-            )
+            let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
+                tabManager.tabs.filter { $0.id == workspaceID }
+            } ?? tabManager.tabs
+            if let requestedWorkspaceID, visibleWorkspaces.isEmpty {
+                return .err(
+                    code: "not_found",
+                    message: "Workspace not found",
+                    data: ["workspace_id": requestedWorkspaceID.uuidString]
+                )
+            }
+            let scopedWorkspaces = visibleWorkspaces.map { workspace in
+                mobileWorkspacePayload(
+                    workspace: workspace,
+                    isSelected: workspace.id == tabManager.selectedTabId,
+                    requestedTerminalID: requestedTerminalID
+                )
+            }
+            if let requestedTerminalID,
+               !scopedWorkspaces.contains(where: { workspace in
+                   guard let terminals = workspace["terminals"] as? [[String: Any]] else { return false }
+                   return terminals.contains { ($0["id"] as? String) == requestedTerminalID.uuidString }
+               }) {
+                return .err(
+                    code: "not_found",
+                    message: "Terminal not found",
+                    data: ["surface_id": requestedTerminalID.uuidString]
+                )
+            }
+            workspaces = scopedWorkspaces
+        } else {
+            guard let app = AppDelegate.shared else {
+                return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
+            }
+            var flattened: [[String: Any]] = []
+            // `listMainWindowSummaries()` already dedupes window ids, but guard
+            // against the same window or workspace appearing twice anyway: a
+            // workspace lives in exactly one window, and ids are globally unique.
+            var seenWindowIDs: Set<UUID> = []
+            var seenWorkspaceIDs: Set<UUID> = []
+            for summary in app.listMainWindowSummaries() {
+                guard seenWindowIDs.insert(summary.windowId).inserted else { continue }
+                guard let windowTabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+                for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+                    flattened.append(
+                        mobileWorkspacePayload(
+                            workspace: workspace,
+                            isSelected: workspace.id == selectedWorkspaceID,
+                            requestedTerminalID: requestedTerminalID
+                        )
+                    )
+                }
+            }
+            workspaces = flattened
         }
 
         var payload: [String: Any] = [
@@ -21074,6 +21185,46 @@ class TerminalController {
             payload["created_terminal_id"] = createdTerminalID
         }
         return .ok(payload)
+    }
+
+    /// Serializes one workspace into the iOS-facing mobile workspace list shape.
+    ///
+    /// Shared by the single-window (scoped) and all-windows enumeration branches
+    /// of `v2MobileWorkspaceList` so the two never diverge. When
+    /// `requestedTerminalID` is non-nil the terminals array is filtered to that
+    /// one terminal (only the scoped branch passes it; the all-windows branch
+    /// always passes nil, so it lists every terminal). The scoped
+    /// terminal-not-found check is enforced by the caller after the list is built.
+    private func mobileWorkspacePayload(
+        workspace: Workspace,
+        isSelected: Bool,
+        requestedTerminalID: UUID?
+    ) -> [String: Any] {
+        let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
+            if let requestedTerminalID, terminal.id != requestedTerminalID {
+                return nil
+            }
+            return [
+                "id": terminal.id.uuidString,
+                "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
+                "current_directory": v2OrNull(
+                    mobileNonEmpty(workspace.panelDirectories[terminal.id])
+                        ?? mobileNonEmpty(terminal.directory)
+                        ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
+                ),
+                "is_ready": terminal.surface.surface != nil,
+                "is_focused": terminal.id == workspace.focusedPanelId
+            ]
+        }
+
+        return [
+            "id": workspace.id.uuidString,
+            "title": workspace.title,
+            "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
+            "is_selected": isSelected,
+            "is_pinned": workspace.isPinned,
+            "terminals": terminals
+        ]
     }
 
     private enum MobileTerminalAliasUUID {
@@ -21438,6 +21589,60 @@ class TerminalController {
             payload["terminal_seq"] = seq
         }
         return .ok(payload)
+    }
+
+    /// Handle `terminal.paste_image`: a paired client (the iOS app) forwards an
+    /// image it pasted as base64 bytes. We materialize it to a temp file on the
+    /// Mac and inject the shell-escaped path as terminal input, exactly the way a
+    /// local clipboard-image paste does, so the running TUI (e.g. Claude Code)
+    /// attaches the image from the path.
+    private func v2MobileTerminalPasteImage(params: [String: Any]) -> V2CallResult {
+        guard let base64 = v2RawString(params, "image_base64"),
+              let imageData = Data(base64Encoded: base64), !imageData.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or invalid image_base64", data: nil)
+        }
+        let format = v2RawString(params, "image_format") ?? "png"
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+
+        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+
+        guard let escapedPath = GhosttyPasteboardHelper.saveImageData(imageData, fileExtension: format) else {
+            return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
+        }
+
+        let sendResult = terminalPanel.surface.sendInputResult(escapedPath)
+        switch sendResult {
+        case .sent:
+            terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPasteImage")
+        case .queued:
+            break
+        case .inputQueueFull:
+            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
+        case .surfaceUnavailable:
+            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+        case .processExited:
+            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
+        }
+        #if DEBUG
+        cmuxDebugLog(
+            "mobile.terminal.paste_image workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) bytes=\(imageData.count) format=\(format)"
+        )
+        #endif
+        return .ok([
+            "workspace_id": resolved.workspace.id.uuidString,
+            "surface_id": terminalPanel.id.uuidString,
+            "queued": sendResult == .queued,
+        ])
     }
 
     private func applyMobileViewportReport(
