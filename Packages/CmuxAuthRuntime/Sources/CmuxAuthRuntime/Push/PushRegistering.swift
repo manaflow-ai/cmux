@@ -31,9 +31,24 @@ public protocol PushRegistering: Sendable {
 
     /// Mute or unmute a workspace for phone push, persisting locally and syncing
     /// the full muted set to the cmux web API. Persists even when not signed in;
-    /// the next ``syncMutedWorkspacesIfPossible()`` re-uploads.
+    /// the next ``hydrateMutedWorkspacesFromServer()`` reconciles against the
+    /// server set. Concurrent toggles are coalesced into a single in-flight PUT.
     func setWorkspaceMuted(_ workspaceId: String, muted: Bool) async
 
-    /// Re-upload the muted set when possible (e.g. after sign-in).
-    func syncMutedWorkspacesIfPossible() async
+    /// Pull the authoritative muted set from the server and replace the local
+    /// cache with it (call on sign-in). The server set is keyed by the
+    /// authenticated user, so this is what scopes mutes per account: a different
+    /// user signing in overwrites the previous user's locally cached set instead
+    /// of re-uploading it. No-op (keeps local) when signed out or on a network
+    /// failure, so an offline sign-in never wipes a valid local set.
+    /// - Returns: the muted set after hydration (server set on success, the
+    ///   unchanged local set otherwise).
+    @discardableResult
+    func hydrateMutedWorkspacesFromServer() async -> Set<String>
+
+    /// Clear the locally cached muted set (call on sign-out) so the next user
+    /// starts from their own server state, not the previous user's cache. Does
+    /// not touch the server (the signed-out user's server rows are theirs to
+    /// keep); it only prevents cross-account local leakage.
+    func clearLocalMutedWorkspaces() async
 }

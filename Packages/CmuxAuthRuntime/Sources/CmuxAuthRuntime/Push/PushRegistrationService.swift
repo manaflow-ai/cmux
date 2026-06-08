@@ -21,6 +21,16 @@ public actor PushRegistrationService: PushRegistering {
     private let defaults: UserDefaults
     private let session: URLSession
 
+    /// Coalesces concurrent mute uploads into a single in-flight PUT. Swift
+    /// actors are reentrant at `await`, so rapid `setWorkspaceMuted` calls could
+    /// otherwise overlap and let an older full-set PUT land after a newer one
+    /// (the server route is last-writer-wins with no revision). With these two
+    /// flags only one upload runs at a time and, when a mutation arrives mid
+    /// upload, exactly one more upload runs afterward reflecting the latest
+    /// persisted set — so the final server state always matches local.
+    private var isUploadingMutes = false
+    private var mutesNeedResync = false
+
     private static let enabledKey = "cmux.notifications.pushEnabled"
     private static let cachedTokenKey = "cmux.notifications.deviceTokenHex"
     private static let mutedWorkspacesKey = "cmux.notifications.mutedWorkspaceIDs"
@@ -102,14 +112,26 @@ public actor PushRegistrationService: PushRegistering {
         } else {
             set.remove(trimmed)
         }
-        // Persist first so the choice survives even if the upload fails; the
-        // next sign-in / sync re-uploads the authoritative local set.
+        // Persist first (synchronously, before any await) so the choice survives
+        // even if the upload fails or the app dies mid-flight.
         defaults.set(Array(set).sorted(), forKey: Self.mutedWorkspacesKey)
-        await uploadMutedWorkspaces(set)
+        await syncMutedWorkspaces()
     }
 
-    public func syncMutedWorkspacesIfPossible() async {
-        await uploadMutedWorkspaces(cachedMutedWorkspaceIDs)
+    @discardableResult
+    public func hydrateMutedWorkspacesFromServer() async -> Set<String> {
+        guard let serverSet = await fetchMutedWorkspaces() else {
+            // Signed out or network failure: keep the local set so an offline
+            // sign-in never wipes valid local state.
+            return cachedMutedWorkspaceIDs
+        }
+        let bounded = Array(serverSet).sorted().prefix(Self.maxMutedWorkspaces)
+        defaults.set(Array(bounded), forKey: Self.mutedWorkspacesKey)
+        return Set(bounded)
+    }
+
+    public func clearLocalMutedWorkspaces() async {
+        defaults.removeObject(forKey: Self.mutedWorkspacesKey)
     }
 
     private var cachedTokenHex: String? {
@@ -122,6 +144,24 @@ public actor PushRegistrationService: PushRegistering {
         return Set(raw.filter { !$0.isEmpty })
     }
 
+    /// Upload the muted set, coalescing concurrent calls so only one PUT is in
+    /// flight at a time and the last upload always reflects the latest persisted
+    /// set. See ``isUploadingMutes`` / ``mutesNeedResync``.
+    private func syncMutedWorkspaces() async {
+        if isUploadingMutes {
+            mutesNeedResync = true
+            return
+        }
+        isUploadingMutes = true
+        defer { isUploadingMutes = false }
+        repeat {
+            mutesNeedResync = false
+            await uploadMutedWorkspaces(cachedMutedWorkspaceIDs)
+            // A mutation that arrived during the upload set the flag; drain it
+            // with the now-current persisted set so the server converges.
+        } while mutesNeedResync
+    }
+
     private func uploadMutedWorkspaces(_ set: Set<String>) async {
         // Idempotent full-set replace so the server always reflects the phone's
         // authoritative local state. Bounded to mirror the route's limit.
@@ -132,6 +172,31 @@ public actor PushRegistrationService: PushRegistering {
             jsonBody: ["workspaceIds": Array(workspaceIds)]
         ) else { return }
         await perform(request, label: "mute-sync")
+    }
+
+    /// GET the server's muted set, or `nil` when signed out / on any failure (so
+    /// callers fall back to the local cache instead of clobbering it to empty).
+    private func fetchMutedWorkspaces() async -> Set<String>? {
+        guard let request = await makeRequest(
+            method: "GET",
+            path: "/api/notifications/mutes",
+            jsonBody: nil
+        ) else { return nil }
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                pushLog.error("mute-fetch failed status=\((response as? HTTPURLResponse)?.statusCode ?? -1, privacy: .public)")
+                return nil
+            }
+            guard
+                let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let ids = object["workspaceIds"] as? [String]
+            else { return nil }
+            return Set(ids.filter { !$0.isEmpty })
+        } catch {
+            pushLog.error("mute-fetch error=\(error.localizedDescription, privacy: .private)")
+            return nil
+        }
     }
 
     private func upload(tokenHex: String) async {
@@ -161,7 +226,7 @@ public actor PushRegistrationService: PushRegistering {
         await makeRequest(method: method, path: path, jsonBody: body)
     }
 
-    private func makeRequest(method: String, path: String, jsonBody: [String: Any]) async -> URLRequest? {
+    private func makeRequest(method: String, path: String, jsonBody: [String: Any]?) async -> URLRequest? {
         let accessToken: String
         do {
             accessToken = try await tokenProvider.accessToken()
@@ -175,7 +240,9 @@ public actor PushRegistrationService: PushRegistering {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: jsonBody)
+        if let jsonBody {
+            request.httpBody = try? JSONSerialization.data(withJSONObject: jsonBody)
+        }
         return request
     }
 

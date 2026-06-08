@@ -15,22 +15,43 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
         // URLProtocol nils out `httpBody` when the loading system converts it to
         // a stream, so read the stream to capture the JSON body for assertions.
         let bodyData = Self.bodyData(from: request)
+        let host = request.url?.host ?? ""
+        let method = request.httpMethod ?? "?"
         let captured = RecordedRequest(
-            host: request.url?.host ?? "",
-            method: request.httpMethod ?? "?",
+            host: host,
+            method: method,
             path: request.url?.path ?? "",
             body: bodyData
         )
+        // Snapshot the canned GET response synchronously so the response is ready
+        // before this loader finishes (the recorder actor read is deferred).
+        let cannedResponse = Self.responses[host]
         Task { await RecordingURLProtocol.recorder.record(captured) }
+        let status = (method == "GET") ? (cannedResponse?.status ?? 200) : 200
         let response = HTTPURLResponse(
             url: request.url!,
-            statusCode: 200,
+            statusCode: status,
             httpVersion: nil,
             headerFields: nil
         )!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data())
+        if method == "GET", let body = cannedResponse?.body {
+            client?.urlProtocol(self, didLoad: body)
+        } else {
+            client?.urlProtocol(self, didLoad: Data())
+        }
         client?.urlProtocolDidFinishLoading(self)
+    }
+
+    /// Per-host canned GET responses, keyed by the test's unique API host. Set
+    /// synchronously before the service performs its GET. `nonisolated(unsafe)`
+    /// is acceptable here because each test uses a distinct host and sets its
+    /// entry before kicking off the request that reads it.
+    nonisolated(unsafe) static var responses: [String: CannedResponse] = [:]
+
+    struct CannedResponse: Sendable {
+        var status: Int = 200
+        var body: Data?
     }
 
     override func stopLoading() {}
@@ -66,7 +87,6 @@ struct RecordedRequest: Sendable {
 actor RequestRecorder {
     private(set) var requests: [RecordedRequest] = []
     func record(_ request: RecordedRequest) { requests.append(request) }
-    func reset() { requests = [] }
 
     /// HTTP methods recorded for `host`, in order.
     func methods(host: String) -> [String] {
@@ -76,6 +96,11 @@ actor RequestRecorder {
     /// Whether any request was recorded for `host`.
     func hasRequests(host: String) -> Bool {
         requests.contains { $0.host == host }
+    }
+
+    /// Number of requests recorded for `host`.
+    func count(host: String) -> Int {
+        requests.filter { $0.host == host }.count
     }
 
     /// The decoded `workspaceIds` array from the most recent mute-sync PUT for
@@ -206,11 +231,85 @@ struct FakeTokenProvider: TokenProviding {
     }
 
     @Test func mutingWithoutAuthStillPersistsLocally() async {
-        // No tokens → upload is skipped, but the local choice must persist so the
-        // next sign-in re-uploads it.
+        // No tokens → upload is skipped, but the local choice must persist.
         let (service, _, host) = makeService(tokenProvider: FakeTokenProvider(access: nil, refresh: nil))
         await service.setWorkspaceMuted("ws-a", muted: true)
         #expect(await service.mutedWorkspaceIDs == ["ws-a"])
         #expect(await RecordingURLProtocol.recorder.hasRequests(host: host) == false)
+    }
+
+    @Test func rapidTogglesCoalesceToASingleConvergedUpload() async {
+        let (service, _, host) = makeService()
+        // Fire many toggles back-to-back. With coalescing, the final server
+        // upload must reflect the final local set, not an intermediate one.
+        async let a: Void = service.setWorkspaceMuted("ws-a", muted: true)
+        async let b: Void = service.setWorkspaceMuted("ws-b", muted: true)
+        async let c: Void = service.setWorkspaceMuted("ws-a", muted: false)
+        async let d: Void = service.setWorkspaceMuted("ws-c", muted: true)
+        _ = await (a, b, c, d)
+        let finalLocal = await service.mutedWorkspaceIDs
+        // The last PUT the server sees must equal the final local set.
+        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs(host: host) == finalLocal.sorted())
+    }
+
+    // MARK: - Sign-in hydration / sign-out clear (per-user scoping)
+
+    @Test func hydrateReplacesLocalWithServerSet() async {
+        let (service, _, host) = makeService()
+        // A previous account left "ws-stale" cached locally.
+        await service.setWorkspaceMuted("ws-stale", muted: true)
+        #expect(await service.mutedWorkspaceIDs == ["ws-stale"])
+
+        // The signed-in user's server set is ["ws-server-1", "ws-server-2"].
+        RecordingURLProtocol.responses[host] = .init(
+            body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": ["ws-server-1", "ws-server-2"]])
+        )
+        let hydrated = await service.hydrateMutedWorkspacesFromServer()
+        // Local is replaced wholesale by the server set; the stale id is gone.
+        #expect(hydrated == ["ws-server-1", "ws-server-2"])
+        #expect(await service.mutedWorkspaceIDs == ["ws-server-1", "ws-server-2"])
+    }
+
+    @Test func hydrateKeepsLocalWhenServerUnreachable() async {
+        // No tokens → the GET is never made; the local set must survive so an
+        // offline sign-in does not wipe valid local state.
+        let (service, _, _) = makeService(tokenProvider: FakeTokenProvider(access: nil, refresh: nil))
+        await service.setWorkspaceMuted("ws-local", muted: true)
+        let hydrated = await service.hydrateMutedWorkspacesFromServer()
+        #expect(hydrated == ["ws-local"])
+        #expect(await service.mutedWorkspaceIDs == ["ws-local"])
+    }
+
+    @Test func hydrateKeepsLocalOnServerError() async {
+        let (service, _, host) = makeService()
+        await service.setWorkspaceMuted("ws-local", muted: true)
+        // Server returns 500 → keep local rather than clobber to empty.
+        RecordingURLProtocol.responses[host] = .init(status: 500, body: nil)
+        let hydrated = await service.hydrateMutedWorkspacesFromServer()
+        #expect(hydrated == ["ws-local"])
+        #expect(await service.mutedWorkspaceIDs == ["ws-local"])
+    }
+
+    @Test func hydrateToEmptyServerSetClearsLocal() async {
+        let (service, _, host) = makeService()
+        await service.setWorkspaceMuted("ws-stale", muted: true)
+        // The signed-in user has no server mutes → local should end up empty.
+        RecordingURLProtocol.responses[host] = .init(
+            body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": [String]()])
+        )
+        let hydrated = await service.hydrateMutedWorkspacesFromServer()
+        #expect(hydrated.isEmpty)
+        #expect(await service.mutedWorkspaceIDs.isEmpty)
+    }
+
+    @Test func clearLocalRemovesCachedSetWithoutServerCall() async {
+        let (service, _, host) = makeService()
+        await service.setWorkspaceMuted("ws-a", muted: true)
+        let beforeClear = await RecordingURLProtocol.recorder.count(host: host)
+        await service.clearLocalMutedWorkspaces()
+        #expect(await service.mutedWorkspaceIDs.isEmpty)
+        // Sign-out clear is local-only: it must issue no new PUT/DELETE for the
+        // server set (request count for this host is unchanged by the clear).
+        #expect(await RecordingURLProtocol.recorder.count(host: host) == beforeClear)
     }
 }

@@ -86,6 +86,15 @@ public final class MobilePushCoordinator {
         mutedWorkspaceIDs.contains(workspaceId)
     }
 
+    /// Pull the authoritative muted set from the server and republish the
+    /// observable from it. Call on sign-in: the server set is keyed by the
+    /// authenticated user, so this overwrites any locally cached set from a
+    /// previous account instead of re-uploading it. A network failure / signed
+    /// out state keeps the existing local set (no clobber to empty).
+    public func refreshMutedWorkspacesFromServer() {
+        Task { mutedWorkspaceIDs = await registration.hydrateMutedWorkspacesFromServer() }
+    }
+
     /// Toggle phone-push mute for a workspace. Updates the observable set
     /// optimistically (so the list re-renders at once), persists, and syncs the
     /// full muted set to the server, where delivery is actually gated.
@@ -154,6 +163,16 @@ public final class MobilePushCoordinator {
     /// Remove the cached token from the server (on sign-out).
     public func unregisterFromServer() async {
         await registration.unregisterFromServer()
+    }
+
+    /// Sign-out cleanup: remove the token server-side AND clear the locally
+    /// cached muted set + observable, so the next user starts from their own
+    /// server state instead of inheriting this account's mutes. Does not touch
+    /// the signed-out user's server mute rows (those are theirs to keep).
+    public func handleSignedOut() async {
+        await registration.unregisterFromServer()
+        await registration.clearLocalMutedWorkspaces()
+        mutedWorkspaceIDs = []
     }
 
     /// Whether to show a banner while the app is foreground. Suppressed when the
