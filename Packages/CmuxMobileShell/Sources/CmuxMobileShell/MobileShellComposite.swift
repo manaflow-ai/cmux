@@ -1211,8 +1211,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         // The currently-active Mac to fall back to if the connect fails, so the
-        // destructive connect below can be rolled back (mirrors switchToMac).
-        let previousActive = pairedMacs.first { $0.isActive && $0.macDeviceID != device.deviceId }
+        // destructive connect below can be rolled back. Unlike switchToMac, this
+        // does NOT exclude the tapped device: a Mac can run multiple tagged builds,
+        // so tapping another tag on the *currently connected* device must still be
+        // able to reconnect that same device's active route if the new tag is
+        // stale/offline. Excluding it would strand the user on a same-device tag
+        // switch failure.
+        let previousActive = pairedMacs.first { $0.isActive }
         await connectManualHost(name: device.displayName ?? host, host: host, port: port)
         // Persist as the active paired Mac only when the live connection is to
         // THIS route (a switch tapped while this connect was in flight could win
