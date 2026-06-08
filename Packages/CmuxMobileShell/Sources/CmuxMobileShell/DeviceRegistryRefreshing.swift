@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+public import CmuxMobileShellModel
 
 /// A best-effort lookup of fresher attach routes for a paired Mac from the
 /// team-scoped device registry.
@@ -21,4 +22,15 @@ public protocol DeviceRegistryRefreshing: Sendable {
     ///   `nil` and `[]` are both treated as "no fresher routes" by
     ///   ``DeviceRegistryService/selectReconnectRoutes(local:registry:)``.
     func freshRoutes(forMacDeviceID macDeviceID: String) async -> [CmxAttachRoute]?
+
+    /// List the team's registered devices and their running cmux app instances,
+    /// for the device tree (device → tags → workspaces).
+    ///
+    /// The same team-scoped `GET /api/devices` response that backs
+    /// ``freshRoutes(forMacDeviceID:)``, decoded into the full two-level model
+    /// rather than narrowed to one Mac's routes. Best-effort like the rest of the
+    /// registry: returns `nil` when the registry is unreachable, the call is
+    /// unauthorized, or the response is malformed, so the tree falls back to the
+    /// locally known paired Macs and the app keeps working with the cloud down.
+    func listDevices() async -> [RegistryDevice]?
 }

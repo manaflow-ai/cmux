@@ -116,7 +116,8 @@ struct WorkspaceListView: View {
                 connectedHostName: host,
                 rescanQR: rescanQR,
                 signOut: signOut,
-                store: store
+                store: store,
+                selectWorkspace: selectWorkspace
             )
         }
         #endif
