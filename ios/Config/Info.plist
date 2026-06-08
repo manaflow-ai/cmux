@@ -55,6 +55,16 @@
 	<string>Scan cmux pairing QR codes from your Mac terminal.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your Mac on the local network for cmux mobile pairing and terminal sync.</string>
+	<!-- NSAllowsLocalNetworking permits cleartext HTTP only to private/loopback
+	     addresses (RFC 1918 + .local). Dev tagged builds (LocalConfig.plist
+	     ApiBaseURL) point the web API at the Mac's LAN IP over http for
+	     dogfooding device-token registration + push. Production talks HTTPS to
+	     cmux.com, which is unaffected by this exception. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

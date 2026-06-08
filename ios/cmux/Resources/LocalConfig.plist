@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  Local build-time config overrides read by MobileAuthComposition.
+
+  This default is intentionally EMPTY: a tracked, no-override file so production,
+  TestFlight, and CI builds resolve the normal environment defaults (AuthConfig
+  uses cmux.dev / cmux.com). Recognized keys: ApiBaseURL,
+  STACK_PROJECT_ID_DEV/PROD, STACK_PUBLISHABLE_CLIENT_KEY_DEV/PROD.
+
+  `ios/scripts/reload.sh` overwrites this with a dev `ApiBaseURL` (the Mac's LAN
+  origin) before a tagged dev build so a physical iPhone can reach the Mac's web
+  API for device-token registration + push, then restores this default after the
+  build so the dev origin never lands in git.
+-->
+<dict/>
+</plist>
