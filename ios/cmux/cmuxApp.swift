@@ -73,6 +73,7 @@ struct cmuxApp: App {
             reachability: Self.root.reachability,
             analytics: Self.root.analytics.emitter,
             pushCoordinator: Self.root.pushCoordinator,
+            displaySettings: Self.root.displaySettings,
             diagnosticLog: Self.root.diagnosticLog
         )
         #else
@@ -81,7 +82,8 @@ struct cmuxApp: App {
             auth: Self.root.auth,
             reachability: Self.root.reachability,
             analytics: Self.root.analytics.emitter,
-            pushCoordinator: Self.root.pushCoordinator
+            pushCoordinator: Self.root.pushCoordinator,
+            displaySettings: Self.root.displaySettings
         )
         #endif
     }
