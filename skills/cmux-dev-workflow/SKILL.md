@@ -5,6 +5,32 @@ description: "Contributor workflow rules for cmux setup, Xcode project normaliza
 
 # cmux Dev Workflow
 
+## Tagged local dev
+
+After making code changes, always run the reload script with a tag to build the Debug app:
+
+```bash
+./scripts/reload.sh --tag <short-tag>
+```
+
+By default, `reload.sh` builds but does not launch the app. Pass `--launch` only when you need to open it automatically.
+
+Never run bare `xcodebuild` or open an untagged `cmux DEV.app`. Untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
+
+For CLI or socket dogfood against a tagged Debug app, use the tag-bound helper and set `CMUX_TAG`:
+
+```bash
+CMUX_TAG=<tag> scripts/cmux-debug-cli.sh list-workspaces
+```
+
+Do not use `/tmp/cmux-cli` for tagged dogfood. That symlink points at the most recently reloaded build.
+
+When rebuilding cmuxd for release/bundling, always use ReleaseFast:
+
+```bash
+cd cmuxd && zig build -Doptimize=ReleaseFast
+```
+
 ## Initial setup
 
 Run the setup script to initialize submodules, build GhosttyKit, and install the pbxproj normalization pre-commit hook:

@@ -5,6 +5,24 @@ description: "cmux testing rules for Swift Testing, test target compilation, and
 
 # cmux Testing
 
+## Regression test commit policy
+
+When adding a regression test for a bug fix, use a two-commit structure so CI proves the test catches the bug:
+
+1. **Commit 1:** Add the failing test only (no fix). CI should go red.
+2. **Commit 2:** Add the fix. CI should go green.
+
+This makes it visible in the GitHub PR UI that the test genuinely fails without the fix.
+
+## Test quality policy
+
+- Do not add tests that only verify source code text, method signatures, AST fragments, or grep-style patterns.
+- Do not add tests that read checked-in metadata or project files such as `Resources/Info.plist`, `project.pbxproj`, `.xcconfig`, or source files only to assert that a key, string, plist entry, or snippet exists.
+- Tests must verify observable runtime behavior through executable paths (unit/integration/e2e/CLI), not implementation shape.
+- For metadata changes, prefer verifying the built app bundle or the runtime behavior that depends on that metadata, not the checked-in source file.
+- If a behavior cannot be exercised end-to-end yet, add a small runtime seam or harness first, then test through that seam.
+- If no meaningful behavioral or artifact-level test is practical, skip the fake regression test and state that explicitly.
+
 ## Test framework
 
 Swift Testing is the current Apple-supported primitive for tests on this codebase (shipped with Swift 6 / Xcode 16, supported on the macOS versions we target). Use it for everything that is not a UI test.
