@@ -296,8 +296,8 @@ private final class CLISocketSentryTelemetry {
             options.environment = "production-cli"
 #endif
             options.debug = false
-            // Do not send device/user identifying fields by default. The scrubber
-            // below additionally redacts any user fields that slip in.
+            // Defense-in-depth: keep default PII (user, IP, etc.) off the wire.
+            // The scrubber below additionally redacts any user fields that slip in.
             options.sendDefaultPii = false
             options.attachStacktrace = true
             options.tracesSampleRate = 0.0
