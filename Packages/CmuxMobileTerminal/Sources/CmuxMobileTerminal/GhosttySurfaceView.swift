@@ -750,6 +750,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// container so every attached device renders at the same grid. When
     /// nil, the surface fills the container's natural capacity.
     private var effectiveGrid: (cols: Int, rows: Int)?
+    /// Monotonic high-water mark of the authoritative grid carried by the
+    /// ordered render-grid frame stream. This is the single push source for the
+    /// pin: every live frame and the cold-attach replay carry the Mac's grid +
+    /// byte sequence, so the surface converges on attach and on any Mac-side
+    /// resize without a phone-initiated viewport round-trip. The sequence guard
+    /// (see `MobileTerminalGeometryPinDecision`) ensures a stale / out-of-order
+    /// frame can never overwrite a newer grid.
+    private var geometryPin: MobileTerminalGridPin?
     /// Cached cell metrics derived from the most recent
     /// `ghostty_surface_size` measurement. Used to translate an effective
     /// cols×rows pin into a pixel box without re-round-tripping through
@@ -2135,10 +2143,52 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         viewportReportSettleFrames = 0
     }
 
+    /// Pin the surface to the authoritative Mac grid carried by the ordered
+    /// render-grid frame stream (live frames + cold-attach replay).
+    ///
+    /// This is the single push-driven geometry source on a render-grid host: it
+    /// converges the pin on initial attach and on any Mac-side resize with no
+    /// phone-initiated viewport report. The frame stream is an ordered
+    /// `AsyncStream`, so frames apply in the order the Mac produced them; the
+    /// sequence guard in ``MobileTerminalGeometryPinDecision`` is the defensive
+    /// backstop against a cold-attach replay overlapping the first live frames.
+    /// Called from the output-stream consumer immediately before the same
+    /// frame's bytes are applied, so grid and content stay atomic.
+    public func applyAuthoritativeGrid(_ grid: MobileTerminalGridPin) {
+        guard let next = MobileTerminalGeometryPinDecision.nextPin(
+            current: geometryPin,
+            incomingColumns: grid.columns,
+            incomingRows: grid.rows,
+            incomingSeq: grid.geometrySeq
+        ) else { return }
+        geometryPin = next
+        MobileDebugLog.anchormux(
+            "geom.pin eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->"
+            + "\(next.columns)x\(next.rows) seq=\(next.geometrySeq)"
+        )
+        pinEffectiveGrid(cols: next.columns, rows: next.rows)
+    }
+
     public func applyViewSize(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
-        // A value came back from the Mac, so the round-trip recovered.
+        // A value came back from the Mac, so the report round-trip recovered.
         viewportReportRetries = 0
+        // On a render-grid host the ordered frame stream is the sole pin source
+        // (`applyAuthoritativeGrid`), so the RPC reply must NOT pin: doing so
+        // injects an out-of-band update that races the stream and can rewind a
+        // newer frame's grid. Only pin from the reply when the stream has not
+        // established an authoritative grid yet — i.e. a legacy raw-bytes host
+        // whose live byte events carry no grid, where the reply is the only
+        // geometry source. Once any frame carries a grid, the stream owns it.
+        guard geometryPin == nil else { return }
+        pinEffectiveGrid(cols: cols, rows: rows)
+    }
+
+    /// Apply a resolved effective grid to the surface, coalescing the geometry
+    /// recompute. Shared by the push path (``applyAuthoritativeGrid``) and the
+    /// viewport-RPC reply path (``applyViewSize``).
+    private func pinEffectiveGrid(cols: Int, rows: Int) {
+        guard cols > 0, rows > 0 else { return }
         if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
         MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
         effectiveGrid = (cols, rows)

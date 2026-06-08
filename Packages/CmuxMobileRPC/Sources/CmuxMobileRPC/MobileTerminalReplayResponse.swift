@@ -17,9 +17,11 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
     public let renderGrid: MobileTerminalRenderGridFrame?
     /// The host's explicit end sequence, used when no render grid is present.
     public let sequence: UInt64?
-    /// The host grid column count (debug diagnostics only).
+    /// The host's authoritative grid column count. Used to pin the surface's
+    /// geometry on a snapshot/raw-tail replay that carries no render-grid frame.
     public let columns: Int?
-    /// The host grid row count (debug diagnostics only).
+    /// The host's authoritative grid row count. Used to pin the surface's
+    /// geometry on a snapshot/raw-tail replay that carries no render-grid frame.
     public let rows: Int?
 
     private enum CodingKeys: String, CodingKey {

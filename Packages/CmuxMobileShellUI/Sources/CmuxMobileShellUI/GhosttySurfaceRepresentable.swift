@@ -77,9 +77,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
             outputTask = Task { @MainActor [weak surfaceView] in
-                for await data in store.terminalOutputStream(surfaceID: surfaceID) {
+                for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
-                    surfaceView?.processOutput(data)
+                    // Pin the authoritative Mac grid carried by this frame BEFORE
+                    // applying its bytes, so geometry and content stay atomic and
+                    // the surface converges on attach and on any Mac-side resize
+                    // without a phone-initiated viewport round-trip. `nil` grid
+                    // (raw-byte fallback) leaves the pin untouched.
+                    if let grid = chunk.grid {
+                        surfaceView?.applyAuthoritativeGrid(grid)
+                    }
+                    surfaceView?.processOutput(chunk.bytes)
                 }
             }
         }
