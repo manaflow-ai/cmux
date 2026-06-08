@@ -1,4 +1,5 @@
 import XCTest
+import Testing
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -3852,9 +3853,11 @@ final class SidebarWorkspaceAuxiliaryDetailVisibilityTests: XCTestCase {
 }
 
 
-final class SidebarWorkspaceSelectionSyncPolicyTests: XCTestCase {
+@Suite
+struct SidebarWorkspaceSelectionSyncPolicyTests {
     @MainActor
-    func testReconciledSelectionPreservesMultiSelectionAfterReorder() {
+    @Test
+    func reconciledSelectionPreservesMultiSelectionAfterReorder() {
         let first = UUID()
         let second = UUID()
         let third = UUID()
@@ -3867,19 +3870,19 @@ final class SidebarWorkspaceSelectionSyncPolicyTests: XCTestCase {
             fallbackSelectedWorkspaceId: second
         )
 
-        XCTAssertEqual(result, previousSelection)
-        XCTAssertEqual(
+        #expect(result == previousSelection)
+        #expect(
             SidebarWorkspaceSelectionSyncPolicy.anchorIndex(
                 preferredWorkspaceId: second,
                 selectedWorkspaceIds: result,
                 liveWorkspaceIds: [first, third, fourth, second]
-            ),
-            3
+            ) == 3
         )
     }
 
     @MainActor
-    func testReconciledSelectionFallsBackToActiveWorkspaceWhenPreviousSelectionIsGone() {
+    @Test
+    func reconciledSelectionFallsBackToActiveWorkspaceWhenPreviousSelectionIsGone() {
         let first = UUID()
         let second = UUID()
         let removed = UUID()
@@ -3890,7 +3893,115 @@ final class SidebarWorkspaceSelectionSyncPolicyTests: XCTestCase {
             fallbackSelectedWorkspaceId: second
         )
 
-        XCTAssertEqual(result, [second])
+        #expect(result == Set([second]))
+    }
+
+    @MainActor
+    @Test
+    func anchorWorkspaceIdReadsTheExistingAnchorIdentity() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+
+        #expect(
+            SidebarWorkspaceSelectionSyncPolicy.anchorWorkspaceId(
+                existingAnchorIndex: 1,
+                liveWorkspaceIds: [first, second, third]
+            ) == second
+        )
+        #expect(
+            SidebarWorkspaceSelectionSyncPolicy.anchorWorkspaceId(
+                existingAnchorIndex: 3,
+                liveWorkspaceIds: [first, second, third]
+            ) == nil
+        )
+    }
+
+    @MainActor
+    @Test
+    func reorderKeepsRangeAnchorByWorkspaceIdentityInsteadOfFocus() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let fourth = UUID()
+
+        let anchorIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndexAfterWorkspaceReorder(
+            preferredAnchorWorkspaceId: first,
+            selectedWorkspaceIds: [first, second, third],
+            focusedWorkspaceId: third,
+            liveWorkspaceIds: [second, third, first, fourth]
+        )
+
+        #expect(anchorIndex == 2)
+    }
+
+    @MainActor
+    @Test
+    func reorderFallsBackToFocusedWorkspaceWhenRangeAnchorIsNoLongerSelected() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+
+        let anchorIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndexAfterWorkspaceReorder(
+            preferredAnchorWorkspaceId: first,
+            selectedWorkspaceIds: [second, third],
+            focusedWorkspaceId: third,
+            liveWorkspaceIds: [second, third, first]
+        )
+
+        #expect(anchorIndex == 1)
+    }
+
+    @MainActor
+    @Test
+    func shiftClickAnchorFallsBackToSingleSidebarSelection() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+
+        let anchorIndex = SidebarWorkspaceSelectionSyncPolicy.shiftClickAnchorIndex(
+            existingAnchorIndex: nil,
+            selectedWorkspaceIds: [first],
+            focusedWorkspaceId: second,
+            liveWorkspaceIds: [first, second, third]
+        )
+
+        #expect(anchorIndex == 0)
+    }
+
+    @MainActor
+    @Test
+    func shiftClickKeepsExistingAnchorWhileFocusMoves() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+
+        let anchorIndex = SidebarWorkspaceSelectionSyncPolicy.shiftClickAnchorIndex(
+            existingAnchorIndex: 0,
+            selectedWorkspaceIds: [first, second],
+            focusedWorkspaceId: second,
+            liveWorkspaceIds: [first, second, third]
+        )
+        let nextAnchorIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndexAfterWorkspaceClick(
+            isShiftClick: true,
+            resolvedShiftAnchorIndex: anchorIndex,
+            clickedIndex: 2
+        )
+
+        #expect(anchorIndex == 0)
+        #expect(nextAnchorIndex == 0)
+    }
+
+    @MainActor
+    @Test
+    func nonShiftClickMovesSidebarSelectionAnchor() {
+        let nextAnchorIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndexAfterWorkspaceClick(
+            isShiftClick: false,
+            resolvedShiftAnchorIndex: 0,
+            clickedIndex: 2
+        )
+
+        #expect(nextAnchorIndex == 2)
     }
 }
 
