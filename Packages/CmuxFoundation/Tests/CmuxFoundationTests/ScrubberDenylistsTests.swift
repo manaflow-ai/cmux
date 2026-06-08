@@ -111,6 +111,18 @@ import Testing
         ("call sk-proj-abcdef0123456789ABCDEF now", "call <redacted-secret> now"),
         ("clone ghp_0123456789abcdefABCDEF0123456789abcd here", "clone <redacted-secret> here"),
         ("creds AKIAIOSFODNN7EXAMPLE rejected", "creds <redacted-secret> rejected"),
+        // Quoted JSON values whose secret contains a delimiter (`&`, `,`, `}`)
+        // must redact through the CLOSING quote, not stop at the delimiter and
+        // leak the tail (the quote-context split). These are the exact shapes a
+        // raw event message / breadcrumb / NSError description arrives as.
+        (#"{"password":"abc&def"}"#, #"{"password":"<redacted-secret>"}"#),
+        (#"{"token":"a,b,c"}"#, #"{"token":"<redacted-secret>"}"#),
+        (#"{"api_key":"k&v}x"}"#, #"{"api_key":"<redacted-secret>"}"#),
+        (#"cookie="ab&cd""#, #"cookie="<redacted-secret>""#),
+        // Unquoted value: the delimiter is a real field separator and must still
+        // bound the value (so a trailing `&page=2` / `,KEEP=` field survives).
+        ("GET /x?token=supersecret123&page=2", "GET /x?token=<redacted-secret>&page=2"),
+        ("env TOKEN=plainvalue,KEEP=2", "env TOKEN=<redacted-secret>,KEEP=2"),
     ]
 
     @Test(arguments: valueRedactions)

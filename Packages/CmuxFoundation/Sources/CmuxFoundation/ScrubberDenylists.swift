@@ -155,14 +155,35 @@ public struct ScrubberDenylists: Sendable {
         // MY_API_KEY), so optional identifier characters are allowed around it.
         // Conceptually the relay PASSWORD_KEY_REGEX / TOKEN_KEY_REGEX analogue
         // (relay-pii/src/regexes.rs:341-345), hand-tuned for cmux's free text.
+        //
+        // Split into a QUOTED-value rule and an UNQUOTED-value rule because the
+        // value terminator is quote-context-dependent: an unquoted query value
+        // MUST stop at `&`/`,`/`}` (`?token=X&page=2` has to keep `&page=2`),
+        // but those same characters can legitimately appear INSIDE a quoted JSON
+        // value (`"password":"a&b"`), where stopping early would leak the
+        // suffix. The quoted rule captures the opening value quote in its prefix
+        // group and consumes `[^"']*` (everything up to the closing quote); the
+        // unquoted rule keeps the delimiter-bounded `[^\s"'&,}]+`. It does not
+        // attempt to model escaped quotes inside a quoted value (a regex JSON
+        // parser); the structured dict-key layer plus the wholesale Data/user/
+        // cookie drops are the real boundary, this free-text pass is best-effort
+        // defense-in-depth for raw event messages / stack lines / breadcrumbs.
+        // Quoted-value form: redact through the closing quote.
         SentryRegexPattern(
-            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*["']?)[^\s"'&,}]+"#
+            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*["'])[^"']*"#
         ),
         // The bare `sid` session alias (`?sid=…`, `&sid=…`, `sid:…`) carries a
         // session credential but is too short to embed in the marker set above
         // without matching innocuous substrings (`inside=`, `aside=`). A `\b`
         // word boundary anchors it so only a standalone `sid` key is redacted.
-        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*["']?)[^\s"'&,}]+"#),
+        // Quoted-value form (same quote-context split as the marker rule above).
+        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*["'])[^"']*"#),
+        // Unquoted-value form of the marker rule: delimiter-bounded value.
+        SentryRegexPattern(
+            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*)[^\s"'&,}]+"#
+        ),
+        // Unquoted-value form of the bare `sid` alias.
+        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*)[^\s"'&,}]+"#),
         // Provider-style keys: sk-..., pk-..., ghp_..., xoxb-..., and similar
         // prefixes. No relay equivalent — cmux-specific add for dev secrets.
         SentryRegexPattern(#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|xox[baprs])[_\-][A-Za-z0-9_\-]{16,}"#),
