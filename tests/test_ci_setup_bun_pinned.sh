@@ -19,6 +19,19 @@ check_ci_job_bun_setup() {
   fi
 }
 
+check_workflow_bun_setup() {
+  local workflow="$1" expected="$2"
+  local unexpected="$3"
+  if grep -nF "$unexpected" "$workflow"; then
+    echo "FAIL: $workflow runs Bun setup from web/, so it must use $expected" >&2
+    exit 1
+  fi
+  if ! grep -Fq "$expected" "$workflow"; then
+    echo "FAIL: $workflow must install Bun with: $expected" >&2
+    exit 1
+  fi
+}
+
 found_setup=0
 while IFS= read -r workflow; do
   if grep -n 'uses: oven-sh/setup-bun@' "$workflow"; then
@@ -44,5 +57,7 @@ fi
 check_ci_job_bun_setup "web-typecheck" "../scripts/ci/setup-bun-with-retry.sh 1.3.13"
 check_ci_job_bun_setup "web-db-migrations" "../scripts/ci/setup-bun-with-retry.sh 1.3.13"
 check_ci_job_bun_setup "react-apps-check" "./scripts/ci/setup-bun-with-retry.sh 1.3.13"
+check_workflow_bun_setup ".github/workflows/cloud-vm-migrate.yml" "../scripts/ci/setup-bun-with-retry.sh 1.3.13" "run: ./scripts/ci/setup-bun-with-retry.sh"
+check_workflow_bun_setup ".github/workflows/cloud-vm-smoke.yml" "../scripts/ci/setup-bun-with-retry.sh 1.3.13" "run: ./scripts/ci/setup-bun-with-retry.sh"
 
 echo "PASS: Bun setup uses retrying semver-pinned installer"

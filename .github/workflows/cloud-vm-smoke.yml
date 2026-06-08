@@ -57,7 +57,7 @@ jobs:
           ref: refs/heads/main
 
       - name: Setup Bun
-        run: ./scripts/ci/setup-bun-with-retry.sh 1.3.13
+        run: ../scripts/ci/setup-bun-with-retry.sh 1.3.13
 
       - name: Install dependencies
         run: ../scripts/ci/bun-install-frozen.sh
