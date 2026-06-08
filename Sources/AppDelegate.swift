@@ -1332,8 +1332,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 #endif
                 options.sendDefaultPii = false
 
-                // Performance tracing (10% of transactions)
-                options.tracesSampleRate = 0.1
+                // Performance tracing is disabled. The auto-instrumented root
+                // `SentryTransaction.trace` serializes its `data` / `tags` /
+                // `description` into the payload *after* `beforeSend` runs, and
+                // the root tracer is not reachable through the public Sentry API,
+                // so those fields cannot be scrubbed. Disabling transactions
+                // removes that un-scrubbable egress path while keeping crash,
+                // error, and app-hang reporting (which are independent of the
+                // trace sample rate). cmux does not consume these performance
+                // traces today.
+                options.tracesSampleRate = 0.0
                 // Keep app-hang tracking enabled, but avoid reporting short main-thread stalls
                 // as hangs in normal user interaction flows.
                 options.appHangTimeoutInterval = 8.0
@@ -1342,8 +1350,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
                 // Redact file paths, emails, and secrets from every outgoing
-                // event, breadcrumb, and performance span before it leaves the
-                // device. The span hook matters because tracing is enabled above.
+                // event, breadcrumb, and (belt-and-suspenders, if tracing is ever
+                // re-enabled) child performance span before it leaves the device.
                 let scrubber = SentryEventScrubber()
                 options.beforeSend = { event in scrubber.scrub(event) }
                 options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
