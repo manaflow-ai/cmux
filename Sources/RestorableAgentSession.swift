@@ -945,8 +945,12 @@ struct RestorableAgentSessionIndex: Sendable {
 
     /// Loads recorded agent resume metadata without verifying live process state.
     ///
-    /// Background session autosave uses this path so agent hook updates can be
-    /// persisted without sampling the process table on the main actor.
+    /// Use this stale-tolerant entry point for background refreshes and longer-lived
+    /// caches where approximate restore metadata is acceptable. Unlike
+    /// ``RestorableAgentSessionIndex/load(homeDirectory:fileManager:)``, this path
+    /// includes hook records whose PIDs cannot be verified and avoids sampling process
+    /// arguments for performance. Entries returned from this loader intentionally have
+    /// empty `processIDs` sets even when the hook record contains a PID.
     static func loadStaleTolerant(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
@@ -958,7 +962,8 @@ struct RestorableAgentSessionIndex: Sendable {
             registry: registry,
             detectedSnapshots: [:],
             includeUnverifiedProcessRecords: true,
-            // Skip argv lookups here; stale records are safer than a UI-blocking process scan.
+            // This processArgumentsProvider deliberately fails liveness checks so load(...)
+            // keeps stale records without doing argv lookups.
             processArgumentsProvider: { _ in nil }
         )
     }
