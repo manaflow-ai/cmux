@@ -21,10 +21,11 @@ public actor PushRegistrationService: PushRegistering {
     private let defaults: UserDefaults
     private let session: URLSession
 
-    /// Workspaces with an in-flight mute sync, so a second toggle for the same
-    /// workspace updates the pending intent (already persisted) and lets the
-    /// running drain loop pick it up, instead of starting an overlapping POST.
-    /// This serializes per-workspace so the server converges to the LAST action.
+    /// `(userKey, workspaceId)` pairs with an in-flight mute sync, so a second
+    /// toggle for the same user+workspace updates the pending intent (already
+    /// persisted) and lets the running drain loop pick it up, instead of starting
+    /// an overlapping POST. Keyed by user too, so one account's in-flight sync
+    /// never blocks another account's drain for the same workspace.
     private var pendingWorkspaceMuteSyncs: Set<String> = []
 
     private static let enabledKey = "cmux.notifications.pushEnabled"
@@ -147,9 +148,14 @@ public actor PushRegistrationService: PushRegistering {
     /// action regardless of POST completion order. Clears the delta only when the
     /// confirmed value still matches the current pending intent.
     private func drainPendingDelta(workspaceId: String, userKey: String) async {
-        if pendingWorkspaceMuteSyncs.contains(workspaceId) { return }
-        pendingWorkspaceMuteSyncs.insert(workspaceId)
-        defer { pendingWorkspaceMuteSyncs.remove(workspaceId) }
+        // Key the in-flight set by BOTH user and workspace: pending deltas are
+        // per-user, so user A's in-flight `ws-1` sync must not block user B's
+        // `ws-1` sync (which loops over B's own pending map). Keying by workspace
+        // alone would drop B's mutation until a later hydration.
+        let lockKey = "\(userKey)\u{1}\(workspaceId)"
+        if pendingWorkspaceMuteSyncs.contains(lockKey) { return }
+        pendingWorkspaceMuteSyncs.insert(lockKey)
+        defer { pendingWorkspaceMuteSyncs.remove(lockKey) }
         while let intent = pendingDeltas(forUserKey: userKey)[workspaceId] {
             let confirmed = await postMuteMutation(
                 workspaceId: workspaceId, muted: intent, expectedUserKey: userKey
