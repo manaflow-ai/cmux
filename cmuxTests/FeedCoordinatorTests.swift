@@ -319,6 +319,13 @@ struct FeedCoordinatorTests {
                 method: "item/fileChange/requestApproval",
                 params: [:],
                 mode: "always"
+            )?["decision"] as? String == "accept"
+        )
+        #expect(
+            CodexTeamsApprovalBridge.appServerApprovalResponse(
+                method: "item/fileChange/requestApproval",
+                params: ["availableDecisions": ["acceptForSession", "decline"]],
+                mode: "always"
             )?["decision"] as? String == "acceptForSession"
         )
         #expect(

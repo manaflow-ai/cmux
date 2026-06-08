@@ -324,7 +324,7 @@ enum CodexTeamsApprovalBridge {
     private static func fileChangeApprovalDecision(params: [String: Any], mode: String) -> String {
         if mode == "deny" { return rejectApprovalDecision(params: params) }
         if modeRequestsPersistentApproval(mode)
-            && decisionAvailableOrUnspecified("acceptForSession", params: params) {
+            && availableDecisions(params).contains("acceptForSession") {
             return "acceptForSession"
         }
         if modeRequestsPersistentApproval(mode) {
@@ -426,7 +426,11 @@ enum CodexTeamsApprovalBridge {
                 supportsAll: codexSupportsAmendmentDecision(object: object, decisions: decisions)
             )
         case "item/fileChange/requestApproval":
-            return CodexPermissionCapabilities(supportsOnce: acceptsOnce, supportsAlways: acceptsSession, supportsAll: false)
+            return CodexPermissionCapabilities(
+                supportsOnce: acceptsOnce,
+                supportsAlways: decisions?.contains("acceptForSession") ?? false,
+                supportsAll: false
+            )
         default:
             return CodexPermissionCapabilities(supportsOnce: acceptsOnce, supportsAlways: acceptsSession, supportsAll: false)
         }
