@@ -1,7 +1,6 @@
 #if os(iOS)
 import CmuxAuthRuntime
 import CmuxMobileShell
-import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
@@ -19,14 +18,9 @@ struct MobileSettingsView: View {
     /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
     /// where the "Switch Mac" entry is hidden.
     var store: CMUXMobileShellStore?
-    /// Open a workspace from the device tree. Forwarded from the workspace list so
-    /// tapping a workspace leaf in the tree drives the existing open path. `nil`
-    /// in previews / contexts without a tree, where the "Devices" entry is hidden.
-    var selectWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
-    @State private var showingDeviceTree = false
     /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
     /// update after the async enable/disable. The coordinator exposes
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
@@ -75,17 +69,6 @@ struct MobileSettingsView: View {
                             L10n.string("mobile.settings.mac", defaultValue: "Mac"),
                             value: connectedHostName
                         )
-                    }
-                    if store != nil, selectWorkspace != nil {
-                        Button {
-                            showingDeviceTree = true
-                        } label: {
-                            Label(
-                                L10n.string("mobile.settings.devices", defaultValue: "Devices"),
-                                systemImage: "rectangle.stack"
-                            )
-                        }
-                        .accessibilityIdentifier("MobileSettingsDevices")
                     }
                     if store != nil {
                         Button {
@@ -183,11 +166,6 @@ struct MobileSettingsView: View {
             .sheet(isPresented: $showingHostPicker) {
                 if let store {
                     MobileHostPickerView(store: store)
-                }
-            }
-            .sheet(isPresented: $showingDeviceTree) {
-                if let store, let selectWorkspace {
-                    DeviceTreeView(store: store, selectWorkspace: selectWorkspace)
                 }
             }
         }

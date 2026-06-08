@@ -1081,18 +1081,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// The cmux device id of the Mac the live connection currently targets, or
     /// `nil` when not connected. Used by the device tree to mark which device row
-    /// is live. Derived from the active attach ticket's `macDeviceID`; a manual
-    /// (`manual-…`) ticket has no real device id, so it does not correlate to a
-    /// registry row and yields `nil` (the tree then shows no device as connected,
-    /// which is honest for a manual host that is not in the registry).
+    /// is live.
+    ///
+    /// Prefers the active attach ticket's real `macDeviceID`. A manual (`manual-…`)
+    /// ticket has no real device id (the host lacks `mobile.attach_ticket.create`,
+    /// so the connect synthesizes a manual ticket even on success); in that case,
+    /// fall back to the active paired Mac's device id, which the registry/switch
+    /// connect paths persist on success. This keeps the connected device — and its
+    /// live workspaces — visible in the tree even when the live ticket is manual.
+    /// Yields `nil` only when there is genuinely no real device id to correlate.
     public var connectedMacDeviceID: String? {
-        guard connectionState == .connected,
-              let macDeviceID = activeTicket?.macDeviceID,
-              !macDeviceID.isEmpty,
-              !macDeviceID.hasPrefix("manual-") else {
-            return nil
+        guard connectionState == .connected else { return nil }
+        if let macDeviceID = activeTicket?.macDeviceID,
+           !macDeviceID.isEmpty,
+           !macDeviceID.hasPrefix("manual-") {
+            return macDeviceID
         }
-        return macDeviceID
+        // Manual/synthetic ticket but a live connection: correlate via the active
+        // paired Mac the connect path persisted (its id is the real device id).
+        if let activeMacID = pairedMacs.first(where: { $0.isActive })?.macDeviceID,
+           !activeMacID.isEmpty,
+           !activeMacID.hasPrefix("manual-") {
+            return activeMacID
+        }
+        return nil
     }
 
     /// Reload ``registryDevices`` from the team-scoped device registry.
