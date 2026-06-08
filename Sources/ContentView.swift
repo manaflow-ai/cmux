@@ -10814,7 +10814,7 @@ struct VerticalTabsSidebar: View {
         SidebarTabDropDelegate(
             targetTabId: nil,
             tabManager: tabManager,
-            workspaceById: renderContext.workspaceById,
+            workspaceGroupIdByWorkspaceId: renderContext.workspaceGroupIdByWorkspaceId,
             dragState: dragState,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
@@ -10925,6 +10925,7 @@ struct VerticalTabsSidebar: View {
         let tabItemSettings: SidebarTabItemSettingsSnapshot
         let tabIndexById: [UUID: Int]
         let workspaceById: [UUID: Workspace]
+        let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
         let selectedContextTargetIds: [UUID]
         let selectedRemoteContextMenuWorkspaceIds: [UUID]
         let allSelectedRemoteContextMenuTargetsConnecting: Bool
@@ -10946,6 +10947,7 @@ struct VerticalTabsSidebar: View {
             ($0.element.id, $0.offset)
         })
         let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
         let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
         let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
@@ -10978,6 +10980,7 @@ struct VerticalTabsSidebar: View {
             tabItemSettings: tabItemSettings,
             tabIndexById: tabIndexById,
             workspaceById: workspaceById,
+            workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
             selectedContextTargetIds: selectedContextTargetIds,
             selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
@@ -11130,7 +11133,7 @@ struct VerticalTabsSidebar: View {
                             .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
                                 targetTabId: firstWorkspaceId,
                                 tabManager: tabManager,
-                                workspaceById: renderContext.workspaceById,
+                                workspaceGroupIdByWorkspaceId: renderContext.workspaceGroupIdByWorkspaceId,
                                 dragState: dragState,
                                 selectedTabIds: $selectedTabIds,
                                 lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
@@ -12581,7 +12584,7 @@ struct VerticalTabsSidebar: View {
             SidebarTabDropDelegate(
                 targetTabId: tabId,
                 tabManager: tabManager,
-                workspaceById: renderContext.workspaceById,
+                workspaceGroupIdByWorkspaceId: renderContext.workspaceGroupIdByWorkspaceId,
                 dragState: dragState,
                 selectedTabIds: selectedTabIds,
                 lastSidebarSelectionIndex: lastSidebarSelectionIndex,
@@ -17713,7 +17716,7 @@ enum SidebarWorkspaceSelectionSyncPolicy {
 struct SidebarTabDropDelegate: DropDelegate {
     let targetTabId: UUID?
     let tabManager: TabManager
-    let workspaceById: [UUID: Workspace]
+    let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
     let dragState: SidebarDragState
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -17847,7 +17850,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
                 forDraggedWorkspaceId: draggedTabId,
                 targetWorkspaceId: targetTabId,
-                workspaceById: workspaceById
+                workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId
             )
             return tabManager.sidebarReorderWorkspaceIds(
                 forDraggedWorkspaceId: draggedTabId,
@@ -17915,15 +17918,17 @@ struct SidebarTabDropDelegate: DropDelegate {
         let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedTabId,
             targetWorkspaceId: targetTabId,
-            workspaceById: workspaceById
+            workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId
         )
         let reorderTabIds = tabManager.sidebarReorderWorkspaceIds(
             forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: targetTabId
+            targetWorkspaceId: targetTabId,
+            usesTopLevelRows: usesTopLevelRows
         )
         let pinnedTabIds = tabManager.sidebarReorderPinnedWorkspaceIds(
             forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: targetTabId
+            targetWorkspaceId: targetTabId,
+            usesTopLevelRows: usesTopLevelRows
         )
         let legalInsertionRange = tabManager.sidebarReorderLegalInsertionRange(
             forDraggedWorkspaceId: draggedTabId,
@@ -18080,7 +18085,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: dragState.draggedTabId,
             targetWorkspaceId: targetTabId,
-            workspaceById: workspaceById
+            workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId
         )
         let tabIds = tabManager.sidebarReorderWorkspaceIds(
             forDraggedWorkspaceId: dragState.draggedTabId,

@@ -51,14 +51,14 @@ extension VerticalTabsSidebar {
         let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate = { [
             groupId = group.id,
             anchorId = group.anchorWorkspaceId,
-            workspaceById = renderContext.workspaceById,
+            workspaceGroupIdByWorkspaceId = renderContext.workspaceGroupIdByWorkspaceId,
             selectedTabIds = $selectedTabIds,
             lastSidebarSelectionIndex = $lastSidebarSelectionIndex
         ] rowHeight in
             let reorderDelegate = SidebarTabDropDelegate(
                 targetTabId: anchorId,
                 tabManager: tabManager,
-                workspaceById: workspaceById,
+                workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
                 dragState: dragState,
                 selectedTabIds: selectedTabIds,
                 lastSidebarSelectionIndex: lastSidebarSelectionIndex,

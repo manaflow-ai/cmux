@@ -3813,31 +3813,31 @@ class TabManager: ObservableObject {
         sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedWorkspaceId,
             targetWorkspaceId: targetWorkspaceId,
-            workspaceById: Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+            workspaceGroupIdByWorkspaceId: Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
         )
     }
 
     func sidebarReorderUsesTopLevelRows(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID?,
-        workspaceById: [UUID: Workspace]
+        workspaceGroupIdByWorkspaceId: [UUID: UUID?]
     ) -> Bool {
         guard let draggedWorkspaceId else { return false }
         if isWorkspaceGroupAnchor(draggedWorkspaceId) ||
             targetWorkspaceId.map(isWorkspaceGroupAnchor) == true {
             return true
         }
-        guard let draggedWorkspace = workspaceById[draggedWorkspaceId],
-              draggedWorkspace.groupId != nil else {
+        guard let draggedWorkspaceGroupId = workspaceGroupIdByWorkspaceId[draggedWorkspaceId],
+              draggedWorkspaceGroupId != nil else {
             return false
         }
         // A grouped child dragged over top-level space is leaving the group;
         // plan in top-level rows so the promotion is explicit and ordered.
         guard let targetWorkspaceId else { return true }
-        guard let targetWorkspace = workspaceById[targetWorkspaceId] else {
+        guard let targetWorkspaceGroupId = workspaceGroupIdByWorkspaceId[targetWorkspaceId] else {
             return false
         }
-        return targetWorkspace.groupId == nil
+        return targetWorkspaceGroupId == nil
     }
 
     /// After a drag-driven reorder, infer the dragged workspace's group
