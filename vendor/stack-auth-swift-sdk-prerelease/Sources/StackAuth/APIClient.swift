@@ -508,17 +508,15 @@ actor APIClient {
                 )
                 result = TokenPair(refreshToken: nil, accessToken: nil)
             case .transientFailure:
-                // BUG (intentionally reintroduced for the red commit): a network/
-                // server hiccup is treated as a definitive rejection and the still-
-                // valid refresh token is wiped, silently signing the user out
-                // forever. The next commit restores the transient-preserving
-                // behavior so this regression test goes green.
-                await ts.compareAndSet(
-                    compareRefreshToken: refreshToken,
-                    newRefreshToken: nil,
-                    newAccessToken: nil
-                )
-                result = TokenPair(refreshToken: nil, accessToken: nil)
+                // Preserve the refresh token on a network/server hiccup; the caller
+                // retries later instead of being signed out (compareAndSet is NOT
+                // called, so the store keeps both tokens). Return nil access
+                // deliberately: this "force a NEW token" path runs only after the
+                // stored access token was just rejected (401 invalid_access_token in
+                // sendWithRetry), so handing it back would make the caller re-send the
+                // same dead token in a tight 401 loop. nil means "no new token right
+                // now"; the still-valid refresh token stays in the store for next time.
+                result = TokenPair(refreshToken: refreshToken, accessToken: nil)
             }
         } else {
             result = TokenPair(refreshToken: nil, accessToken: nil)
