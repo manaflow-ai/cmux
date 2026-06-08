@@ -81,7 +81,6 @@ export default function RemoteTmuxPage() {
         <tbody>
           <tr><td><code>remote.tmux.sessions</code></td><td><code>host</code>, <code>port?</code>, <code>identity_file?</code></td><td>{t("methodSessions")}</td></tr>
           <tr><td><code>remote.tmux.attach</code></td><td><code>host</code>, <code>session</code>, <code>create?</code></td><td>{t("methodAttach")}</td></tr>
-          <tr><td><code>remote.tmux.open</code></td><td><code>host</code>, <code>session</code></td><td>{t("methodOpen")}</td></tr>
           <tr><td><code>remote.tmux.mirror</code></td><td><code>host</code></td><td>{t("methodMirror")}</td></tr>
           <tr><td><code>remote.tmux.window</code></td><td><code>host</code>, <code>port?</code>, <code>identity_file?</code></td><td>{t("methodWindow")}</td></tr>
           <tr><td><code>remote.tmux.detach</code></td><td><code>host</code>, <code>session</code></td><td>{t("methodDetach")}</td></tr>

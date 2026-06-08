@@ -108,28 +108,6 @@ extension TerminalController {
         }
     }
 
-    /// `remote.tmux.open` — attach a session and mirror its active pane as a
-    /// live display tab in the current workspace (first sidebar-mirroring step).
-    nonisolated func v2RemoteTmuxOpen(id: Any?, params: [String: Any]) -> String {
-        guard RemoteTmuxController.isEnabled else {
-            return v2Error(id: id, code: "disabled", message: "remote tmux beta is disabled")
-        }
-        guard let host = Self.remoteTmuxHost(from: params),
-              let session = Self.remoteTmuxSessionName(from: params)
-        else {
-            return v2Error(id: id, code: "invalid_params", message: "host and session are required")
-        }
-        return v2VmCall(id: id, timeoutSeconds: 20) {
-            try await MainActor.run {
-                guard let controller = AppDelegate.shared?.remoteTmuxController else {
-                    throw RemoteTmuxError.unreachable("app not ready")
-                }
-                try controller.openActivePane(host: host, sessionName: session)
-            }
-            return ["host": host.destination, "session": session, "opened": true]
-        }
-    }
-
     /// `remote.tmux.mirror` — mirror every tmux session on a host as its own
     /// sidebar workspace (windows become tabs). Params: `host` (required).
     nonisolated func v2RemoteTmuxMirror(id: Any?, params: [String: Any]) -> String {

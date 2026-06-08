@@ -88,101 +88,6 @@ final class RemoteTmuxController {
 
     // MARK: - Sidebar mirroring (P3, initial increment)
 
-    /// Display panels mirroring a remote pane, keyed `connectionHash\u{1}session\u{1}pane`.
-    private var displayPanels: [String: TerminalPanel] = [:]
-
-    /// Observer tokens for the single-pane display path, keyed by connection key.
-    private var displayObserverTokens: [String: RemoteTmuxControlConnection.ObserverToken] = [:]
-
-    /// Attaches a session and mirrors its active window's first pane as a live
-    /// display tab in a workspace. The tab renders the remote pane's output and
-    /// forwards keystrokes back to it.
-    ///
-    /// This is the "attach a single remote pane into a cmux tab" path; full
-    /// session→workspace / window→tab mirroring is ``mirrorSession(host:sessionName:)``.
-    ///
-    /// - Parameters:
-    ///   - host: the remote SSH destination.
-    ///   - sessionName: the tmux session to attach to.
-    ///   - focus: when `true`, selects and focuses the created tab (user-initiated
-    ///     attach). Socket/background callers pass `false` so they never steal the
-    ///     user's keyboard focus, per the socket focus policy.
-    func openActivePane(host: RemoteTmuxHost, sessionName: String, focus: Bool = false) throws {
-        let connection = try attach(host: host, sessionName: sessionName)
-        let key = Self.connectionKey(host: host, sessionName: sessionName)
-        // Capture the target workspace at command time. Topology often arrives
-        // asynchronously (after the first %layout-change), so resolving the
-        // workspace inside the callback would build the tab in whichever
-        // workspace happens to be selected when topology lands.
-        guard let targetWorkspaceId = AppDelegate.shared?.tabManager?.selectedWorkspace?.id else {
-            throw RemoteTmuxError.unreachable("no active workspace")
-        }
-        // Register an observer (don't overwrite a single closure): the connection
-        // is shared with any concurrent mirror of the same session.
-        if displayObserverTokens[key] == nil {
-            displayObserverTokens[key] = connection.addObserver(
-                onPaneOutput: { [weak self] paneId, data in
-                    self?.displayPanels["\(key)\u{1}\(paneId)"]?.surface.processRemoteOutput(data)
-                },
-                onPaneCwd: { [weak self] paneId, path in
-                    self?.applyDisplayPaneCwd(key: key, paneId: paneId, path: path)
-                },
-                onTopologyChanged: { [weak self, weak connection] in
-                    guard let self, let connection else { return }
-                    self.buildDisplayIfNeeded(connection: connection, key: key, workspaceId: targetWorkspaceId, focus: focus)
-                }
-            )
-        }
-        buildDisplayIfNeeded(connection: connection, key: key, workspaceId: targetWorkspaceId, focus: focus)
-    }
-
-    private func buildDisplayIfNeeded(
-        connection: RemoteTmuxControlConnection,
-        key: String,
-        workspaceId: UUID,
-        focus: Bool
-    ) {
-        guard let firstWindowId = connection.windowOrder.first,
-              let window = connection.windowsByID[firstWindowId],
-              let paneId = window.paneIDsInOrder.first else { return }
-        let panelKey = "\(key)\u{1}\(paneId)"
-        guard displayPanels[panelKey] == nil else { return }
-        guard let workspace = AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == workspaceId })
-        else { return }
-        guard let panel = workspace.addRemoteTmuxDisplayPane(
-            remotePaneId: paneId,
-            focus: focus,
-            onInput: { [weak connection] data in
-                Task { @MainActor in connection?.sendKeys(paneId: paneId, data: data) }
-            },
-            // Size the remote tmux client to this display surface's rendered grid,
-            // so a single attached pane doesn't stay at ssh's default 80×24 and
-            // render TUIs mangled (matches the session-mirror display path).
-            onResize: { [weak connection] columns, rows in
-                connection?.setClientSize(columns: columns, rows: rows)
-            }
-        ) else { return }
-        displayPanels[panelKey] = panel
-        // Prime the pane with its current contents so it isn't blank on open.
-        connection.capturePane(paneId: paneId)
-        // Track the pane's working directory (initial + live) so the tab shows the
-        // remote cwd instead of staying at "~".
-        connection.requestPanePath(paneId: paneId)
-        connection.subscribePanePath(paneId: paneId)
-    }
-
-    /// Applies a display pane's reported working directory to its tab. Resolves the
-    /// workspace from the panel's own surface (not a captured id) so it stays
-    /// correct if the tab was moved to another workspace/window after attach.
-    private func applyDisplayPaneCwd(key: String, paneId: Int, path: String) {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              let panel = displayPanels["\(key)\u{1}\(paneId)"],
-              let workspace = panel.surface.owningWorkspace()
-        else { return }
-        _ = workspace.updatePanelDirectory(panelId: panel.id, directory: trimmed)
-    }
-
     /// Active session→workspace mirrors keyed `connectionHash\u{1}session`
     /// (see ``connectionKey(host:sessionName:)``).
     private var sessionMirrors: [String: RemoteTmuxSessionMirror] = [:]
@@ -426,7 +331,6 @@ final class RemoteTmuxController {
         if oldKey != newKey {
             if let m = sessionMirrors.removeValue(forKey: oldKey) { sessionMirrors[newKey] = m }
             if let c = connectionsByHostSession.removeValue(forKey: oldKey) { connectionsByHostSession[newKey] = c }
-            if let t = displayObserverTokens.removeValue(forKey: oldKey) { displayObserverTokens[newKey] = t }
         }
     }
 
@@ -503,8 +407,8 @@ final class RemoteTmuxController {
         return true
     }
 
-    /// The live control connection + tmux pane id behind a remote-tmux mirror
-    /// surface (session-mirror pane or ``openActivePane`` display pane), or `nil`.
+    /// The live control connection + tmux pane id behind a remote-tmux
+    /// session-mirror surface, or `nil`.
     private func pasteTarget(forSurfaceId surfaceId: UUID)
         -> (connection: RemoteTmuxControlConnection, paneId: Int)?
     {
@@ -513,39 +417,17 @@ final class RemoteTmuxController {
                 return (sessionMirror.connection, paneId)
             }
         }
-        return displayPaneTarget(forSurfaceId: surfaceId)
-    }
-
-    /// The live control connection + tmux pane id behind an ``openActivePane``
-    /// display-pane surface, or `nil`. The `displayPanels` key is
-    /// `connectionHash\u{1}session\u{1}pane`, so the first two components form the
-    /// connection key and the third is the pane id. Shared by ``pasteTarget(forSurfaceId:)``
-    /// and ``remoteUploadTarget(forSurfaceId:)`` so the key format lives in one place.
-    private func displayPaneTarget(forSurfaceId surfaceId: UUID)
-        -> (connection: RemoteTmuxControlConnection, paneId: Int)?
-    {
-        for (panelKey, panel) in displayPanels where panel.surface.id == surfaceId {
-            let parts = panelKey.split(separator: "\u{1}", omittingEmptySubsequences: false)
-            guard parts.count >= 3, let paneId = Int(parts[2]) else { continue }
-            let connectionKey = parts[0..<2].joined(separator: "\u{1}")
-            if let connection = connectionsByHostSession[connectionKey], !connection.exited {
-                return (connection, paneId)
-            }
-        }
         return nil
     }
 
-    /// The SSH upload target for a remote-tmux surface (a session-mirror pane or
-    /// an ``openActivePane`` display pane), or `nil` if `surfaceId` isn't one.
-    /// Lets the image-paste path upload a pasted screenshot to the remote tmux
-    /// host (and insert the remote path) instead of an unreadable macOS-local one.
+    /// The SSH upload target for a remote-tmux session-mirror surface, or `nil` if
+    /// `surfaceId` isn't one. Lets the image-paste path upload a pasted screenshot
+    /// to the remote tmux host (and insert the remote path) instead of an
+    /// unreadable macOS-local one.
     func remoteUploadTarget(forSurfaceId surfaceId: UUID) -> TerminalRemoteUploadTarget? {
         for sessionMirror in sessionMirrors.values
         where !sessionMirror.connection.exited && sessionMirror.ownsSurface(surfaceId) {
             return .detectedSSH(sessionMirror.host.detectedSSHSession())
-        }
-        if let target = displayPaneTarget(forSurfaceId: surfaceId) {
-            return .detectedSSH(target.connection.host.detectedSSHSession())
         }
         return nil
     }
@@ -667,7 +549,6 @@ final class RemoteTmuxController {
         if let mirror = sessionMirrors.removeValue(forKey: key) {
             mirror.detachObserver()
         }
-        displayObserverTokens.removeValue(forKey: key)
         connectionsByHostSession.removeValue(forKey: key)?.stop()
         let hostHasOtherMirrors = sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
         // The dedicated window for this host, captured before the bindings are torn
@@ -710,7 +591,7 @@ final class RemoteTmuxController {
         if !hostHasOtherMirrors {
             // The host's last session is gone, so close its shared SSH ControlMaster
             // now — but only if no other control connection (e.g. a
-            // remote.tmux.attach/open for the same endpoint) is still multiplexing
+            // remote.tmux.attach for the same endpoint) is still multiplexing
             // over it. We must do it here rather than rely on the window's onClose
             // hook: clearing the binding just below makes handleRemoteWindowClosed a
             // no-op, and the dedicated window may be closed programmatically (the
@@ -778,7 +659,6 @@ final class RemoteTmuxController {
             guard let workspaceId = mirror.mirroredWorkspaceId, ids.contains(workspaceId) else { continue }
             affectedHosts[mirror.host.connectionHash] = mirror.host
             mirror.detachObserver()
-            displayObserverTokens.removeValue(forKey: key)
             sessionMirrors.removeValue(forKey: key)
             connectionsByHostSession.removeValue(forKey: key)?.stop()
         }
@@ -806,7 +686,6 @@ final class RemoteTmuxController {
         windowIdByHost.removeValue(forKey: host.connectionHash)
         for (key, mirror) in sessionMirrors where mirror.host.connectionHash == host.connectionHash {
             mirror.detachObserver()
-            displayObserverTokens.removeValue(forKey: key)
             sessionMirrors.removeValue(forKey: key)
         }
         for (key, connection) in connectionsByHostSession where connection.host.connectionHash == host.connectionHash {
@@ -831,7 +710,6 @@ final class RemoteTmuxController {
         let sessionName = mirror.sessionName
         sessionMirrors.removeValue(forKey: entry.key)
         mirror.detachObserver()
-        displayObserverTokens.removeValue(forKey: entry.key)
         detach(host: host, sessionName: sessionName)
         // If this was the host's last mirrored session, drop its dedicated-window
         // binding and tear down the shared SSH ControlMaster. The remote-end path
@@ -901,7 +779,7 @@ final class RemoteTmuxController {
         // Fire-and-forget `ssh -O exit` per endpoint: it hits the local control
         // socket and runs independently of cmux, so the masters are torn down even as
         // the app exits — no lingering ssh after quit. Collect endpoints from BOTH
-        // transports AND control connections (the remote.tmux.attach/open paths open a
+        // transports AND control connections (the remote.tmux.attach path opens a
         // ControlPersist master via the connection without ever creating a transport),
         // deduped by connectionHash.
         var hostsByHash: [String: RemoteTmuxHost] = [:]

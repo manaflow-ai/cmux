@@ -1039,8 +1039,6 @@ class TerminalController {
             return v2RemoteTmuxDetach(id: request.id, params: request.params)
         case "remote.tmux.state":
             return v2RemoteTmuxState(id: request.id, params: request.params)
-        case "remote.tmux.open":
-            return v2RemoteTmuxOpen(id: request.id, params: request.params)
         case "remote.tmux.mirror":
             return v2RemoteTmuxMirror(id: request.id, params: request.params)
         case "remote.tmux.window":
