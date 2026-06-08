@@ -312,6 +312,30 @@ struct FakeTokenProvider: TokenProviding {
         #expect(await service.mutedWorkspaceIDs == ["ws-b", "ws-c"])
     }
 
+    @Test func rapidSameWorkspaceToggleConvergesServerToLastAction() async {
+        // mute then immediately unmute the SAME workspace while the first POST is
+        // in flight. The per-workspace drain serializes them so the LAST action
+        // (unmute) is the final POST the server sees and no pending delta lingers,
+        // regardless of HTTP completion order.
+        let (service, _, host) = makeService()
+        async let m: Void = service.setWorkspaceMuted("ws-a", muted: true)
+        async let u: Void = service.setWorkspaceMuted("ws-a", muted: false)
+        _ = await (m, u)
+        // Local reflects the last action.
+        #expect(await service.mutedWorkspaceIDs.isEmpty)
+        // The last mutation the server received is the unmute, and nothing stays
+        // pending (a confirmed sync of the final intent cleared it).
+        let last = await RecordingURLProtocol.recorder.lastMuteMutation(host: host)
+        #expect(last?.workspaceId == "ws-a")
+        #expect(last?.muted == false)
+        // A hydration with an empty server set must NOT re-mute it (no stale delta).
+        RecordingURLProtocol.responseStore.set(
+            .init(body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": [String]()])),
+            for: host
+        )
+        #expect(await service.hydrateMutedWorkspacesFromServer().isEmpty)
+    }
+
     // MARK: - Sign-in hydration / sign-out clear (per-user scoping)
 
     @Test func hydrateReplacesLocalWithServerSet() async {

@@ -21,6 +21,12 @@ public actor PushRegistrationService: PushRegistering {
     private let defaults: UserDefaults
     private let session: URLSession
 
+    /// Workspaces with an in-flight mute sync, so a second toggle for the same
+    /// workspace updates the pending intent (already persisted) and lets the
+    /// running drain loop pick it up, instead of starting an overlapping POST.
+    /// This serializes per-workspace so the server converges to the LAST action.
+    private var pendingWorkspaceMuteSyncs: Set<String> = []
+
     private static let enabledKey = "cmux.notifications.pushEnabled"
     private static let cachedTokenKey = "cmux.notifications.deviceTokenHex"
     /// Prefix for the per-user muted-workspace cache key. The set is persisted
@@ -131,8 +137,29 @@ public actor PushRegistrationService: PushRegistering {
         // account from clobbering each other's mutes.
         defaults.set(Array(set).sorted(), forKey: Self.mutedKey(forUserKey: userKey))
         setPendingDelta(workspaceId: trimmed, muted: muted, forUserKey: userKey)
-        if await postMuteMutation(workspaceId: trimmed, muted: muted, expectedUserKey: userKey) {
-            clearPendingDelta(workspaceId: trimmed, forUserKey: userKey)
+        await drainPendingDelta(workspaceId: trimmed, userKey: userKey)
+    }
+
+    /// Push the workspace's pending intent and converge to the user's LATEST
+    /// action. Serialized per workspace by a re-drain loop: each POST sends the
+    /// current pending value; if a newer toggle changed the intent while it was in
+    /// flight, the loop re-POSTs the new value so the server ends at the final
+    /// action regardless of POST completion order. Clears the delta only when the
+    /// confirmed value still matches the current pending intent.
+    private func drainPendingDelta(workspaceId: String, userKey: String) async {
+        if pendingWorkspaceMuteSyncs.contains(workspaceId) { return }
+        pendingWorkspaceMuteSyncs.insert(workspaceId)
+        defer { pendingWorkspaceMuteSyncs.remove(workspaceId) }
+        while let intent = pendingDeltas(forUserKey: userKey)[workspaceId] {
+            let confirmed = await postMuteMutation(
+                workspaceId: workspaceId, muted: intent, expectedUserKey: userKey
+            )
+            guard confirmed else { return } // leave pending; a later sync retries
+            // If the intent changed during the POST, loop and send the new value.
+            guard clearPendingDelta(workspaceId: workspaceId, ifMuted: intent, forUserKey: userKey) else {
+                continue
+            }
+            return
         }
     }
 
@@ -164,17 +191,22 @@ public actor PushRegistrationService: PushRegistering {
     @discardableResult
     public func hydrateMutedWorkspacesFromServer() async -> Set<String> {
         let userKey = await currentUserKey()
-        guard let serverSet = await fetchMutedWorkspaces() else {
+        guard let fetched = await fetchMutedWorkspaces() else {
             // Signed out or network failure: keep the local set so an offline
             // sign-in never wipes valid local state.
             return cachedMutedWorkspaceIDs(forUserKey: userKey)
         }
+        let serverSet = fetched.ids
         await afterHydrationFetchForTesting?()
-        // The GET was authenticated as whatever user was current at the fetch's
-        // suspension point. If the account switched while it was in flight, this
-        // response belongs to a DIFFERENT user and must not be saved under the
-        // originally-captured key (that would store account B's set as account
-        // A's). Abort the write; the now-current user hydrates separately.
+        // Bind the response to the account we meant to hydrate. The server echoes
+        // the user id it authenticated this GET as; if it does not match the key we
+        // captured, the request raced an account switch (token/`currentUserID` can
+        // cycle A->B->A out of phase) and the set belongs to a DIFFERENT user — do
+        // not write it under the captured key. Also re-check the current user, so a
+        // server that does not echo an id still falls back to the prior guard.
+        if let authedId = fetched.authenticatedUserId, authedId != userKey {
+            return cachedMutedWorkspaceIDs(forUserKey: userKey)
+        }
         guard await currentUserKey() == userKey else {
             return cachedMutedWorkspaceIDs(forUserKey: userKey)
         }
@@ -190,10 +222,11 @@ public actor PushRegistrationService: PushRegistering {
         let bounded = Set(Array(merged).sorted().prefix(Self.maxMutedWorkspaces))
         defaults.set(Array(bounded).sorted(), forKey: Self.mutedKey(forUserKey: userKey))
         // Re-POST the unsynced deltas so the server converges; drop each on
-        // success. Best-effort: a still-failing delta stays pending for next time.
+        // success only if its intent still matches (a concurrent newer toggle is
+        // preserved). Best-effort: a still-failing delta stays pending for next time.
         for (workspaceId, muted) in pending {
             if await postMuteMutation(workspaceId: workspaceId, muted: muted, expectedUserKey: userKey) {
-                clearPendingDelta(workspaceId: workspaceId, forUserKey: userKey)
+                clearPendingDelta(workspaceId: workspaceId, ifMuted: muted, forUserKey: userKey)
             }
         }
         return bounded
@@ -236,14 +269,23 @@ public actor PushRegistrationService: PushRegistering {
         defaults.set(map, forKey: Self.pendingKey(forUserKey: userKey))
     }
 
-    private func clearPendingDelta(workspaceId: String, forUserKey userKey: String) {
+    /// Clear the pending delta for `workspaceId` only if its current intent still
+    /// equals `ifMuted` (the value the just-confirmed POST sent). A newer toggle
+    /// that changed the intent mid-flight is preserved so the last user action
+    /// wins regardless of POST completion order.
+    /// - Returns: `true` when the delta was cleared (intent matched), `false` when
+    ///   a newer intent is still pending.
+    @discardableResult
+    private func clearPendingDelta(workspaceId: String, ifMuted: Bool, forUserKey userKey: String) -> Bool {
         var map = pendingDeltas(forUserKey: userKey)
-        guard map.removeValue(forKey: workspaceId) != nil else { return }
+        guard map[workspaceId] == ifMuted else { return false }
+        map.removeValue(forKey: workspaceId)
         if map.isEmpty {
             defaults.removeObject(forKey: Self.pendingKey(forUserKey: userKey))
         } else {
             defaults.set(map, forKey: Self.pendingKey(forUserKey: userKey))
         }
+        return true
     }
 
     /// POST a single per-workspace mute add/remove. Idempotent server-side, so
@@ -265,12 +307,31 @@ public actor PushRegistrationService: PushRegistering {
         // Abort; the original user re-syncs from its pending deltas on next
         // sign-in. The token in `request` was captured atomically with this check.
         guard await currentUserKey() == expectedUserKey else { return false }
-        return await perform(request, label: "mute-mutate")
+        // Confirm via the echoed user id that the server applied this to the
+        // intended account (a token that cycled out of phase would mutate the
+        // wrong user). Treat a mismatch as a non-confirm so the pending delta
+        // stays for the correct account's next sync.
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                pushLog.error("mute-mutate failed status=\((response as? HTTPURLResponse)?.statusCode ?? -1, privacy: .public)")
+                return false
+            }
+            if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let authedId = object["userId"] as? String, authedId != expectedUserKey {
+                return false
+            }
+            return true
+        } catch {
+            pushLog.error("mute-mutate error=\(error.localizedDescription, privacy: .private)")
+            return false
+        }
     }
 
-    /// GET the server's muted set, or `nil` when signed out / on any failure (so
-    /// callers fall back to the local cache instead of clobbering it to empty).
-    private func fetchMutedWorkspaces() async -> Set<String>? {
+    /// GET the server's muted set + the user id the server authenticated, or
+    /// `nil` when signed out / on any failure (so callers fall back to the local
+    /// cache instead of clobbering it to empty).
+    private func fetchMutedWorkspaces() async -> (ids: Set<String>, authenticatedUserId: String?)? {
         guard let request = await makeRequest(
             method: "GET",
             path: "/api/notifications/mutes",
@@ -286,7 +347,11 @@ public actor PushRegistrationService: PushRegistering {
                 let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                 let ids = object["workspaceIds"] as? [String]
             else { return nil }
-            return Set(ids.filter { !$0.isEmpty })
+            // The server echoes the id of the user it authenticated this request
+            // as. Returning it lets hydration bind the response to the account it
+            // meant to fetch, even if the token/`currentUserID` cycled mid-request.
+            let authenticatedUserId = object["userId"] as? String
+            return (Set(ids.filter { !$0.isEmpty }), authenticatedUserId)
         } catch {
             pushLog.error("mute-fetch error=\(error.localizedDescription, privacy: .private)")
             return nil

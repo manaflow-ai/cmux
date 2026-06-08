@@ -38,7 +38,10 @@ async function listMutes(request: Request): Promise<Response> {
     .from(notificationWorkspaceMutes)
     .where(eq(notificationWorkspaceMutes.userId, user.id));
 
-  return jsonResponse({ workspaceIds: rows.map((r) => r.workspaceId) });
+  // Echo the authenticated user id so the native client can bind the response to
+  // the account it intended to hydrate (defends against an account switch racing
+  // the request's token resolution).
+  return jsonResponse({ userId: user.id, workspaceIds: rows.map((r) => r.workspaceId) });
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -104,5 +107,7 @@ async function mutateMute(request: Request): Promise<Response> {
       );
   }
 
-  return jsonResponse({ ok: true, workspaceId, muted });
+  // Echo the authenticated user id so the native client can confirm this mutation
+  // was applied to the account it intended (account-switch credential binding).
+  return jsonResponse({ ok: true, userId: user.id, workspaceId, muted });
 }
