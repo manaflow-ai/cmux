@@ -231,7 +231,7 @@ final class WindowTerminalHostView: NSView {
                   hostedView.alphaValue > 0,
                   hostedView.frame.contains(point) else { continue }
 
-            return hostedView.hitTest(point) ?? hostedView
+            return hostedView.hitTest(hostedView.convert(point, from: self)) ?? hostedView
         }
         return nil
     }
