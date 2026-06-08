@@ -14,6 +14,9 @@ import UIKit
 #endif
 @testable import cmuxFeature
 
+private let secureRouteRequiredErrorMessage =
+    "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer."
+
 /// Test collector that mounts a surface's ``CMUXMobileShellStore`` output stream
 /// and accumulates each chunk's UTF-8 text, mirroring what a mounted
 /// `GhosttySurfaceView` would feed into libghostty.
@@ -527,11 +530,8 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingUsesNetworkRouteForPrivateLANIPWithStackAuth() async throws {
-    let responses = ScriptedTransportResponses([
-        try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
-        try rpcWorkspaceListFrame(workspaceID: "lan-workspace", title: "LAN Workspace"),
-    ])
+@Test func manualHostPairingRejectsPrivateLANIPStackAuthFallback() async throws {
+    let responses = ScriptedTransportResponses([])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
@@ -542,30 +542,17 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectManualHost(name: "Studio LAN", host: " 192.168.1.77 ", port: 15432)
 
-    let route = try #require(store.activeRoute)
-    #expect(store.phase == .workspaces)
-    #expect(store.connectionState == .connected)
-    #expect(store.connectionError == nil)
-    #expect(store.connectedHostName == "Studio LAN")
-    if case let .hostPort(host, port) = route.endpoint {
-        #expect(host == "192.168.1.77")
-        #expect(port == 15432)
-    } else {
-        Issue.record("manual LAN route should use host/port")
-    }
-    #expect(route.kind == .tailscale)
-    let requests = try await responses.sentRequests()
-    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
-    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-lan" })
-    #expect(requests.allSatisfy { $0.attachToken == nil })
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.activeTicket == nil)
+    #expect(store.activeRoute == nil)
+    #expect(store.connectionError == secureRouteRequiredErrorMessage)
+    #expect(try await responses.sentRequests().isEmpty)
 }
 
 @MainActor
-@Test func manualHostPairingUsesNetworkRouteForLocalDNSNameWithStackAuth() async throws {
-    let responses = ScriptedTransportResponses([
-        try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
-        try rpcWorkspaceListFrame(workspaceID: "local-dns-workspace", title: "Local DNS Workspace"),
-    ])
+@Test func manualHostPairingRejectsLocalDNSNameStackAuthFallback() async throws {
+    let responses = ScriptedTransportResponses([])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
@@ -576,30 +563,17 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectManualHost(name: "", host: "devbox.local", port: 61234)
 
-    let route = try #require(store.activeRoute)
-    #expect(store.phase == .workspaces)
-    #expect(store.connectionState == .connected)
-    #expect(store.connectionError == nil)
-    #expect(store.connectedHostName == "devbox.local")
-    if case let .hostPort(host, port) = route.endpoint {
-        #expect(host == "devbox.local")
-        #expect(port == 61234)
-    } else {
-        Issue.record("manual local DNS route should use host/port")
-    }
-    #expect(route.kind == .tailscale)
-    let requests = try await responses.sentRequests()
-    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
-    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-local-dns" })
-    #expect(requests.allSatisfy { $0.attachToken == nil })
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.activeTicket == nil)
+    #expect(store.activeRoute == nil)
+    #expect(store.connectionError == secureRouteRequiredErrorMessage)
+    #expect(try await responses.sentRequests().isEmpty)
 }
 
 @MainActor
-@Test func manualHostPairingProbesLANHostForAttachTicketBeforeStackAuthFallback() async throws {
-    let responses = ScriptedTransportResponses([
-        try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
-        try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Manual Workspace"),
-    ])
+@Test func manualHostPairingDoesNotProbeLANHostBeforeSecureRouteGate() async throws {
+    let responses = ScriptedTransportResponses([])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
@@ -610,14 +584,12 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectManualHost(name: "Studio LAN", host: "192.168.1.77", port: 15432)
 
-    #expect(store.phase == .workspaces)
-    #expect(store.connectionState == .connected)
-    #expect(store.connectionError == nil)
-    #expect(store.connectedHostName == "Studio LAN")
-    let requests = try await responses.sentRequests()
-    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
-    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-fallback" })
-    #expect(requests.allSatisfy { $0.attachToken == nil })
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.activeTicket == nil)
+    #expect(store.activeRoute == nil)
+    #expect(store.connectionError == secureRouteRequiredErrorMessage)
+    #expect(try await responses.sentRequests().isEmpty)
 }
 
 @MainActor
@@ -725,7 +697,7 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+    #expect(store.connectionError == secureRouteRequiredErrorMessage)
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -1244,11 +1216,8 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingUsesNetworkRouteForDefaultPortLANHostWithStackAuth() async throws {
-    let responses = ScriptedTransportResponses([
-        try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
-        try rpcWorkspaceListFrame(workspaceID: "default-port-lan-workspace", title: "Default Port LAN Workspace"),
-    ])
+@Test func manualHostPairingRejectsDefaultPortLANHostStackAuthFallback() async throws {
+    let responses = ScriptedTransportResponses([])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
@@ -1259,16 +1228,12 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectManualHost(name: "Work Mac", host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
 
-    #expect(store.phase == .workspaces)
-    #expect(store.connectionState == .connected)
-    #expect(store.connectionError == nil)
-    #expect(store.connectedHostName == "Work Mac")
-    let route = try #require(store.activeRoute)
-    #expect(route.kind == .tailscale)
-    let requests = try await responses.sentRequests()
-    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
-    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-default-lan" })
-    #expect(requests.allSatisfy { $0.attachToken == nil })
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.activeTicket == nil)
+    #expect(store.activeRoute == nil)
+    #expect(store.connectionError == secureRouteRequiredErrorMessage)
+    #expect(try await responses.sentRequests().isEmpty)
 }
 
 @MainActor
