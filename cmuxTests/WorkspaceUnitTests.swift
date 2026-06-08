@@ -2398,6 +2398,20 @@ final class StoredShortcutMatchingTests: XCTestCase {
                     eventCharacter: "x"
                 )
             )
+            let pageUpCharacter = String(Character(UnicodeScalar(NSPageUpFunctionKey)!))
+            let fnUpEvent = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.shift, .function],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: pageUpCharacter,
+                charactersIgnoringModifiers: pageUpCharacter,
+                isARepeat: false,
+                keyCode: 126
+            ))
+            XCTAssertTrue(shortcut.matches(event: fnUpEvent))
         }
 
         for rawShortcut in ["shift+pagedown", "shift+page-down", "shift+pgdn"] {
@@ -2419,6 +2433,20 @@ final class StoredShortcutMatchingTests: XCTestCase {
                     eventCharacter: "x"
                 )
             )
+            let pageDownCharacter = String(Character(UnicodeScalar(NSPageDownFunctionKey)!))
+            let fnDownEvent = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.shift, .function],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: pageDownCharacter,
+                charactersIgnoringModifiers: pageDownCharacter,
+                isARepeat: false,
+                keyCode: 125
+            ))
+            XCTAssertTrue(shortcut.matches(event: fnDownEvent))
         }
     }
 

@@ -1621,8 +1621,15 @@ struct ShortcutStroke: Equatable, Hashable {
             return false
         }
 
+        let recordableKey = Self.recordableKey(from: event)
+        if Self.isPageShortcutKey(shortcutKey),
+           recordableKey?.key.lowercased() == shortcutKey,
+           Self.normalizedModifierFlags(from: event.modifierFlags) == modifierFlags {
+            return true
+        }
+
         return matches(
-            keyCode: Self.recordableKey(from: event)?.keyCode ?? event.keyCode,
+            keyCode: recordableKey?.keyCode ?? event.keyCode,
             modifierFlags: event.modifierFlags,
             eventCharacter: event.charactersIgnoringModifiers,
             layoutCharacterProvider: layoutCharacterProvider
@@ -2001,6 +2008,10 @@ struct ShortcutStroke: Equatable, Hashable {
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
         key == "space" || key == "pageup" || key == "pagedown" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+    }
+
+    private static func isPageShortcutKey(_ key: String) -> Bool {
+        key == "pageup" || key == "pagedown"
     }
 
     private static func isArrowShortcutKey(_ key: String) -> Bool {
