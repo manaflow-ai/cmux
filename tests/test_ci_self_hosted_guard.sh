@@ -23,6 +23,7 @@ TERMINAL_CORPUS_NIGHTLY_FILE="$ROOT_DIR/.github/workflows/terminal-corpus-nightl
 CA_REGRESSION_SCRIPT="$ROOT_DIR/scripts/verify-main-thread-ca-transactions.sh"
 CMUX_UNIT_ISOLATED_RUNNER="$ROOT_DIR/scripts/ci/run-cmux-unit-tests-isolated.sh"
 E2E_FILTER_VALIDATOR="$ROOT_DIR/scripts/ci/validate-e2e-test-filter.sh"
+SPARKLE_MONOTONIC_SCRIPT="$ROOT_DIR/tests/test_ci_sparkle_build_monotonic.sh"
 
 check_macos_runner() {
   local file="$1" job="$2"
@@ -1015,6 +1016,41 @@ check_command_palette_nucleo_ffi_coverage() {
   echo "PASS: command palette nucleo FFI assertions run in a focused CI lane"
 }
 
+check_sparkle_monotonic_guard_fails_closed_on_ci() {
+  local missing_appcast="file:///tmp/cmux-missing-sparkle-appcast-$$.xml"
+  local output
+  output="$(mktemp)"
+
+  if env CI=true CMUX_SPARKLE_APPCAST_URL="$missing_appcast" "$SPARKLE_MONOTONIC_SCRIPT" >"$output" 2>&1; then
+    echo "FAIL: Sparkle build monotonic guard must fail closed when CI cannot fetch the published appcast"
+    cat "$output"
+    rm -f "$output"
+    exit 1
+  fi
+  if ! grep -Fq 'Refusing to skip the monotonic release guard in CI.' "$output"; then
+    echo "FAIL: Sparkle build monotonic guard must explain CI appcast fetch failures"
+    cat "$output"
+    rm -f "$output"
+    exit 1
+  fi
+
+  if ! env -u CI -u GITHUB_ACTIONS CMUX_SPARKLE_APPCAST_URL="$missing_appcast" "$SPARKLE_MONOTONIC_SCRIPT" >"$output" 2>&1; then
+    echo "FAIL: Sparkle build monotonic guard should keep the local-only offline soft pass"
+    cat "$output"
+    rm -f "$output"
+    exit 1
+  fi
+  if ! grep -Fq 'PASS (local soft): local CURRENT_PROJECT_VERSION=' "$output"; then
+    echo "FAIL: Sparkle build monotonic guard must label offline passes as local-only"
+    cat "$output"
+    rm -f "$output"
+    exit 1
+  fi
+  rm -f "$output"
+
+  echo "PASS: Sparkle build monotonic guard fails closed in CI"
+}
+
 check_compat_smoke_zig_resilience() {
   if ! awk '
     /^[[:space:]]*- name: Cache Zig packages$/ { in_step=1; saw_step=1; next }
@@ -1804,6 +1840,7 @@ check_compat_smoke_zig_resilience
 check_terminal_corpus_requires_live_ghostty_surface
 check_web_db_behavior_test_coverage
 check_bundled_ghostty_helper_regression_coverage
+check_sparkle_monotonic_guard_fails_closed_on_ci
 check_swift_package_tests_require_nonzero_execution
 check_standalone_swift_package_tests_are_wired
 check_cmux_unit_isolated_runner

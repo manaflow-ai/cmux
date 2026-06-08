@@ -8,12 +8,15 @@
 # compares CFBundleVersion (CURRENT_PROJECT_VERSION) against <sparkle:version>
 # — the marketing string is informational only.
 #
-# If the published appcast cannot be fetched (e.g. offline CI runner), the
-# test soft-passes with a warning so it never blocks unrelated work.
+# If the published appcast cannot be fetched locally, the test soft-passes with
+# a warning so offline developer machines can still run pretag checks. In CI,
+# the release guard fails closed because a missing appcast means Sparkle update
+# eligibility was not verified.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_FILE="$ROOT_DIR/cmux.xcodeproj/project.pbxproj"
+APPCAST_URL="${CMUX_SPARKLE_APPCAST_URL:-https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml}"
 
 if [[ ! -f "$PROJECT_FILE" ]]; then
   echo "FAIL: $PROJECT_FILE not found" >&2
@@ -35,14 +38,19 @@ if [[ "$MISMATCHED" != "1" ]]; then
   exit 1
 fi
 
-PUBLISHED_BUILD=$(curl -fsSL --max-time 15 \
-  https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml 2>/dev/null \
+PUBLISHED_BUILD=$(curl -fsSL --max-time 15 "$APPCAST_URL" 2>/dev/null \
   | sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' \
   | head -n1 || true)
 
 if ! [[ "$PUBLISHED_BUILD" =~ ^[0-9]+$ ]]; then
-  echo "WARN: could not fetch latest published Sparkle build; skipping monotonic check"
-  echo "PASS (soft): local CURRENT_PROJECT_VERSION=$LOCAL_BUILD"
+  if [[ "${GITHUB_ACTIONS:-}" == "true" || "${CI:-}" == "true" ]]; then
+    echo "FAIL: could not fetch or parse latest published Sparkle build from appcast.xml" >&2
+    echo "      Refusing to skip the monotonic release guard in CI." >&2
+    exit 1
+  fi
+
+  echo "WARN: could not fetch latest published Sparkle build; skipping local-only monotonic check"
+  echo "PASS (local soft): local CURRENT_PROJECT_VERSION=$LOCAL_BUILD"
   exit 0
 fi
 
