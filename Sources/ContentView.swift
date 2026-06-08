@@ -15816,7 +15816,7 @@ struct TabItemView: View, Equatable {
                     y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
                 )
                 .padding(.top, 6)
-                .padding(.trailing, 16)
+                .padding(.trailing, 10)
                 .allowsHitTesting(false)
                 .shortcutHintTransition()
             }
