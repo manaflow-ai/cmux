@@ -26,6 +26,25 @@ case "$(uname -s):$(uname -m)" in
     ;;
 esac
 
+case "${version}:${archive}" in
+  1.3.13:bun-darwin-aarch64.zip)
+    expected_sha256="5467e3f65dba526b9fea98f0cce04efafc0c63e169733ec27b876a3ad32da190"
+    ;;
+  1.3.13:bun-darwin-x64.zip)
+    expected_sha256="e5a6c8b64f419925232d111ecb13e25f0abf55e54f792341f987623fd0778009"
+    ;;
+  1.3.13:bun-linux-aarch64.zip)
+    expected_sha256="70bae41b3908b0a120e1e58c5c8af30e74afae3b8d11b0d3fdd8e787ddfb4b22"
+    ;;
+  1.3.13:bun-linux-x64.zip)
+    expected_sha256="79c0771fa8b92c33aae41e15a0e0d307ea99d0e2f00317c71c6c53237a78e25a"
+    ;;
+  *)
+    echo "missing pinned SHA256 for Bun ${version} ${archive}" >&2
+    exit 2
+    ;;
+esac
+
 install_root="${BUN_INSTALL:-$HOME/.bun}"
 install_dir="$install_root/bin"
 install_path="$install_dir/bun"
@@ -73,6 +92,12 @@ for attempt in 1 2 3 4 5; do
   fi
   sleep "$((attempt * 15))"
 done
+
+actual_sha256="$(shasum -a 256 "$zip_path" | awk '{print $1}')"
+if [[ "$actual_sha256" != "$expected_sha256" ]]; then
+  echo "Bun archive checksum mismatch for ${archive}: expected ${expected_sha256}, got ${actual_sha256}" >&2
+  exit 1
+fi
 
 unzip -q "$zip_path" -d "$tmp_dir/extract"
 bun_binary="$(find "$tmp_dir/extract" -type f -name bun -print -quit)"

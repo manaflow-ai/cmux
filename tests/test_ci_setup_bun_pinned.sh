@@ -54,6 +54,27 @@ if [[ "$found_setup" -eq 0 ]]; then
   exit 1
 fi
 
+installer="scripts/ci/setup-bun-with-retry.sh"
+if ! grep -Fq 'expected_sha256=' "$installer"; then
+  echo "FAIL: $installer must pin SHA256 values for Bun release archives" >&2
+  exit 1
+fi
+if ! grep -Fq 'shasum -a 256 "$zip_path"' "$installer"; then
+  echo "FAIL: $installer must verify the downloaded Bun archive checksum before unzip" >&2
+  exit 1
+fi
+for archive in \
+  bun-darwin-aarch64.zip \
+  bun-darwin-x64.zip \
+  bun-linux-aarch64.zip \
+  bun-linux-x64.zip
+do
+  if ! grep -Fq "1.3.13:$archive" "$installer"; then
+    echo "FAIL: $installer must pin a SHA256 for Bun 1.3.13 $archive" >&2
+    exit 1
+  fi
+done
+
 check_ci_job_bun_setup "web-typecheck" "../scripts/ci/setup-bun-with-retry.sh 1.3.13"
 check_ci_job_bun_setup "web-db-migrations" "../scripts/ci/setup-bun-with-retry.sh 1.3.13"
 check_ci_job_bun_setup "react-apps-check" "./scripts/ci/setup-bun-with-retry.sh 1.3.13"
