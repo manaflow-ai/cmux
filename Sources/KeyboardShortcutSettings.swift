@@ -1021,8 +1021,8 @@ enum SystemWideHotkeySettings {
 
     static func shortcut() -> StoredShortcut {
         migrateLegacyShortcutIfNeeded()
-        return storedShortcut()
-            ?? KeyboardShortcutSettings.settingsFileStore.override(for: action)
+        return KeyboardShortcutSettings.settingsFileStore.override(for: action)
+            ?? storedShortcut()
             ?? defaultShortcut
     }
 
