@@ -1129,7 +1129,7 @@ jobs:
     # Keep the app build on macOS 26 so SDK-gated SwiftUI Liquid Glass code
     # compiles into the same artifact shape as nightly and stable releases.
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Prepare self-hosted workspace
         run: |
@@ -1268,6 +1268,13 @@ jobs:
           lipo "$CLI_BINARY" -verify_arch arm64 x86_64
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
           [[ "$SDK_VERSION" == 26.* ]]
+
+      - name: Save DerivedData cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: build-universal
+          key: deriveddata-release-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}
 
   ui-regressions:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}

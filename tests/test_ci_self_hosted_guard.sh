@@ -460,6 +460,23 @@ check_release_build_signal() {
     exit 1
   fi
 
+  if ! awk '
+    /^  release-build:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /^[[:space:]]*- name: Validate Release artifact slices$/ { saw_validate=1; next }
+    in_job && /^[[:space:]]*- name: Save DerivedData cache$/ { in_save=1; saw_save=1; save_after_validate=saw_validate; next }
+    in_save && /^[[:space:]]*- name:/ { in_save=0 }
+    in_save && /if:[[:space:]]*github\.event_name == '\''push'\'' && github\.ref == '\''refs\/heads\/main'\''/ { saw_main_only=1 }
+    in_save && /uses: actions\/cache\/save@/ { saw_save_action=1 }
+    in_save && /path: build-universal/ { saw_save_path=1 }
+    in_save && /key: deriveddata-release-/ { saw_save_key=1 }
+    in_save && /continue-on-error:[[:space:]]*true/ { saw_continue=1 }
+    END { exit(saw_save && save_after_validate && saw_main_only && saw_save_action && saw_save_path && saw_save_key && !saw_continue ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: release-build must save DerivedData only on main after Release artifact validation"
+    exit 1
+  fi
+
   if ! grep -Fq 'lipo "$APP_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
     echo "FAIL: release-build must verify the Release app binary stays universal"
     exit 1
