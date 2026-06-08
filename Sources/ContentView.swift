@@ -15829,6 +15829,17 @@ struct TabItemView: View, Equatable {
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
         }
+        // Re-read current state after the modifier chain is fully established.
+        // .onAppear fires synchronously during view insertion, before .onReceive
+        // subscriptions are live. Sidebar data (status pills, metadata, etc.) set
+        // by socket commands between .onAppear and subscription can be missed by
+        // the change-only observation publishers. This one-shot async refresh runs
+        // on the next main-actor tick — after .onReceive is subscribed — so it
+        // picks up any state that .onAppear saw as empty but that was mutated in
+        // the gap. The snapshot comparison no-ops when nothing changed.
+        .task {
+            refreshWorkspaceSnapshot()
+        }
         .task(id: finderDirectoryCacheKey) {
             let cache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryCacheKey)
             guard !Task.isCancelled else { return }
