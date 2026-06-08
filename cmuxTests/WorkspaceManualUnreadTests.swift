@@ -745,6 +745,94 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertTrue(workspace.manualUnreadPanelIds.contains(panelId))
     }
 
+    /// Regression for #5095 (and the same class as #4370 / #4589): a notification generated while
+    /// the surface was NOT focused must not acquire a focused-read indicator just because live
+    /// selection/navigation later lands focus on that surface (e.g. pressing back then forward
+    /// after creating a pane/workspace). The focused-read indicator — and therefore the blue pane
+    /// ring — is a strict function of the focus captured when the notification was generated, never
+    /// of live selection state observed at apply time.
+    func testHistoryNavigationFocusDoesNotSetFocusedReadIndicatorForUnfocusedArrival() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalFocusOverride
+        }
+
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let surfaceId = try XCTUnwrap(manager.focusedSurfaceId(for: workspace.id))
+
+        // Live state: the workspace is selected and this surface is focused, exactly as it would be
+        // right after back/forward navigation lands on it. But the notification was generated while
+        // the panel was not focused, so its policy request carries isFocusedPanel = false.
+        let request = TerminalNotificationPolicyRequest(
+            tabId: workspace.id,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            title: "Agent",
+            subtitle: "",
+            body: "",
+            cwd: nil,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+
+        store.applyNotificationForTesting(request: request)
+
+        // The arrival is a real notification, so it is recorded as unread...
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: surfaceId))
+        // ...but live focus from navigation must NOT have stamped a focused-read indicator, which is
+        // the phantom blue ring that survives once the unread notification is later cleared.
+        XCTAssertNil(store.focusedReadIndicatorSurfaceId(forTabId: workspace.id))
+    }
+
+    /// The focused-read decision is a pure function of generation-time facts only. No combination of
+    /// selection/navigation inputs feeds it, so a notification generated while the surface was not
+    /// focused can never light the ring regardless of where focus later lands.
+    func testShouldMarkArrivalAsFocusedReadIsPureFunctionOfGenerationFocus() {
+        XCTAssertTrue(
+            TerminalNotificationStore.shouldMarkArrivalAsFocusedRead(
+                wasFocusedAtGeneration: true,
+                marksUnread: true
+            )
+        )
+        // Generated while unfocused → never a focused-read ring, even though navigation may later
+        // select/focus the surface.
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldMarkArrivalAsFocusedRead(
+                wasFocusedAtGeneration: false,
+                marksUnread: true
+            )
+        )
+        // A notification the policy does not mark unread is not a ring source either.
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldMarkArrivalAsFocusedRead(
+                wasFocusedAtGeneration: true,
+                marksUnread: false
+            )
+        )
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldMarkArrivalAsFocusedRead(
+                wasFocusedAtGeneration: false,
+                marksUnread: false
+            )
+        )
+    }
+
     func testToggleFocusedNotificationUnreadClearsRestoredWorkspaceUnreadWhenPanelIsFocused() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let store = TerminalNotificationStore.shared

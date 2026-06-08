@@ -862,6 +862,13 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var restoredUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
     }
+    // INVARIANT (issues #4370, #4589, #5095): the focused-read indicator — and therefore the blue
+    // unreadPaneRing — is changed ONLY by a notification-arrival event (recordNotification, gated on
+    // the focus captured when the notification was generated) or by an explicit "user viewed/marked"
+    // event (markRead / dismissNotification / clearFocusedReadIndicator). Selection, history
+    // navigation, pane/workspace creation, and session-restore observers may only READ this map;
+    // they must never set it. Lighting it from live selection state is what produced the phantom
+    // ring on back/forward navigation. See `shouldMarkArrivalAsFocusedRead`.
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
@@ -1473,6 +1480,7 @@ final class TerminalNotificationStore: ObservableObject {
             recordNotification(
                 notification,
                 shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
+                wasFocusedAtGeneration: request.isAppFocused && request.isFocusedPanel,
                 effects: effects,
                 now: now,
                 cooldownReservation: cooldownReservation
@@ -1504,6 +1512,7 @@ final class TerminalNotificationStore: ObservableObject {
     private func recordNotification(
         _ notification: TerminalNotification,
         shouldSuppressExternalDelivery: Bool,
+        wasFocusedAtGeneration: Bool,
         effects: TerminalNotificationPolicyEffects,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?
@@ -1521,7 +1530,10 @@ final class TerminalNotificationStore: ObservableObject {
             focusedReadIndicatorByTabId.removeValue(forKey: notification.tabId)
         }
 
-        if shouldSuppressExternalDelivery, effects.markUnread {
+        if Self.shouldMarkArrivalAsFocusedRead(
+            wasFocusedAtGeneration: wasFocusedAtGeneration,
+            marksUnread: effects.markUnread
+        ) {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
@@ -1745,6 +1757,27 @@ final class TerminalNotificationStore: ObservableObject {
             return workspaceIndex
         }
         return notifications.firstIndex(where: { $0.tabId == tabId })
+    }
+
+    /// Decides whether an arriving notification should leave a focused-read indicator (the subtle
+    /// "you were looking at this surface when it fired" ring).
+    ///
+    /// This is a pure function of facts captured when the notification was *generated*. It must not
+    /// consult live selection, focus, or navigation state: doing so let plain back/forward history
+    /// navigation (after creating a pane or workspace) stamp a phantom ring on a surface the user
+    /// only passed through (#5095, same class as #4370 / #4589).
+    ///
+    /// - Parameters:
+    ///   - wasFocusedAtGeneration: Whether the target surface was the user's focused panel at the
+    ///     moment the notification was generated (`TerminalNotificationPolicyRequest.isFocusedPanel`),
+    ///     not whatever surface happens to be selected when the (possibly async) policy result is applied.
+    ///   - marksUnread: Whether the resolved policy marks this notification unread.
+    /// - Returns: `true` only when the user genuinely had eyes on the surface as it fired.
+    static func shouldMarkArrivalAsFocusedRead(
+        wasFocusedAtGeneration: Bool,
+        marksUnread: Bool
+    ) -> Bool {
+        wasFocusedAtGeneration && marksUnread
     }
 
     func setFocusedReadIndicator(forTabId tabId: UUID, surfaceId: UUID?) {
@@ -2364,6 +2397,22 @@ final class TerminalNotificationStore: ObservableObject {
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
+    }
+
+    /// Runs the notification-apply path with an explicit, caller-supplied request so a test can
+    /// drive the generation-time focus (`request.isFocusedPanel`) independently of live selection
+    /// state. Used to prove that history navigation / live focus cannot light the ring.
+    func applyNotificationForTesting(
+        request: TerminalNotificationPolicyRequest,
+        effects: TerminalNotificationPolicyEffects = TerminalNotificationPolicyEffects()
+    ) {
+        applyNotification(
+            request: request,
+            effects: effects,
+            now: Date(),
+            cooldownReservation: nil,
+            clickAction: nil
+        )
     }
 #endif
 
