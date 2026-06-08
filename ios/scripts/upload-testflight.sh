@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Verify a built/exported IPA's single .app carries an aps-environment entitlement
-# in its actual code signature. A config-level entitlement only delivers push if
-# it survives into the SIGNED binary; only `codesign -d --entitlements` on the
-# .app proves it (see the #5496 regression note below). Returns 0 if present,
-# non-zero otherwise. One shared check used by both signing paths (manual
-# post-re-sign gate, automatic pre-upload gate) so the two paths can't drift.
-verify_ipa_has_aps_environment() {
+# Verify a built/exported IPA's single .app is strictly signed AND carries
+# aps-environment == "production" in its actual code signature. A config-level
+# entitlement only delivers push if it survives into the SIGNED binary; only
+# `codesign -d --entitlements` on the .app proves it (see the #5496 regression
+# note below). The VALUE matters, not just presence: a "development" value
+# registers a sandbox token that the production APNs host (which TestFlight runs
+# against) rejects with BadDeviceToken, which is the exact failure this guards.
+# Returns 0 only when production push is genuinely wired; non-zero otherwise.
+# One shared check used by both signing paths (manual post-re-sign gate,
+# automatic pre-upload gate) so the two paths can't drift.
+verify_ipa_aps_environment_production() {
   local ipa="$1"
-  local workdir app
+  local workdir app ent aps rc
   workdir="$(mktemp -d)"
   if ! ( cd "$workdir" && unzip -q "$ipa" ); then
     echo "error: could not unzip IPA to verify entitlements: $ipa" >&2
@@ -22,20 +26,30 @@ verify_ipa_has_aps_environment() {
     rm -rf "$workdir"
     return 1
   fi
-  # --verify --strict catches a corrupt bundle (e.g. a bad re-zip); the
-  # aps-environment grep catches the dropped-entitlement regression.
+  # --verify --strict catches a corrupt bundle (e.g. a bad re-zip).
   if ! codesign --verify --strict --verbose=2 "$app" >&2; then
     rm -rf "$workdir"
     return 1
   fi
-  if codesign -d --entitlements :- --xml "$app" 2>/dev/null | plutil -p - | grep -q '"aps-environment"'; then
+  # Read the signed entitlements and assert aps-environment == production.
+  ent="$workdir/signed-entitlements.plist"
+  if ! codesign -d --entitlements :- --xml "$app" > "$ent" 2>/dev/null; then
+    echo "error: could not read entitlements from signed app: $app" >&2
     rm -rf "$workdir"
-    return 0
+    return 1
   fi
-  echo "error: signed app is MISSING aps-environment (push would silently fail): $app" >&2
-  codesign -d --entitlements :- --xml "$app" 2>/dev/null | plutil -p - >&2 || true
+  # PlistBuddy exits non-zero (and prints to stdout) when the key is absent, so
+  # capture rc and require an exact "production" match.
+  aps="$(/usr/libexec/PlistBuddy -c 'Print :aps-environment' "$ent" 2>/dev/null)"
+  rc=$?
+  if [[ $rc -ne 0 || "$aps" != "production" ]]; then
+    echo "error: signed app aps-environment is '${aps:-<absent>}', expected 'production' (push would silently fail): $app" >&2
+    plutil -p "$ent" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
   rm -rf "$workdir"
-  return 1
+  return 0
 }
 
 usage() {
@@ -501,8 +515,8 @@ if [[ "$SIGNING" == "manual" ]]; then
   # silently, and the whole point is that aps-environment survives. Re-verify the
   # produced IPA (strict signature + aps-environment) so altool is not the first
   # thing to notice. Same shared check the automatic path uses.
-  if ! verify_ipa_has_aps_environment "$RESIGNED_IPA"; then
-    echo "error: re-signed IPA failed verification (corrupt bundle or lost aps-environment); refusing to upload" >&2
+  if ! verify_ipa_aps_environment_production "$RESIGNED_IPA"; then
+    echo "error: re-signed IPA failed verification (corrupt bundle, or aps-environment not production); refusing to upload" >&2
     exit 1
   fi
 
@@ -527,11 +541,11 @@ else
   # release.yml already import a signing cert on ephemeral runners, so the pattern
   # exists). That is a security-relevant workflow + secrets decision, deliberately
   # out of scope here; this gate just stops shipping a broken artifact until then.
-  if ! verify_ipa_has_aps_environment "$IPA_PATH"; then
-    echo "error: --signing automatic produced an IPA missing aps-environment; refusing to upload a push-broken beta. Cut the beta via --signing manual (import the iOS distribution cert in CI), or re-sign with the distribution cert." >&2
+  if ! verify_ipa_aps_environment_production "$IPA_PATH"; then
+    echo "error: --signing automatic produced an IPA without aps-environment=production; refusing to upload a push-broken beta. Cut the beta via --signing manual (import the iOS distribution cert in CI), or re-sign with the distribution cert." >&2
     exit 1
   fi
-  echo "automatic-signed IPA verified to carry aps-environment: $IPA_PATH"
+  echo "automatic-signed IPA verified to carry aps-environment=production: $IPA_PATH"
 fi
 
 echo "IPA_PATH=$IPA_PATH"
