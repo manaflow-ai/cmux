@@ -13,9 +13,9 @@ on:
       - "ios/**"
       - "Packages/**"
       - "ghostty"
-      - "scripts/ensure-ghosttykit.sh"
-      - "scripts/install-zig-ci.sh"
+      - "scripts/download-prebuilt-ghosttykit.sh"
       - "scripts/ghosttykit-checksums.txt"
+      - "scripts/validate-xcframework-archive.py"
       - ".github/workflows/ios-testflight.yml"
   workflow_dispatch:
     inputs:
@@ -144,11 +144,12 @@ jobs:
       - name: Provision GhosttyKit
         run: |
           # Downloads the prebuilt GhosttyKit.xcframework pinned in
-          # scripts/ghosttykit-checksums.txt for the current ghostty SHA, or
-          # falls back to a from-source build. The iOS app links GhosttyKit via
-          # a local-path binaryTarget, so it must exist before package resolve.
-          ./scripts/install-zig-ci.sh
-          ./scripts/ensure-ghosttykit.sh
+          # scripts/ghosttykit-checksums.txt for the current ghostty SHA. The
+          # iOS app links GhosttyKit via a local-path binaryTarget, so it must
+          # exist before package resolve. Do not fall back to a local Zig build
+          # here: this lane must fail closed when the pinned prebuilt artifact is
+          # unavailable or invalid.
+          ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Materialize App Store Connect API key
         env:
