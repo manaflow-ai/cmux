@@ -33,6 +33,7 @@ public struct CMUXMobileRootScene: View {
     private let analytics: any AnalyticsEmitting
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
+    private let displaySettings: MobileDisplaySettings
     #endif
     private let pairedMacStore: (any MobilePairedMacStoring)?
     #if DEBUG
@@ -52,6 +53,8 @@ public struct CMUXMobileRootScene: View {
     ///   - analytics: The app-root analytics emitter, injected into the store.
     ///   - pushCoordinator: The app-root push coordinator (shared with the app
     ///     delegate) injected into the environment.
+    ///   - displaySettings: The app-root mobile display settings injected into
+    ///     the environment (drives workspace-title wrapping).
     ///   - diagnosticLog: The structured diagnostic log (DEBUG builds only),
     ///     injected into the shell store for the DEV feedback round-trip.
     public init(
@@ -60,6 +63,7 @@ public struct CMUXMobileRootScene: View {
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
         pushCoordinator: MobilePushCoordinator,
+        displaySettings: MobileDisplaySettings,
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.runtime = runtime
@@ -67,6 +71,7 @@ public struct CMUXMobileRootScene: View {
         self.reachability = reachability
         self.analytics = analytics
         self.pushCoordinator = pushCoordinator
+        self.displaySettings = displaySettings
         self.pairedMacStore = Self.openPairedMacStore()
         #if DEBUG
         self.diagnosticLog = diagnosticLog
@@ -108,6 +113,7 @@ public struct CMUXMobileRootScene: View {
             .analytics(analytics)
             #if os(iOS)
             .environment(pushCoordinator)
+            .environment(displaySettings)
             #endif
     }
 
