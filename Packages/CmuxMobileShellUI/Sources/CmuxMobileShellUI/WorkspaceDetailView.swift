@@ -22,7 +22,6 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
-    @State private var isTerminalPickerPresented = false
     #if DEBUG && canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
@@ -281,7 +280,6 @@ struct WorkspaceDetailView: View {
 
     #if DEBUG && canImport(UIKit)
     private func copyDebugLogsFromMenu() {
-        isTerminalPickerPresented = false
         // Include "what the user sees" (the visible terminal text) above the
         // debug log so a pasted bug report shows the on-screen content too.
         let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
@@ -293,7 +291,6 @@ struct WorkspaceDetailView: View {
     }
 
     private func openFeedbackComposerFromMenu() {
-        isTerminalPickerPresented = false
         feedbackText = ""
         isFeedbackComposerPresented = true
     }
@@ -374,7 +371,6 @@ struct WorkspaceDetailView: View {
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
-        isTerminalPickerPresented = false
         // Switching from the picker is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is
