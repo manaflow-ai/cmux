@@ -2310,8 +2310,6 @@ class TerminalController {
             "mobile.terminal.input",
             "mobile.terminal.replay",
             "mobile.terminal.viewport",
-            "mobile.events.subscribe",
-            "mobile.events.unsubscribe",
             "terminal.create",
             "terminal.input",
             "terminal.replay",

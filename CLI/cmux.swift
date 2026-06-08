@@ -2312,17 +2312,15 @@ final class SocketClient {
 
     private func waitForReadable(timeout: TimeInterval) throws -> Bool {
         let sanitizedTimeout = timeout.isFinite ? timeout : Self.defaultResponseTimeoutSeconds
-        let timeoutMilliseconds = min(
-            max(Int(ceil(max(sanitizedTimeout, 0.001) * 1000)), 1),
-            Int(Int32.max)
-        )
+        let milliseconds = ceil(max(sanitizedTimeout, 0.001) * 1000)
+        let timeoutMilliseconds = Int32(min(max(milliseconds, 1), Double(Int32.max)))
         while true {
             var descriptor = pollfd(
                 fd: socketFD,
                 events: Int16(POLLIN | POLLHUP | POLLERR),
                 revents: 0
             )
-            let ready = Darwin.poll(&descriptor, 1, Int32(timeoutMilliseconds))
+            let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
             if ready > 0 {
                 if descriptor.revents & Int16(POLLNVAL) != 0 {
                     throw CLIError(message: "Socket is not valid")
