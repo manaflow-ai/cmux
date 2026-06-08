@@ -17964,6 +17964,17 @@ struct CMUXCLI {
     private static let codexTeamsProbeClientName = "codex_app_server_daemon"
     private static let codexTeamsWatcherClientName = "cmux-codex-teams"
     private static let codexTeamsClientVersion = "0.1.0"
+    private static let codexTeamsWatcherResumeOptOutNotificationMethods = [
+        "thread/turn/delta",
+        "turn/delta",
+        "item/textDelta",
+        "item/thinkingDelta",
+        "item/reasoningDelta",
+        "item/commandExecution/outputDelta",
+        "item/commandExecution/stdoutDelta",
+        "item/commandExecution/stderrDelta",
+        "item/outputDelta"
+    ]
 
     private struct CodexTeamsSpawn {
         let parentThreadId: String
@@ -18178,7 +18189,8 @@ struct CMUXCLI {
                     method: "thread/resume",
                     params: [
                         "threadId": threadId,
-                        "excludeTurns": true
+                        "excludeTurns": true,
+                        "optOutNotificationMethods": CMUXCLI.codexTeamsWatcherResumeOptOutNotificationMethods
                     ],
                     notificationHandler: nil,
                     responseTimeout: 2
@@ -18333,7 +18345,8 @@ struct CMUXCLI {
                     method: "thread/resume",
                     params: [
                         "threadId": threadId,
-                        "excludeTurns": true
+                        "excludeTurns": true,
+                        "optOutNotificationMethods": CMUXCLI.codexTeamsWatcherResumeOptOutNotificationMethods
                     ],
                     notificationHandler: { [weak self] message in
                         try self?.handleAppServerMessage(
@@ -18447,7 +18460,8 @@ struct CMUXCLI {
         }
 
         private func pushCodexApprovalToFeed(event: [String: Any]) throws -> [String: Any] {
-            try socketClient.sendV2(method: "feed.push", params: [
+            let feedClient = SocketClient(path: socketClient.socketPath)
+            return try feedClient.sendV2(method: "feed.push", params: [
                 "event": event,
                 "wait_timeout_seconds": 120
             ], responseTimeout: 125)
