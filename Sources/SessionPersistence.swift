@@ -401,7 +401,8 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     ) -> String? {
         guard let inlineInput = inlineStartupInput else { return nil }
         let retryPolicy = AgentResumeRetryPolicy.policy(agentKind: kind)
-        guard retryPolicy.isEnabled || inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+        let inlineInputFits = inlineInput.utf8.count <= Self.maxInlineStartupInputBytes
+        guard retryPolicy.isEnabled || !inlineInputFits else {
             return inlineInput
         }
         guard allowLauncherScript else { return inlineInput }
@@ -413,7 +414,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             returnToLoginShell: retryPolicy.isEnabled,
             retryPolicy: retryPolicy
         ) else {
-            return nil
+            return inlineInputFits ? inlineInput : nil
         }
 
         let scriptInput = "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))\n"

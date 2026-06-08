@@ -30,6 +30,8 @@ struct AgentResumeShellScriptBuilderTests {
         #expect(script.contains(#"_cmux_resume_retry_delay="${CMUX_AGENT_RESUME_RETRY_DELAY_SECONDS:-0.250}""#))
         #expect(script.contains(#"/usr/bin/script -q -F "$_cmux_resume_log""#))
         #expect(script.contains("database is locked|another Codex process is using its local data"))
+        #expect(script.contains("trap _cmux_resume_cleanup_log EXIT INT TERM"))
+        #expect(script.contains("trap - EXIT INT TERM"))
         #expect(script.contains(#"if [ "$_cmux_resume_retry" -ge "$_cmux_resume_retry_limit" ]; then"#))
         #expect(lines.contains(#"{ cd -- '/tmp/project' 2>/dev/null || true; }"#))
     }

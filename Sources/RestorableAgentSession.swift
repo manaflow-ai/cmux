@@ -768,14 +768,15 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     ) -> String? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
-        guard retryPolicy.isEnabled || inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+        let inlineInputFits = inlineInput.utf8.count <= Self.maxInlineStartupInputBytes
+        guard retryPolicy.isEnabled || !inlineInputFits else {
             return inlineInput
         }
         guard retryPolicy.isEnabled || !allowOversizedInlineInput else {
             return inlineInput
         }
         guard allowLauncherScript else {
-            return retryPolicy.isEnabled ? inlineInput : nil
+            return inlineInputFits || allowOversizedInlineInput ? inlineInput : nil
         }
         guard let scriptURL = AgentResumeScriptStore.writeLauncherScript(
             command: command,
@@ -789,7 +790,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
                 ? nil
                 : (workingDirectory ?? launchCommand?.workingDirectory)
         ) else {
-            return nil
+            return inlineInputFits || allowOversizedInlineInput ? inlineInput : nil
         }
 
         let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"

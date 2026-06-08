@@ -25,6 +25,8 @@ public struct AgentResumeRetryPolicy: Sendable, Equatable {
         self.maximumRetries = max(0, maximumRetries)
         self.delaySeconds = max(0, delaySeconds)
         self.outputNeedles = outputNeedles
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     /// A policy that never retries.
@@ -65,6 +67,7 @@ public struct AgentResumeRetryPolicy: Sendable, Equatable {
     /// Returns `true` when process output contains a retryable signature.
     ///
     /// - Parameter output: Combined stdout/stderr from the failed attempt.
+    /// - Returns: `true` when `output` contains a retryable signature; otherwise `false`.
     public func matches(output: String) -> Bool {
         guard isEnabled else { return false }
         let lowercasedOutput = output.lowercased()

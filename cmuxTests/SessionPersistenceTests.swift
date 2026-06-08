@@ -2263,6 +2263,39 @@ exit 0
         XCTAssertNil(snapshot.resumeStartupInput(temporaryDirectory: blockedDirectory))
     }
 
+    func testCodexResumeStartupInputFallsBackToInlineWhenRetryScriptCannotBeWrittenAndCommandFits() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let blockedDirectory = tempDir.appendingPathComponent("not-a-directory", isDirectory: false)
+        try "occupied".write(to: blockedDirectory, atomically: true, encoding: .utf8)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4"
+                ],
+                workingDirectory: "/tmp/repo",
+                environment: ["CODEX_HOME": "/tmp/codex"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeStartupInput(temporaryDirectory: blockedDirectory),
+            snapshot.resumeCommand.map { $0 + "\n" }
+        )
+    }
+
     func testCodexResumeLauncherRetriesTransientStateDatabaseLockAndReturnsToLaunchCwd() throws {
         let harness = try makeCodexResumeLauncherHarness()
         defer { try? FileManager.default.removeItem(at: harness.root) }
@@ -4074,6 +4107,33 @@ extension SessionPersistenceTests {
         XCTAssertTrue(scriptContents.contains(longPath))
         XCTAssertTrue(scriptContents.contains("'CODEX_HOME=/tmp/codex home'"))
         XCTAssertTrue(scriptContents.contains("codex resume session"))
+    }
+
+    func testCodexSurfaceResumeBindingFallsBackToInlineWhenRetryScriptCannotBeWrittenAndCommandFits() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-resume-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let blockedDirectory = tempDir.appendingPathComponent("not-a-directory", isDirectory: false)
+        try "occupied".write(to: blockedDirectory, atomically: true, encoding: .utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume session",
+            cwd: "/tmp/project",
+            checkpointId: "session",
+            source: "process-detected",
+            environment: [
+                "CODEX_HOME": "/tmp/codex home",
+            ]
+        )
+
+        let inlineInput = try XCTUnwrap(binding.inlineStartupInput)
+        XCTAssertLessThanOrEqual(inlineInput.utf8.count, SurfaceResumeBindingSnapshot.maxInlineStartupInputBytes)
+        XCTAssertEqual(
+            binding.startupInputWithLauncherScript(temporaryDirectory: blockedDirectory),
+            inlineInput
+        )
     }
 
     @MainActor

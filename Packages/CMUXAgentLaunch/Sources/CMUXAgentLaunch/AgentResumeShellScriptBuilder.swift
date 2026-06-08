@@ -86,6 +86,12 @@ public struct AgentResumeShellScriptBuilder: Sendable, Equatable {
             #"esac"#,
             #"_cmux_resume_retry=0"#,
             #"_cmux_resume_log="""#,
+            #"_cmux_resume_cleanup_log() {"#,
+            #"  if [ -n "$_cmux_resume_log" ]; then"#,
+            #"    rm -f -- "$_cmux_resume_log" 2>/dev/null || true"#,
+            #"  fi"#,
+            #"}"#,
+            #"trap _cmux_resume_cleanup_log EXIT INT TERM"#,
             #"while true; do"#,
             #"  if [ ! -x /usr/bin/script ]; then"#,
             #"    case "${_cmux_resume_shell:t}" in"#,
@@ -121,7 +127,8 @@ public struct AgentResumeShellScriptBuilder: Sendable, Equatable {
             #"    fi"#,
             #"  fi"#,
             #"done"#,
-            #"rm -f -- "$_cmux_resume_log" 2>/dev/null || true"#,
+            #"_cmux_resume_cleanup_log"#,
+            #"trap - EXIT INT TERM"#,
         ]
     }
 }
