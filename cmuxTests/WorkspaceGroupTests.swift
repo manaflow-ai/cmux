@@ -406,6 +406,41 @@ struct WorkspaceGroupTests {
         #expect(pinnedChild.groupId == groupId)
     }
 
+    @Test func draggingUnpinnedGroupedWorkspaceAbovePinnedGroupedWorkspaceShowsNoIndicator() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+            originalIds[3],
+        ]))
+        let pinnedChild = try #require(manager.tabs.first { $0.id == originalIds[2] })
+        manager.setPinned(pinnedChild, pinned: true)
+
+        let draggedUnpinnedId = originalIds[3]
+        let tabIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: draggedUnpinnedId,
+            targetWorkspaceId: pinnedChild.id
+        )
+        let pinnedIds = manager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: draggedUnpinnedId,
+            targetWorkspaceId: pinnedChild.id
+        )
+
+        #expect(manager.tabs.first { $0.id == draggedUnpinnedId }?.groupId == groupId)
+        #expect(SidebarDropPlanner.indicator(
+            draggedTabId: draggedUnpinnedId,
+            targetTabId: pinnedChild.id,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedIds,
+            pointerY: 2,
+            targetHeight: 40
+        ) == nil)
+    }
+
     @Test func movingGroupMemberToTopKeepsScriptableGroupOrderInVisibleOrder() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
