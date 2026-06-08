@@ -188,18 +188,20 @@ jobs:
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
-          for attempt in 1 2 3; do
+          retry_delays=(10 20 40 60 60)
+          for attempt in 1 2 3 4 5 6; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
             fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "Failed to resolve Swift packages after 3 attempts" >&2
+            if [ "$attempt" -eq 6 ]; then
+              echo "Failed to resolve Swift packages after 6 attempts" >&2
               exit 1
             fi
-            echo "Package resolution failed on attempt $attempt, retrying..."
-            sleep $((attempt * 5))
+            delay="${retry_delays[$((attempt - 1))]}"
+            echo "Package resolution failed on attempt $attempt, retrying in ${delay}s..."
+            sleep "$delay"
           done
 
       - name: Run unit tests
