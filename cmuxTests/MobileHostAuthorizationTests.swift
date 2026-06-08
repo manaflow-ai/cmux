@@ -689,6 +689,100 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(error)
     }
 
+    func testWorkspaceScopedAttachTicketAcceptsWorkspaceCloseInWorkspace() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "workspace-close",
+            method: "workspace.close",
+            params: ["workspace_id": "workspace"],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertNil(error)
+    }
+
+    func testTerminalScopedAttachTicketRejectsWorkspaceCloseWithoutTerminal() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "workspace-close",
+            method: "workspace.close",
+            params: ["workspace_id": "workspace"],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertEqual(error?.code, "forbidden")
+    }
+
+    func testTerminalScopedAttachTicketRejectsWorkspaceCloseWithTerminalAlias() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "workspace-close",
+            method: "workspace.close",
+            params: [
+                "workspace_id": "workspace",
+                "surface_id": "terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertEqual(error?.code, "forbidden")
+    }
+
+    func testTerminalScopedAttachTicketAcceptsSurfaceCloseForNamedTerminal() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "surface-close",
+            method: "surface.close",
+            params: [
+                "workspace_id": "workspace",
+                "surface_id": "terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertNil(error)
+    }
+
+    func testWorkspaceScopedAttachTicketRejectsSurfaceCloseOutsideWorkspace() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "surface-close",
+            method: "surface.close",
+            params: [
+                "workspace_id": "other-workspace",
+                "surface_id": "terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertEqual(error?.code, "forbidden")
+    }
+
     func testMacScopedAttachTicketAcceptsTerminalReplayInAnyWorkspace() throws {
         let ticket = try scopedAttachTicket(workspaceID: "", terminalID: nil)
         let request = MobileHostRPCRequest(
@@ -1112,11 +1206,13 @@ final class MobileHostAuthorizationTests: XCTestCase {
     // MARK: - Advertised mobile host capabilities
 
     func testMobileHostAdvertisesWorkspaceActionsCapability() {
-        // The iOS client gates rename/pin on `workspace.actions.v1`; every
-        // mobile.host.status path reads this single list, so advertising it here
-        // is what makes the feature visible to a supporting Mac.
+        // The iOS client gates rename/pin on `workspace.actions.v1` and
+        // swipe-delete on `mobile.delete.v1`; every mobile.host.status path
+        // reads this single list, so advertising them here is what makes the
+        // features visible to a supporting Mac.
         let capabilities = MobileHostService.mobileHostCapabilities
         XCTAssertTrue(capabilities.contains("workspace.actions.v1"))
+        XCTAssertTrue(capabilities.contains("mobile.delete.v1"))
         XCTAssertTrue(capabilities.contains("terminal.render_grid.v1"))
     }
 
