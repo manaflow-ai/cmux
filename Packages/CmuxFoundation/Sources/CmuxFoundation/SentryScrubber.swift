@@ -134,17 +134,63 @@ public struct SentryScrubber: Sendable {
         }
     }
 
-    /// Recursively scrubs every string value inside a dictionary.
+    /// Recursively scrubs every value inside a dictionary, treating sensitive
+    /// keys as a redaction boundary.
+    ///
+    /// Values keyed by a sensitive name (``isSensitiveKey(_:)`` — token,
+    /// password, secret, api key, authorization, cookie, …) are redacted
+    /// wholesale, because such values (a session id, a base64 credential) often
+    /// do not match any standalone secret value pattern. All other values are
+    /// scrubbed by content, recursing into nested dictionaries and arrays.
     ///
     /// - Parameter dictionary: The dictionary whose values are scrubbed.
     /// - Returns: A new dictionary with the same keys and scrubbed values.
     public func scrub(dictionary: [String: Any]) -> [String: Any] {
         var output = [String: Any](minimumCapacity: dictionary.count)
         for (key, value) in dictionary {
-            output[key] = scrub(value: value)
+            if Self.isSensitiveKey(key), value is String {
+                output[key] = Self.redactedSecret
+            } else {
+                output[key] = scrub(value: value)
+            }
         }
         return output
     }
+
+    /// Returns whether a dictionary/header key names a secret-bearing value.
+    ///
+    /// Matches common credential field names (case-insensitively, ignoring
+    /// `-`/`_` separators) such as `token`, `password`, `secret`, `apiKey`,
+    /// `authorization`, and `cookie`.
+    ///
+    /// - Parameter key: The dictionary or header key.
+    /// - Returns: `true` when the key's value should be redacted wholesale.
+    static func isSensitiveKey(_ key: String) -> Bool {
+        let normalized = key.lowercased().replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "")
+        for marker in sensitiveKeyMarkers where normalized.contains(marker) {
+            return true
+        }
+        return false
+    }
+
+    /// Substrings that mark a dictionary/header key as secret-bearing.
+    static let sensitiveKeyMarkers: [String] = [
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "apikey",
+        "accesskey",
+        "authorization",
+        "auth",
+        "cookie",
+        "credential",
+        "bearer",
+        "sessionid",
+        "privatekey",
+    ]
 
     // MARK: - Paths
 

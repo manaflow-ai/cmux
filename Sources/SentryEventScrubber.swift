@@ -159,7 +159,9 @@ struct SentryEventScrubber {
         // …), so pattern-scrubbing the value cannot reliably catch every secret.
         request.cookies = nil
         if let headers = request.headers {
-            request.headers = headers.mapValues { scrubber.scrub($0) }
+            // Route through the key-aware dictionary scrubber so credential
+            // headers (Authorization, Cookie, …) are redacted by name.
+            request.headers = scrubber.scrub(dictionary: headers).compactMapValues { $0 as? String }
         }
     }
 

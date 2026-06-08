@@ -1,6 +1,6 @@
 import Testing
 
-import CmuxFoundation
+@testable import CmuxFoundation
 
 @Suite struct SentryScrubberTests {
     /// A scrubber with a fixed home directory so path redaction is deterministic.
@@ -144,6 +144,38 @@ import CmuxFoundation
         #expect(output["count"] as? Int == 7)
         let nested = output["nested"] as? [String: Any]
         #expect(nested?["url"] as? String == "https://x.com/?token=<redacted-secret>")
+    }
+
+    @Test func redactsValuesUnderSensitiveKeysRegardlessOfValueShape() {
+        // A bare credential value need not match any standalone secret pattern;
+        // the sensitive key name is the trust boundary.
+        let input: [String: Any] = [
+            "token": "abcdef0123456789plainvalue",
+            "password": "p4ssw0rd",
+            "api_key": "justletters",
+            "Authorization": "Basic dXNlcjpwYXNz",
+            "note": "/Users/alice/readme.txt",
+            "count": 5,
+        ]
+        let output = scrubber.scrub(dictionary: input)
+        #expect(output["token"] as? String == "<redacted-secret>")
+        #expect(output["password"] as? String == "<redacted-secret>")
+        #expect(output["api_key"] as? String == "<redacted-secret>")
+        #expect(output["Authorization"] as? String == "<redacted-secret>")
+        // Non-sensitive keys are still content-scrubbed and scalars pass through.
+        #expect(output["note"] as? String == "/Users/<redacted>/readme.txt")
+        #expect(output["count"] as? Int == 5)
+    }
+
+    @Test func sensitiveKeyMatchingIgnoresCaseAndSeparators() {
+        #expect(SentryScrubber.isSensitiveKey("Access-Token"))
+        #expect(SentryScrubber.isSensitiveKey("X_API_KEY"))
+        #expect(SentryScrubber.isSensitiveKey("Cookie"))
+        #expect(SentryScrubber.isSensitiveKey("session_id"))
+        #expect(SentryScrubber.isSensitiveKey("authorization"))
+        #expect(!SentryScrubber.isSensitiveKey("username"))
+        #expect(!SentryScrubber.isSensitiveKey("count"))
+        #expect(!SentryScrubber.isSensitiveKey("path"))
     }
 
     @Test func scrubsArraysOfStrings() {
