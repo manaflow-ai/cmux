@@ -1159,6 +1159,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         //    owns a read-only scroll position into already-received history and
         //    snaps back to live when new output arrives (see `processOutput`).
         switch gesture.state {
+        case .began:
+            // A fresh swipe is the natural retry point for a deeper-scrollback
+            // fetch that never returned (e.g. dropped by the shared replay
+            // in-flight guard). Clear the latch here, off the frame-metadata
+            // stream, so it cannot race the meta/byte delivery order. A fetch that
+            // is genuinely still in flight is deduped by the shared replay guard.
+            localScrollFetchInFlight = false
         case .changed:
             let translation = gesture.translation(in: self)
             // Aim for ~1:1 natural scrolling. Measured: the Mac applies a ~3x
@@ -1213,6 +1220,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// applying (see `consumeLocalScrollSnapRequest`).
     private var isLocalScrollActive: Bool { localScrollUpRowsExact >= 0.5 }
 
+    /// True while a deeper-scrollback fetch issued by this view is outstanding, so
+    /// the response (the next full snapshot) can be recognized as a fetch result
+    /// and its growth (or lack of growth) measured.
+    private var localScrollFetchInFlight = false
+
+    /// True once a deeper-scrollback fetch returned no additional history: the
+    /// shell's whole scrollback is now held locally. Gates the fetch trigger so
+    /// the view stops cleanly at the oldest known line instead of re-firing an RPC
+    /// (and re-anchoring to the bottom) on every scroll-to-top. Cleared on genuine
+    /// growth, resize, or a fresh cold-attach snapshot.
+    private var localHistoryFullyLoaded = false
+
     /// Set the active screen from the latest applied frame. Flipping into the
     /// alternate screen mid-scroll immediately drops any local offset and reverts
     /// to forwarding (alt scroll must reach the program).
@@ -1228,9 +1247,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Record how much scrollback the local surface now holds, from a full
     /// primary snapshot. Resets the local offset because the snapshot rebuilt the
-    /// surface at the live bottom.
+    /// surface at the live bottom. If this snapshot is the response to a deeper
+    /// fetch and it carried no more history than before, the shell's whole
+    /// scrollback is now held: mark it fully loaded so scroll-to-top stops cleanly
+    /// instead of bouncing on a re-fetch. A genuinely larger snapshot (or a fresh
+    /// cold attach that is not a fetch response) clears that ceiling.
     public func setHeldScrollbackRows(_ rows: Int) {
-        heldScrollbackRows = max(0, rows)
+        let newRows = max(0, rows)
+        if localScrollFetchInFlight {
+            localScrollFetchInFlight = false
+            // A fetch that did not grow history means we have reached the oldest
+            // line the Mac can supply for now.
+            localHistoryFullyLoaded = newRows <= heldScrollbackRows
+        } else {
+            // Not a fetch response (cold attach / live full snapshot): history may
+            // have changed underneath us, so re-open the ceiling.
+            localHistoryFullyLoaded = false
+        }
+        heldScrollbackRows = newRows
         localScrollUpRowsExact = 0
     }
 
@@ -1301,7 +1335,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // Reached (or passed) the top of locally-held history while scrolling up:
         // ask the host for ONE deeper-scrollback fetch (not per-frame). The fetch
         // re-flows a deeper snapshot into the local surface, growing history.
-        if lines > 0, nextUpRows >= Double(heldScrollbackRows), nextUpRows > priorUpRows {
+        // Suppressed once a fetch returned no growth (`localHistoryFullyLoaded`)
+        // or while one is already outstanding, so a short-scrollback shell stops
+        // cleanly at the oldest line instead of bouncing to the bottom on every
+        // scroll-to-top.
+        if lines > 0,
+           nextUpRows >= Double(heldScrollbackRows),
+           nextUpRows > priorUpRows,
+           !localHistoryFullyLoaded,
+           !localScrollFetchInFlight {
+            localScrollFetchInFlight = true
             delegate?.ghosttySurfaceView(self, didReachLocalHistoryTopWithHeldScrollbackRows: heldScrollbackRows)
         }
     }
