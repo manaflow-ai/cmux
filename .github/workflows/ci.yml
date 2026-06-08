@@ -210,7 +210,13 @@ jobs:
           bun test tests/vm-db-read-model.test.ts
 
   tests:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    # macOS CI runs on Blacksmith (hardcoded, git-tracked; no override variable).
+    # To change provider or roll back to Warp, edit the runs-on labels in a PR.
+    # macos-15 vs macos-26: helper / GhosttyKit / nightly jobs build on macos-15
+    # because zig can only cross-link the universal Ghostty CLI helper against a
+    # pre-26 SDK; the app and SDK-validation builds use macos-26 (Liquid Glass).
+    # See docs/macos-ci-runners.md.
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 75
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -496,7 +502,7 @@ jobs:
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: blacksmith-6vcpu-macos-15
     # A cold DerivedData cache (any project.pbxproj or Package.resolved change
     # mints a new cache key with no restore-keys fallback) forces a full
     # cmux build whose Swift codegen alone can run 20+ min. Project/package
@@ -701,7 +707,7 @@ jobs:
           rm -f /tmp/create-virtual-display
 
   release-ghostty-cli-helper:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -740,7 +746,7 @@ jobs:
     # mistakes before they reach main.
     # Keep the app build on macOS 26 so SDK-gated SwiftUI Liquid Glass code
     # compiles into the same artifact shape as nightly and stable releases.
-    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
+    runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -849,7 +855,7 @@ jobs:
           [[ "$SDK_VERSION" == 26.* ]]
 
   ui-regressions:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: blacksmith-6vcpu-macos-15
     # Cold builds after project/package changes can spend more than 25 minutes
     # in build-for-testing before the UI regression script starts.
     timeout-minutes: 45

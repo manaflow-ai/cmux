@@ -107,7 +107,7 @@ jobs:
     # and injected before signing (see Select Xcode + the helper build/inject
     # steps). Building the whole app with Xcode 16 (#5022) shipped a macOS 15 SDK
     # binary that Tahoe forced into the legacy non-Liquid-Glass appearance.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 30
     steps:
       - name: Checkout build ref

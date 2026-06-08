@@ -16,7 +16,7 @@ env:
 
 jobs:
   build-ghostty-cli-helper:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -53,7 +53,7 @@ jobs:
     # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
     # into stable releases. The real universal Ghostty CLI helper is built on
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
-    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
+    runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 20
     steps:
       - name: Checkout

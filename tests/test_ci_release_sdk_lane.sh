@@ -32,25 +32,25 @@ require_job_contains() {
 require_job_contains \
   "$RELEASE_FILE" \
   "build-ghostty-cli-helper" \
-  'runs-on: ${{ vars.MACOS_RUNNER_15 || '\''warp-macos-15-arm64-6x'\'' }}' \
+  'runs-on: blacksmith-6vcpu-macos-15' \
   "release must build the real Ghostty CLI helper on macOS 15"
 
 require_job_contains \
   "$RELEASE_FILE" \
   "build-sign-notarize" \
-  'runs-on: ${{ vars.MACOS_RUNNER_26 || '\''warp-macos-26-arm64-6x'\'' }}' \
+  'runs-on: blacksmith-6vcpu-macos-26' \
   "release must build the app on macOS 26"
 
 require_job_contains \
   "$CI_FILE" \
   "release-ghostty-cli-helper" \
-  'runs-on: ${{ vars.MACOS_RUNNER_15 || '\''warp-macos-15-arm64-6x'\'' }}' \
+  'runs-on: blacksmith-6vcpu-macos-15' \
   "CI must build the real Ghostty CLI helper on macOS 15"
 
 require_job_contains \
   "$CI_FILE" \
   "release-build" \
-  'runs-on: ${{ vars.MACOS_RUNNER_26 || '\''warp-macos-26-arm64-6x'\'' }}' \
+  'runs-on: blacksmith-6vcpu-macos-26' \
   "CI release-build must compile the app on macOS 26"
 
 for workflow in "$CI_FILE" "$RELEASE_FILE"; do
