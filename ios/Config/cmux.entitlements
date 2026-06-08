@@ -8,9 +8,14 @@
 	</array>
 
 	<!-- APNs remote push. "development" targets the sandbox APNs host, matching
-	     DEBUG/dev tagged builds (which register sandbox device tokens). Flip to
-	     "production" for TestFlight/App Store archives (ideally via a build
-	     setting) so production device tokens are accepted. -->
+	     DEBUG/dev tagged builds (which register sandbox device tokens). This is
+	     the Debug entitlement, selected per-config via CODE_SIGN_ENTITLEMENTS in
+	     Debug.xcconfig. TestFlight/App Store (Release) builds use the separate
+	     cmux-release.entitlements ("production", api.push.apple.com), selected
+	     via Release.xcconfig, so distribution builds register production device
+	     tokens that the production APNs host accepts. Keep this in lockstep with
+	     the reported apnsEnvironment in MobileAuthComposition ("sandbox" for
+	     DEBUG). -->
 	<key>aps-environment</key>
 	<string>development</string>
 

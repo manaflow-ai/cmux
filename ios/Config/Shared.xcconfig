@@ -44,5 +44,13 @@ INFOPLIST_KEY_NSCameraUsageDescription = Scan cmux pairing QR codes from your Ma
 // ==========================================
 // Entitlements
 // ==========================================
-// AI agents can modify Config/cmux.entitlements to add capabilities
-CODE_SIGN_ENTITLEMENTS = Config/cmux.entitlements
+// CODE_SIGN_ENTITLEMENTS is set per-config, not here, so the aps-environment
+// can differ between local dev and distribution builds:
+//   - Debug.xcconfig   -> Config/cmux.entitlements         (aps-environment: development / sandbox APNs)
+//   - Release.xcconfig -> Config/cmux-release.entitlements (aps-environment: production / api.push.apple.com)
+// TestFlight/App Store run against production APNs, so a "development"
+// aps-environment there yields a sandbox token the production host rejects
+// (silent push failure). Keep each file's aps-environment in lockstep with the
+// reported apnsEnvironment in MobileAuthComposition.
+// AI agents can modify Config/cmux.entitlements (and cmux-release.entitlements)
+// to add capabilities; mirror capability changes across both files.

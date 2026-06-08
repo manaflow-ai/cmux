@@ -10,3 +10,10 @@ DEVELOPMENT_TEAM = 7WLXT3NR37
 // Distinguish the TestFlight beta on-device from a future App Store "cmux"
 // (overrides PRODUCT_DISPLAY_NAME = cmux from Shared.xcconfig). Debug stays "cmux".
 PRODUCT_DISPLAY_NAME = cmux BETA
+
+// TestFlight/App Store builds run against the production APNs host
+// (api.push.apple.com), so use the "production" aps-environment. A "development"
+// entitlement here yields a sandbox token the production host rejects, which is
+// why beta push silently failed to deliver. Mirrors the "production"
+// apnsEnvironment reported by MobileAuthComposition for non-DEBUG builds.
+CODE_SIGN_ENTITLEMENTS = Config/cmux-release.entitlements

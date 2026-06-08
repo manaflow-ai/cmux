@@ -5,3 +5,8 @@
 #include "Shared.xcconfig"
 
 SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) CMUX_DEV_AUTH
+
+// Local dev / tagged Debug builds register sandbox device tokens, so use the
+// "development" aps-environment (sandbox APNs host). Mirrors the "sandbox"
+// apnsEnvironment reported by MobileAuthComposition under #if DEBUG.
+CODE_SIGN_ENTITLEMENTS = Config/cmux.entitlements
