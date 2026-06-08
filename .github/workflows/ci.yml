@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 2
 
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
@@ -85,14 +87,24 @@ jobs:
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
 
-      # Paused: stale-base merge races (two PRs each fitting the budget can
-      # overshoot when merged back-to-back without rebasing). CodeRabbit and
-      # Greptile already flag large-file growth on PRs. Re-enable by uncommenting
-      # this step (and refresh the budget tsv first):
-      #   python3 scripts/swift_file_length_budget.py \
-      #     --budget .github/swift-file-length-budget.tsv --write-budget
-      # - name: Validate Swift file length budget
-      #   run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
+      - name: Validate Swift file length budget
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+          baseline_ref=""
+          if [ -n "$PR_BASE_SHA" ]; then
+            git fetch --no-tags --depth=1 origin "$PR_BASE_SHA"
+            baseline_ref="$PR_BASE_SHA"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            baseline_ref="HEAD^"
+          fi
+
+          args=(--budget .github/swift-file-length-budget.tsv)
+          if [ -n "$baseline_ref" ]; then
+            args+=(--baseline-ref "$baseline_ref" --reject-budget-increases-from "$baseline_ref")
+          fi
+          python3 scripts/swift_file_length_budget.py "${args[@]}"
 
   remote-daemon-tests:
     runs-on: ubuntu-latest
