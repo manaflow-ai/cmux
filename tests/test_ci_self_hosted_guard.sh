@@ -959,19 +959,22 @@ check_swift_package_tests_require_nonzero_execution() {
       saw_capture=0
       saw_nonzero_guard=0
       saw_failure_message=0
+      require_shard_gate=0
     }
     function finish_step() {
       if (!in_step) {
         return
       }
       steps += 1
-      if (!(saw_shard_gate && saw_swift_test && saw_capture && saw_nonzero_guard && saw_failure_message)) {
+      if (!((!require_shard_gate || saw_shard_gate) && saw_swift_test && saw_capture && saw_nonzero_guard && saw_failure_message)) {
         bad_step=1
       }
       in_step=0
       reset_step()
     }
-    /^[[:space:]]*- name: Run Swift package unit tests$/ { finish_step(); in_step=1; reset_step(); next }
+    /^  unit-tests:/ { in_unit_job=1; next }
+    /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_unit_job=0 }
+    /^[[:space:]]*- name: Run Swift package unit tests$/ { finish_step(); in_step=1; reset_step(); require_shard_gate=in_unit_job; next }
     in_step && /^[[:space:]]*- name:/ { finish_step() }
     in_step && /if: \$\{\{ matrix\.shard_index == 0 \}\}/ { saw_shard_gate=1 }
     in_step && /swift test --package-path "Packages\/\$pkg"/ { saw_swift_test=1 }
