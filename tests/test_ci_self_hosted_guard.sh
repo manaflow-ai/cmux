@@ -384,6 +384,20 @@ check_tmux_corpus_pr_jobs_do_not_report_skipped_terminal_tests() {
   echo "PASS: tmux-corpus PR workflow does not report skipped terminal-nightly checks"
 }
 
+check_tmux_corpus_keeps_nightly_fuzz_coverage() {
+  if ! awk '
+    /^[[:space:]]*schedule:[[:space:]]*$/ { in_schedule=1; next }
+    in_schedule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_-]*:[[:space:]]*/ { in_schedule=0 }
+    in_schedule && /^[[:space:]]*-[[:space:]]*cron:[[:space:]]*".+"/ { saw_cron=1 }
+    END { exit(saw_cron ? 0 : 1) }
+  ' "$TMUX_CORPUS_FILE"; then
+    echo "FAIL: tmux-corpus.yml must keep scheduled nightly coverage for remote-daemon fuzz targets"
+    exit 1
+  fi
+
+  echo "PASS: tmux-corpus keeps scheduled nightly remote-daemon fuzz coverage"
+}
+
 check_activation_artifacts_are_required() {
   if ! awk '
     /^[[:space:]]*- name: Write benchmark summary$/ { in_summary=1; next }
@@ -1693,6 +1707,7 @@ check_vm_socket_tests_do_not_skip_ctrl_interactive
 check_vm_socket_tests_do_not_self_skip
 check_vm_socket_runners_fail_closed_without_test_retries
 check_tmux_corpus_pr_jobs_do_not_report_skipped_terminal_tests
+check_tmux_corpus_keeps_nightly_fuzz_coverage
 check_activation_artifacts_are_required
 check_retryable_submodule_checkout
 check_split_theme_regression_timeout

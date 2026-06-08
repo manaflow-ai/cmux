@@ -5,6 +5,8 @@ on:
     paths:
       - ".github/workflows/tmux-corpus.yml"
       - "daemon/remote/**"
+  schedule:
+    - cron: "47 10 * * *"
   workflow_dispatch:
     inputs:
       fuzztime:

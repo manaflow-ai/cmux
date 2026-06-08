@@ -43,9 +43,11 @@ public actor RenderWorkerClient {
     private var child: RenderChild?
     private var generation = 0
     private var nextSceneSeq: UInt64 = 1
-    /// Per-scene ack watchdogs. A later ack must not mask an older scene that
-    /// missed its deadline, since a missed ack means the worker may be hung.
-    private var ackWatchdogs: [UInt64: Task<Void, Never>] = [:]
+    /// Outstanding scene acks. A single watchdog follows the oldest pending
+    /// seq so sidebar churn cannot create an unbounded number of tasks.
+    private var pendingAckSeqs: Set<UInt64> = []
+    private var watchedAckSeq: UInt64?
+    private var ackWatchdog: Task<Void, Never>?
     /// Replayed on every (re)spawn so the worker can rebuild the current view.
     private var lastScene: RenderScene?
     private var lastGeometry: RenderSurfaceGeometry?
@@ -171,15 +173,26 @@ public actor RenderWorkerClient {
         }
     }
 
-    /// Arms the hang watchdog for `seq`.
+    /// Tracks `seq` and arms the bounded hang watchdog if needed.
     ///
-    /// Bounded, cancellable deadline (mirrors ``InterpreterClient``'s render
-    /// watchdog): if the worker hasn't acked that exact scene by `ackTimeout`
-    /// it is hung — discard it so the next scene update relaunches a fresh
-    /// one. Cancelled by the matching ack; not a poll.
+    /// Bounded, cancellable deadline: if the oldest pending scene has not been
+    /// acked by `ackTimeout`, the worker is treated as hung and discarded. One
+    /// watchdog task covers all pending acks so a stuck worker cannot amplify
+    /// rapid scene updates into task growth.
     private func armAckWatchdog(for seq: UInt64) {
-        guard ackWatchdogs[seq] == nil else { return }
-        ackWatchdogs[seq] = Task { [weak self, ackTimeout] in
+        pendingAckSeqs.insert(seq)
+        guard ackWatchdog == nil else { return }
+        armNextAckWatchdog()
+    }
+
+    private func armNextAckWatchdog() {
+        guard let seq = pendingAckSeqs.min() else {
+            watchedAckSeq = nil
+            ackWatchdog = nil
+            return
+        }
+        watchedAckSeq = seq
+        ackWatchdog = Task { [weak self, ackTimeout] in
             try? await Task.sleep(for: ackTimeout)
             guard !Task.isCancelled, let self else { return }
             await self.ackDeadlineExpired(seq: seq)
@@ -187,13 +200,20 @@ public actor RenderWorkerClient {
     }
 
     private func ackDeadlineExpired(seq: UInt64) {
-        guard ackWatchdogs.removeValue(forKey: seq) != nil else { return }
+        guard watchedAckSeq == seq, pendingAckSeqs.remove(seq) != nil else { return }
+        watchedAckSeq = nil
+        ackWatchdog = nil
         discardWorker()
     }
 
     private func acked(_ seq: UInt64, generation gen: Int) {
         guard gen == generation else { return }
-        ackWatchdogs.removeValue(forKey: seq)?.cancel()
+        guard pendingAckSeqs.remove(seq) != nil else { return }
+        guard watchedAckSeq == seq else { return }
+        ackWatchdog?.cancel()
+        ackWatchdog = nil
+        watchedAckSeq = nil
+        armNextAckWatchdog()
     }
 
     // MARK: - Worker lifecycle
@@ -306,10 +326,10 @@ public actor RenderWorkerClient {
     }
 
     private func cancelAckWatchdogs() {
-        for watchdog in ackWatchdogs.values {
-            watchdog.cancel()
-        }
-        ackWatchdogs.removeAll()
+        ackWatchdog?.cancel()
+        ackWatchdog = nil
+        watchedAckSeq = nil
+        pendingAckSeqs.removeAll()
     }
 }
 

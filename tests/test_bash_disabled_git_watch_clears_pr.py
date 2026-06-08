@@ -50,6 +50,7 @@ def main() -> int:
             source "$CMUX_TEST_SCRIPT"
             _cmux_send_bg() { printf '%s\\n' "$1" >> "$CMUX_TEST_SEND_LOG"; }
             _cmux_prompt_command
+            _cmux_prompt_command
             """
         )
         env = dict(os.environ)
@@ -81,8 +82,13 @@ def main() -> int:
             "clear_pr --tab=00000000-0000-0000-0000-000000000001 "
             "--panel=00000000-0000-0000-0000-000000000002"
         )
-        if expected not in send_lines:
+        clear_count = sum(1 for line in send_lines if line == expected)
+        if clear_count == 0:
             print("FAIL: bash disabled git-watch path did not clear the panel PR badge")
+            print("\n".join(send_lines))
+            return 1
+        if clear_count != 1:
+            print("FAIL: bash disabled git-watch path sent repeated clear_pr commands")
             print("\n".join(send_lines))
             return 1
 

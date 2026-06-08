@@ -287,6 +287,7 @@ _CMUX_GIT_JOB_STARTED_AT="${_CMUX_GIT_JOB_STARTED_AT:-0}"
 _CMUX_GIT_HEAD_LAST_PWD="${_CMUX_GIT_HEAD_LAST_PWD:-}"
 _CMUX_GIT_HEAD_PATH="${_CMUX_GIT_HEAD_PATH:-}"
 _CMUX_GIT_HEAD_SIGNATURE="${_CMUX_GIT_HEAD_SIGNATURE:-}"
+_CMUX_GIT_WATCH_DISABLED_CLEARED="${_CMUX_GIT_WATCH_DISABLED_CLEARED:-0}"
 _CMUX_GIT_ACTIVE_PWD_FILE="${_CMUX_GIT_ACTIVE_PWD_FILE:-$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-git-active-pwd.XXXXXX" 2>/dev/null || true)}"
 _CMUX_PR_POLL_PID="${_CMUX_PR_POLL_PID:-}"
 _CMUX_PR_POLL_PWD="${_CMUX_PR_POLL_PWD:-}"
@@ -1528,8 +1529,12 @@ _cmux_prompt_command() {
         _CMUX_PR_FORCE=0
         _CMUX_LAST_PR_ACTION=""
         _CMUX_LAST_PR_TARGET=""
-        _cmux_clear_pr_for_disabled_git_watch
+        if [[ "$_CMUX_GIT_WATCH_DISABLED_CLEARED" != "1" ]]; then
+            _CMUX_GIT_WATCH_DISABLED_CLEARED=1
+            _cmux_clear_pr_for_disabled_git_watch
+        fi
     else
+        _CMUX_GIT_WATCH_DISABLED_CLEARED=0
         if [[ "$pwd" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
             _CMUX_GIT_HEAD_LAST_PWD="$pwd"
             _CMUX_GIT_HEAD_PATH="$(_cmux_git_resolve_head_path "$pwd" 2>/dev/null || true)"
