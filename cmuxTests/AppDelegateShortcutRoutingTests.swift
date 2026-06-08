@@ -5905,6 +5905,65 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testOptionDigitWorkspaceNumberShortcutBeatsPrintableOptionTextBypass() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window context")
+            return
+        }
+
+        let secondWorkspace = manager.addTab(select: false)
+        manager.selectTab(at: 0)
+
+        let optionWorkspaceNumber = StoredShortcut(
+            key: "1",
+            command: false,
+            shift: false,
+            option: true,
+            control: false
+        )
+
+        withTemporaryShortcut(action: .selectWorkspaceByNumber, shortcut: optionWorkspaceNumber) {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "™",
+                charactersIgnoringModifiers: "2",
+                isARepeat: false,
+                keyCode: 19 // kVK_ANSI_2
+            ) else {
+                XCTFail("Failed to construct Option+2 event")
+                return
+            }
+
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "Explicit Option+digit workspace bindings should route before printable Option text bypass"
+            )
+            XCTAssertEqual(
+                manager.selectedTabId,
+                secondWorkspace.id,
+                "Option+2 should select workspace 2 when selectWorkspaceByNumber is rebound to Option+1...9"
+            )
+        }
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
+    }
+
     func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
