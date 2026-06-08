@@ -13,11 +13,15 @@ struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    #if os(iOS)
     /// Owns the observable per-workspace phone-push mute set. Read here so a
     /// mute/unmute re-renders the workspace list; the set is forwarded into the
     /// list as a value snapshot (never the store) to respect the `List`
-    /// snapshot boundary.
+    /// snapshot boundary. iOS-only: ``MobilePushCoordinator`` (phone push) does
+    /// not exist on macOS, where the workspace list is shown without a mute
+    /// affordance.
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
+    #endif
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
@@ -74,7 +78,7 @@ struct WorkspaceShellView: View {
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
-                mutedWorkspaceIDs: pushCoordinator.mutedWorkspaceIDs,
+                mutedWorkspaceIDs: mutedWorkspaceIDsForList,
                 setMuted: setWorkspaceMutedClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
@@ -130,7 +134,7 @@ struct WorkspaceShellView: View {
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
-                mutedWorkspaceIDs: pushCoordinator.mutedWorkspaceIDs,
+                mutedWorkspaceIDs: mutedWorkspaceIDsForList,
                 setMuted: setWorkspaceMutedClosure
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
@@ -172,16 +176,31 @@ struct WorkspaceShellView: View {
         return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
     }
 
+    /// The muted-workspace snapshot passed into the list. iOS-only (phone push);
+    /// macOS has no `MobilePushCoordinator`, so the list shows no mute state.
+    private var mutedWorkspaceIDsForList: Set<String> {
+        #if os(iOS)
+        pushCoordinator.mutedWorkspaceIDs
+        #else
+        []
+        #endif
+    }
+
     /// Mute/unmute phone push for a workspace. Phone-local push preference, so
     /// (unlike pin/rename) it is NOT gated on the Mac's `workspace.actions.v1`
     /// capability: muting works against any paired Mac. The actual delivery gate
-    /// lives server-side in the web push route.
+    /// lives server-side in the web push route. iOS-only: `nil` on macOS, which
+    /// hides the row's mute affordance.
     private var setWorkspaceMutedClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
+        #if os(iOS)
         let pushCoordinator = pushCoordinator
         // Honor the explicit target state from the row's context menu (the menu
         // passes the state it wants), so a stale row snapshot can't flip mute the
         // wrong way.
         return { id, muted in pushCoordinator.setWorkspaceMuted(id.rawValue, muted: muted) }
+        #else
+        return nil
+        #endif
     }
 
     private func createWorkspaceInCompactStack() {
