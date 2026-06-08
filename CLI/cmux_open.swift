@@ -6028,6 +6028,11 @@ extension CMUXCLI {
                 return
             }
             let compressed = try Data(contentsOf: deflateSourceURL)
+            // `.deflate` files are RAW deflate streams (built with node
+            // `zlib.deflateRawSync`). Despite its name, Apple's `.zlib`
+            // algorithm decodes raw deflate (it is the zlib library's DEFLATE,
+            // without a zlib/gzip header), so this round-trips correctly —
+            // verified against the committed `diff-vendor.mjs.deflate`.
             guard let data = try? (compressed as NSData).decompressed(using: .zlib) as Data else {
                 throw CLIError(message: "Failed to inflate bundled diff viewer asset: \(relativePath)")
             }
