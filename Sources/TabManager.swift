@@ -3821,8 +3821,9 @@ class TabManager: ObservableObject {
     /// - If only one neighbor is in a group, join that neighbor's group when
     ///   that group's anchor is the neighbor or another existing member
     ///   (i.e. the dragged workspace sits "inside" the section).
-    /// - Otherwise, clear groupId. Pinned workspaces never gain a group via
-    ///   drag.
+    /// - Otherwise, clear groupId.
+    /// Pinned workspaces may join a group when the same neighbor-based rules
+    /// place them inside that group's section.
     /// Anchors keep their group: their lifecycle is gated by group existence.
     private func applyDragInferredGroupMembership(workspaceId: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == workspaceId }) else { return }
