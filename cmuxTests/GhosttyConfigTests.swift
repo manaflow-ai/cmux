@@ -15,6 +15,20 @@ import Testing
 @testable import cmux
 #endif
 
+fileprivate func hostedCIFontUnavailableError(
+    _ fontName: String,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) -> Error {
+    let message = "\(fontName) is unavailable on this runner"
+    let environment = ProcessInfo.processInfo.environment
+    if environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true" {
+        XCTFail("\(message); hosted CI must exercise CJK font resolution coverage", file: file, line: line)
+        return NSError(domain: "cmux.tests", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+    return XCTSkip(message)
+}
+
 final class SidebarPathFormatterTests: XCTestCase {
     func testShortenedPathReplacesExactHomeDirectory() {
         XCTAssertEqual(
@@ -52,22 +66,6 @@ final class GhosttyConfigTests: XCTestCase {
         let red: Int
         let green: Int
         let blue: Int
-    }
-
-    private func hostedCIFontUnavailableError(
-        _ fontName: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) -> Error {
-        let message = "\(fontName) is unavailable on this runner"
-        let environment = ProcessInfo.processInfo.environment
-        if environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true" {
-            XCTFail("\(message); hosted CI must exercise CJK font resolution coverage", file: file, line: line)
-            return NSError(domain: "cmux.tests", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: message,
-            ])
-        }
-        return XCTSkip(message)
     }
 
     func testLaunchGhosttyResourcesPreferCurrentBundleOverInheritedEnvironment() throws {
