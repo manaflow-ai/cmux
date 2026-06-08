@@ -272,9 +272,6 @@ enum CodexTeamsApprovalBridge {
         if decisionAvailableOrUnspecified("accept", params: params) {
             return "accept"
         }
-        if let decision = commandApprovalAmendmentDecision(params: params) {
-            return decision
-        }
         return rejectApprovalDecision(params: params)
     }
 

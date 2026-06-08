@@ -259,8 +259,8 @@ struct FeedCoordinatorTests {
                 "proposedNetworkPolicyAmendments": [["host": "example.com"]]
             ],
             mode: "once"
-        )?["decision"] as? [String: Any]
-        #expect(onceAmendmentDecision?["applyNetworkPolicyAmendment"] != nil)
+        )?["decision"] as? String
+        #expect(onceAmendmentDecision == "decline")
         let unspecifiedAmendmentDecision = CodexTeamsApprovalBridge.appServerApprovalResponse(
             method: "item/commandExecution/requestApproval",
             params: [

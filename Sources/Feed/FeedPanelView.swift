@@ -1464,6 +1464,17 @@ private struct PermissionActionArea: View {
                         }
                             .accessibilityIdentifier("FeedPermissionAlwaysAllowButton")
                     }
+                    if FeedPermissionActionPolicy.supportsAllPermissionMode(
+                        source: source,
+                        toolInputJSON: toolInputJSON
+                    ) {
+                        FeedButton(label: String(localized: "feed.permission.all", defaultValue: "All tools"),
+                                   kind: .primary, size: .medium, fullWidth: true) {
+                            onActionRow()
+                            onApprove(.all)
+                        }
+                            .accessibilityIdentifier("FeedPermissionAllToolsButton")
+                    }
                     if FeedPermissionActionPolicy.supportsBypassPermissions(source: source) {
                         FeedButton(label: String(localized: "feed.permission.bypass", defaultValue: "Bypass"),
                                    kind: .destructive, size: .medium, fullWidth: true) {
