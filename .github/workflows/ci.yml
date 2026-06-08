@@ -1522,6 +1522,15 @@ jobs:
           clang -framework Foundation -framework CoreGraphics \
             -framework AppKit \
             -o "$HELPER_PATH" scripts/create-virtual-display.m
+          HELPER_COMMAND=("$HELPER_PATH")
+          GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+          if [ -n "$GUI_USER" ] && [ "$GUI_USER" != "root" ] && command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            GUI_UID="$(id -u "$GUI_USER")"
+            echo "Launching persistent display helper in console GUI bootstrap for $GUI_USER ($GUI_UID)"
+            HELPER_COMMAND=(sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" /usr/bin/env "$HELPER_PATH")
+          else
+            echo "Launching persistent display helper in current bootstrap"
+          fi
 
           # Find the app binary
           APP_BINARY="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
@@ -1539,7 +1548,7 @@ jobs:
             # DISPLAY_START, which the shell writes when xcodebuild reports the
             # display regression test has started. The XCTest runner is sandboxed
             # and cannot create marker files outside its container.
-            "$HELPER_PATH" \
+            "${HELPER_COMMAND[@]}" \
               --modes "1920x1080,1728x1117,1600x900,1440x810" \
               --ready-path "$DISPLAY_READY" \
               --display-id-path "$DISPLAY_ID_PATH" \
@@ -1761,4 +1770,5 @@ jobs:
           if [ -n "${VDISPLAY_PERSISTENT_PID:-}" ]; then
             kill "$VDISPLAY_PERSISTENT_PID" >/dev/null 2>&1 || true
           fi
+          pkill -f "/tmp/create-virtual-display" >/dev/null 2>&1 || true
           rm -f /tmp/cmux-vdisplay-persistent.ready /tmp/cmux-vdisplay-persistent.id /tmp/cmux-vdisplay-persistent.log
