@@ -86,6 +86,14 @@ struct FeedCoordinatorTests {
         #expect(FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexSession))
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: codexSession))
 
+        let truncatedCodexToolInput = #"{"app_server_method":"item/commandExecution/requestApproval","available_decisions":["accept"]"#
+        #expect(!FeedPermissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: truncatedCodexToolInput))
+        #expect(!FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: truncatedCodexToolInput))
+        #expect(!FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: truncatedCodexToolInput))
+        #expect(!CodexTeamsApprovalBridge.feedSourceSupportsOncePermissionMode("codex", toolInputJSON: truncatedCodexToolInput))
+        #expect(!CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: truncatedCodexToolInput))
+        #expect(!CodexTeamsApprovalBridge.feedSourceSupportsAllPermissionMode("codex", toolInputJSON: truncatedCodexToolInput))
+
         let codexFileChangeFallback = #"""
         {"app_server_method":"item/fileChange/requestApproval"}
         """#
@@ -111,6 +119,40 @@ struct FeedCoordinatorTests {
         #expect(!FeedPermissionActionPolicy.supportsBypassPermissions(source: .hermesAgent))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes("hermes-agent"))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsBypassPermissions("hermes-agent"))
+    }
+
+    @Test func codexPermissionListKeepsCapabilitiesWhenToolInputIsTruncated() throws {
+        let toolInput: [String: Any] = [
+            "app_server_method": "item/commandExecution/requestApproval",
+            "available_decisions": ["accept", "acceptForSession", "decline"],
+            "related_item": [
+                "diff": String(repeating: "x", count: 12_000)
+            ]
+        ]
+        let toolInputData = try JSONSerialization.data(withJSONObject: toolInput, options: [.sortedKeys])
+        let toolInputJSON = try #require(String(data: toolInputData, encoding: .utf8))
+        let item = WorkstreamItem(
+            workstreamId: "codex-thread-1",
+            source: .codex,
+            kind: .permissionRequest,
+            payload: .permissionRequest(
+                requestId: "request-1",
+                toolName: "Bash",
+                toolInputJSON: toolInputJSON,
+                pattern: nil
+            )
+        )
+
+        let dict = FeedCoordinator.itemDict(item)
+        let displayToolInput = try #require(dict["tool_input"] as? String)
+        let capabilityToolInput = try #require(dict["tool_input_capabilities"] as? String)
+
+        #expect(displayToolInput.count == 8_000)
+        #expect(dict["tool_input_truncated"] as? Bool == true)
+        #expect(capabilityToolInput.count < displayToolInput.count)
+        #expect(FeedPermissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: capabilityToolInput))
+        #expect(FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: capabilityToolInput))
+        #expect(!FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: capabilityToolInput))
     }
 
     @Test func codexAppServerApprovalBuildsActionableFeedEvent() throws {

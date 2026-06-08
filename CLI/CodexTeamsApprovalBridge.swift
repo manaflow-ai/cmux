@@ -473,11 +473,13 @@ enum CodexTeamsApprovalBridge {
     }
 
     private static func codexCapabilities(toolInputJSON: String?) -> CodexPermissionCapabilities {
-        guard let toolInputJSON,
-              let data = toolInputJSON.data(using: .utf8),
+        guard let toolInputJSON else {
+            return CodexPermissionCapabilities(supportsOnce: true, supportsAlways: true, supportsAll: true)
+        }
+        guard let data = toolInputJSON.data(using: .utf8),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else {
-            return CodexPermissionCapabilities(supportsOnce: true, supportsAlways: true, supportsAll: true)
+            return CodexPermissionCapabilities(supportsOnce: false, supportsAlways: false, supportsAll: false)
         }
 
         let method = object["app_server_method"] as? String

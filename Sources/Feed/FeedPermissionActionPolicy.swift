@@ -27,12 +27,48 @@ enum FeedPermissionActionPolicy {
         source != .codex && source != .claude && source != .hermesAgent
     }
 
-    private static func codexCapabilities(toolInputJSON: String?) -> CodexPermissionCapabilities {
-        guard let toolInputJSON,
-              let data = toolInputJSON.data(using: .utf8),
+    static func codexCapabilityToolInputJSON(source: WorkstreamSource, toolInputJSON: String) -> String? {
+        guard source == .codex else { return nil }
+        return codexCapabilityToolInputJSON(toolInputJSON: toolInputJSON)
+    }
+
+    private static func codexCapabilityToolInputJSON(toolInputJSON: String) -> String? {
+        guard let data = toolInputJSON.data(using: .utf8),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else {
+            return nil
+        }
+
+        var snapshot: [String: Any] = [:]
+        if let method = object["app_server_method"] as? String {
+            snapshot["app_server_method"] = method
+        }
+        if let decisions = codexAvailableDecisions(in: object) {
+            snapshot["available_decisions"] = decisions.sorted()
+        }
+        if let amendment = object["proposed_execpolicy_amendment"],
+           !(amendment is NSNull) {
+            snapshot["proposed_execpolicy_amendment"] = true
+        }
+        if let amendments = object["proposed_network_policy_amendments"] as? [Any],
+           !amendments.isEmpty {
+            snapshot["proposed_network_policy_amendments"] = [true]
+        }
+
+        guard let snapshotData = try? JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys]) else {
+            return nil
+        }
+        return String(data: snapshotData, encoding: .utf8)
+    }
+
+    private static func codexCapabilities(toolInputJSON: String?) -> CodexPermissionCapabilities {
+        guard let toolInputJSON else {
             return CodexPermissionCapabilities(supportsOnce: true, supportsAlways: true, supportsAll: true)
+        }
+        guard let data = toolInputJSON.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else {
+            return CodexPermissionCapabilities(supportsOnce: false, supportsAlways: false, supportsAll: false)
         }
 
         let method = object["app_server_method"] as? String

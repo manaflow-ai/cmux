@@ -10434,6 +10434,7 @@ struct CMUXCLI {
         let lowered = trimmed.lowercased()
         if lowered.contains("missing required capability") ||
             lowered.contains("pty.session") ||
+            lowered.contains("pty.write.notification") ||
             lowered.contains("method_not_found") {
             return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
         }
@@ -17979,6 +17980,17 @@ struct CMUXCLI {
     private static let codexTeamsWatcherClientName = "cmux-codex-teams"
     private static let codexTeamsClientVersion = "0.1.0"
     private static let codexTeamsWatcherResumeOptOutNotificationMethods = [
+        "thread/tokenUsage/updated",
+        "turn/diff/updated",
+        "turn/plan/updated",
+        "item/agentMessage/delta",
+        "item/plan/delta",
+        "item/reasoning/summaryTextDelta",
+        "item/reasoning/textDelta",
+        "command/exec/outputDelta",
+        "process/outputDelta",
+        "item/fileChange/outputDelta",
+        "item/mcpToolCall/progress",
         "thread/turn/delta",
         "turn/delta",
         "item/textDelta",
@@ -18116,6 +18128,11 @@ struct CMUXCLI {
 
             while true {
                 let message = try receiveObject(timeout: responseTimeout)
+                if message["method"] is String {
+                    try notificationHandler?(message)
+                    continue
+                }
+
                 if CodexTeamsAppServerConnection.message(message, hasId: requestId) {
                     if let error = message["error"] as? [String: Any] {
                         let message = (error["message"] as? String) ?? "Codex app-server request failed"
@@ -18125,10 +18142,6 @@ struct CMUXCLI {
                         return result
                     }
                     return ["result": message["result"] ?? NSNull()]
-                }
-
-                if message["method"] is String {
-                    try notificationHandler?(message)
                 }
             }
         }
@@ -29612,6 +29625,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let title: String
         let detail: String
         let toolInputJSON: String
+        let toolInputCapabilitiesJSON: String
         let defaultMode: String?
         let questionMultiSelect: Bool
         let questionOptions: [FeedTUIOption]
@@ -29662,6 +29676,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 title: title,
                 detail: detail,
                 toolInputJSON: (dict["tool_input"] as? String) ?? "",
+                toolInputCapabilitiesJSON: (dict["tool_input_capabilities"] as? String)
+                    ?? (dict["tool_input"] as? String)
+                    ?? "",
                 defaultMode: dict["default_mode"] as? String,
                 questionMultiSelect: (dict["question_multi_select"] as? Bool) ?? false,
                 questionOptions: options,
@@ -30364,15 +30381,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "permissionRequest":
             let supportsOnce = feedTUISourceSupportsOncePermissionMode(
                 item.source,
-                toolInputJSON: item.toolInputJSON
+                toolInputJSON: item.toolInputCapabilitiesJSON
             )
             let supportsAlways = feedTUISourceSupportsAlwaysPermissionMode(
                 item.source,
-                toolInputJSON: item.toolInputJSON
+                toolInputJSON: item.toolInputCapabilitiesJSON
             )
             let supportsAll = feedTUISourceSupportsAllPermissionMode(
                 item.source,
-                toolInputJSON: item.toolInputJSON
+                toolInputJSON: item.toolInputCapabilitiesJSON
             )
             var actions: [String] = []
             if supportsOnce { actions.append("Enter/o once") }
@@ -30458,21 +30475,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             switch key {
             case .enter where feedTUISourceSupportsOncePermissionMode(
                 item.source,
-                toolInputJSON: item.toolInputJSON
+                toolInputJSON: item.toolInputCapabilitiesJSON
             ),
             .once where feedTUISourceSupportsOncePermissionMode(
                 item.source,
-                toolInputJSON: item.toolInputJSON
+                toolInputJSON: item.toolInputCapabilitiesJSON
             ):
                 mode = "once"
             case .always where feedTUISourceSupportsAlwaysPermissionMode(
                 item.source,
-                toolInputJSON: item.toolInputJSON
+                toolInputJSON: item.toolInputCapabilitiesJSON
             ):
                 mode = "always"
             case .all where feedTUISourceSupportsAllPermissionMode(
                 item.source,
-                toolInputJSON: item.toolInputJSON
+                toolInputJSON: item.toolInputCapabilitiesJSON
             ):
                 mode = "all"
             case .bypass where feedTUISourceSupportsBypassPermissions(item.source):
