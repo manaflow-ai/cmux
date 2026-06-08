@@ -400,6 +400,41 @@ struct FeedCoordinatorTests {
         #expect(CodexTeamsApprovalBridge.permissionMode(fromFeedPushResponse: ["status": "timed_out"]) == nil)
     }
 
+    @Test func codexAppServerNoDecisionApprovalResponseKeepsWatcherNonBlocking() throws {
+        let commandCancel = try #require(
+            CodexTeamsApprovalBridge.appServerNoDecisionApprovalResponse(
+                method: "item/commandExecution/requestApproval",
+                params: [:]
+            )
+        )
+        #expect(commandCancel["decision"] as? String == "cancel")
+
+        let commandDecline = try #require(
+            CodexTeamsApprovalBridge.appServerNoDecisionApprovalResponse(
+                method: "item/commandExecution/requestApproval",
+                params: ["availableDecisions": ["accept", "decline"]]
+            )
+        )
+        #expect(commandDecline["decision"] as? String == "decline")
+
+        let fileCancel = try #require(
+            CodexTeamsApprovalBridge.appServerNoDecisionApprovalResponse(
+                method: "item/fileChange/requestApproval",
+                params: ["availableDecisions": ["accept", "acceptForSession", "cancel"]]
+            )
+        )
+        #expect(fileCancel["decision"] as? String == "cancel")
+
+        let permissionsDeny = try #require(
+            CodexTeamsApprovalBridge.appServerNoDecisionApprovalResponse(
+                method: "item/permissions/requestApproval",
+                params: ["permissions": ["network": ["enabled": true]]]
+            )
+        )
+        #expect(permissionsDeny["scope"] as? String == "turn")
+        #expect((permissionsDeny["permissions"] as? [String: Any])?.isEmpty == true)
+    }
+
     @Test func codexApprovalItemSnapshotStripsLargePayloads() throws {
         let snapshot = CodexTeamsApprovalBridge.approvalItemSnapshot([
             "id": "call-1",
