@@ -298,6 +298,23 @@ check_virtual_display_helper_links_appkit() {
   done
 
   echo "PASS: virtual display helper compile sites link AppKit for NSScreen readiness"
+
+  if ! grep -Fq '[NSApplication sharedApplication]' scripts/create-virtual-display.m; then
+    echo "FAIL: create-virtual-display.m must initialize AppKit before checking NSScreen readiness"
+    exit 1
+  fi
+
+  if ! grep -Fq 'ERROR: Virtual display %u is online in CoreGraphics but not visible in this helper' scripts/create-virtual-display.m; then
+    echo "FAIL: create-virtual-display.m must fail closed when CoreGraphics sees a display that AppKit cannot use"
+    exit 1
+  fi
+
+  if grep -Fq 'app diagnostics will verify AppKit visibility' scripts/create-virtual-display.m; then
+    echo "FAIL: create-virtual-display.m must not mark an AppKit-invisible display ready for app diagnostics"
+    exit 1
+  fi
+
+  echo "PASS: virtual display helper fails closed on AppKit-invisible displays"
 }
 
 check_test_depot_fails_closed() {

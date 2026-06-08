@@ -112,11 +112,15 @@ static BOOL waitForReadyDisplay(CGDirectDisplayID displayID) {
     if (!displayIsOnline(displayID)) { return NO; }
 
     for (int attempt = 0; attempt < 200; attempt += 1) {
-        if (displayHasAppKitScreen(displayID)) { return YES; }
+        if (displayHasAppKitScreen(displayID)) {
+            printf("Virtual display %u is visible to AppKit NSScreen\n", displayID);
+            fflush(stdout);
+            return YES;
+        }
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
     }
-    fprintf(stderr, "WARNING: Virtual display %u is online in CoreGraphics but not visible in this helper's NSScreen list; app diagnostics will verify AppKit visibility\n", displayID);
-    return YES;
+    fprintf(stderr, "ERROR: Virtual display %u is online in CoreGraphics but not visible in this helper's NSScreen list\n", displayID);
+    return NO;
 }
 
 static NSDictionary<NSString *, NSNumber *> *parseModeSpec(NSString *raw) {
@@ -216,6 +220,9 @@ static NSString *argumentValue(NSArray<NSString *> *arguments, NSString *flag) {
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        [NSApplication sharedApplication];
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
+
         NSArray<NSString *> *arguments = [[NSProcessInfo processInfo] arguments];
 
         NSString *modesArgument = argumentValue(arguments, @"--modes");
