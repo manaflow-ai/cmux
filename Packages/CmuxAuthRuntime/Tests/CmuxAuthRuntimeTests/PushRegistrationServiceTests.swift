@@ -16,6 +16,7 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
         // a stream, so read the stream to capture the JSON body for assertions.
         let bodyData = Self.bodyData(from: request)
         let captured = RecordedRequest(
+            host: request.url?.host ?? "",
             method: request.httpMethod ?? "?",
             path: request.url?.path ?? "",
             body: bodyData
@@ -52,21 +53,37 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
 }
 
 struct RecordedRequest: Sendable {
+    let host: String
     let method: String
     let path: String
     let body: Data?
 }
 
+/// The recorder is process-global because `URLProtocol` has no per-session hook,
+/// and Swift Testing runs cases in parallel, so every assertion is scoped to the
+/// calling test's unique API host (`makeService` assigns one per test). Without
+/// host scoping, a concurrent test's PUT would clobber another's "last" request.
 actor RequestRecorder {
     private(set) var requests: [RecordedRequest] = []
-    var methods: [String] { requests.map(\.method) }
     func record(_ request: RecordedRequest) { requests.append(request) }
     func reset() { requests = [] }
 
-    /// The decoded `workspaceIds` array from the most recent mute-sync PUT, or
-    /// `nil` if no such request was recorded.
-    func lastMutedWorkspaceIDs() -> [String]? {
-        guard let request = requests.last(where: { $0.method == "PUT" && $0.path.hasSuffix("/api/notifications/mutes") }),
+    /// HTTP methods recorded for `host`, in order.
+    func methods(host: String) -> [String] {
+        requests.filter { $0.host == host }.map(\.method)
+    }
+
+    /// Whether any request was recorded for `host`.
+    func hasRequests(host: String) -> Bool {
+        requests.contains { $0.host == host }
+    }
+
+    /// The decoded `workspaceIds` array from the most recent mute-sync PUT for
+    /// `host`, or `nil` if no such request was recorded.
+    func lastMutedWorkspaceIDs(host: String) -> [String]? {
+        guard let request = requests.last(where: {
+            $0.host == host && $0.method == "PUT" && $0.path.hasSuffix("/api/notifications/mutes")
+        }),
               let body = request.body,
               let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
               let ids = object["workspaceIds"] as? [String]
@@ -90,94 +107,93 @@ struct FakeTokenProvider: TokenProviding {
 }
 
 @Suite struct PushRegistrationServiceTests {
+    /// A unique API host per test so the process-global recorder can scope its
+    /// assertions to the calling test under parallel execution.
     private func makeService(
         tokenProvider: any TokenProviding = FakeTokenProvider()
-    ) -> (PushRegistrationService, UserDefaults) {
+    ) -> (PushRegistrationService, UserDefaults, String) {
         let suite = "push-test-\(UUID().uuidString)"
+        let host = "t-\(UUID().uuidString).example.test"
         let defaults = UserDefaults(suiteName: suite)!
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RecordingURLProtocol.self]
         let service = PushRegistrationService(
             tokenProvider: tokenProvider,
-            apiBaseURL: "https://example.test",
+            apiBaseURL: "https://\(host)",
             bundleID: "dev.cmux.ios",
             apnsEnvironment: "sandbox",
             suiteName: suite,
             session: URLSession(configuration: configuration)
         )
-        return (service, defaults)
+        return (service, defaults, host)
     }
 
     @Test func disabledByDefault() async {
-        let (service, _) = makeService()
+        let (service, _, _) = makeService()
         #expect(await service.isEnabled == false)
     }
 
     @Test func registeringWhileDisabledCachesButDoesNotUpload() async {
-        await RecordingURLProtocol.recorder.reset()
-        let (service, _) = makeService()
+        let (service, _, host) = makeService()
         await service.register(deviceToken: Data([0xAB, 0xCD]))
         // No upload because notifications are off.
-        #expect(await RecordingURLProtocol.recorder.methods.isEmpty)
+        #expect(await RecordingURLProtocol.recorder.methods(host: host).isEmpty)
     }
 
     @Test func enablingUploadsCachedToken() async {
-        await RecordingURLProtocol.recorder.reset()
-        let (service, defaults) = makeService()
+        let (service, defaults, host) = makeService()
         await service.register(deviceToken: Data([0xAB, 0xCD]))
         await service.setEnabled(true)
         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
-        #expect(await RecordingURLProtocol.recorder.methods.contains("POST"))
+        #expect(await RecordingURLProtocol.recorder.methods(host: host).contains("POST"))
     }
 
     @Test func disablingDeletesServerToken() async {
-        await RecordingURLProtocol.recorder.reset()
-        let (service, _) = makeService()
+        let (service, _, host) = makeService()
         await service.register(deviceToken: Data([0xAB, 0xCD]))
         await service.setEnabled(true)
         await service.setEnabled(false)
-        #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
+        #expect(await RecordingURLProtocol.recorder.methods(host: host).contains("DELETE"))
     }
 
     // MARK: - Per-workspace mute
 
     @Test func mutedWorkspacesEmptyByDefault() async {
-        let (service, _) = makeService()
+        let (service, _, _) = makeService()
         #expect(await service.mutedWorkspaceIDs.isEmpty)
     }
 
     @Test func mutingPersistsAndUploadsFullSet() async {
-        await RecordingURLProtocol.recorder.reset()
-        let (service, _) = makeService()
+        let (service, _, host) = makeService()
         await service.setWorkspaceMuted("ws-a", muted: true)
         #expect(await service.mutedWorkspaceIDs == ["ws-a"])
         // The mute sync is a full-set idempotent replace via PUT.
-        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs() == ["ws-a"])
+        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs(host: host) == ["ws-a"])
 
         await service.setWorkspaceMuted("ws-b", muted: true)
         #expect(await service.mutedWorkspaceIDs == ["ws-a", "ws-b"])
         // Sorted full set, not a per-workspace delta.
-        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs() == ["ws-a", "ws-b"])
+        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs(host: host) == ["ws-a", "ws-b"])
     }
 
     @Test func unmutingRemovesFromSetAndReuploads() async {
-        await RecordingURLProtocol.recorder.reset()
-        let (service, _) = makeService()
+        let (service, _, host) = makeService()
         await service.setWorkspaceMuted("ws-a", muted: true)
         await service.setWorkspaceMuted("ws-b", muted: true)
         await service.setWorkspaceMuted("ws-a", muted: false)
         #expect(await service.mutedWorkspaceIDs == ["ws-b"])
-        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs() == ["ws-b"])
+        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs(host: host) == ["ws-b"])
     }
 
     @Test func mutedSetSurvivesAcrossServiceInstances() async {
         let suite = "push-mute-\(UUID().uuidString)"
+        let host = "t-\(UUID().uuidString).example.test"
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RecordingURLProtocol.self]
         func makeOne() -> PushRegistrationService {
             PushRegistrationService(
                 tokenProvider: FakeTokenProvider(),
-                apiBaseURL: "https://example.test",
+                apiBaseURL: "https://\(host)",
                 bundleID: "dev.cmux.ios",
                 apnsEnvironment: "sandbox",
                 suiteName: suite,
@@ -190,12 +206,11 @@ struct FakeTokenProvider: TokenProviding {
     }
 
     @Test func mutingWithoutAuthStillPersistsLocally() async {
-        await RecordingURLProtocol.recorder.reset()
         // No tokens → upload is skipped, but the local choice must persist so the
         // next sign-in re-uploads it.
-        let (service, _) = makeService(tokenProvider: FakeTokenProvider(access: nil, refresh: nil))
+        let (service, _, host) = makeService(tokenProvider: FakeTokenProvider(access: nil, refresh: nil))
         await service.setWorkspaceMuted("ws-a", muted: true)
         #expect(await service.mutedWorkspaceIDs == ["ws-a"])
-        #expect(await RecordingURLProtocol.recorder.requests.isEmpty)
+        #expect(await RecordingURLProtocol.recorder.hasRequests(host: host) == false)
     }
 }

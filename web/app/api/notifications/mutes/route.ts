@@ -5,7 +5,7 @@
 // while the phone is backgrounded or locked.
 // Auth: Stack Bearer from the native client; the set is keyed by that user id.
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 import { cloudDb } from "../../../../db/client";
 import { notificationWorkspaceMutes } from "../../../../db/schema";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
@@ -62,7 +62,10 @@ async function replaceMutes(request: Request): Promise<Response> {
       await tx.delete(notificationWorkspaceMutes).where(eq(notificationWorkspaceMutes.userId, user.id));
     } else {
       await tx.delete(notificationWorkspaceMutes).where(
-        sql`${notificationWorkspaceMutes.userId} = ${user.id} and ${notificationWorkspaceMutes.workspaceId} not in ${workspaceIds}`,
+        and(
+          eq(notificationWorkspaceMutes.userId, user.id),
+          notInArray(notificationWorkspaceMutes.workspaceId, [...workspaceIds]),
+        ),
       );
       // Insert the desired set; ignore rows that already exist.
       await tx
