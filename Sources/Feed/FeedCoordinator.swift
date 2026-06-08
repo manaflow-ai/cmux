@@ -442,7 +442,7 @@ private extension FeedCoordinator {
             let body: String
             switch event.hookEventName {
             case .permissionRequest:
-                categoryId = "CMUXFeedPermission"
+                categoryId = Self.permissionNotificationCategoryId(for: event)
                 title = String(
                     localized: "feed.notification.permission.title",
                     defaultValue: "\(event.source.capitalized) permission"
@@ -534,6 +534,27 @@ private extension FeedCoordinator {
                 TerminalNotificationStore.shared.reportNotificationHookFailure(failure)
             }
         }
+    }
+
+    private static func permissionNotificationCategoryId(for event: WorkstreamEvent) -> String {
+        let source = WorkstreamSource(wireName: event.source) ?? .claude
+        let supportsOnce = FeedPermissionActionPolicy.supportsOncePermissionMode(
+            source: source,
+            toolInputJSON: event.toolInputJSON
+        )
+        let supportsAlways = FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
+            source: source,
+            toolInputJSON: event.toolInputJSON
+        )
+        let supportsAll = FeedPermissionActionPolicy.supportsAllPermissionMode(
+            source: source,
+            toolInputJSON: event.toolInputJSON
+        )
+        var suffix = ""
+        if supportsOnce { suffix += "Once" }
+        if supportsAlways { suffix += "Always" }
+        if supportsAll { suffix += "All" }
+        return suffix.isEmpty ? "CMUXFeedPermissionDeny" : "CMUXFeedPermission\(suffix)"
     }
 
     @MainActor
@@ -864,6 +885,12 @@ enum FeedSocketEncoding {
         case .permissionRequest(let requestId, let toolName, let toolInputJSON, let pattern):
             dict["request_id"] = requestId
             dict["tool_name"] = toolName
+            if let capabilityJSON = FeedPermissionActionPolicy.codexCapabilityToolInputJSON(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ) {
+                dict["tool_input_capabilities"] = capabilityJSON
+            }
             assignLimitedText(toolInputJSON, key: "tool_input", to: &dict)
             if let pattern { dict["pattern"] = pattern }
         case .exitPlan(let requestId, let plan, let defaultMode):
