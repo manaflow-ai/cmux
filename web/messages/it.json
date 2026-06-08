@@ -1141,6 +1141,9 @@
       "relatedCustomCommands": "Comandi personalizzati"
     },
     "changelog": {
+      "items": {
+        "scrollbackShortcuts": "Scorciatoie configurabili per scorrere lo scrollback del terminale pagina su/giù e riga su/giù, con valori predefiniti Shift+Page Up, Shift+Page Down, Shift+Up e Shift+Down."
+      },
       "title": "Changelog",
       "metaDescription": "Note di rilascio e cronologia delle versioni di cmux. Nuove funzionalità, correzioni di bug e modifiche per il terminale macOS nativo.",
       "metaTitle": "Registro modifiche"

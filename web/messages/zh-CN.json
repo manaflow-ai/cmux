@@ -1141,6 +1141,9 @@
       "relatedCustomCommands": "自定义命令"
     },
     "changelog": {
+      "items": {
+        "scrollbackShortcuts": "可配置终端回滚缓冲区的按页上/下和按行上/下快捷键，默认使用 Shift+Page Up、Shift+Page Down、Shift+Up 和 Shift+Down。"
+      },
       "title": "更新日志",
       "metaDescription": "cmux 发布说明和版本历史。原生 macOS 终端的新功能、问题修复和变更记录。",
       "metaTitle": "更新日志"

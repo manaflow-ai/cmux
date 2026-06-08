@@ -1141,6 +1141,9 @@
       "relatedCustomCommands": "Benutzerdefinierte Befehle"
     },
     "changelog": {
+      "items": {
+        "scrollbackShortcuts": "Konfigurierbare Terminal-Scrollback-Kurzbefehle für Seite nach oben/unten und Zeile nach oben/unten, standardmäßig Shift+Page Up, Shift+Page Down, Shift+Up und Shift+Down."
+      },
       "title": "Changelog",
       "metaDescription": "cmux Release-Notes und Versionshistorie. Neue Funktionen, Fehlerbehebungen und Änderungen für das native macOS-Terminal.",
       "metaTitle": "Änderungsprotokoll"

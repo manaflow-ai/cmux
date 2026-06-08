@@ -1141,6 +1141,9 @@
       "relatedCustomCommands": "คำสั่งกำหนดเอง"
     },
     "changelog": {
+      "items": {
+        "scrollbackShortcuts": "เพิ่มทางลัดที่กำหนดค่าได้สำหรับเลื่อน scrollback ของเทอร์มินัลขึ้น/ลงทีละหน้าและขึ้น/ลงทีละบรรทัด โดยมีค่าเริ่มต้นเป็น Shift+Page Up, Shift+Page Down, Shift+Up และ Shift+Down"
+      },
       "title": "Changelog",
       "metaDescription": "บันทึกการอัปเดต cmux และประวัติเวอร์ชัน ฟีเจอร์ใหม่, แก้ไขบั๊ก และการเปลี่ยนแปลงสำหรับเทอร์มินัล macOS เนทีฟ",
       "metaTitle": "บันทึกการเปลี่ยนแปลง"

@@ -1284,6 +1284,9 @@
       "relatedCustomCommands": "カスタムコマンド"
     },
     "changelog": {
+      "items": {
+        "scrollbackShortcuts": "ターミナルのスクロールバックをページ上下・行上下に移動するショートカットを設定可能にし、Shift+Page Up、Shift+Page Down、Shift+Up、Shift+Down をデフォルトにしました。"
+      },
       "title": "変更履歴",
       "metaDescription": "cmuxのリリースノートとバージョン履歴。ネイティブmacOSターミナルの新機能、バグ修正、変更点。",
       "metaTitle": "変更履歴"

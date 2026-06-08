@@ -1141,6 +1141,9 @@
       "relatedCustomCommands": "Özel Komutlar"
     },
     "changelog": {
+      "items": {
+        "scrollbackShortcuts": "Terminal scrollback içinde sayfa yukarı/aşağı ve satır yukarı/aşağı hareketi için yapılandırılabilir kısayollar; varsayılanlar Shift+Page Up, Shift+Page Down, Shift+Up ve Shift+Down."
+      },
       "title": "Değişiklik Günlüğü",
       "metaDescription": "cmux sürüm notları ve sürüm geçmişi. Yerel macOS terminali için yeni özellikler, hata düzeltmeleri ve değişiklikler.",
       "metaTitle": "Değişiklik günlüğü"

@@ -1141,6 +1141,9 @@
       "relatedCustomCommands": "Prilagođene komande"
     },
     "changelog": {
+      "items": {
+        "scrollbackShortcuts": "Podesive prečice za terminalski scrollback za stranicu gore/dolje i red gore/dolje, sa zadanim Shift+Page Up, Shift+Page Down, Shift+Up i Shift+Down."
+      },
       "title": "Zapisnik promjena",
       "metaDescription": "cmux bilješke o izdanjima i historija verzija. Nove funkcionalnosti, ispravke grešaka i promjene za nativni macOS terminal.",
       "metaTitle": "Dnevnik promjena"

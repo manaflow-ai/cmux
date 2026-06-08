@@ -1141,6 +1141,9 @@
       "relatedCustomCommands": "ពាក្យបញ្ជាផ្ទាល់ខ្លួន"
     },
     "changelog": {
+      "items": {
+        "scrollbackShortcuts": "ផ្លូវកាត់ដែលអាចកំណត់រចនាសម្ព័ន្ធបាន សម្រាប់រំកិល scrollback របស់ terminal ឡើង/ចុះតាមទំព័រ និងឡើង/ចុះតាមបន្ទាត់ ដោយមានលំនាំដើម Shift+Page Up, Shift+Page Down, Shift+Up និង Shift+Down។"
+      },
       "title": "កំណត់ត្រាផ្លាស់ប្ដូរ",
       "metaDescription": "កំណត់ត្រាការចេញផ្សាយ cmux និងប្រវត្តិកំណែ។ មុខងារថ្មី, ការជួសជុលកំហុស, និងការផ្លាស់ប្ដូរសម្រាប់ទែមីណល macOS ដើម។",
       "metaTitle": "កំណត់ហេតុផ្លាស់ប្ដូរ"

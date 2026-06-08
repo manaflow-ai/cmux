@@ -1141,6 +1141,9 @@
       "relatedCustomCommands": "Comandos personalizados"
     },
     "changelog": {
+      "items": {
+        "scrollbackShortcuts": "Atalhos configuráveis para rolar o scrollback do terminal por página para cima/baixo e por linha para cima/baixo, com padrões Shift+Page Up, Shift+Page Down, Shift+Up e Shift+Down."
+      },
       "title": "Changelog",
       "metaDescription": "Notas de lançamento e histórico de versões do cmux. Novos recursos, correções de bugs e mudanças para o terminal macOS nativo.",
       "metaTitle": "Registro de alterações"
