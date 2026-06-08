@@ -80,26 +80,37 @@ import Testing
         #expect(outFrame?.fileName == "/Users/<redacted>/main.swift")
     }
 
-    @Test func scrubsRequestUrlAndUser() {
+    @Test func scrubsRequestQueryAndDropsCookies() {
         let event = Event()
         let request = SentryRequest()
         request.url = "https://api.example.com/v1"
         request.queryString = "token=supersecretvalue12345&page=2"
+        // A normal session cookie has no secret-pattern name, so it must be
+        // dropped wholesale rather than pattern-scrubbed.
         request.cookies = "session=abcdefghijklmnopqrstuv"
         event.request = request
-
-        let user = User()
-        user.email = "lawrence@cmux.com"
-        user.username = "lawrence"
-        user.ipAddress = "203.0.113.7"
-        event.user = user
 
         let scrubbed = scrubber.scrub(event)
         #expect(scrubbed.request?.queryString == "token=<redacted-secret>&page=2")
         #expect(scrubbed.request?.url == "https://api.example.com/v1")
-        #expect(scrubbed.user?.email == "<redacted-email>")
-        #expect(scrubbed.user?.username == "lawrence")
-        // IP is always dropped.
+        #expect(scrubbed.request?.cookies == nil)
+    }
+
+    @Test func dropsAllUserIdentityFields() {
+        let event = Event()
+        let user = User()
+        user.userId = "uid-12345"
+        user.email = "lawrence@cmux.com"
+        user.username = "lawrence"
+        user.name = "Lawrence Chen"
+        user.ipAddress = "203.0.113.7"
+        event.user = user
+
+        let scrubbed = scrubber.scrub(event)
+        #expect(scrubbed.user?.userId == nil)
+        #expect(scrubbed.user?.email == nil)
+        #expect(scrubbed.user?.username == nil)
+        #expect(scrubbed.user?.name == nil)
         #expect(scrubbed.user?.ipAddress == nil)
     }
 

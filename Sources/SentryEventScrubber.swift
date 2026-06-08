@@ -11,10 +11,12 @@ import Sentry
 ///
 /// The scrubber walks every field that can carry user content — event message,
 /// exception values, thread/exception/event stack-frame paths, request URL /
-/// query / cookies / headers, transaction name, server name, the `user` object,
-/// `tags`, `extra`, and breadcrumb `message` / `data` — while leaving
-/// grouping-relevant fields (exception `type`, fingerprint, frame `function` /
-/// `module` / `lineNumber`) untouched so Sentry issue grouping is unaffected.
+/// query / headers, transaction name, server name, `tags`, `extra`, `context`,
+/// and breadcrumb `message` / `data` — while leaving grouping-relevant fields
+/// (exception `type`, fingerprint, frame `function` / `module` / `lineNumber`)
+/// untouched so Sentry issue grouping is unaffected. Request `cookies` and the
+/// `user` identity fields are dropped wholesale rather than pattern-scrubbed,
+/// because cookie/identity values rarely match a secret pattern.
 struct SentryEventScrubber {
     /// The pure value scrubber that does the actual redaction.
     private let scrubber: SentryScrubber
@@ -122,27 +124,33 @@ struct SentryEventScrubber {
         }
     }
 
-    /// Redacts URL, query, cookies, and headers from an HTTP request context.
+    /// Redacts URL, query, and headers from an HTTP request context and drops cookies.
     private func scrubRequest(_ request: SentryRequest?) {
         guard let request else { return }
         request.url = scrubber.scrub(optional: request.url)
         request.queryString = scrubber.scrub(optional: request.queryString)
         request.fragment = scrubber.scrub(optional: request.fragment)
-        request.cookies = scrubber.scrub(optional: request.cookies)
+        // Cookies are dropped wholesale: cookie names vary (session, sid, auth,
+        // …), so pattern-scrubbing the value cannot reliably catch every secret.
+        request.cookies = nil
         if let headers = request.headers {
             request.headers = headers.mapValues { scrubber.scrub($0) }
         }
     }
 
-    /// Redacts identifying fields from the user context.
+    /// Drops identifying fields from the user context.
     private func scrubUser(_ user: User?) {
         guard let user else { return }
-        // Both inits set `sendDefaultPii = false`; scrubbing here is
-        // defense-in-depth that neutralizes any user PII regardless of that flag.
-        user.email = scrubber.scrub(optional: user.email)
-        user.username = scrubber.scrub(optional: user.username)
-        user.name = scrubber.scrub(optional: user.name)
+        // Both inits set `sendDefaultPii = false`, but any user object attached
+        // by app/SDK/scope code still flows through here. A last-mile PII
+        // scrubber drops identity fields wholesale rather than pattern-matching
+        // them: a username or display name rarely looks like an email/path/secret.
+        user.userId = nil
+        user.email = nil
+        user.username = nil
+        user.name = nil
         user.ipAddress = nil
+        user.geo = nil
         if let data = user.data {
             user.data = scrubber.scrub(dictionary: data)
         }
