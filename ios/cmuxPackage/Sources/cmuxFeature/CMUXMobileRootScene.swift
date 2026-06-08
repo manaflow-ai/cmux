@@ -4,14 +4,11 @@ import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileShell
 @_exported import CmuxMobileShellUI
+import CmuxMobileTerminal
 import CmuxMobileTransport
 import Foundation
 import OSLog
 import SwiftUI
-
-#if canImport(UIKit) && DEBUG
-import CmuxMobileTerminal
-#endif
 
 private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mobile-root-scene")
 
@@ -34,6 +31,10 @@ public struct CMUXMobileRootScene: View {
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
+    /// The persisted terminal font-size base, constructed once at this scene
+    /// root and injected into the environment so the Settings > Terminal stepper
+    /// and the live terminal surface (overlay + launch size) drive one instance.
+    @State private var terminalZoomPreference = MobileTerminalZoomPreference()
     #endif
     private let pairedMacStore: (any MobilePairedMacStoring)?
     #if DEBUG
@@ -114,6 +115,7 @@ public struct CMUXMobileRootScene: View {
             #if os(iOS)
             .environment(pushCoordinator)
             .environment(displaySettings)
+            .environment(terminalZoomPreference)
             #endif
     }
 

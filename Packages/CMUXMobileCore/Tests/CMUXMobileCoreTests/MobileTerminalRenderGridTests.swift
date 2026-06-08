@@ -379,6 +379,57 @@ import Testing
     #expect(!vt.contains("\u{1B}[?1000h"))
 }
 
+@Test func renderGridFullSnapshotCarriesInheritedFontFamily() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 3,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalFontFamily: "JetBrains Mono"
+    )
+
+    // The Mac's resolved font-family round-trips on a full frame so the phone
+    // can inherit it (it is config, not VT, so it does not appear in the byte
+    // stream like the dynamic colors do).
+    let decoded = try MobileTerminalRenderGridFrame.decodeJSONObject(frame.jsonObject())
+    #expect(decoded == frame)
+    #expect(decoded.terminalFontFamily == "JetBrains Mono")
+    let object = try frame.jsonObject()
+    #expect(object["terminal_font_family"] as? String == "JetBrains Mono")
+}
+
+@Test func renderGridDeltaDropsInheritedFontFamily() throws {
+    // A delta frame carries no full-state restore data, so it must not re-send
+    // the inherited font-family; the phone keeps the last family from the
+    // previous full snapshot.
+    let delta = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 5,
+        columns: 4,
+        rows: 1,
+        full: false,
+        rowSpans: [.init(row: 0, column: 0, text: "x")],
+        terminalFontFamily: "JetBrains Mono"
+    )
+    #expect(delta.terminalFontFamily == nil)
+
+    // filteredRows(full: false) likewise strips it, like the dynamic colors.
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 6,
+        columns: 4,
+        rows: 2,
+        rowSpans: [.init(row: 0, column: 0, text: "x"), .init(row: 1, column: 0, text: "y")],
+        terminalFontFamily: "JetBrains Mono"
+    )
+    #expect(full.terminalFontFamily == "JetBrains Mono")
+    let filteredDelta = try full.filteredRows([1], full: false)
+    #expect(filteredDelta.terminalFontFamily == nil)
+    let filteredFull = try full.filteredRows([0, 1], full: true)
+    #expect(filteredFull.terminalFontFamily == "JetBrains Mono")
+}
+
 @Test func replaySynthesizerMatchesFrameForwardersAcrossFrameShapes() throws {
     // Full primary-screen snapshot with scrollback, styles, and a cursor.
     let fullFrame = try MobileTerminalRenderGridFrame(

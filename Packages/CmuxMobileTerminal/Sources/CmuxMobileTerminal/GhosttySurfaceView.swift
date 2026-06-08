@@ -606,9 +606,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var zoomOverlayLastInteraction: CFTimeInterval = 0
     private static let zoomOverlayVisibleDuration: CFTimeInterval = 2.5
     /// Persisted user "default zoom" backing the zoom-control overlay's
-    /// reset/save/restore actions. Owned by the surface (constructed at init)
-    /// rather than reached through a singleton, so it is injectable in tests.
-    private let zoomPreference = MobileTerminalZoomPreference()
+    /// reset/save/restore actions. Injected from the app composition root so the
+    /// overlay and the Settings > Terminal stepper drive the same instance; a
+    /// fresh default keeps previews and tests isolated.
+    private let zoomPreference: MobileTerminalZoomPreference
+    /// Last base size pushed through `applyBaseFontSize`, so an incidental
+    /// SwiftUI re-render that re-invokes the representable's `updateUIView` does
+    /// not snap a transient pinch back to the persisted base. `nil` until the
+    /// first explicit Settings-driven push.
+    private var lastAppliedBaseFontSize: Float32?
+    /// Last `font-family` inherited from the Mac and applied via
+    /// `ghostty_surface_update_config`, so an unchanged family on every full
+    /// frame is a no-op (re-deriving the whole font stack per frame is
+    /// expensive). `nil` until the first inherited family arrives.
+    private var lastAppliedFontFamily: String?
     private let bridge = GhosttySurfaceBridge()
     private let prefersSnapshotFallbackRendering = false
     var onFocusInputRequestedForTesting: (() -> Void)?
@@ -875,11 +886,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return inputProxy
     }()
 
-    public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate, fontSize: Float32 = 10) {
+    public init(
+        runtime: GhosttyRuntime,
+        delegate: GhosttySurfaceViewDelegate,
+        fontSize: Float32 = 10,
+        zoomPreference: MobileTerminalZoomPreference = MobileTerminalZoomPreference()
+    ) {
         self.runtime = runtime
         self.delegate = delegate
+        self.zoomPreference = zoomPreference
+        // `fontSize` is the launch base. The representable computes it from the
+        // injected `zoomPreference.effectiveFontSize`, so a saved Settings base
+        // now applies at launch (the latent bug was the surface always opening
+        // at the built-in default regardless of the saved size). Previews and
+        // the stress harness pass an explicit size and a throwaway preference,
+        // so honoring `fontSize` here keeps their intent.
         self.fontSize = fontSize
         self.liveFontSize = fontSize
+        self.lastAppliedBaseFontSize = fontSize
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
         bridge.attach(to: self)
         backgroundColor = .black
@@ -1312,6 +1336,56 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         scheduleDisplayLinkWork()
     }
 
+    /// Apply a new persisted base font size from the Settings stepper / reset.
+    ///
+    /// Called from the representable's `updateUIView` when the injected
+    /// preference changes. `updateUIView` fires on *every* SwiftUI update, so
+    /// this no-ops unless `base` actually differs from the last applied base:
+    /// that keeps an incidental re-render from snapping a transient pinch back to
+    /// the persisted size. An explicit Settings change does differ, so it
+    /// legitimately overrides the current pinch. Drives the same coalesced
+    /// `set_font_size` apply path as a pinch step (no timer, no rebuild).
+    public func applyBaseFontSize(_ base: Float32) {
+        guard lastAppliedBaseFontSize != base else { return }
+        lastAppliedBaseFontSize = base
+        applyAbsoluteFontSize(base)
+        zoomOverlay?.updateZoom(points: base)
+    }
+
+    /// Inherit the Mac's resolved terminal `font-family` on this local surface.
+    ///
+    /// Called from the representable's output loop when a full render-grid frame
+    /// carried a family. Set-on-change: re-deriving the whole font stack per
+    /// frame is expensive, so an unchanged family no-ops. Applies via
+    /// `ghostty_surface_update_config`, which re-derives the entire surface
+    /// config; the config carries the full iOS defaults block so the theme is
+    /// preserved, and bakes in the current live font size so the family swap is
+    /// size-neutral (does not reset a pinch / Settings size). Enqueued on the
+    /// same serial `outputQueue` as `processOutput` and the `set_font_size`
+    /// binding action, which take the surface's internal lock — running off it
+    /// would race surface state, and FIFO ordering also keeps the config swap
+    /// ahead of the snapshot bytes the same frame delivers.
+    public func applyInheritedFontFamily(_ family: String) {
+        let trimmed = family.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != lastAppliedFontFamily, let surface else { return }
+        lastAppliedFontFamily = trimmed
+        let size = pendingFontSize ?? liveFontSize
+        MobileDebugLog.anchormux("font.inherit family=\(trimmed) size=\(size)")
+        Self.outputQueue.async {
+            guard let config = GhosttyRuntime.makeSurfaceFontConfig(fontFamily: trimmed, fontSize: size) else {
+                return
+            }
+            ghostty_surface_update_config(surface, config)
+            ghostty_config_free(config)
+        }
+        // The new face changes cell metrics, so the grid must reflow and the
+        // letterbox re-pin once — same settle path as an absolute font size
+        // change (no per-frame geometry thrash).
+        needsDraw = true
+        zoomSettleFrames = Self.zoomSettleFrameThreshold
+        scheduleDisplayLinkWork()
+    }
+
     /// Present (or refresh) the zoom-control HUD and restart its auto-fade
     /// timer. Called on every zoom step so the header tracks the live size.
     private func showZoomOverlay() {
@@ -1350,18 +1424,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         overlay.onResetToDefault = { [weak self] in
             guard let self else { return }
-            let target = self.zoomPreference.savedFontSize
-                ?? MobileTerminalFontPreference.defaultSize
+            let target = self.zoomPreference.effectiveFontSize
+            self.lastAppliedBaseFontSize = target
             self.applyAbsoluteFontSize(target)
             self.zoomOverlay?.updateZoom(points: target)
         }
         overlay.onSaveAsDefault = { [weak self] in
             guard let self else { return }
+            // The current live size becomes the new persisted base. `save`
+            // clamps and stores; reading back `effectiveFontSize` gives the
+            // stored value, which we mark as already-applied so the @Observable
+            // change does not bounce back through the representable's
+            // updateUIView as a redundant re-apply.
             self.zoomPreference.save(self.pendingFontSize ?? self.liveFontSize)
+            self.lastAppliedBaseFontSize = self.zoomPreference.effectiveFontSize
         }
         overlay.onRestoreBuiltIn = { [weak self] in
             guard let self else { return }
             self.zoomPreference.clear()
+            self.lastAppliedBaseFontSize = MobileTerminalFontPreference.defaultSize
             self.applyAbsoluteFontSize(MobileTerminalFontPreference.defaultSize)
             self.zoomOverlay?.updateZoom(points: MobileTerminalFontPreference.defaultSize)
         }

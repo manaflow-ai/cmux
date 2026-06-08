@@ -15,7 +15,19 @@ import UIKit
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let surfaceID: String
     let store: CMUXMobileShellStore
-    let fontSize: Float32
+    /// The shared persisted terminal font-size base, injected from the scene
+    /// root. The surface launches at `baseFontSize` and the overlay's save/reset
+    /// actions write this same instance, so Settings and the overlay stay in
+    /// sync.
+    let zoomPreference: MobileTerminalZoomPreference
+    /// The current persisted base size (`zoomPreference.effectiveFontSize`),
+    /// passed as a value the host (`WorkspaceDetailView`) read in its body. That
+    /// read is what registers the Observation dependency, so a Settings change
+    /// re-renders the host and re-runs `updateUIView` even on an idle terminal
+    /// (passing only the object reference would not, since `body` reads no
+    /// property of it). `applyBaseFontSize` then no-ops unless it actually
+    /// changed.
+    let baseFontSize: Float32
     /// Whether the mounted surface should grab the keyboard when it attaches to
     /// a window. Driven by the host's autofocus-suppression state so chrome
     /// actions (create workspace/terminal, switch terminal) do not pop the
@@ -41,7 +53,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let view = GhosttySurfaceView(
             runtime: runtime,
             delegate: context.coordinator,
-            fontSize: fontSize
+            fontSize: baseFontSize,
+            zoomPreference: zoomPreference
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         context.coordinator.attach(surfaceView: view)
@@ -49,7 +62,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        (uiView as? GhosttySurfaceView)?.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        guard let surfaceView = uiView as? GhosttySurfaceView else { return }
+        surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        // `baseFontSize` reflects a Settings stepper / reset change because the
+        // host read it in its body (registering the Observation dependency), so
+        // this runs even on an idle terminal. `applyBaseFontSize` no-ops unless
+        // the base actually changed, so an unrelated re-render never snaps a
+        // transient pinch back to the persisted base.
+        surfaceView.applyBaseFontSize(baseFontSize)
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
@@ -79,6 +99,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputTask = Task { @MainActor [weak surfaceView] in
                 for await data in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
+                    // Inherit the Mac's resolved font-family before painting this
+                    // chunk. The store records it (from full render-grid frames)
+                    // before yielding the bytes, so it is current here; the
+                    // surface no-ops unless the family actually changed.
+                    if let family = store.inheritedFontFamily(surfaceID: surfaceID) {
+                        surfaceView?.applyInheritedFontFamily(family)
+                    }
                     surfaceView?.processOutput(data)
                 }
             }

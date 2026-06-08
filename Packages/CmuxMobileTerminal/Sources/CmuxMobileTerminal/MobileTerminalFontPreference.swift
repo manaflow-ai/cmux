@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import Foundation
 
 /// Terminal font sizing constants for the iOS app, in points.
@@ -20,9 +19,8 @@ public struct MobileTerminalFontPreference {
     /// scale as macOS (see the iOS DPI handling in `ghostty/src/font/face.zig`);
     /// the Retina pixel multiplier is applied separately via content scale.
     public static let defaultSize: Float32 = 10
-    /// Smallest size the zoom controls will reach.
-    static let minimumSize: Float32 = 8
-    /// Largest size the zoom controls will reach.
-    static let maximumSize: Float32 = 28
+    /// Smallest size the zoom controls and the Settings stepper will reach.
+    public static let minimumSize: Float32 = 8
+    /// Largest size the zoom controls and the Settings stepper will reach.
+    public static let maximumSize: Float32 = 28
 }
-#endif

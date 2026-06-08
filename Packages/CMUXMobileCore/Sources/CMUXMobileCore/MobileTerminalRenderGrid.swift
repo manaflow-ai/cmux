@@ -36,6 +36,11 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public var terminalForeground: String?
     public var terminalBackground: String?
     public var terminalCursorColor: String?
+    /// The Mac's resolved primary terminal `font-family`, so the phone's local
+    /// libghostty surface inherits it instead of hardcoding Menlo. `nil` when the
+    /// Mac leaves `font-family` unset (the phone then keeps its built-in default).
+    /// Carried only on a full snapshot, like the dynamic colors above.
+    public var terminalFontFamily: String?
     /// Count of scrollback lines carried in ``scrollbackSpans`` (rows above the
     /// visible viewport, oldest first). Only meaningful on a full primary-screen
     /// snapshot; the alternate screen has no scrollback.
@@ -60,6 +65,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         terminalForeground: String? = nil,
         terminalBackground: String? = nil,
         terminalCursorColor: String? = nil,
+        terminalFontFamily: String? = nil,
         scrollbackRows: Int = 0,
         scrollbackSpans: [RowSpan] = []
     ) throws {
@@ -136,6 +142,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.terminalForeground = terminalForeground
         self.terminalBackground = terminalBackground
         self.terminalCursorColor = terminalCursorColor
+        self.terminalFontFamily = full ? terminalFontFamily : nil
         self.scrollbackRows = full ? resolvedScrollbackRows : 0
         self.scrollbackSpans = full ? scrollbackSpans : []
     }
@@ -157,6 +164,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let terminalForeground = try container.decodeIfPresent(String.self, forKey: .terminalForeground)
         let terminalBackground = try container.decodeIfPresent(String.self, forKey: .terminalBackground)
         let terminalCursorColor = try container.decodeIfPresent(String.self, forKey: .terminalCursorColor)
+        let terminalFontFamily = try container.decodeIfPresent(String.self, forKey: .terminalFontFamily)
         let scrollbackRows = try container.decodeIfPresent(Int.self, forKey: .scrollbackRows) ?? 0
         let scrollbackSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollbackSpans) ?? []
         try self.init(
@@ -175,6 +183,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalForeground: terminalForeground,
             terminalBackground: terminalBackground,
             terminalCursorColor: terminalCursorColor,
+            terminalFontFamily: terminalFontFamily,
             scrollbackRows: scrollbackRows,
             scrollbackSpans: scrollbackSpans
         )
@@ -293,6 +302,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalForeground: full ? terminalForeground : nil,
             terminalBackground: full ? terminalBackground : nil,
             terminalCursorColor: full ? terminalCursorColor : nil,
+            terminalFontFamily: full ? terminalFontFamily : nil,
             scrollbackRows: full ? scrollbackRows : 0,
             scrollbackSpans: full ? scrollbackSpans : []
         )
@@ -403,6 +413,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         case terminalForeground = "terminal_foreground"
         case terminalBackground = "terminal_background"
         case terminalCursorColor = "terminal_cursor_color"
+        case terminalFontFamily = "terminal_font_family"
         case scrollbackRows = "scrollback_rows"
         case scrollbackSpans = "scrollback_spans"
     }

@@ -7321,9 +7321,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let ptr = exported.ptr, exported.len > 0 else { return nil }
 
         let data = Data(bytes: ptr, count: Int(exported.len))
-        guard let fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
+        guard var fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
             return nil
         }
+        // Surface the Mac's resolved primary `font-family` so the phone's local
+        // libghostty inherits it instead of hardcoding Menlo. libghostty's JSON
+        // export does not carry it, so populate it here from the surface config.
+        // Only meaningful on a full snapshot (like the dynamic colors), and
+        // `filteredRows(full:)` carries it forward / nils it for deltas.
+        fullFrame.terminalFontFamily = resolvedTerminalFontFamily()
         let frame: MobileTerminalRenderGridFrame
         if full, changedRows == nil {
             frame = fullFrame
@@ -7335,6 +7341,23 @@ final class TerminalSurface: Identifiable, ObservableObject {
             frame = filtered
         }
         return (frame, frame.plainRows())
+    }
+
+    /// The Mac's terminal `font-family` the iOS app should inherit, or `nil` when
+    /// the user has not set one (so the phone keeps its built-in default rather
+    /// than an assumed "Menlo").
+    ///
+    /// Read from the parsed `GhosttyConfig`, not `ghostty_config_get`: the C API
+    /// has no string getter for `font-family` (it is a `RepeatableString`, which
+    /// `ghostty_config_get` does not export, so it would always return false).
+    /// `hasFontFamilyDirective` distinguishes a user-set family from the default.
+    /// For a multi-line fallback chain the parser keeps the last entry; the phone
+    /// applies it as its primary face and keeps its own fallback for coverage.
+    private func resolvedTerminalFontFamily() -> String? {
+        let config = GhosttyConfig.load()
+        guard config.hasFontFamilyDirective else { return nil }
+        let family = config.fontFamily.trimmingCharacters(in: .whitespacesAndNewlines)
+        return family.isEmpty ? nil : family
     }
 
     /// Send text with control characters (Return, Tab, etc.) delivered as key

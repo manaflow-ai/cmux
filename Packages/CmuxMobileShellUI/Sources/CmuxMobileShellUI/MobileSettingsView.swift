@@ -2,6 +2,7 @@
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import SwiftUI
 
 /// The mobile app's settings page. Surfaces the signed-in account (so the user
@@ -12,6 +13,7 @@ struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileTerminalZoomPreference.self) private var terminalZoomPreference
     let connectedHostName: String
     let rescanQR: (() -> Void)?
     let signOut: (() -> Void)?
@@ -95,7 +97,7 @@ struct MobileSettingsView: View {
                     }
                 }
 
-                Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
+                Section {
                     Button {
                         showingShortcuts = true
                     } label: {
@@ -105,6 +107,26 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
+
+                    terminalFontSizeControl
+
+                    Button {
+                        terminalZoomPreference.clear()
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.terminalFontSizeReset", defaultValue: "Reset to Default"),
+                            systemImage: "arrow.counterclockwise"
+                        )
+                    }
+                    .disabled(!terminalZoomPreference.hasCustomFontSize)
+                    .accessibilityIdentifier("MobileSettingsTerminalFontSizeReset")
+                } header: {
+                    Text(L10n.string("mobile.settings.terminal", defaultValue: "Terminal"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.settings.terminalFontSizeFooter",
+                        defaultValue: "Sets the terminal's base text size on this device. The font family follows the Mac you pair with."
+                    ))
                 }
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
@@ -170,6 +192,31 @@ struct MobileSettingsView: View {
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
+    }
+
+    /// Stepper that nudges the terminal's base font size by one point, clamped
+    /// to the supported zoom range. Writes the shared
+    /// ``MobileTerminalZoomPreference``, so the change persists and applies live
+    /// to the open terminal surface (no rebuild, no timer).
+    private var terminalFontSizeControl: some View {
+        let size = terminalZoomPreference.effectiveFontSize
+        return Stepper {
+            LabeledContent {
+                Text(verbatim: "\(Int(size.rounded())) pt")
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("MobileSettingsTerminalFontSizeValue")
+            } label: {
+                Label(
+                    L10n.string("mobile.settings.terminalFontSize", defaultValue: "Font Size"),
+                    systemImage: "textformat.size"
+                )
+            }
+        } onIncrement: {
+            terminalZoomPreference.step(by: 1)
+        } onDecrement: {
+            terminalZoomPreference.step(by: -1)
+        }
+        .accessibilityIdentifier("MobileSettingsTerminalFontSize")
     }
 
     private var accountEmail: String {

@@ -181,10 +181,27 @@ public final class GhosttyRuntime {
         }
     }
 
-    private static func applyiOSDefaults(_ config: ghostty_config_t) {
-        let monokai = """
-        font-family = Menlo
-        font-size = 10
+    /// The default font-family the iOS terminal renders with until the Mac's
+    /// resolved `font-family` is inherited over the render channel. Ghostty
+    /// resolves a real fallback chain for glyph coverage; this is just the
+    /// primary face.
+    nonisolated static let defaultFontFamily = "Menlo"
+
+    /// The iOS terminal's full ghostty config text (theme, padding, cursor, and
+    /// the Monokai palette) with the font-family and font-size made explicit.
+    ///
+    /// Single source of truth so the launch config (`applyiOSDefaults` /
+    /// `ensureDefaultiOSConfig`) and a live `ghostty_surface_update_config`
+    /// font-family inherit cannot drift: a runtime config swap must reapply the
+    /// whole block, since `ghostty_surface_update_config` re-derives the entire
+    /// surface config and would otherwise wipe the theme.
+    nonisolated static func iOSGhosttyConfigText(
+        fontFamily: String = defaultFontFamily,
+        fontSize: Float32 = MobileTerminalFontPreference.defaultSize
+    ) -> String {
+        """
+        font-family = \(fontFamily)
+        font-size = \(Int(fontSize.rounded()))
         window-padding-balance = false
         window-padding-y = 0
         cursor-style = bar
@@ -211,6 +228,38 @@ public final class GhosttyRuntime {
         palette = 14=#66d9ef
         palette = 15=#fdfff1
         """
+    }
+
+    /// Build a finalized ghostty config carrying the full iOS defaults block
+    /// with `fontFamily` and `fontSize` made explicit, for a live
+    /// `ghostty_surface_update_config` on a mounted surface.
+    ///
+    /// `ghostty_surface_update_config` re-derives the entire surface config from
+    /// the passed config, so this reapplies the whole theme (not just the font)
+    /// to avoid wiping the Monokai palette/padding/cursor. The caller owns the
+    /// returned pointer and must `ghostty_config_free` it after the update; the
+    /// C API does not retain it (see the Mac's `reloadSurfaceConfiguration`).
+    /// Returns `nil` if config allocation fails.
+    nonisolated static func makeSurfaceFontConfig(fontFamily: String, fontSize: Float32) -> ghostty_config_t? {
+        guard let config = ghostty_config_new() else { return nil }
+        let text = iOSGhosttyConfigText(fontFamily: fontFamily, fontSize: fontSize)
+        let syntheticPath = "/__cmux_ios_font__/inherit.conf"
+        text.withCString { contents in
+            syntheticPath.withCString { path in
+                ghostty_config_load_string(
+                    config,
+                    contents,
+                    UInt(text.lengthOfBytes(using: .utf8)),
+                    path
+                )
+            }
+        }
+        ghostty_config_finalize(config)
+        return config
+    }
+
+    private static func applyiOSDefaults(_ config: ghostty_config_t) {
+        let monokai = iOSGhosttyConfigText()
         let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent("ghostty-ios-config-\(ProcessInfo.processInfo.processIdentifier)")
         do {
             try monokai.write(to: tmpFile, atomically: true, encoding: .utf8)
@@ -234,35 +283,7 @@ public final class GhosttyRuntime {
         let configFile = configDir.appendingPathComponent("config", isDirectory: false)
         guard !FileManager.default.fileExists(atPath: configFile.path) else { return }
 
-        let defaultConfig = """
-        font-family = Menlo
-        font-size = 10
-        window-padding-balance = false
-        window-padding-y = 0
-        cursor-style = bar
-        cursor-style-blink = true
-        background = #272822
-        foreground = #fdfff1
-        cursor-color = #c0c1b5
-        selection-background = #57584f
-        selection-foreground = #fdfff1
-        palette = 0=#272822
-        palette = 1=#f92672
-        palette = 2=#a6e22e
-        palette = 3=#e6db74
-        palette = 4=#fd971f
-        palette = 5=#ae81ff
-        palette = 6=#66d9ef
-        palette = 7=#fdfff1
-        palette = 8=#6e7066
-        palette = 9=#f92672
-        palette = 10=#a6e22e
-        palette = 11=#e6db74
-        palette = 12=#fd971f
-        palette = 13=#ae81ff
-        palette = 14=#66d9ef
-        palette = 15=#fdfff1
-        """
+        let defaultConfig = iOSGhosttyConfigText()
 
         do {
             try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
