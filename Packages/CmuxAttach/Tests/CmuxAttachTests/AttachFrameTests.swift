@@ -95,4 +95,21 @@ import Testing
         let decoded = try AttachFrame(line: Data(#"{"t":"out","seq":"42","b64":""}"#.utf8))
         #expect(decoded == .output(seq: 42, bytes: Data()))
     }
+
+    @Test func oversizePayloadIsRejected() {
+        // A base64 string whose decoded size exceeds the per-frame cap must be
+        // rejected before allocating, not decoded.
+        let oversize = String(repeating: "A", count: AttachFrame.maxPayloadBytes / 3 * 4 + 16)
+        let line = Data(#"{"t":"in","b64":"\#(oversize)"}"#.utf8)
+        #expect(throws: AttachFrameError.invalidPayload) {
+            try AttachFrame(line: line)
+        }
+    }
+
+    @Test func maxSizePayloadIsAccepted() throws {
+        // A payload at the cap still round-trips.
+        let bytes = Data(repeating: 0x41, count: 1024)
+        let frame = AttachFrame.input(bytes: bytes)
+        #expect(try AttachFrame(line: frame.encodedLine()) == frame)
+    }
 }

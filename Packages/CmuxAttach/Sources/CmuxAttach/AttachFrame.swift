@@ -147,9 +147,23 @@ public enum AttachFrame: Sendable, Equatable {
 
     private static func payload(_ raw: Any?) throws -> Data {
         guard let encoded = raw as? String else { throw AttachFrameError.missingField("b64") }
-        guard let data = Data(base64Encoded: encoded) else { throw AttachFrameError.invalidPayload }
+        // Bound the allocation before decoding so a single hostile frame cannot
+        // force an arbitrary-size buffer. base64 is ~4/3 the decoded size, so cap
+        // the encoded length first, then re-check the decoded length.
+        guard encoded.utf8.count <= maxPayloadBytes / 3 * 4 + 4 else {
+            throw AttachFrameError.invalidPayload
+        }
+        guard let data = Data(base64Encoded: encoded), data.count <= maxPayloadBytes else {
+            throw AttachFrameError.invalidPayload
+        }
         return data
     }
+}
+
+extension AttachFrame {
+    /// Largest decoded `output`/`input` payload a single frame may carry. Bounds
+    /// per-frame allocation; comfortably above the bounded scrollback replay.
+    public static let maxPayloadBytes = 4 * 1024 * 1024
 }
 
 /// Why a wire line could not be decoded into a frame.

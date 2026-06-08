@@ -41,6 +41,11 @@ protocol SurfaceAttachBridge: AnyObject {
 /// hops decoded frames to the main actor.
 @MainActor
 final class SurfaceAttachSession {
+    /// Hard cap on a single inbound (client -> host) wire line. Inbound frames
+    /// are keystrokes/resize/detach, all small; this only exists to bound a
+    /// hostile newline-free stream.
+    private static let maxInboundLineBytes = 1 << 20 // 1 MiB
+
     private let socket: Int32
     private let request: AttachRequest
     private let bridge: SurfaceAttachBridge
@@ -120,6 +125,11 @@ final class SurfaceAttachSession {
                 let n = read(fd, &buffer, buffer.count)
                 if n <= 0 { break }
                 pending.append(contentsOf: buffer[0..<n])
+                // Inbound frames (input keystrokes, resize, detach) are tiny. A
+                // client that streams bytes without a newline must not grow this
+                // buffer without bound and OOM the host; treat an over-long line
+                // as a hostile/broken peer and end the connection.
+                if pending.count > Self.maxInboundLineBytes { break }
                 while let newline = pending.firstIndex(of: 0x0A) {
                     let line = pending[pending.startIndex...newline]
                     pending.removeSubrange(pending.startIndex...newline)
@@ -143,10 +153,18 @@ final class SurfaceAttachSession {
     }
 
     private func handle(_ frame: AttachFrame, surfaceID: UUID) {
+        // Once torn down (client sent detach, or teardown ran), the session is
+        // inert: drop any further inbound frames so post-detach input can never
+        // reach the PTY and a late resize cannot re-apply a cleared size.
+        guard !torndown else { return }
         switch frame {
         case .input(let bytes):
             if !request.readOnly { bridge.writeInput(surfaceID: surfaceID, bytes: bytes) }
         case .resize(let cols, let rows):
+            // Mid-session resize takes the same bounds the handshake enforces;
+            // out-of-range values are ignored rather than forwarded.
+            guard cols >= 1, cols <= AttachHandshake.maxDimension,
+                  rows >= 1, rows <= AttachHandshake.maxDimension else { break }
             bridge.applyAttachmentSize(surfaceID: surfaceID, size: SurfaceSize(cols: cols, rows: rows))
         case .detach:
             teardown()
@@ -164,6 +182,13 @@ final class SurfaceAttachSession {
         if let surfaceID {
             bridge.clearAttachmentSize(surfaceID: surfaceID)
         }
-        // The pane process is intentionally left running.
+        // Close the socket so the blocked reader thread's read() returns and the
+        // thread exits; without this a host-initiated teardown (detach frame or
+        // write failure) would leak the fd, the thread, and - via the still
+        // registered consumer - pin the byte-tee capture gate on. The torndown
+        // guard makes this close-once. The pane process is intentionally left
+        // running.
+        shutdown(socket, SHUT_RDWR)
+        close(socket)
     }
 }

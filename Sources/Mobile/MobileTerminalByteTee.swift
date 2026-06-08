@@ -1,6 +1,6 @@
 import Foundation
 import OSLog
-import Synchronization
+import os
 
 private let mobileTerminalByteTeeLog = Logger(
     subsystem: "dev.cmux",
@@ -54,10 +54,13 @@ final class MobileTerminalByteTee {
 
     /// Count of registered attach consumers across all surfaces. The output hot
     /// path (`append`, off the main actor) reads this to decide whether to
-    /// capture bytes when no phone is paired. An atomic, not a lock, so the
-    /// Ghostty IO thread stays contention-free; the only writers are the rare
-    /// attach/detach RPCs.
-    nonisolated private let attachConsumerCount = Atomic<Int>(0)
+    /// capture bytes when no phone is paired. Uses `OSAllocatedUnfairLock`
+    /// (the codebase's pattern for nonisolated hot-path state, macOS 13+) rather
+    /// than `Synchronization.Atomic`, which needs macOS 15. Writers are only the
+    /// rare attach/detach paths, so the IO thread never meaningfully contends.
+    /// This is a hot-path hint; `attachConsumersBySurfaceID` (main actor) is the
+    /// source of truth for actual delivery.
+    nonisolated private let attachConsumerCount = OSAllocatedUnfairLock(initialState: 0)
     /// Serial queue so fan-out preserves byte order even though the
     /// upstream callback runs off the main thread.
     private let publishQueue = DispatchQueue(
@@ -87,7 +90,7 @@ final class MobileTerminalByteTee {
         guard
             MobileHostService.hasEventSubscribers(topic: "terminal.bytes")
                 || MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
-                || attachConsumerCount.load(ordering: .relaxed) > 0
+                || attachConsumerCount.withLock({ $0 }) > 0
         else {
             return
         }
@@ -112,9 +115,15 @@ final class MobileTerminalByteTee {
         statesBySurfaceID[surfaceID]?.seq
     }
 
-    /// Drop replay history for a surface (e.g. when the surface closes).
+    /// Drop replay history for a surface (e.g. when the surface closes). Also
+    /// clears any attach consumers still registered for it and decrements the
+    /// hot-path count, so a surface closing out from under a live attach can
+    /// never strand the gate in the armed state.
     func dropSurface(surfaceID: UUID) {
         statesBySurfaceID.removeValue(forKey: surfaceID)
+        if let stranded = attachConsumersBySurfaceID.removeValue(forKey: surfaceID), !stranded.isEmpty {
+            attachConsumerCount.withLock { $0 -= stranded.count }
+        }
     }
 
     /// Register a bare-terminal attach consumer for a surface's live raw bytes.
@@ -125,7 +134,7 @@ final class MobileTerminalByteTee {
         nextAttachConsumerToken += 1
         let token = nextAttachConsumerToken
         attachConsumersBySurfaceID[surfaceID, default: [:]][token] = deliver
-        attachConsumerCount.add(1, ordering: .relaxed)
+        attachConsumerCount.withLock { $0 += 1 }
         return token
     }
 
@@ -140,7 +149,7 @@ final class MobileTerminalByteTee {
         } else {
             attachConsumersBySurfaceID[surfaceID] = consumers
         }
-        attachConsumerCount.subtract(1, ordering: .relaxed)
+        attachConsumerCount.withLock { $0 -= 1 }
     }
 
     private func publishFromMain(surfaceID: UUID, data: Data) {
