@@ -369,6 +369,26 @@ import Testing
         #expect(output["note"] as? String == "plain")
     }
 
+    @Test func scrubsContextWithSensitiveOuterNameAsBoundary() {
+        // The OUTER context name is a trust boundary: a `credentials`/`auth`
+        // context is redacted wholesale (inner values that match no standalone
+        // secret pattern still can't leak), while a non-sensitive context name
+        // (`device`) recurses so its inner keys/values are content-scrubbed.
+        let input: [String: [String: Any]] = [
+            "credentials": ["raw": "plainsecretvalue", "user": "alice"],
+            "auth": ["bearer": "opaquetoken"],
+            "device": ["cwd": "/Users/alice/dev", "model": "MacBookPro"],
+        ]
+        let output = scrubber.scrub(context: input)
+        // Sensitive outer names: every inner value redacted wholesale, keys kept.
+        #expect(output["credentials"]?["raw"] as? String == "<redacted-secret>")
+        #expect(output["credentials"]?["user"] as? String == "<redacted-secret>")
+        #expect(output["auth"]?["bearer"] as? String == "<redacted-secret>")
+        // Non-sensitive outer name: structure preserved, inner values scrubbed.
+        #expect(output["device"]?["cwd"] as? String == "/Users/<redacted>/dev")
+        #expect(output["device"]?["model"] as? String == "MacBookPro")
+    }
+
     @Test func sensitiveKeyMatchingIgnoresCaseAndSeparators() {
         #expect(SentryScrubber.isSensitiveKey("Access-Token"))
         #expect(SentryScrubber.isSensitiveKey("X_API_KEY"))

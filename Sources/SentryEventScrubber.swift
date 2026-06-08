@@ -94,8 +94,10 @@ struct SentryEventScrubber {
         if let context = event.context {
             // `context` carries the per-key dictionaries set via
             // `scope.setContext(value:key:)`, where cmux puts cwd / path / URL
-            // data; scrub every nested value.
-            event.context = context.mapValues { scrubber.scrub(dictionary: $0) }
+            // data. Route through the context scrubber so the OUTER context name
+            // is also a redaction boundary (a `credentials`/`auth` context is
+            // dropped wholesale), matching the key-aware handling tags/extra get.
+            event.context = scrubber.scrub(context: context)
         }
 
         if let breadcrumbs = event.breadcrumbs {

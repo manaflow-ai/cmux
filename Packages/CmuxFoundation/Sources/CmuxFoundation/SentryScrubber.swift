@@ -246,6 +246,34 @@ public struct SentryScrubber: Sendable {
         return output
     }
 
+    /// Recursively scrubs Sentry's two-level `context` map, treating the outer
+    /// context name as a redaction boundary.
+    ///
+    /// Sentry's `event.context` is a `[contextName: [key: value]]` map (the
+    /// per-context dictionaries set via `scope.setContext(value:key:)`). This
+    /// applies the same key-as-trust-boundary rule as ``scrub(dictionary:)`` but
+    /// at the **outer** level too: a context whose NAME is sensitive (e.g.
+    /// `credentials`, `auth`) is redacted wholesale, so an inner value that
+    /// matches no standalone secret pattern still can't leak. Non-sensitive
+    /// contexts recurse through ``scrub(dictionary:)`` so their inner keys and
+    /// values are still scrubbed.
+    ///
+    /// - Parameter context: The `[contextName: [key: value]]` context map.
+    /// - Returns: The context map with sensitive contexts redacted and the rest content-scrubbed.
+    public func scrub(context: [String: [String: Any]]) -> [String: [String: Any]] {
+        var output = [String: [String: Any]](minimumCapacity: context.count)
+        for (name, inner) in context {
+            if Self.isSensitiveKey(name) {
+                // The outer context name is the trust boundary: redact every inner
+                // value wholesale rather than recursing.
+                output[name] = inner.mapValues { _ -> Any in Self.redactedSecret }
+            } else {
+                output[name] = scrub(dictionary: inner)
+            }
+        }
+        return output
+    }
+
     /// Redacts the values of sensitive parameters in a URL query string,
     /// structurally, keyed off the single maintained denylist.
     ///
