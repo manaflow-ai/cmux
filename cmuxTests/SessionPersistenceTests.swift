@@ -856,6 +856,7 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testSessionAutosaveCoordinatorSerializesTicksAndIgnoresStaleFinish() throws {
         let coordinator = SessionAutosaveCoordinator()
         var startedCount = 0
@@ -895,6 +896,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(startedCount, 2)
     }
 
+    @MainActor
     func testSessionAutosaveCoordinatorTracksTypingQuietPeriod() throws {
         let coordinator = SessionAutosaveCoordinator()
 
@@ -909,6 +911,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(coordinator.remainingTypingQuietPeriod(quietPeriod: 0.65, nowUptime: 101))
     }
 
+    @MainActor
     func testSessionAutosaveCoordinatorTracksPersistedFingerprint() {
         let coordinator = SessionAutosaveCoordinator()
         let now = Date()
@@ -948,6 +951,23 @@ final class SessionPersistenceTests: XCTestCase {
                 maximumAutosaveSkippableInterval: 60
             )
         )
+    }
+
+    func testSessionAutosaveCoordinatorCancelsDeferredRetry() async {
+        let retryFired = expectation(description: "retry should not fire")
+        retryFired.isInverted = true
+
+        await MainActor.run {
+            let coordinator = SessionAutosaveCoordinator()
+            XCTAssertTrue(
+                coordinator.scheduleDeferredRetry(after: 0.05) {
+                    retryFired.fulfill()
+                }
+            )
+            coordinator.cancelDeferredRetry()
+        }
+
+        await fulfillment(of: [retryFired], timeout: 0.15)
     }
 
     func testSessionAutosaveFingerprintIncludesRestorableAgentMetadata() throws {

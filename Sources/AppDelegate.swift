@@ -3964,14 +3964,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func scheduleDeferredSessionAutosaveRetry(after delay: TimeInterval) {
-        guard delay.isFinite, delay > 0 else { return }
-        guard sessionAutosaveCoordinator.markDeferredRetryPending() else { return }
-        sessionPersistenceQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.sessionAutosaveCoordinator.clearDeferredRetryPending()
-                self.runSessionAutosaveTick(source: "typingQuietRetry")
-            }
+        sessionAutosaveCoordinator.scheduleDeferredRetry(after: delay) { [weak self] in
+            self?.runSessionAutosaveTick(source: "typingQuietRetry")
         }
     }
 
@@ -3988,6 +3982,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
+        sessionAutosaveCoordinator.cancelDeferredRetry()
         sessionAutosaveCoordinator.beginTick { runToken in
             Task { @MainActor [weak self] in
                 guard let self else { return }
