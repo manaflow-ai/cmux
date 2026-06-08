@@ -39,13 +39,14 @@ public final class MobilePushCoordinator {
     /// indicator and context-menu label derive from it directly.
     public private(set) var mutedWorkspaceIDs: Set<String> = []
 
-    /// Monotonic auth-session token. Bumped on sign-out so a server mute
-    /// hydration that was already in flight (still using the prior account's
-    /// valid tokens) cannot write the prior user's mutes back into the
-    /// just-cleared cache. A refresh snapshots this before its fetch and applies
-    /// its result only if it is unchanged. `@ObservationIgnored`: it gates writes
-    /// to `mutedWorkspaceIDs` but is not itself rendered.
-    @ObservationIgnored private var muteSessionGeneration = 0
+    /// The single in-flight server mute hydration, owned so it can be cancelled.
+    /// Starting a new refresh or signing out cancels the prior one, so a stale
+    /// fetch (e.g. one begun under a previous account whose tokens are briefly
+    /// still valid during sign-out) can never write its result back. Using
+    /// structured ownership + cancellation instead of a generation counter keeps
+    /// exactly one authoritative refresh and avoids a stale task performing any
+    /// destructive cleanup. `@ObservationIgnored`: it is lifecycle, not rendered.
+    @ObservationIgnored private var mutedRefreshTask: Task<Void, Never>?
 
     /// Creates a push coordinator.
     /// - Parameters:
@@ -100,23 +101,17 @@ public final class MobilePushCoordinator {
     /// previous account instead of re-uploading it. A network failure / signed
     /// out state keeps the existing local set (no clobber to empty).
     ///
-    /// The fetch runs in an unstructured task, so it is gated on
-    /// ``muteSessionGeneration``: if a sign-out happens while this fetch is in
-    /// flight (the prior account's tokens are still valid, so the GET can still
-    /// succeed), the generation bump makes the stale result be discarded instead
-    /// of repopulating the just-cleared cache for the signed-out user.
+    /// Owns a single cancellable refresh task: a new refresh or a sign-out
+    /// cancels any prior one, and a cancelled fetch never writes its (stale)
+    /// result back, so a refresh begun under a previous account can't repopulate
+    /// the cache after sign-out.
     public func refreshMutedWorkspacesFromServer() {
-        let generation = muteSessionGeneration
-        Task {
-            let serverSet = await registration.hydrateMutedWorkspacesFromServer()
-            guard muteSessionGeneration == generation else {
-                // A sign-out raced this fetch. The fetch may have persisted the
-                // prior account's set into the service cache; re-clear it so the
-                // next user (and the next launch's cache read) starts clean.
-                await registration.clearLocalMutedWorkspaces()
-                return
-            }
-            mutedWorkspaceIDs = serverSet
+        mutedRefreshTask?.cancel()
+        mutedRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            let serverSet = await self.registration.hydrateMutedWorkspacesFromServer()
+            guard !Task.isCancelled else { return }
+            self.mutedWorkspaceIDs = serverSet
         }
     }
 
@@ -201,18 +196,29 @@ public final class MobilePushCoordinator {
     /// to the next signed-in user. Does not touch the signed-out user's server
     /// mute rows (those are theirs to keep).
     public func handleSignedOut() async {
-        // Invalidate any in-flight server hydration FIRST so a stale refresh
-        // (still using the prior account's valid tokens) cannot write the prior
-        // user's mutes back after this clear.
-        muteSessionGeneration &+= 1
+        // Cancel any in-flight server hydration FIRST so a stale refresh (still
+        // using the prior account's briefly-valid tokens) cannot write the prior
+        // user's mutes back after this clear. A cancelled task returns without
+        // touching the cache.
+        mutedRefreshTask?.cancel()
+        mutedRefreshTask = nil
         mutedWorkspaceIDs = []
         await registration.clearLocalMutedWorkspaces()
         await registration.unregisterFromServer()
     }
 
     /// Whether to show a banner while the app is foreground. Suppressed when the
-    /// user is already viewing the terminal the notification is about.
+    /// workspace is muted, or when the user is already viewing the terminal the
+    /// notification is about.
     public func shouldPresentInForeground(workspaceId: String?, surfaceId: String?) -> Bool {
+        // Honor the per-workspace mute locally too: the server is the primary
+        // gate, but a push can already be in flight when the mute PUT lands, or
+        // the server can fail open on a mute-lookup error, so a muted workspace
+        // must never surface a foreground banner/sound. Mirrors the server's
+        // `shouldDeliverToWorkspace`.
+        guard PushMutePolicy.shouldDeliver(workspaceId: workspaceId, muted: mutedWorkspaceIDs) else {
+            return false
+        }
         guard let store, let workspaceId,
               store.selectedWorkspaceID?.rawValue == workspaceId else {
             return true
