@@ -65,6 +65,7 @@ public final class AuthCoordinator {
     private let launch: AuthLaunchOptions
     private let isOnline: @Sendable () async -> Bool
     private let onSignedIn: @Sendable () async -> Void
+    private let errorReporter: any AuthErrorReporting
 
     private var pendingNonce: String?
     private var debugCredentials: CMUXAuthAutoLoginCredentials?
@@ -86,6 +87,11 @@ public final class AuthCoordinator {
     ///   - onSignedIn: Hook run after a successful sign-in / session restore, for
     ///     side effects above this package (e.g. push token re-upload). Defaults
     ///     to a no-op.
+    ///   - errorReporter: Reporting seam for sign-in failures (macOS injects a
+    ///     Sentry-backed conformer). The underlying error is reported before it
+    ///     is wrapped into a display-safe ``AuthError``. Defaults to
+    ///     ``NoopAuthErrorReporting`` so tests and surfaces without a backend
+    ///     opt out.
     public init(
         client: any AuthClient,
         sessionCache: CMUXAuthSessionCache,
@@ -95,7 +101,8 @@ public final class AuthCoordinator {
         config: AuthConfig,
         launch: AuthLaunchOptions,
         isOnline: @escaping @Sendable () async -> Bool = { true },
-        onSignedIn: @escaping @Sendable () async -> Void = {}
+        onSignedIn: @escaping @Sendable () async -> Void = {},
+        errorReporter: any AuthErrorReporting = NoopAuthErrorReporting()
     ) {
         self.client = client
         self.sessionCache = sessionCache
@@ -106,6 +113,7 @@ public final class AuthCoordinator {
         self.launch = launch
         self.isOnline = isOnline
         self.onSignedIn = onSignedIn
+        self.errorReporter = errorReporter
         self.selectedTeamID = teamSelection.selectedTeamID
         primeSessionState()
     }
@@ -401,6 +409,17 @@ public final class AuthCoordinator {
             try await client.signInWithOAuth(provider: provider, anchor: anchor)
             try await completeSignIn()
         } catch {
+            // Capture the real, un-wrapped error before it collapses into the
+            // generic display message, so OAuth/Apple sign-in breaks (e.g. a
+            // Stack INVALID_APPLE_CREDENTIALS from the native Apple token
+            // exchange) stop being invisible. User cancellation is not a
+            // failure, so it is not reported.
+            if AuthError(displaySafe: error) != .cancelled {
+                errorReporter.report(
+                    error: error,
+                    context: AuthErrorContext(flow: "oauth", provider: provider)
+                )
+            }
             throw AuthError(displaySafe: error) ?? error
         }
     }

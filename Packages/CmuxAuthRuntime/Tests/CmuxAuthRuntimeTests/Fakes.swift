@@ -28,6 +28,7 @@ actor FakeAuthClient: AuthClient {
     var teams: [CMUXAuthTeam] = []
     var throwOnCurrentUser: (any Error)?
     var throwOnListTeams: (any Error)?
+    var throwOnOAuth: (any Error)?
     var nonce = "nonce-123"
     private(set) var signedInWithMagicLink = false
     private(set) var signedInWithCredential: (email: String, password: String)?
@@ -49,6 +50,7 @@ actor FakeAuthClient: AuthClient {
     func setThrowOnCurrentUser(_ error: (any Error)?) { throwOnCurrentUser = error }
     func setTeams(_ teams: [CMUXAuthTeam]) { self.teams = teams }
     func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
+    func setThrowOnOAuth(_ error: (any Error)?) { throwOnOAuth = error }
 
     func accessToken() async -> String? { access }
     func refreshToken() async -> String? { refresh }
@@ -83,6 +85,7 @@ actor FakeAuthClient: AuthClient {
 
     func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {
         oauthProviders.append(provider)
+        if let throwOnOAuth { throw throwOnOAuth }
         access = "access"
     }
 
@@ -108,6 +111,18 @@ final class FakeAnchor: NSObject, AuthPresentationAnchoring {
 actor HookFlag {
     private(set) var fired = false
     func fire() { fired = true }
+}
+
+/// Records every ``AuthErrorReporting`` call so a test can assert that a failed
+/// sign-in was captured with the expected flow/provider (and was not captured
+/// on user cancellation).
+final class FakeAuthErrorReporter: AuthErrorReporting, @unchecked Sendable {
+    // Single-threaded test usage; the coordinator reports on the main actor.
+    private(set) var reports: [(error: any Error, context: AuthErrorContext)] = []
+
+    func report(error: any Error, context: AuthErrorContext) {
+        reports.append((error, context))
+    }
 }
 
 /// Captures a value observed inside an async hook, for ordering assertions.
