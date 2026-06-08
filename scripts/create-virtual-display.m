@@ -221,7 +221,8 @@ static NSString *argumentValue(NSArray<NSString *> *arguments, NSString *flag) {
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
         [NSApplication sharedApplication];
-        [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        [NSApp finishLaunching];
 
         NSArray<NSString *> *arguments = [[NSProcessInfo processInfo] arguments];
 

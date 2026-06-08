@@ -1534,6 +1534,10 @@ jobs:
             echo "Waiting for virtual display..."
             for _ in $(seq 1 180); do
               if [ -f "$DISPLAY_READY" ]; then break; fi
+              if ! kill -0 "$HELPER_PID" 2>/dev/null; then
+                echo "Virtual display helper exited before readiness" >&2
+                break
+              fi
               sleep 0.5
             done
             if [ ! -f "$DISPLAY_READY" ]; then

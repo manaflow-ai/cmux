@@ -304,6 +304,11 @@ check_virtual_display_helper_links_appkit() {
     exit 1
   fi
 
+  if ! grep -Fq '[NSApp finishLaunching]' scripts/create-virtual-display.m; then
+    echo "FAIL: create-virtual-display.m must finish launching AppKit before checking NSScreen readiness"
+    exit 1
+  fi
+
   if ! grep -Fq 'ERROR: Virtual display %u is online in CoreGraphics but not visible in this helper' scripts/create-virtual-display.m; then
     echo "FAIL: create-virtual-display.m must fail closed when CoreGraphics sees a display that AppKit cannot use"
     exit 1
@@ -1546,6 +1551,7 @@ check_ui_regression_budget() {
     in_step && /wait_for_pid_exit\(\)/ { saw_wait_pid=1 }
     in_step && /stop_pid\(\)/ { saw_stop_pid=1 }
     in_step && /wait_for_cmux_dev_exit\(\)/ { saw_wait_cmux=1 }
+    in_step && /Virtual display helper exited before readiness/ { saw_helper_exit_ready=1 }
     in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
     in_step && /Display resolution UI regression completed without executing any tests/ { saw_no_tests_message=1 }
     in_step && /xcode_status=\$\{PIPESTATUS\[0\]\}/ { after_xcode=1 }
@@ -1553,9 +1559,9 @@ check_ui_regression_budget() {
     in_step && after_xcode && /exit "\$xcode_status"/ { saw_xcode_exit=1 }
     in_step && after_xcode && /Attempt \$attempt failed, retrying/ { saw_post_xcode_retry=1 }
     in_step && /^[[:space:]]*sleep 3$/ { saw_fixed_retry_sleep=1 }
-    END { exit(saw_wait_pid && saw_stop_pid && saw_wait_cmux && saw_nonzero_guard && saw_no_tests_message && saw_fail_closed_xcode && saw_xcode_exit && !saw_post_xcode_retry && !saw_fixed_retry_sleep ? 0 : 1) }
+    END { exit(saw_wait_pid && saw_stop_pid && saw_wait_cmux && saw_helper_exit_ready && saw_nonzero_guard && saw_no_tests_message && saw_fail_closed_xcode && saw_xcode_exit && !saw_post_xcode_retry && !saw_fixed_retry_sleep ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: ui-regressions must wait for app/helper cleanup, reject zero-test display regression runs, and fail closed after XCTest starts"
+    echo "FAIL: ui-regressions must wait for app/helper cleanup, fail fast on dead display helpers, reject zero-test display regression runs, and fail closed after XCTest starts"
     exit 1
   fi
 
