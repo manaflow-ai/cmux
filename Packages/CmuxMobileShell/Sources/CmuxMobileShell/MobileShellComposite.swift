@@ -794,21 +794,40 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 terminalText: terminalText,
                 buildStamp: stamp.agentBuildStamp
             )
-            return ok ? .sentToAgent : .failed
+            if ok {
+                return .sentToAgent
+            }
+            // The agent sink failed (e.g. the Mac rejected the privileged sink,
+            // or the RPC could not be delivered). Fall back to the email inbox
+            // rather than dead-ending, so the report is still delivered. Any
+            // valid reply-to works; we have the signed-in email here.
+            mobileShellLog.error("privileged agent feedback failed; falling back to email")
+            return await submitFeedbackEmail(message: message, emailOverride: emailOverride, stamp: stamp)
         case .email:
-            guard let submitter = feedbackEmailSubmitter else {
-                mobileShellLog.error("feedback email submitter unavailable")
-                return .failed
-            }
-            let email = (emailOverride ?? signedInUserEmail ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            do {
-                try await submitter.submit(email: email, message: message, stamp: stamp)
-                return .emailed
-            } catch {
-                mobileShellLog.error("feedback email submit failed error=\(String(describing: error), privacy: .public)")
-                return .failed
-            }
+            return await submitFeedbackEmail(message: message, emailOverride: emailOverride, stamp: stamp)
+        }
+    }
+
+    /// Email the feedback inbox, returning `.emailed` on success and `.failed`
+    /// when the submitter is unavailable or the POST fails. Shared by the email
+    /// route and the privileged-agent fallback so both deliver identically.
+    private func submitFeedbackEmail(
+        message: String,
+        emailOverride: String?,
+        stamp: MobileFeedbackStamp
+    ) async -> FeedbackSubmissionOutcome {
+        guard let submitter = feedbackEmailSubmitter else {
+            mobileShellLog.error("feedback email submitter unavailable")
+            return .failed
+        }
+        let email = (emailOverride ?? signedInUserEmail ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            try await submitter.submit(email: email, message: message, stamp: stamp)
+            return .emailed
+        } catch {
+            mobileShellLog.error("feedback email submit failed error=\(String(describing: error), privacy: .public)")
+            return .failed
         }
     }
 
