@@ -518,6 +518,96 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertEqual(restoredSessionIds, sessionIds)
     }
 
+    func testPiInferredLatestFallbackUsesSameKindPanelHookWhenAnotherKindIsNewer() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-pi-restore-kind-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path),
+                isDirectory: true
+            ),
+            withIntermediateDirectories: true
+        )
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let claudeSessionId = "11111111-1111-1111-1111-111111111111"
+        let piHookSessionId = "pi-exact-panel-session"
+        let detectedLatestPiSessionId = "pi-newest-cwd-session"
+
+        try writeClaudeTranscript(sessionId: claudeSessionId, cwd: cwd, projectsDir: projectsDir)
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                claudeSessionId: hookRecord(
+                    sessionId: claudeSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    updatedAt: 50
+                ),
+            ]
+        )
+        try writeHookStore(
+            root: root,
+            storeFilename: "pi-hook-sessions.json",
+            sessions: [
+                piHookSessionId: driftedAgentHookRecord(
+                    launcher: "pi",
+                    sessionId: piHookSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedCwd: cwd.path,
+                    launchCwd: cwd.path,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let detectedSnapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("pi"),
+            sessionId: detectedLatestPiSessionId,
+            workingDirectory: cwd.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "/usr/local/bin/pi",
+                arguments: ["/usr/local/bin/pi"],
+                workingDirectory: cwd.path,
+                environment: nil,
+                capturedAt: 99,
+                source: "process"
+            )
+        )
+        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: CmuxVaultAgentRegistry(registrations: [.builtInPi]),
+            detectedSnapshots: [
+                key: (
+                    snapshot: detectedSnapshot,
+                    updatedAt: 99,
+                    processIDs: Set([123]),
+                    sessionIDSource: .inferredLatestSessionFile
+                ),
+            ],
+            processArgumentsProvider: { _ in nil }
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.kind, .custom("pi"))
+        XCTAssertEqual(snapshot.sessionId, piHookSessionId)
+        XCTAssertEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [123])
+    }
+
     // RestorableAgentKind.cwdNamespacing delegates to the shared AgentResumeWorkingDirectory
     // classifier (in CMUXAgentLaunch) so the app-side resolver and the CLI surface-restore publisher
     // apply one policy. The shared resolver's own behavior is covered in CMUXAgentLaunchTests.

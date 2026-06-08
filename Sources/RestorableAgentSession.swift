@@ -908,6 +908,11 @@ struct RestorableAgentSessionIndex: Sendable {
         let sessionId: String
     }
 
+    private struct PanelKindKey: Hashable {
+        let panelKey: PanelKey
+        let kind: RestorableAgentKind
+    }
+
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
 
@@ -1001,7 +1006,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     : (kind: .custom(registration.id), registration: registration)
             }
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
-        var hookCandidatesByPanel: [PanelKey: Entry] = [:]
+        var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
 
         for (kind, registration) in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
@@ -1047,6 +1052,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
+                let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
                 let liveProcessID = liveScopedProcessID(
                     for: effectiveRecord,
                     kind: kind,
@@ -1060,8 +1066,10 @@ struct RestorableAgentSessionIndex: Sendable {
                     updatedAt: effectiveRecord.updatedAt,
                     processIDs: liveProcessID.map { [$0] } ?? []
                 )
-                if hookCandidatesByPanel[key]?.updatedAt ?? -Double.infinity <= effectiveRecord.updatedAt {
-                    hookCandidatesByPanel[key] = entry
+                let previousPanelKindUpdatedAt =
+                    hookCandidatesByPanelAndKind[panelKindKey]?.updatedAt ?? -Double.infinity
+                if previousPanelKindUpdatedAt <= effectiveRecord.updatedAt {
+                    hookCandidatesByPanelAndKind[panelKindKey] = entry
                 }
                 if hookCandidatesBySession[sessionKey]?.updatedAt ?? -Double.infinity <= effectiveRecord.updatedAt {
                     hookCandidatesBySession[sessionKey] = entry
@@ -1077,10 +1085,13 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         for (key, detected) in detectedSnapshots {
+            let sameKindPanelCandidate = hookCandidatesByPanelAndKind[
+                PanelKindKey(panelKey: key, kind: detected.snapshot.kind)
+            ]
             if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
-                panelCandidate: hookCandidatesByPanel[key],
+                panelCandidate: sameKindPanelCandidate,
                 sessionCandidate: hookCandidatesBySession[
                     SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
                 ]
@@ -1092,7 +1103,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     processIDs: detected.processIDs
                 )
             } else if detected.sessionIDSource == .inferredLatestSessionFile,
-                      let panelCandidate = hookCandidatesByPanel[key] {
+                      let panelCandidate = sameKindPanelCandidate {
                 // Latest-file detection is ambiguous when multiple panels share a cwd; preserve the exact
                 // hook-store identity while still carrying live process evidence for this panel.
                 resolved[key] = Entry(
