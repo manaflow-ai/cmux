@@ -39,6 +39,14 @@ public final class MobilePushCoordinator {
     /// indicator and context-menu label derive from it directly.
     public private(set) var mutedWorkspaceIDs: Set<String> = []
 
+    /// Monotonic auth-session token. Bumped on sign-out so a server mute
+    /// hydration that was already in flight (still using the prior account's
+    /// valid tokens) cannot write the prior user's mutes back into the
+    /// just-cleared cache. A refresh snapshots this before its fetch and applies
+    /// its result only if it is unchanged. `@ObservationIgnored`: it gates writes
+    /// to `mutedWorkspaceIDs` but is not itself rendered.
+    @ObservationIgnored private var muteSessionGeneration = 0
+
     /// Creates a push coordinator.
     /// - Parameters:
     ///   - registration: The injected push-registration service.
@@ -91,8 +99,25 @@ public final class MobilePushCoordinator {
     /// authenticated user, so this overwrites any locally cached set from a
     /// previous account instead of re-uploading it. A network failure / signed
     /// out state keeps the existing local set (no clobber to empty).
+    ///
+    /// The fetch runs in an unstructured task, so it is gated on
+    /// ``muteSessionGeneration``: if a sign-out happens while this fetch is in
+    /// flight (the prior account's tokens are still valid, so the GET can still
+    /// succeed), the generation bump makes the stale result be discarded instead
+    /// of repopulating the just-cleared cache for the signed-out user.
     public func refreshMutedWorkspacesFromServer() {
-        Task { mutedWorkspaceIDs = await registration.hydrateMutedWorkspacesFromServer() }
+        let generation = muteSessionGeneration
+        Task {
+            let serverSet = await registration.hydrateMutedWorkspacesFromServer()
+            guard muteSessionGeneration == generation else {
+                // A sign-out raced this fetch. The fetch may have persisted the
+                // prior account's set into the service cache; re-clear it so the
+                // next user (and the next launch's cache read) starts clean.
+                await registration.clearLocalMutedWorkspaces()
+                return
+            }
+            mutedWorkspaceIDs = serverSet
+        }
     }
 
     /// Set phone-push mute for a workspace to an explicit state. Updates the
@@ -176,6 +201,10 @@ public final class MobilePushCoordinator {
     /// to the next signed-in user. Does not touch the signed-out user's server
     /// mute rows (those are theirs to keep).
     public func handleSignedOut() async {
+        // Invalidate any in-flight server hydration FIRST so a stale refresh
+        // (still using the prior account's valid tokens) cannot write the prior
+        // user's mutes back after this clear.
+        muteSessionGeneration &+= 1
         mutedWorkspaceIDs = []
         await registration.clearLocalMutedWorkspaces()
         await registration.unregisterFromServer()
