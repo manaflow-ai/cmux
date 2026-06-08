@@ -6,6 +6,7 @@ All notable changes to cmux are documented here.
 
 ### Added
 - iPhone companion app (beta): pair an iPhone from the new Mobile Connect window (also in the command palette) and attach to your Mac's terminals from your phone, with a configurable pairing port and opt-in forwarding of terminal notifications; the iOS beta ships on TestFlight as cmux BETA ([#5079](https://github.com/manaflow-ai/cmux/pull/5079), [#5493](https://github.com/manaflow-ai/cmux/pull/5493), [#5489](https://github.com/manaflow-ai/cmux/pull/5489), [#5518](https://github.com/manaflow-ai/cmux/pull/5518))
+- Configurable terminal scrollback shortcuts for page up/down and line up/down, with defaults for Shift+Page Up, Shift+Page Down, Shift+Up, and Shift+Down.
 - Drag a workspace into another window's sidebar to move it between windows, including grouped workspaces ([#5399](https://github.com/manaflow-ai/cmux/pull/5399))
 - Sign In and Sign Out commands in the command palette ([#5529](https://github.com/manaflow-ai/cmux/pull/5529))
 - OMP agent hook integration with notifications and session restore via `cmux hooks omp` ([#5413](https://github.com/manaflow-ai/cmux/pull/5413)) -- thanks @joshrzemien!
