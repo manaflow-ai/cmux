@@ -834,6 +834,125 @@
         }
       }
     },
+    "mobile.disconnected.offlineDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open cmux on the Mac or wake the computer, then reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac で cmux を開くかコンピュータのスリープを解除してから、再接続してください。"
+          }
+        }
+      }
+    },
+    "mobile.disconnected.offlineDescriptionNamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't reach %@. Open cmux on the Mac or wake the computer, then reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続できません。Mac で cmux を開くかコンピュータのスリープを解除してから、再接続してください。"
+          }
+        }
+      }
+    },
+    "mobile.disconnected.offlineTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac is offline or asleep"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac はオフラインまたはスリープ中です"
+          }
+        }
+      }
+    },
+    "mobile.disconnected.pairAnother": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair another Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の Mac をペアリング"
+          }
+        }
+      }
+    },
+    "mobile.disconnected.reconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続"
+          }
+        }
+      }
+    },
+    "mobile.disconnected.reconnectingDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trying to reach your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac への接続を試みています。"
+          }
+        }
+      }
+    },
+    "mobile.disconnected.reconnectingTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続中…"
+          }
+        }
+      }
+    },
     "mobile.hostPicker.active": {
       "extractionState": "manual",
       "localizations": {
