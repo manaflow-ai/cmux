@@ -1209,8 +1209,8 @@ jobs:
           key: cargo-nucleo-${{ runner.os }}-${{ hashFiles('Native/CommandPaletteNucleoFFI/Cargo.lock') }}
           restore-keys: cargo-nucleo-${{ runner.os }}-
 
-      - name: Cache DerivedData
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      - name: Restore DerivedData cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: build-universal
           key: deriveddata-release-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}

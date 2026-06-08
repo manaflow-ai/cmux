@@ -446,6 +446,20 @@ check_activation_artifacts_are_required() {
 }
 
 check_release_build_signal() {
+  if ! awk '
+    /^  release-build:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /^[[:space:]]*- name: Restore DerivedData cache$/ { in_step=1; saw_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /uses: actions\/cache\/restore@/ { saw_restore=1 }
+    in_step && /path: build-universal/ { saw_path=1 }
+    in_step && /key: deriveddata-release-/ { saw_key=1 }
+    END { exit(saw_step && saw_restore && saw_path && saw_key ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: release-build must restore DerivedData without a post-job cache save that can cancel after artifact validation"
+    exit 1
+  fi
+
   if ! grep -Fq 'lipo "$APP_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
     echo "FAIL: release-build must verify the Release app binary stays universal"
     exit 1
