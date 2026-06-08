@@ -34,7 +34,7 @@ enum CodexTeamsApprovalBridge {
             "app_server_method": method,
             "request_id": requestIdString(requestId),
             "item_id": itemId,
-            "approval_params": params
+            "approval_params": approvalParamsSnapshot(params)
         ]
         if let turnId { toolInput["turn_id"] = turnId }
         if let reason { toolInput["reason"] = reason }
@@ -43,30 +43,16 @@ enum CodexTeamsApprovalBridge {
         if let approvalId = stringValue(in: params, keys: ["approvalId", "approval_id"]) {
             toolInput["approval_id"] = approvalId
         }
-        if let grantRoot = params["grantRoot"] ?? params["grant_root"] {
-            toolInput["grant_root"] = grantRoot
-        }
+        setBoundedToolInput(&toolInput, key: "grant_root", value: params["grantRoot"] ?? params["grant_root"])
         if let available = params["availableDecisions"] ?? params["available_decisions"] {
             toolInput["available_decisions"] = decisionNames(available)
         }
-        if let permissions = params["permissions"] {
-            toolInput["permissions"] = permissions
-        }
-        if let networkApprovalContext = params["networkApprovalContext"] ?? params["network_approval_context"] {
-            toolInput["network_approval_context"] = networkApprovalContext
-        }
-        if let additionalPermissions = params["additionalPermissions"] ?? params["additional_permissions"] {
-            toolInput["additional_permissions"] = additionalPermissions
-        }
-        if let commandActions = params["commandActions"] ?? params["command_actions"] {
-            toolInput["command_actions"] = commandActions
-        }
-        if let proposed = params["proposedExecpolicyAmendment"] ?? params["proposed_execpolicy_amendment"] {
-            toolInput["proposed_execpolicy_amendment"] = proposed
-        }
-        if let proposed = params["proposedNetworkPolicyAmendments"] ?? params["proposed_network_policy_amendments"] {
-            toolInput["proposed_network_policy_amendments"] = proposed
-        }
+        setBoundedToolInput(&toolInput, key: "permissions", value: params["permissions"])
+        setBoundedToolInput(&toolInput, key: "network_approval_context", value: params["networkApprovalContext"] ?? params["network_approval_context"])
+        setBoundedToolInput(&toolInput, key: "additional_permissions", value: params["additionalPermissions"] ?? params["additional_permissions"])
+        setBoundedToolInput(&toolInput, key: "command_actions", value: params["commandActions"] ?? params["command_actions"])
+        setBoundedToolInput(&toolInput, key: "proposed_execpolicy_amendment", value: params["proposedExecpolicyAmendment"] ?? params["proposed_execpolicy_amendment"])
+        setBoundedToolInput(&toolInput, key: "proposed_network_policy_amendments", value: params["proposedNetworkPolicyAmendments"] ?? params["proposed_network_policy_amendments"])
         if let relatedItem {
             toolInput["related_item"] = relatedItem
             if command == nil,
@@ -321,10 +307,92 @@ enum CodexTeamsApprovalBridge {
         return nil
     }
 
+    private static func approvalParamsSnapshot(_ params: [String: Any]) -> [String: Any] {
+        let keys = [
+            "threadId",
+            "thread_id",
+            "turnId",
+            "turn_id",
+            "itemId",
+            "item_id",
+            "approvalId",
+            "approval_id",
+            "environmentId",
+            "environment_id",
+            "cwd",
+            "reason",
+            "command",
+            "grantRoot",
+            "grant_root",
+            "availableDecisions",
+            "available_decisions",
+            "permissions",
+            "networkApprovalContext",
+            "network_approval_context",
+            "additionalPermissions",
+            "additional_permissions",
+            "commandActions",
+            "command_actions",
+            "proposedExecpolicyAmendment",
+            "proposed_execpolicy_amendment",
+            "proposedNetworkPolicyAmendments",
+            "proposed_network_policy_amendments"
+        ]
+        var snapshot: [String: Any] = [:]
+        for key in keys {
+            guard let value = params[key],
+                  let bounded = boundedApprovalParamValue(value, depth: 0) else {
+                continue
+            }
+            snapshot[key] = bounded
+        }
+        return snapshot
+    }
+
+    private static func setBoundedToolInput(_ toolInput: inout [String: Any], key: String, value: Any?) {
+        guard let value,
+              let bounded = boundedApprovalParamValue(value, depth: 0) else {
+            return
+        }
+        toolInput[key] = bounded
+    }
+
+    private static func boundedApprovalParamValue(_ value: Any, depth: Int) -> Any? {
+        let stringLimit = 4_096
+        let collectionLimit = 50
+        guard depth <= 5 else { return nil }
+
+        if let string = value as? String {
+            guard string.count > stringLimit else { return string }
+            let index = string.index(string.startIndex, offsetBy: stringLimit)
+            return String(string[..<index])
+        }
+        if value is NSNumber || value is Bool || value is NSNull {
+            return value
+        }
+        if let array = value as? [Any] {
+            return array.prefix(collectionLimit).compactMap {
+                boundedApprovalParamValue($0, depth: depth + 1)
+            }
+        }
+        if let object = value as? [String: Any] {
+            var snapshot: [String: Any] = [:]
+            for key in object.keys.sorted().prefix(collectionLimit) {
+                guard let value = object[key],
+                      let bounded = boundedApprovalParamValue(value, depth: depth + 1) else {
+                    continue
+                }
+                snapshot[key] = bounded
+            }
+            return snapshot
+        }
+        return nil
+    }
+
     private static func fileChangeApprovalDecision(params: [String: Any], mode: String) -> String {
         if mode == "deny" { return rejectApprovalDecision(params: params) }
         if modeRequestsPersistentApproval(mode)
-            && availableDecisions(params).contains("acceptForSession") {
+            && decisionAvailableOrUnspecified("acceptForSession", params: params) {
             return "acceptForSession"
         }
         if modeRequestsPersistentApproval(mode) {
@@ -428,7 +496,7 @@ enum CodexTeamsApprovalBridge {
         case "item/fileChange/requestApproval":
             return CodexPermissionCapabilities(
                 supportsOnce: acceptsOnce,
-                supportsAlways: decisions?.contains("acceptForSession") ?? false,
+                supportsAlways: acceptsSession,
                 supportsAll: false
             )
         default:

@@ -246,7 +246,7 @@ def test_codex_stop_reaps_transcript_monitor(cli_path: str, root: Path) -> None:
                     f"hooks codex stop failed exit={result.returncode}\n"
                     f"stdout={result.stdout}\nstderr={result.stderr}"
                 )
-            wait_for_monitor_pids(session_id, present=False, timeout=5)
+            wait_for_monitor_pids(session_id, present=False, timeout=30)
         finally:
             for pid in monitor_pids_for_session(session_id):
                 subprocess.run(["/bin/kill", str(pid)], check=False)

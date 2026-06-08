@@ -86,6 +86,12 @@ struct FeedCoordinatorTests {
         #expect(FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexSession))
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: codexSession))
 
+        let codexFileChangeFallback = #"""
+        {"app_server_method":"item/fileChange/requestApproval"}
+        """#
+        #expect(FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexFileChangeFallback))
+        #expect(CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: codexFileChangeFallback))
+
         let codexAmendment = #"""
         {"app_server_method":"item/commandExecution/requestApproval","available_decisions":[{"acceptWithExecpolicyAmendment":{}}],"proposed_execpolicy_amendment":[{"kind":"prefix","value":"npm test"}]}
         """#
@@ -119,11 +125,16 @@ struct FeedCoordinatorTests {
                 "command": "touch /tmp/cmux-security-review",
                 "cwd": "/tmp/project",
                 "reason": "requires approval",
+                "unboundedRawPatch": String(repeating: "x", count: 8_000),
                 "additionalPermissions": [
                     "fileSystem": ["write": ["/tmp/project"]]
                 ],
                 "networkApprovalContext": ["host": "example.com"],
-                "commandActions": [["type": "write", "path": "/tmp/cmux-security-review"]],
+                "commandActions": [[
+                    "type": "write",
+                    "path": "/tmp/cmux-security-review",
+                    "diff": String(repeating: "d", count: 8_000)
+                ]],
                 "proposedExecpolicyAmendment": [["kind": "prefix", "value": "touch"]],
                 "availableDecisions": ["accept", "acceptForSession", "decline"]
             ],
@@ -150,10 +161,12 @@ struct FeedCoordinatorTests {
         #expect(toolInput["item_id"] as? String == "approval-1")
         #expect(toolInput["turn_id"] as? String == "turn-1")
         #expect(toolInput["command"] as? String == "touch /tmp/cmux-security-review")
-        #expect(toolInput["approval_params"] != nil)
+        let approvalParams = try #require(toolInput["approval_params"] as? [String: Any])
+        #expect(approvalParams["unboundedRawPatch"] == nil)
         #expect(toolInput["additional_permissions"] != nil)
         #expect(toolInput["network_approval_context"] != nil)
-        #expect(toolInput["command_actions"] != nil)
+        let commandActions = try #require(toolInput["command_actions"] as? [[String: Any]])
+        #expect((commandActions.first?["diff"] as? String)?.count == 4_096)
         #expect(toolInput["proposed_execpolicy_amendment"] != nil)
         #expect((toolInput["related_item"] as? [String: Any])?["type"] as? String == "commandExecution")
 
@@ -319,7 +332,7 @@ struct FeedCoordinatorTests {
                 method: "item/fileChange/requestApproval",
                 params: [:],
                 mode: "always"
-            )?["decision"] as? String == "accept"
+            )?["decision"] as? String == "acceptForSession"
         )
         #expect(
             CodexTeamsApprovalBridge.appServerApprovalResponse(

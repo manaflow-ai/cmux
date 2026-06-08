@@ -4657,7 +4657,7 @@ struct CMUXCLI {
             )
 
         case "__codex-teams-watch":
-            try runCodexTeamsWatcher(commandArgs: commandArgs, client: client)
+            try runCodexTeamsWatcher(commandArgs: commandArgs, client: client, socketPassword: socketPasswordArg)
 
         case "capture-pane",
              "resize-pane",
@@ -5441,6 +5441,20 @@ struct CMUXCLI {
     }
 
     func authenticateClientIfNeeded(
+        _ client: SocketClient,
+        explicitPassword: String?,
+        socketPath: String,
+        responseTimeout: TimeInterval? = nil
+    ) throws {
+        try Self.authenticateSocketClientIfNeeded(
+            client,
+            explicitPassword: explicitPassword,
+            socketPath: socketPath,
+            responseTimeout: responseTimeout
+        )
+    }
+
+    private static func authenticateSocketClientIfNeeded(
         _ client: SocketClient,
         explicitPassword: String?,
         socketPath: String,
@@ -18218,6 +18232,7 @@ struct CMUXCLI {
         private let launchPath: String?
         private let maxAutoDepth: Int
         private let socketClient: SocketClient
+        private let socketPassword: String?
 
         private var knownThreadIds = Set<String>()
         private var parentByThreadId: [String: String] = [:]
@@ -18242,7 +18257,8 @@ struct CMUXCLI {
             codexExecutable: String,
             launchPath: String?,
             maxAutoDepth: Int,
-            socketClient: SocketClient
+            socketClient: SocketClient,
+            socketPassword: String?
         ) {
             self.appServerURL = appServerURL
             self.workspaceId = workspaceId
@@ -18251,6 +18267,7 @@ struct CMUXCLI {
             self.launchPath = launchPath
             self.maxAutoDepth = max(0, maxAutoDepth)
             self.socketClient = socketClient
+            self.socketPassword = socketPassword
         }
 
         func run() throws {
@@ -18471,6 +18488,11 @@ struct CMUXCLI {
             let feedClient = SocketClient(path: socketClient.socketPath)
             try feedClient.connect()
             defer { feedClient.close() }
+            try CMUXCLI.authenticateSocketClientIfNeeded(
+                feedClient,
+                explicitPassword: socketPassword,
+                socketPath: socketClient.socketPath
+            )
             return try feedClient.sendV2(method: "feed.push", params: [
                 "event": event,
                 "wait_timeout_seconds": 120
@@ -19323,7 +19345,7 @@ struct CMUXCLI {
         process.terminate()
     }
 
-    private func runCodexTeamsWatcher(commandArgs: [String], client: SocketClient) throws {
+    private func runCodexTeamsWatcher(commandArgs: [String], client: SocketClient, socketPassword: String?) throws {
         let (workspaceId, rem0) = parseOption(commandArgs, name: "--workspace-id")
         let (surfaceId, rem1) = parseOption(rem0, name: "--surface-id")
         let (appServerURL, rem2) = parseOption(rem1, name: "--app-server-url")
@@ -19377,7 +19399,8 @@ struct CMUXCLI {
             codexExecutable: (codexExecutable?.isEmpty == false ? codexExecutable! : "codex"),
             launchPath: launchPath,
             maxAutoDepth: maxDepth,
-            socketClient: client
+            socketClient: client,
+            socketPassword: socketPassword
         )
         withExtendedLifetime(ownerSource) {
             do {
@@ -25543,7 +25566,7 @@ struct CMUXCLI {
                 result[agentEvent] = entries
             case .nested:
                 var groups = result[agentEvent] as? [[String: Any]] ?? []
-                let timeout = nestedHookTimeout(feedTimeoutMs, for: def)
+                let timeout = nestedFeedHookTimeout(feedTimeoutMs, for: def)
                 groups.append([
                     "hooks": [["type": "command", "command": feedCmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
@@ -25564,7 +25587,12 @@ struct CMUXCLI {
     }
 
     private func nestedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
-        guard def.name == "codex" || def.name == "grok" else { return timeoutMs }
+        guard def.name == "grok" else { return max(timeoutMs, 1) }
+        return Self.timeoutSecondsFromMilliseconds(timeoutMs)
+    }
+
+    private func nestedFeedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
+        guard def.name == "codex" || def.name == "grok" else { return max(timeoutMs, 1) }
         return Self.timeoutSecondsFromMilliseconds(timeoutMs)
     }
 

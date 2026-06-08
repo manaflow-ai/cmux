@@ -15295,6 +15295,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     title: String(localized: "feed.notification.permission.always", defaultValue: "Always")
                 ),
                 UNNotificationAction(
+                    identifier: "feed.permission.all",
+                    title: String(localized: "feed.notification.permission.all", defaultValue: "All tools")
+                ),
+                UNNotificationAction(
                     identifier: "feed.permission.deny",
                     title: String(localized: "feed.notification.permission.deny", defaultValue: "Deny"),
                     options: [.destructive]
@@ -15367,6 +15371,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             FeedCoordinator.shared.deliverReply(requestId: requestId, decision: decision)
+        case "feed.permission.all":
+            guard let decision = feedPermissionNotificationDecision(requestId: requestId, requestedMode: .all) else {
+                return true
+            }
+            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: decision)
         case "feed.permission.deny":
             FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .permission(.deny))
         case "feed.exit_plan.ultraplan":
@@ -15427,6 +15436,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return .permission(.once)
             }
             return nil
+        case .all:
+            guard FeedPermissionActionPolicy.supportsAllPermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ) else {
+                return nil
+            }
+            return .permission(.all)
         default:
             return .permission(requestedMode)
         }

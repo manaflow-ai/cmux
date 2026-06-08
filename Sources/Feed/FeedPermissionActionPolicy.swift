@@ -55,7 +55,7 @@ enum FeedPermissionActionPolicy {
         case "item/fileChange/requestApproval":
             return CodexPermissionCapabilities(
                 supportsOnce: acceptsOnce,
-                supportsAlways: decisions?.contains("acceptForSession") ?? false,
+                supportsAlways: acceptsSession,
                 supportsAll: false
             )
         default:
