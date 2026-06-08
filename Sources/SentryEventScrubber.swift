@@ -203,10 +203,18 @@ struct SentryEventScrubber {
     }
 
     /// Redacts URL, query, and headers from an HTTP request context and drops cookies.
+    ///
+    /// `url` and `queryString` are structured: their query parameters are redacted
+    /// by key via ``SentryScrubber/scrubQueryString(_:)`` (the maintained denylist
+    /// is the single source of truth), so a sensitive param like `_csrf=…` or
+    /// `_vercel_jwt=…` is caught even when its value matches no free-text secret
+    /// pattern. The non-query base of `url` still goes through the generic
+    /// ``SentryScrubber/scrub(_:)`` so userinfo credentials and home paths in it
+    /// are redacted.
     private func scrubRequest(_ request: SentryRequest?) {
         guard let request else { return }
-        request.url = scrubber.scrub(optional: request.url)
-        request.queryString = scrubber.scrub(optional: request.queryString)
+        request.url = scrubURL(request.url)
+        request.queryString = request.queryString.map { scrubber.scrubQueryString($0) }
         request.fragment = scrubber.scrub(optional: request.fragment)
         // Cookies are dropped wholesale: cookie names vary (session, sid, auth,
         // …), so pattern-scrubbing the value cannot reliably catch every secret.
@@ -216,6 +224,23 @@ struct SentryEventScrubber {
             // headers (Authorization, Cookie, …) are redacted by name.
             request.headers = scrubber.scrub(dictionary: headers).compactMapValues { $0 as? String }
         }
+    }
+
+    /// Scrubs a request URL, routing any query component through the structured
+    /// query-string scrubber while the base goes through the generic scrubber.
+    ///
+    /// The base (scheme/userinfo/host/path) keeps the free-text rules so URL
+    /// credentials and home paths are redacted; the query part after the first
+    /// `?` is redacted by parameter key. Fragments are carried on
+    /// `SentryRequest.fragment` separately, so a `#frag` tail is not split here.
+    private func scrubURL(_ url: String?) -> String? {
+        guard let url else { return nil }
+        guard let questionMark = url.firstIndex(of: "?") else {
+            return scrubber.scrub(url)
+        }
+        let base = String(url[url.startIndex..<questionMark])
+        let query = String(url[url.index(after: questionMark)...])
+        return "\(scrubber.scrub(base))?\(scrubber.scrubQueryString(query))"
     }
 
     /// Drops identifying fields from the user context.

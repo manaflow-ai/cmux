@@ -231,6 +231,69 @@ import Testing
         #expect(scrubber.scrub("/Users/carol/dev/app.swift") == "/Users/<redacted>/dev/app.swift")
     }
 
+    @Test func exactHomeDirectoryIsBoundedToAPathComponent() {
+        // A home dir that is a strict prefix of a longer username must NOT corrupt
+        // the longer path: `/Users/al` over `/Users/alice/x` must yield
+        // `/Users/<redacted>/x` (alice redacted by the generic rule), never
+        // `/Users/<redacted>ice/x` (the unbounded-substring-replace bug).
+        let prefixScrubber = SentryScrubber(homeDirectory: "/Users/al")
+        #expect(prefixScrubber.scrub("/Users/alice/x") == "/Users/<redacted>/x")
+        // The exact home dir itself (followed by a delimiter or end) is still redacted.
+        #expect(prefixScrubber.scrub("/Users/al/cfg") == "/Users/<redacted>/cfg")
+        #expect(prefixScrubber.scrub("at /Users/al done") == "at /Users/<redacted> done")
+    }
+
+    // MARK: - Structured query-string redaction
+
+    @Test func scrubsSensitiveQueryParamsByKeyKeepingNonSensitive() {
+        // The maintained denylist's EXACT aliases (csrf/_csrf, _vercel_jwt, su,
+        // phpsessid, sid) are redacted by key even though they are too short to
+        // live in the free-text assignment regex. Keys stay; non-sensitive params
+        // (page) are untouched.
+        #expect(
+            scrubber.scrubQueryString("_csrf=abc123&_vercel_jwt=xyz789&page=2")
+                == "_csrf=<redacted-secret>&_vercel_jwt=<redacted-secret>&page=2"
+        )
+        #expect(
+            scrubber.scrubQueryString("su=rootcookie&phpsessid=deadbeef&sid=sessionval")
+                == "su=<redacted-secret>&phpsessid=<redacted-secret>&sid=<redacted-secret>"
+        )
+        // Non-sensitive query string passes through verbatim.
+        #expect(scrubber.scrubQueryString("page=2&sort=asc") == "page=2&sort=asc")
+    }
+
+    @Test func scrubQueryStringDoesNotMisSplitUrlValues() {
+        // A value that is itself a URL (contains `://`, `?`, and `&`) must be
+        // matched after the FIRST `=` only and redacted as a whole when its key is
+        // sensitive; a non-sensitive key keeps the URL value intact, with the
+        // following `page=2` param still parsed separately.
+        #expect(
+            scrubber.scrubQueryString("next=https://host/p?token=x&page=2")
+                == "next=https://host/p?token=x&page=2"
+        )
+        // Under a sensitive key, the whole value (URL and all) is redacted, but a
+        // trailing separated param is preserved.
+        #expect(
+            scrubber.scrubQueryString("token=a=b=c&page=2")
+                == "token=<redacted-secret>&page=2"
+        )
+    }
+
+    @Test func scrubQueryStringHandlesSemicolonsBareKeysAndEmptySegments() {
+        // `;` is a valid separator; bare keys (no `=`) pass through; empty
+        // segments from `&&` survive.
+        #expect(
+            scrubber.scrubQueryString("sid=abc;page=2")
+                == "sid=<redacted-secret>;page=2"
+        )
+        #expect(scrubber.scrubQueryString("flag&page=2") == "flag&page=2")
+        #expect(
+            scrubber.scrubQueryString("page=1&&sid=abc")
+                == "page=1&&sid=<redacted-secret>"
+        )
+        #expect(scrubber.scrubQueryString("") == "")
+    }
+
     // MARK: - Grouping fields preserved
 
     @Test func preservesNormalErrorText() {

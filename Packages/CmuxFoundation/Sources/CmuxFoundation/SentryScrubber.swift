@@ -81,6 +81,12 @@ public struct SentryScrubber: Sendable {
     /// Matches an email address.
     static let email = SentryRegexPattern(#"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"#)
 
+    /// Matches one query-string segment (a `key=value` or bare `key` between
+    /// `&`/`;` separators). Used by ``scrubQueryString(_:)`` so the separators are
+    /// never inside a match and survive reassembly verbatim, including empty
+    /// segments from runs like `a=1&&b=2`.
+    static let queryStringSegment = SentryRegexPattern(#"[^&;]+"#)
+
     /// The ordered secret / token / key / PEM / financial value patterns.
     ///
     /// Sourced from ``ScrubberDenylists/valuePatterns`` so the maintained relay
@@ -93,6 +99,17 @@ public struct SentryScrubber: Sendable {
     /// The absolute home directory whose prefix is replaced wherever it appears.
     private let homeDirectory: String
 
+    /// A compiled, path-component-bounded pattern for the exact ``homeDirectory``.
+    ///
+    /// `nil` when ``homeDirectory`` is empty or `/` (nothing meaningful to
+    /// redact). Otherwise it matches the literal home path only when it is
+    /// followed by a path delimiter, quote, whitespace, or end of string, via a
+    /// zero-width `(?=[/\s"']|$)` lookahead. This bounds the replacement to a full
+    /// path component so a home dir like `/Users/al` cannot corrupt an unrelated
+    /// longer path (`/Users/alice/x`), which an unbounded substring replace would
+    /// turn into `/Users/<redacted>ice/x`, leaking the `ice` suffix.
+    private let homeDirectoryPattern: SentryRegexPattern?
+
     /// Creates a scrubber bound to a home directory.
     ///
     /// The default reads the current process home. Tests inject a fixed value so
@@ -104,6 +121,15 @@ public struct SentryScrubber: Sendable {
     /// - Parameter homeDirectory: Absolute path replaced wherever it is found. Defaults to ``NSHomeDirectory()``.
     public init(homeDirectory: String = NSHomeDirectory()) {
         self.homeDirectory = homeDirectory
+        if homeDirectory.isEmpty || homeDirectory == "/" {
+            self.homeDirectoryPattern = nil
+        } else {
+            // Escape the home path so any regex metacharacter in a username is
+            // literal, then bound the match to a full path component.
+            self.homeDirectoryPattern = SentryRegexPattern(
+                NSRegularExpression.escapedPattern(for: homeDirectory) + #"(?=[/\s"']|$)"#
+            )
+        }
     }
 
     /// Returns a copy of `text` with secrets, emails, and home/user paths redacted.
@@ -111,6 +137,17 @@ public struct SentryScrubber: Sendable {
     /// Redaction order is secrets → emails → paths so a token embedded in a path
     /// or after an email is still caught. Returns the input unchanged when it
     /// contains nothing sensitive.
+    ///
+    /// This is the **unstructured / free-text** path, used for genuinely
+    /// free-form fields (an exception value, a log message). It is irreducibly
+    /// best-effort: a secret that matches none of the value patterns and is not a
+    /// `key=value` assignment, an email, or a path can survive. The real
+    /// protections are the field-**selection** allowlist in the glue (only known
+    /// safe fields are emitted) and, for *structured* fields, key-aware redaction:
+    /// dictionaries go through ``scrub(dictionary:)`` and query strings through
+    /// ``scrubQueryString(_:)``, both keyed off the single maintained denylist.
+    /// Do not try to make this free-text path exhaustive by widening its regexes;
+    /// route structured data through the structured methods instead.
     ///
     /// - Parameter text: The string to scrub.
     /// - Returns: The scrubbed string.
@@ -209,6 +246,59 @@ public struct SentryScrubber: Sendable {
         return output
     }
 
+    /// Redacts the values of sensitive parameters in a URL query string,
+    /// structurally, keyed off the single maintained denylist.
+    ///
+    /// A query string is structured key-value data, so it is redacted by
+    /// **parsing** rather than by free-text regex matching: the string is split on
+    /// `&` and `;` separators, each `key=value` (or bare `key`) segment is parsed,
+    /// and the value is replaced with ``redactedSecret`` whenever
+    /// ``isSensitiveKey(_:)`` (the maintained denylist) deems the key sensitive.
+    /// The original key text, the `=`, and the original separators are all
+    /// preserved; non-sensitive segments pass through untouched.
+    ///
+    /// This makes ``isSensitiveKey(_:)`` the single source of truth for query
+    /// strings: adding a denylist key now covers query params automatically, with
+    /// no parallel free-text marker list to drift out of sync. The denylist's
+    /// EXACT-match aliases (`csrf`, `_csrf`, `xsrf`, `_vercel_jwt`, `su`,
+    /// `sentrysid`, `phpsessid`, `sid`, …) are therefore caught here even though
+    /// they are too short to embed safely in the free-text assignment regex.
+    ///
+    /// The key is URL-decoded before the sensitivity check (so `%5Fcsrf` matches
+    /// `_csrf`) but the original, still-encoded key text is emitted unchanged.
+    /// Values are matched after the **first** `=` only, so a value that itself
+    /// contains `=` (`token=a=b`, base64 padding `==`) or a URL
+    /// (`next=https://host/p?token=x`) is not mis-split.
+    ///
+    /// - Parameter query: The raw query string (without a leading `?`).
+    /// - Returns: The query string with sensitive parameter values redacted.
+    public func scrubQueryString(_ query: String) -> String {
+        guard !query.isEmpty else { return query }
+        return Self.queryStringSegment.replace(in: query) { match in
+            scrubQueryPair(match.value)
+        }
+    }
+
+    /// Redacts the value of a single `key=value` query segment when its key is
+    /// sensitive, preserving the original key text and `=`.
+    ///
+    /// A bare `key` (no `=`) and a non-sensitive `key=value` pass through
+    /// unchanged. The value is everything after the first `=`, so values that
+    /// contain `=` are preserved intact.
+    ///
+    /// - Parameter segment: One query segment (the text between `&`/`;` separators).
+    /// - Returns: The segment with its value redacted when the key is sensitive.
+    private func scrubQueryPair(_ segment: String) -> String {
+        guard let equalsIndex = segment.firstIndex(of: "=") else {
+            // Bare key with no value (`?flag`); nothing to redact.
+            return segment
+        }
+        let key = String(segment[segment.startIndex..<equalsIndex])
+        let decodedKey = key.removingPercentEncoding ?? key
+        guard Self.isSensitiveKey(decodedKey) else { return segment }
+        return "\(key)=\(Self.redactedSecret)"
+    }
+
     /// Returns whether a dictionary/header key names a secret-bearing value.
     ///
     /// Matches common credential field names (case-insensitively, ignoring
@@ -255,8 +345,12 @@ public struct SentryScrubber: Sendable {
     /// `/home/<name>/` prefix with a redacted-user equivalent.
     private func redactPaths(in text: String) -> String {
         var result = text
-        if !homeDirectory.isEmpty, homeDirectory != "/" {
-            result = result.replacingOccurrences(of: homeDirectory, with: Self.redactedHomePath(for: homeDirectory))
+        if let homeDirectoryPattern {
+            // Component-bounded replace (not a raw substring replace), so a home
+            // dir that is a prefix of a longer username (`/Users/al` vs.
+            // `/Users/alice/x`) never corrupts the longer path and leaks its tail.
+            let redacted = Self.redactedHomePath(for: homeDirectory)
+            result = homeDirectoryPattern.replace(in: result) { _ in redacted }
         }
         result = Self.userHomePrefix.replace(in: result) { _ in "/Users/\(Self.redactedUser)" }
         result = Self.linuxHomePrefix.replace(in: result) { _ in "/home/\(Self.redactedUser)" }
