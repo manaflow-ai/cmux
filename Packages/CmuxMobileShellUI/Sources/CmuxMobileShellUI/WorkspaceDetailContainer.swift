@@ -30,7 +30,9 @@ struct WorkspaceDetailContainer: View {
                 workspace: workspace,
                 store: store,
                 createWorkspace: createWorkspace,
-                createTerminal: { store.createTerminal(in: workspace.id) },
+                createTerminal: {
+                    store.createTerminal(in: store.selectedWorkspaceID ?? workspace.id)
+                },
                 deleteTerminal: { workspaceID, terminalID in
                     store.deleteTerminal(id: terminalID, in: workspaceID)
                 },
