@@ -5405,6 +5405,7 @@ extension CMUXCLI {
 
     private func diffViewerHTTPIsAllowedMimeType(_ mimeType: String) -> Bool {
         mimeType == "text/html" || mimeType == "text/javascript" || mimeType == "text/x-diff"
+            || mimeType == "text/css"
     }
 
     private func diffViewerHTTPPathExtensionMatchesMimeType(path: String, mimeType: String) -> Bool {
@@ -5416,6 +5417,11 @@ extension CMUXCLI {
         }
         if mimeType == "text/x-diff" {
             return path.hasSuffix(".patch")
+        }
+        // `text/css` is served (non-executable, nosniff) so the Monaco editor
+        // surface can fetch and inline its stylesheet over the local server.
+        if mimeType == "text/css" {
+            return path.hasSuffix(".css")
         }
         return false
     }
