@@ -79,7 +79,11 @@ export async function mountEditorSurface(rootElement: HTMLElement): Promise<void
         fontFamily: appearance.fontFamily,
         fontSize: appearance.fontSize,
         lineHeight: appearance.lineHeight,
-        readOnly: Boolean(config.payload?.readOnly),
+        // Read-only by default. There is no save path yet (no Cmd-S, dirty
+        // tracking, or write-back to the file), so allowing edits would
+        // silently discard them when the pane closes. A future save feature can
+        // opt in by passing `readOnly: false`.
+        readOnly: config.payload?.readOnly ?? true,
         minimap: { enabled: true },
         scrollBeyondLastLine: false,
       }}
