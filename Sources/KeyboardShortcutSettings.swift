@@ -408,9 +408,9 @@ enum KeyboardShortcutSettings {
             case .scrollbackPageDown:
                 return StoredShortcut(key: "pagedown", command: false, shift: true, option: false, control: false)
             case .scrollbackLineUp:
-                return StoredShortcut(key: "↑", command: false, shift: true, option: false, control: false)
+                return .unbound
             case .scrollbackLineDown:
-                return StoredShortcut(key: "↓", command: false, shift: true, option: false, control: false)
+                return .unbound
             case .focusTextBoxInput:
                 return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)
             case .attachTextBoxFile:

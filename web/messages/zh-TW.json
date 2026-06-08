@@ -1142,7 +1142,7 @@
     },
     "changelog": {
       "items": {
-        "scrollbackShortcuts": "可設定終端機回捲緩衝區的按頁上/下與按行上/下快捷鍵，預設為 Shift+Page Up、Shift+Page Down、Shift+Up 和 Shift+Down。"
+        "scrollbackShortcuts": "可設定終端機回捲緩衝區的按頁上/下與按行上/下快捷鍵；預設綁定 Shift+Page Up 和 Shift+Page Down，按行捲動可設定但預設不綁定，讓 shell 可接收 Shift+Up/Down。"
       },
       "title": "更新日誌",
       "metaDescription": "cmux 版本說明和版本歷史。原生 macOS 終端機的新功能、錯誤修復和變更。",

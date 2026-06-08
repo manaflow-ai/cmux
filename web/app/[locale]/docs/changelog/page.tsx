@@ -39,7 +39,7 @@ interface ChangelogVersion {
   sections: ChangelogSection[];
 }
 
-const scrollbackShortcutsChangelogItem = "Configurable terminal scrollback shortcuts for page up/down and line up/down, with defaults for Shift+Page Up, Shift+Page Down, Shift+Up, and Shift+Down.";
+const scrollbackShortcutsChangelogItem = "Configurable terminal scrollback shortcuts for page up/down and line up/down, with Shift+Page Up and Shift+Page Down defaults; line scrolling is configurable but unbound by default so shells can receive Shift+Up/Down.";
 
 function parseChangelog(markdown: string): ChangelogVersion[] {
   const versions: ChangelogVersion[] = [];

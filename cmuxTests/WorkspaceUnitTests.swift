@@ -399,7 +399,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.control)
     }
 
-    func testScrollbackShortcutDefaultsUsePageAndArrowKeys() {
+    func testScrollbackShortcutDefaultsUsePageKeysAndLeaveLineScrollingUnbound() {
         XCTAssertEqual(
             KeyboardShortcutSettings.Action.scrollbackPageUp.defaultShortcut,
             StoredShortcut(key: "pageup", command: false, shift: true, option: false, control: false)
@@ -410,11 +410,11 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         )
         XCTAssertEqual(
             KeyboardShortcutSettings.Action.scrollbackLineUp.defaultShortcut,
-            StoredShortcut(key: "↑", command: false, shift: true, option: false, control: false)
+            .unbound
         )
         XCTAssertEqual(
             KeyboardShortcutSettings.Action.scrollbackLineDown.defaultShortcut,
-            StoredShortcut(key: "↓", command: false, shift: true, option: false, control: false)
+            .unbound
         )
     }
 

@@ -1142,7 +1142,7 @@
     },
     "changelog": {
       "items": {
-        "scrollbackShortcuts": "Konfigurerbare snarveier for terminalens scrollback for side opp/ned og linje opp/ned, med Shift+Page Up, Shift+Page Down, Shift+Up og Shift+Down som standard."
+        "scrollbackShortcuts": "Konfigurerbare snarveier for terminalens scrollback for side opp/ned og linje opp/ned, med Shift+Page Up og Shift+Page Down som standard; linjerulling kan konfigureres, men er ikke tilordnet som standard, slik at shell kan motta Shift+Up/Down."
       },
       "title": "Endringslogg",
       "metaDescription": "cmux utgivelsesnotater og versjonshistorikk. Nye funksjoner, feilrettinger og endringer for den native macOS-terminalen.",

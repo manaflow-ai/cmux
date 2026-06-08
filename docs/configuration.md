@@ -14,14 +14,14 @@ Terminal scrollback shortcuts are configurable here:
     "bindings": {
       "scrollbackPageUp": "shift+pageup",
       "scrollbackPageDown": "shift+pagedown",
-      "scrollbackLineUp": "shift+up",
-      "scrollbackLineDown": "shift+down"
+      "scrollbackLineUp": null,
+      "scrollbackLineDown": null
     }
   }
 }
 ```
 
-Aliases `shift+pgup` and `shift+pgdn` are accepted for page scrolling. Saving `cmux.json` applies live after `Cmd+Shift+,` or `cmux reload-config`.
+Line scrolling is unbound by default so shells and terminal applications can receive Shift+Up/Down. Bind `scrollbackLineUp` and `scrollbackLineDown` if you want cmux-owned line scrolling. Aliases `shift+pgup` and `shift+pgdn` are accepted for page scrolling. Saving `cmux.json` applies live after `Cmd+Shift+,` or `cmux reload-config`.
 
 ## `app.confirmQuit`
 

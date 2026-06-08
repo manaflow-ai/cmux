@@ -130,8 +130,8 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //     "toggleFileExplorer": "cmd+opt+b",
   //     "scrollbackPageUp": "shift+pageup",
   //     "scrollbackPageDown": "shift+pagedown",
-  //     "scrollbackLineUp": "shift+up",
-  //     "scrollbackLineDown": "shift+down",
+  //     "scrollbackLineUp": null,
+  //     "scrollbackLineDown": null,
   //     "newTab": ["ctrl+b", "c"],
   //     "commandPalettePrevious": null
   //   }

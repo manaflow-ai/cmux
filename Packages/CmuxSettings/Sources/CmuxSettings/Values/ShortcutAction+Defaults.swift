@@ -68,8 +68,8 @@ extension ShortcutAction {
         case .toggleTerminalCopyMode: return ShortcutStroke(key: "m", command: true, shift: true)
         case .scrollbackPageUp: return ShortcutStroke(key: "pageup", shift: true)
         case .scrollbackPageDown: return ShortcutStroke(key: "pagedown", shift: true)
-        case .scrollbackLineUp: return ShortcutStroke(key: "↑", shift: true)
-        case .scrollbackLineDown: return ShortcutStroke(key: "↓", shift: true)
+        case .scrollbackLineUp: return nil
+        case .scrollbackLineDown: return nil
         case .focusTextBoxInput: return ShortcutStroke(key: "a", command: true, shift: true)
         case .attachTextBoxFile: return ShortcutStroke(key: "a", command: true, shift: true, option: true)
         case .toggleRightSidebar: return ShortcutStroke(key: "b", command: true, option: true)
