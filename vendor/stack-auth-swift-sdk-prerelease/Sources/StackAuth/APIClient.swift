@@ -135,21 +135,31 @@ actor APIClient {
     let publishableClientKey: String
     let secretServerKey: String?
     private let tokenStore: any TokenStoreProtocol
-    
+    /// The URL transport every request runs through. Defaults to
+    /// `URLSession.shared` in production; tests inject a session whose
+    /// configuration carries a stub `URLProtocol` so the token-refresh
+    /// classification (`refresh(refreshToken:)` → ``RefreshOutcome``) can be
+    /// exercised against synthetic HTTP statuses and transport errors without a
+    /// live server. This is the only seam the transient-vs-definitive signout
+    /// regression test needs; it does not widen any public API.
+    private let session: URLSession
+
     private static let sdkVersion = "1.0.0"
-    
+
     init(
         baseUrl: String,
         projectId: String,
         publishableClientKey: String,
         secretServerKey: String? = nil,
-        tokenStore: any TokenStoreProtocol
+        tokenStore: any TokenStoreProtocol,
+        session: URLSession = .shared
     ) {
         self.baseUrl = baseUrl.hasSuffix("/") ? String(baseUrl.dropLast()) : baseUrl
         self.projectId = projectId
         self.publishableClientKey = publishableClientKey
         self.secretServerKey = secretServerKey
         self.tokenStore = tokenStore
+        self.session = session
     }
     
     // MARK: - Request Methods
@@ -218,8 +228,8 @@ actor APIClient {
         attempt: Int = 0
     ) async throws -> (Data, HTTPURLResponse) {
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
+            let (data, response) = try await session.data(for: request)
+
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw StackAuthError(code: "invalid_response", message: "Invalid HTTP response")
             }
@@ -340,7 +350,7 @@ actor APIClient {
         request.httpBody = body.data(using: .utf8)
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 return .transientFailure
@@ -498,15 +508,17 @@ actor APIClient {
                 )
                 result = TokenPair(refreshToken: nil, accessToken: nil)
             case .transientFailure:
-                // Preserve the refresh token on a network/server hiccup; the caller
-                // retries later instead of being signed out (compareAndSet is NOT
-                // called, so the store keeps both tokens). Return nil access
-                // deliberately: this "force a NEW token" path runs only after the
-                // stored access token was just rejected (401 invalid_access_token in
-                // sendWithRetry), so handing it back would make the caller re-send the
-                // same dead token in a tight 401 loop. nil means "no new token right
-                // now"; the still-valid refresh token stays in the store for next time.
-                result = TokenPair(refreshToken: refreshToken, accessToken: nil)
+                // BUG (intentionally reintroduced for the red commit): a network/
+                // server hiccup is treated as a definitive rejection and the still-
+                // valid refresh token is wiped, silently signing the user out
+                // forever. The next commit restores the transient-preserving
+                // behavior so this regression test goes green.
+                await ts.compareAndSet(
+                    compareRefreshToken: refreshToken,
+                    newRefreshToken: nil,
+                    newAccessToken: nil
+                )
+                result = TokenPair(refreshToken: nil, accessToken: nil)
             }
         } else {
             result = TokenPair(refreshToken: nil, accessToken: nil)
