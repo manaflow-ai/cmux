@@ -60,8 +60,12 @@ public enum AttachHandshake {
             throw AttachRequestError.invalidRows(rows)
         }
 
+        // Accept any version this host understands ([1, currentVersion]) rather
+        // than only the latest, so a newer client can still attach to an older
+        // host during a staged rollout. Only versions above what we know are
+        // rejected.
         let version = intValue(params["v"]) ?? AttachRequest.currentVersion
-        guard version == AttachRequest.currentVersion else {
+        guard version >= 1, version <= AttachRequest.currentVersion else {
             throw AttachRequestError.unsupportedVersion(version)
         }
 

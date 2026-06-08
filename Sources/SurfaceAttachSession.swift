@@ -65,6 +65,10 @@ final class SurfaceAttachSession {
     private var surfaceID: UUID?
     private var subscriptionToken: Int?
     private var torndown = false
+    /// Whether this session applied a viewport size to the surface. Guards the
+    /// teardown from clearing a size it never set (which on an early-exit before
+    /// `applyAttachmentSize` would clobber another viewer's cap).
+    private var sizeApplied = false
     /// Strong self-reference held for the connection's lifetime. The session
     /// outlives `start()` (its reader thread and consumer task run async), and
     /// nothing else retains it, so it retains itself until teardown.
@@ -111,6 +115,7 @@ final class SurfaceAttachSession {
         }
 
         bridge.applyAttachmentSize(surfaceID: surfaceID, size: request.size)
+        sizeApplied = true
         // Clean repaint after a raw-tail replay (KTD7).
         bridge.requestRedraw(surfaceID: surfaceID)
 
@@ -131,7 +136,10 @@ final class SurfaceAttachSession {
     private func startReader(surfaceID: UUID) {
         let fd = socket
         let maxLine = Self.maxInboundLineBytes
-        let (stream, continuation) = AsyncStream.makeStream(of: AttachFrame.self)
+        // Bound the inbound queue so a peer that floods input/resize frames faster
+        // than the main-actor consumer drains them cannot grow host memory without
+        // limit; under a flood the oldest queued frames are dropped, not buffered.
+        let (stream, continuation) = AsyncStream.makeStream(of: AttachFrame.self, bufferingPolicy: .bufferingNewest(256))
 
         let thread = Thread {
             // The accepted client socket carries the transport's receive timeout
@@ -202,7 +210,7 @@ final class SurfaceAttachSession {
         if let surfaceID, let token = subscriptionToken {
             bridge.unsubscribe(surfaceID: surfaceID, token: token)
         }
-        if let surfaceID {
+        if let surfaceID, sizeApplied {
             bridge.clearAttachmentSize(surfaceID: surfaceID)
         }
         // Shut the socket down (not close - handleClient owns the fd) so the
@@ -214,26 +222,24 @@ final class SurfaceAttachSession {
     }
 }
 
-/// Raw socket writes for attach framing, independent of TerminalController's
-/// file-private socket helpers.
-enum SurfaceAttachSocketIO {
-    /// Write all of `data` to `fd`, returning false if the peer is gone.
-    static func writeAll(_ fd: Int32, _ data: Data) -> Bool {
-        data.withUnsafeBytes { raw -> Bool in
-            guard var ptr = raw.baseAddress else { return true }
-            var remaining = raw.count
-            while remaining > 0 {
-                let n = write(fd, ptr, remaining)
-                if n < 0 {
-                    if errno == EINTR { continue }   // signal, not a dead peer; retry
-                    return false
-                }
-                if n == 0 { return false }
-                ptr = ptr.advanced(by: n)
-                remaining -= n
+/// Write all of `data` to `fd`, returning false if the peer is gone. Raw socket
+/// write for attach framing, independent of TerminalController's file-private
+/// socket helpers.
+private func surfaceAttachWriteAll(_ fd: Int32, _ data: Data) -> Bool {
+    data.withUnsafeBytes { raw -> Bool in
+        guard var ptr = raw.baseAddress else { return true }
+        var remaining = raw.count
+        while remaining > 0 {
+            let n = write(fd, ptr, remaining)
+            if n < 0 {
+                if errno == EINTR { continue }   // signal, not a dead peer; retry
+                return false
             }
-            return true
+            if n == 0 { return false }
+            ptr = ptr.advanced(by: n)
+            remaining -= n
         }
+        return true
     }
 }
 
@@ -260,20 +266,25 @@ extension TerminalController {
         guard let data = line.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let params = object["params"] as? [String: Any] else {
-            _ = SurfaceAttachSocketIO.writeAll(socket, AttachFrame.error(code: "invalid_params", message: "malformed attach request").encodedLine())
+            _ = surfaceAttachWriteAll(socket, AttachFrame.error(code: "invalid_params", message: "malformed attach request").encodedLine())
             return
         }
         let request: AttachRequest
         do {
             request = try AttachHandshake.parse(params: params)
         } catch {
-            _ = SurfaceAttachSocketIO.writeAll(socket, AttachFrame.error(code: "invalid_params", message: String(describing: error)).encodedLine())
+            _ = surfaceAttachWriteAll(socket, AttachFrame.error(code: "invalid_params", message: String(describing: error)).encodedLine())
             return
         }
 
+        // Build and run the session on the main actor (it touches main-actor
+        // surface state) and block this connection thread until it completes, so
+        // handleClient's deferred close() does not pull the fd out from under the
+        // session - the same DispatchSemaphore + Task { @MainActor } shape the
+        // other socket stream handlers use.
         let semaphore = DispatchSemaphore(value: 0)
-        let writeClosure: @Sendable (Data) -> Bool = { SurfaceAttachSocketIO.writeAll(socket, $0) }
-        DispatchQueue.main.async {
+        let writeClosure: @Sendable (Data) -> Bool = { surfaceAttachWriteAll(socket, $0) }
+        Task { @MainActor in
             let session = SurfaceAttachSession(
                 socket: socket,
                 request: request,

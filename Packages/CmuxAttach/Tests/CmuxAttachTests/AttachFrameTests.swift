@@ -96,6 +96,13 @@ import Testing
         #expect(decoded == .output(seq: 42, bytes: Data()))
     }
 
+    @Test func negativeSeqIsRejected() {
+        // seq is a UInt64 byte offset; a negative value must not wrap or coerce.
+        #expect(throws: AttachFrameError.self) {
+            try AttachFrame(line: Data(#"{"t":"out","seq":-1,"b64":""}"#.utf8))
+        }
+    }
+
     @Test func oversizePayloadIsRejected() {
         // A base64 string whose decoded size exceeds the per-frame cap must be
         // rejected before allocating, not decoded.
