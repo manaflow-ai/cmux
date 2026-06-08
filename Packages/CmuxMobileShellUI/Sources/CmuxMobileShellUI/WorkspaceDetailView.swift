@@ -160,7 +160,11 @@ struct WorkspaceDetailView: View {
                 .padding(.top, 14)
                 .padding(.bottom, 8)
 
-            terminalPickerList
+            if store.supportsDeleteActions {
+                terminalPickerList
+            } else {
+                terminalPickerPlainRows
+            }
 
             Divider()
                 .padding(.vertical, 4)
@@ -249,6 +253,26 @@ struct WorkspaceDetailView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .frame(height: terminalPickerListHeight)
+    }
+
+    private var terminalPickerPlainRows: some View {
+        let selectedTerminalID = selectedTerminal?.id
+        return ForEach(workspace.terminals) { terminal in
+            Button {
+                selectTerminalFromPicker(terminal.id)
+            } label: {
+                Label(
+                    terminal.name,
+                    systemImage: terminal.id == selectedTerminalID ? "checkmark.circle.fill" : "terminal"
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
+        }
     }
 
     private var terminalPickerListHeight: CGFloat {
