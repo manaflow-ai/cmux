@@ -22,6 +22,7 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    @State private var isTerminalPickerPresented = false
     #if DEBUG && canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
