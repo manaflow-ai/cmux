@@ -8,13 +8,14 @@
 // workspace stays silent even while the phone is backgrounded or locked.
 // Auth: Stack Bearer from the native client; rows are keyed by that user id.
 
-import { and, eq } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import { cloudDb } from "../../../../db/client";
 import { notificationWorkspaceMutes } from "../../../../db/schema";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
 import { withApnsApiRoute } from "../../../../services/apns/routeHandler";
 import {
+  MAX_MUTED_WORKSPACES_PER_USER,
   MAX_MUTE_REQUEST_BYTES,
   parseMuteMutationPayload,
   readBoundedJsonObject,
@@ -58,12 +59,40 @@ async function mutateMute(request: Request): Promise<Response> {
   const db = cloudDb();
   if (muted) {
     // Idempotent add of exactly this workspace; other devices' rows untouched.
-    await db
-      .insert(notificationWorkspaceMutes)
-      .values({ userId: user.id, workspaceId })
-      .onConflictDoNothing({
-        target: [notificationWorkspaceMutes.userId, notificationWorkspaceMutes.workspaceId],
-      });
+    // The per-user row count is capped server-side so an authenticated caller
+    // cannot grow the table (and the per-push read set) without bound: count
+    // under an advisory lock, then insert only if adding a new row stays within
+    // the cap. An id already muted is a no-op and always allowed.
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 5))`);
+      const [{ value: existing } = { value: 0 }] = await tx
+        .select({ value: count() })
+        .from(notificationWorkspaceMutes)
+        .where(eq(notificationWorkspaceMutes.userId, user.id));
+      if (existing >= MAX_MUTED_WORKSPACES_PER_USER) {
+        const [already] = await tx
+          .select({ workspaceId: notificationWorkspaceMutes.workspaceId })
+          .from(notificationWorkspaceMutes)
+          .where(
+            and(
+              eq(notificationWorkspaceMutes.userId, user.id),
+              eq(notificationWorkspaceMutes.workspaceId, workspaceId),
+            ),
+          )
+          .limit(1);
+        if (!already) return "too_many_muted_workspaces" as const;
+      }
+      await tx
+        .insert(notificationWorkspaceMutes)
+        .values({ userId: user.id, workspaceId })
+        .onConflictDoNothing({
+          target: [notificationWorkspaceMutes.userId, notificationWorkspaceMutes.workspaceId],
+        });
+      return "ok" as const;
+    });
+    if (result === "too_many_muted_workspaces") {
+      return jsonResponse({ error: "too_many_muted_workspaces" }, 409);
+    }
   } else {
     await db
       .delete(notificationWorkspaceMutes)
