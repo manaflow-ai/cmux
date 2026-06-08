@@ -163,7 +163,7 @@ private func normalizedHookValue(_ raw: String?) -> String? {
 }
 
 private func rovoDevHomeDirectory(env: [String: String]) -> String {
-    normalizedHookValue(env["HOME"]) ?? NSHomeDirectory()
+    normalizedHookValue(env["HOME"]) ?? "/"
 }
 
 private func rovoDevExpandedPath(_ path: String, env: [String: String]) -> String {
