@@ -2444,12 +2444,14 @@ class TabManager: ObservableObject {
     @discardableResult
     func scrollFocusedTerminalScrollbackPage(up: Bool) -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
+        guard panel.captureFocusIntent(in: panel.surface.uiWindow) == .terminal(.surface) else { return false }
         return panel.performBindingAction(up ? "scroll_page_up" : "scroll_page_down")
     }
 
     @discardableResult
     func scrollFocusedTerminalScrollbackLine(up: Bool) -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
+        guard panel.captureFocusIntent(in: panel.surface.uiWindow) == .terminal(.surface) else { return false }
         return panel.performBindingAction(up ? "scroll_page_lines:-1" : "scroll_page_lines:1")
     }
 

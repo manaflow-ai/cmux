@@ -6610,6 +6610,80 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(terminalPanel.captureFocusIntent(in: window), .terminal(.surface))
     }
 
+    func testScrollbackLineShortcutDoesNotConsumeShiftArrowWhenTextBoxIsFirstResponder() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxScrollView.documentView = textBoxView
+        contentView.addSubview(textBoxScrollView)
+        defer { textBoxScrollView.removeFromSuperview() }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.registerTextBoxInputView(textBoxView)
+        XCTAssertTrue(terminalPanel.toggleTextBoxInput())
+        waitFor(
+            timeout: 1.0,
+            until: { window.firstResponder === textBoxView }
+        )
+
+        XCTAssertTrue(window.firstResponder === textBoxView, "Expected TextBox to own first responder")
+        XCTAssertEqual(terminalPanel.captureFocusIntent(in: window), .terminal(.textBoxInput))
+
+        let shiftUpShortcut = StoredShortcut(
+            key: "↑",
+            command: false,
+            shift: true,
+            option: false,
+            control: false,
+            keyCode: UInt16(kVK_UpArrow)
+        )
+        guard let event = makeKeyDownEvent(
+            shortcut: shiftUpShortcut,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Shift+Up event")
+            return
+        }
+
+        withTemporaryShortcut(action: .scrollbackLineUp, shortcut: shiftUpShortcut) {
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugMatchesConfiguredShortcut(event: event, action: .scrollbackLineUp),
+                "Regression setup should still match the configured scrollback shortcut"
+            )
+            XCTAssertFalse(
+                appDelegate.debugHandleShortcutMonitorEvent(event: event),
+                "Shift+Up in TextBox input must pass through to the text view instead of scrolling the terminal"
+            )
+#else
+            XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
+#endif
+        }
+
+        XCTAssertTrue(window.firstResponder === textBoxView, "TextBox should keep first responder after Shift+Up")
+        XCTAssertEqual(terminalPanel.captureFocusIntent(in: window), .terminal(.textBoxInput))
+    }
+
     func testTextBoxSecondEscapeDoesNotHideWhenAnotherResponderOwnsFocus() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
