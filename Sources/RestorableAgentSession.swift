@@ -708,7 +708,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             agentKind: kind.rawValue,
             launcher: launchCommand?.launcher
         )
-        startupInput(
+        return startupInput(
             command: resumeCommand,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
