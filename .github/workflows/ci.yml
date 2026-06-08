@@ -651,7 +651,7 @@ jobs:
           set -e
 
           if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 124 ] &&
-             grep -Eq 'Could not resolve host: static\.crates\.io|failed to download from `https://static\.crates\.io|spurious network error.*static\.crates\.io' "$split_theme_output"; then
+             grep -Eq 'Could not resolve host: static\.crates\.io|failed to download from `https://static\.crates\.io|spurious network error.*static\.crates\.io|unable to update registry `crates-io`|download of config\.json failed|\[28\] Timeout was reached' "$split_theme_output"; then
             echo "Cargo registry download failed during split-theme build, retrying once"
             set +e
             run_split_theme_tests | tee "$split_theme_output"

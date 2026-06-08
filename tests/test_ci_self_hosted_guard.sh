@@ -847,9 +847,12 @@ check_split_theme_regression_timeout() {
     in_step && /xcodebuild split-theme regression timeout/ { saw_timeout_message=1 }
     in_step && /Cargo registry download failed during split-theme build, retrying once/ { saw_cargo_retry=1 }
     in_step && /static\\.crates\\.io/ { saw_static_crates_match=1 }
+    in_step && index($0, "unable to update registry `crates-io`") { saw_registry_match=1 }
+    in_step && index($0, "download of config\\.json failed") { saw_config_match=1 }
+    in_step && index($0, "\\[28\\] Timeout was reached") { saw_curl_timeout_match=1 }
     in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
     in_step && /Ghostty split-theme appearance regression completed without executing any tests/ { saw_no_tests_message=1 }
-    END { exit(saw_wrapper && saw_timeout && saw_timeout_message && saw_cargo_retry && saw_static_crates_match && saw_nonzero_guard && saw_no_tests_message ? 0 : 1) }
+    END { exit(saw_wrapper && saw_timeout && saw_timeout_message && saw_cargo_retry && saw_static_crates_match && saw_registry_match && saw_config_match && saw_curl_timeout_match && saw_nonzero_guard && saw_no_tests_message ? 0 : 1) }
   ' "$CI_FILE"; then
     echo "FAIL: split-theme XCTest regression must use noninteractive xcodebuild, a step timeout, a Cargo registry retry, and a nonzero test execution guard"
     exit 1
