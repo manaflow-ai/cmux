@@ -246,6 +246,12 @@ path.write_text(
 )
 PY
 
+python3 scripts/swift_file_length_budget.py \
+  --repo-root "$BASELINE_FIXTURE" \
+  --budget "$BASELINE_BUDGET" \
+  --threshold 5 \
+  --baseline-ref HEAD
+
 if python3 scripts/swift_file_length_budget.py \
   --repo-root "$BASELINE_FIXTURE" \
   --budget "$BASELINE_BUDGET" \

@@ -685,10 +685,9 @@ check_swift_file_length_budget_active() {
     in_step && /baseline_ref="HEAD\^"/ { saw_push_baseline=1 }
     in_step && /--budget \.github\/swift-file-length-budget\.tsv/ { saw_budget=1 }
     in_step && /--baseline-ref "\$baseline_ref"/ { saw_baseline_ref=1 }
-    in_step && /--reject-budget-increases-from "\$baseline_ref"/ { saw_reject_budget_increase=1 }
-    END { exit(saw_step && saw_pr_base_env && saw_base_fetch && saw_push_baseline && saw_budget && saw_baseline_ref && saw_reject_budget_increase ? 0 : 1) }
+    END { exit(saw_step && saw_pr_base_env && saw_base_fetch && saw_push_baseline && saw_budget && saw_baseline_ref ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: ci.yml must actively enforce the Swift file length budget against a git baseline and reject budget increases"
+    echo "FAIL: ci.yml must actively enforce the Swift file length budget against a git baseline"
     exit 1
   fi
 

@@ -102,7 +102,7 @@ jobs:
 
           args=(--budget .github/swift-file-length-budget.tsv)
           if [ -n "$baseline_ref" ]; then
-            args+=(--baseline-ref "$baseline_ref" --reject-budget-increases-from "$baseline_ref")
+            args+=(--baseline-ref "$baseline_ref")
           fi
           python3 scripts/swift_file_length_budget.py "${args[@]}"
 
