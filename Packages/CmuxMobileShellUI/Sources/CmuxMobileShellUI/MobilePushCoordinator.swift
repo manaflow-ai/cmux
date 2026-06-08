@@ -168,14 +168,17 @@ public final class MobilePushCoordinator {
         await registration.unregisterFromServer()
     }
 
-    /// Sign-out cleanup: remove the token server-side AND clear the locally
-    /// cached muted set + observable, so the next user starts from their own
-    /// server state instead of inheriting this account's mutes. Does not touch
-    /// the signed-out user's server mute rows (those are theirs to keep).
+    /// Sign-out cleanup: clear the locally cached muted set + observable FIRST,
+    /// then remove the token server-side. The local clear must run before the
+    /// network unregister because this hook runs inside `AuthCoordinator.signOut`'s
+    /// bounded, cancellable teardown task: if the DELETE is slow the task can be
+    /// cancelled at its deadline, and we still must not leak this account's mutes
+    /// to the next signed-in user. Does not touch the signed-out user's server
+    /// mute rows (those are theirs to keep).
     public func handleSignedOut() async {
-        await registration.unregisterFromServer()
-        await registration.clearLocalMutedWorkspaces()
         mutedWorkspaceIDs = []
+        await registration.clearLocalMutedWorkspaces()
+        await registration.unregisterFromServer()
     }
 
     /// Whether to show a banner while the app is foreground. Suppressed when the
