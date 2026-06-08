@@ -89,7 +89,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     // content at the newer grid, so drop them. `nil` grid
                     // (raw-byte fallback) leaves the pin untouched and applies.
                     if let grid = chunk.grid {
-                        let stale = surfaceView?.applyAuthoritativeGrid(grid, immediate: true) ?? false
+                        let stale = surfaceView?.applyAuthoritativeGrid(
+                            grid,
+                            source: .stream,
+                            immediate: true
+                        ) ?? false
                         if stale { continue }
                     }
                     surfaceView?.processOutput(chunk.bytes)
@@ -158,7 +162,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 // (immediate: false) to keep the fast-zoom/keyboard resize
                 // coalescing instead of an immediate per-reply set_size storm.
                 surfaceView?.confirmViewportReport()
-                surfaceView?.applyAuthoritativeGrid(effective, immediate: false)
+                surfaceView?.applyAuthoritativeGrid(effective, source: .viewportReply, immediate: false)
             }
         }
 

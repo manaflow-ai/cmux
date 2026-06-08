@@ -2157,6 +2157,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///
     /// - Parameters:
     ///   - grid: The Mac grid + generation carried by this frame/reply.
+    ///   - source: Which channel the grid arrived on (the ordered stream vs. the
+    ///     out-of-band viewport reply); controls the legacy equal-generation
+    ///     rule in ``mobileTerminalGeometryPinVerdict(current:incomingColumns:incomingRows:incomingSeq:source:)``.
     ///   - immediate: `true` for a stream chunk (resize enqueued on the serial
     ///     output queue NOW, before the chunk's `processOutput`, so grid and
     ///     content stay atomic); `false` for the viewport reply / harness echo
@@ -2164,12 +2167,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///     resize-storm coalescing).
     /// - Returns: `true` when the frame is stale and its bytes must be dropped.
     @discardableResult
-    public func applyAuthoritativeGrid(_ grid: MobileTerminalGridPin, immediate: Bool = false) -> Bool {
+    public func applyAuthoritativeGrid(
+        _ grid: MobileTerminalGridPin,
+        source: MobileTerminalGeometryPinSource,
+        immediate: Bool = false
+    ) -> Bool {
         let verdict = mobileTerminalGeometryPinVerdict(
             current: geometryPin,
             incomingColumns: grid.columns,
             incomingRows: grid.rows,
-            incomingSeq: grid.geometrySeq
+            incomingSeq: grid.geometrySeq,
+            source: source
         )
         switch verdict {
         case .stale:
@@ -2208,6 +2216,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let nextGen = (geometryPin?.geometrySeq ?? 0) &+ 1
         applyAuthoritativeGrid(
             MobileTerminalGridPin(columns: cols, rows: rows, geometrySeq: nextGen),
+            source: .viewportReply,
             immediate: false
         )
     }
