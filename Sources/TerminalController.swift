@@ -20268,22 +20268,19 @@ class TerminalController {
 
         let directory = parsed.positional.joined(separator: " ")
         if let scope = Self.explicitSocketScope(options: parsed.options) {
-            var result = "OK"
-            v2MainSync {
+            TerminalMutationBus.shared.enqueueMainActorMutation {
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId),
                       let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceId }) else {
-                    result = "ERROR: Tab not found"
                     return
                 }
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else {
-                    result = "ERROR: Panel not found '\(scope.panelId.uuidString)'"
                     return
                 }
                 tabManager.updateSurfaceDirectory(tabId: scope.workspaceId, surfaceId: scope.panelId, directory: directory)
             }
-            return result
+            return "OK"
         }
         var result = "OK"
         v2MainSync {

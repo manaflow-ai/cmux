@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxFoundation
 import CmuxSocketControl
 import CoreFoundation
 import CryptoKit
