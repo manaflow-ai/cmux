@@ -76,9 +76,20 @@ final class MobileWorkspaceListObserver {
             let publishers: [AnyPublisher<Void, Never>] = [
                 workspace.$panels.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelTitles.map { _ in () }.eraseToAnyPublisher(),
+                // Renaming a terminal sets `panelCustomTitles` (not `panelTitles`),
+                // so without this a terminal rename never re-emits to the phone.
+                workspace.$panelCustomTitles.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$title.map { _ in () }.eraseToAnyPublisher(),
+                // Pin/unpin is iOS-facing (the phone shows a Pinned section), and
+                // a pure pin toggle need not change the panel set or title, so
+                // without this the phone never learns the workspace was pinned.
+                workspace.$isPinned.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+                // Pure drag-reorders change spatial order without changing the panel
+                // set; bonsplit selection state is not `@Published`, so this counter
+                // is the only signal the observer gets for a reorder.
+                workspace.$paneLayoutVersion.map { _ in () }.eraseToAnyPublisher(),
             ]
             let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
@@ -106,9 +117,16 @@ final class MobileWorkspaceListObserver {
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their
-    /// panel id sets + panel titles. Mutations that don't show up on the
-    /// mobile list (pane geometry, scrollback content, focus only) don't
-    /// trip the event, so we don't fan out on every keystroke.
+    /// panels in spatial order + each panel's displayed (custom-aware) title and
+    /// directory. Mutations that don't show up on the mobile list (pane geometry,
+    /// scrollback content, focus only) don't trip the event, so we don't fan out
+    /// on every keystroke.
+    ///
+    /// The panel ids are hashed in `orderedPanelIds` order (not the sorted set),
+    /// so a pure drag-reorder, which changes the spatial order but not the id set,
+    /// produces a different hash and re-emits to the phone. Titles are hashed via
+    /// `panelTitle(panelId:)` so a custom terminal rename (which sets
+    /// `panelCustomTitles`, not `panelTitles`) is detected too.
     private static func summaryHash(for tabs: [Workspace], selectedTabID: UUID?) -> Int {
         var hasher = Hasher()
         hasher.combine(tabs.count)
@@ -116,15 +134,21 @@ final class MobileWorkspaceListObserver {
         for workspace in tabs {
             hasher.combine(workspace.id)
             hasher.combine(workspace.title)
-            // Terminal/panel set + their titles. Sort panel ids so insertion
-            // order quirks don't manufacture spurious diffs.
-            let panelIDs = workspace.panels.keys.sorted()
+            hasher.combine(workspace.isPinned)
+            // Spatial order is significant: hash the ordered id sequence so a
+            // reorder of the same panel set changes the hash.
+            let panelIDs = workspace.orderedPanelIds
             hasher.combine(panelIDs)
             for id in panelIDs {
-                hasher.combine(workspace.panelTitles[id])
+                hasher.combine(workspace.panelTitle(panelId: id))
                 hasher.combine(workspace.panelDirectories[id])
             }
             hasher.combine(workspace.currentDirectory)
+            // Hash every panelDirectories entry (including ids not yet in
+            // `panels`) so a directory update is detected even before its panel
+            // registers. The ordered loop above already covers in-panel
+            // directories; this preserves the pre-existing behavior the mobile
+            // hash test relies on.
             for id in workspace.panelDirectories.keys.sorted() {
                 hasher.combine(id)
                 hasher.combine(workspace.panelDirectories[id])

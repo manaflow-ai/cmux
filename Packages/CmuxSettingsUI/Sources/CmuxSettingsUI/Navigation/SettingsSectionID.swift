@@ -15,6 +15,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case terminal
     case textBox
     case paneTabBar
+    /// Mobile pairing and sync settings.
+    case mobile
     case sidebarAppearance
     case betaFeatures
     case automation
@@ -36,6 +38,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .terminal: return "Terminal"
         case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .paneTabBar: return String(localized: "settings.section.paneTabBar", defaultValue: "Pane Tab Bar")
+        case .mobile: return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .sidebarAppearance: return "Sidebar"
         case .betaFeatures: return "Beta Features"
         case .automation: return "Automation"
@@ -57,6 +60,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .terminal: return "terminal"
         case .textBox: return "textformat"
         case .paneTabBar: return "slider.horizontal.3"
+        case .mobile: return "iphone"
         case .sidebarAppearance: return "sidebar.left"
         case .betaFeatures: return "exclamationmark.triangle"
         case .automation: return "wand.and.sparkles"
@@ -80,6 +84,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .terminal: return "scrollbar copy on select agent resume hibernation"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
         case .paneTabBar: return "surface tab bar pane buttons more menu customize cmux json project local directory"
+        case .mobile: return "ios iphone ipad mobile pairing local network sync"
         case .sidebarAppearance: return "sidebar details branches material terminal background"
         case .betaFeatures: return "beta experimental unstable feed dock right sidebar"
         case .automation: return "socket integrations hooks ports claude cursor gemini"

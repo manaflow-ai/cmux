@@ -3973,6 +3973,9 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let paneRaw = optionValue(commandArgs, name: "--pane")
             let url = optionValue(commandArgs, name: "--url")
+            let provider = optionValue(commandArgs, name: "--provider") ?? optionValue(commandArgs, name: "--provider-id")
+            let renderer = optionValue(commandArgs, name: "--renderer") ?? optionValue(commandArgs, name: "--renderer-kind")
+            let workingDirectory = optionValue(commandArgs, name: "--working-directory") ?? optionValue(commandArgs, name: "--cwd")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
@@ -3983,6 +3986,12 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let provider { params["provider_id"] = provider }
+            if let renderer { params["renderer_kind"] = renderer }
+            if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !workingDirectory.isEmpty {
+                params["working_directory"] = resolvePath(workingDirectory)
+            }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
@@ -10921,6 +10930,7 @@ struct CMUXCLI {
         let lowered = trimmed.lowercased()
         if lowered.contains("missing required capability") ||
             lowered.contains("pty.session") ||
+            lowered.contains("pty.write.notification") ||
             lowered.contains("method_not_found") {
             return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
         }
@@ -13491,7 +13501,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, grok, opencode, pi, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, grok, opencode, pi, omp, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -13505,6 +13515,7 @@ struct CMUXCLI {
               ~/.config/opencode/plugins/cmux-session.js
               ~/.config/opencode/plugins/cmux-feed.js
               ~/.pi/agent/extensions/cmux-session.ts
+              ~/.omp/agent/extensions/cmux-omp-session.ts
               ~/.config/amp/plugins/cmux-session.ts
               ~/.kiro/agents/cmux.json
               See docs/agent-hooks.md for the full integration matrix.
@@ -13513,6 +13524,7 @@ struct CMUXCLI {
               cmux hooks setup
               cmux hooks setup --agent codex
               cmux hooks setup rovo
+              cmux hooks setup omp
               cmux hooks uninstall rovo
               cmux hooks codex install
               cmux hooks opencode install --project
@@ -14289,16 +14301,21 @@ struct CMUXCLI {
             Create a new surface (tab) in a pane.
 
             Flags:
-              --type <terminal|browser>   Surface type (default: terminal)
+              --type <terminal|browser|agent-session>   Surface type (default: terminal)
               --pane <id|ref|index>       Target pane
               --workspace <id|ref|index>  Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>     Window context for workspace/pane refs and indexes
               --url <url>                 URL for browser surfaces
+              --provider <codex|claude|opencode>
+                                           Provider for agent-session surfaces (default: codex)
+              --renderer <react|solid>    Renderer for agent-session surfaces (default: react)
+              --working-directory <path>   Working directory for terminal and agent surfaces
               --focus <true|false>        Focus the new surface (default: false)
 
             Example:
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
+              cmux new-surface --type agent-session --provider claude --renderer solid --focus true
             """
         case "close-surface":
             return """
@@ -17845,6 +17862,25 @@ struct CMUXCLI {
         throw CLIError(message: "Pane has no surface to target")
     }
 
+    private func tmuxStoredStartCommand(
+        workspaceId: String,
+        surfaceId: String,
+        client: SocketClient
+    ) throws -> String? {
+        let payload = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
+        guard let surface = surfaces.first(where: { ($0["id"] as? String) == surfaceId }) else {
+            return nil
+        }
+        return [
+            surface["tmux_start_command"],
+            surface["pane_start_command"],
+            surface["initial_command"]
+        ]
+            .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+    }
+
     private func tmuxResolveSurfaceTarget(
         _ raw: String?,
         client: SocketClient
@@ -18393,7 +18429,15 @@ struct CMUXCLI {
     }
 
     private func createClaudeNodeOptionsRestoreModule() throws -> URL {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let rawTemporaryDirectory = ProcessInfo.processInfo.environment["TMPDIR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let temporaryDirectory: String
+        if let rawTemporaryDirectory, !rawTemporaryDirectory.isEmpty {
+            temporaryDirectory = rawTemporaryDirectory
+        } else {
+            temporaryDirectory = NSTemporaryDirectory()
+        }
+        let root = URL(fileURLWithPath: temporaryDirectory, isDirectory: true)
             .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
         let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
@@ -18419,34 +18463,24 @@ struct CMUXCLI {
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
-        let bundledClaudePath = resolvedExecutableURL()?
-            .deletingLastPathComponent()
-            .appendingPathComponent("claude", isDirectory: false)
-            .path
-        let claudeExecutablePath: String? = {
-            // Check custom path from Settings > Automation > Claude Code.
-            // Try env var first (set by the app per-session), then UserDefaults.
-            let candidates = [
+        // Check custom path from Settings > Automation > Claude Code first.
+        // Never fall back to a cmux-bundled provider binary.
+        guard let claudeExecutablePath = resolveClaudeExecutable(
+            configuredCandidates: [
                 launcherEnvironment["CMUX_CUSTOM_CLAUDE_PATH"],
                 UserDefaults.standard.string(forKey: "claudeCodeCustomClaudePath"),
-            ]
-            for raw in candidates {
-                guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !trimmed.isEmpty else { continue }
-                var isDir: ObjCBool = false
-                guard FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDir),
-                      !isDir.boolValue,
-                      FileManager.default.isExecutableFile(atPath: trimmed),
-                      !isCmuxClaudeWrapper(at: trimmed) else { continue }
-                return trimmed
-            }
-            return resolveClaudeExecutable(searchPath: launcherEnvironment["PATH"])
-                ?? {
-                    guard let bundledClaudePath,
-                          FileManager.default.isExecutableFile(atPath: bundledClaudePath) else { return nil }
-                    return bundledClaudePath
-                }()
-        }()
+            ],
+            searchPath: launcherEnvironment["PATH"]
+        ) else {
+            throw CLIError(message: missingProviderExecutableMessage(
+                displayName: "Claude Code",
+                executableName: "claude"
+            ))
+        }
+        launcherEnvironment["PATH"] = providerExecutableSearchPath(
+            searchPath: launcherEnvironment["PATH"],
+            includingExecutableAt: claudeExecutablePath
+        )
         configureClaudeTeamsEnvironment(
             processEnvironment: launcherEnvironment,
             shimDirectory: shimDirectory,
@@ -18456,7 +18490,7 @@ struct CMUXCLI {
             focusedContext: focusedContext
         )
 
-        let launchPath = claudeExecutablePath ?? "claude"
+        let launchPath = claudeExecutablePath
         let launchArguments = claudeTeamsLaunchArguments(commandArgs: commandArgs)
         exportAgentLaunchCommandEnvironment(
             launcher: "claudeTeams",
@@ -18472,11 +18506,7 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        if claudeExecutablePath != nil {
-            execv(launchPath, &argv)
-        } else {
-            execvp("claude", &argv)
-        }
+        execv(launchPath, &argv)
         let code = errno
         throw CLIError(message: "Failed to launch claude: \(String(cString: strerror(code)))")
     }
@@ -19195,8 +19225,17 @@ struct CMUXCLI {
         }
         let rootWorkspaceId = rootIdentity.workspaceId ?? focusedContext.workspaceId
 
-        let codexExecutablePath = resolveCodexExecutable(searchPath: launcherEnvironment["PATH"])
-        let codexExecutableForShell = codexExecutablePath ?? "codex"
+        guard let codexExecutablePath = resolveCodexExecutable(searchPath: launcherEnvironment["PATH"]) else {
+            throw CLIError(message: missingProviderExecutableMessage(
+                displayName: "Codex",
+                executableName: "codex"
+            ))
+        }
+        launcherEnvironment["PATH"] = providerExecutableSearchPath(
+            searchPath: launcherEnvironment["PATH"],
+            includingExecutableAt: codexExecutablePath
+        )
+        let codexExecutableForShell = codexExecutablePath
         let appServerPort = omoBindableLoopbackPort(0) ?? 0
         guard appServerPort > 0 else {
             throw CLIError(message: "Failed to allocate a localhost port for Codex app-server")
@@ -19207,7 +19246,6 @@ struct CMUXCLI {
         let watcherLogURL = codexTeamsLogURL(port: appServerPort, name: "watcher")
         let appServer = try startCodexTeamsProcess(
             executablePath: codexExecutablePath,
-            fallbackName: "codex",
             arguments: ["app-server", "--listen", appServerURL],
             environment: launcherEnvironment,
             logURL: appServerLogURL
@@ -19266,7 +19304,6 @@ struct CMUXCLI {
 
         rootCodex = try startCodexTeamsProcess(
             executablePath: codexExecutablePath,
-            fallbackName: "codex",
             arguments: codexTeamsRootArguments(appServerURL: appServerURL, commandArgs: commandArgs),
             environment: rootEnvironment,
             standardInput: FileHandle.standardInput,
@@ -19312,7 +19349,6 @@ struct CMUXCLI {
 
         watcher = try startCodexTeamsProcess(
             executablePath: executablePath,
-            fallbackName: "cmux",
             arguments: watcherArguments,
             environment: launcherEnvironment,
             logURL: watcherLogURL
@@ -19527,8 +19563,7 @@ struct CMUXCLI {
     }
 
     private func startCodexTeamsProcess(
-        executablePath: String?,
-        fallbackName: String,
+        executablePath: String,
         arguments: [String],
         environment: [String: String]? = nil,
         logURL: URL? = nil,
@@ -19537,12 +19572,12 @@ struct CMUXCLI {
         standardError: Any? = nil
     ) throws -> Process {
         let process = Process()
-        if let executablePath, executablePath.hasPrefix("/") {
+        if executablePath.hasPrefix("/") {
             process.executableURL = URL(fileURLWithPath: executablePath)
             process.arguments = arguments
         } else {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [executablePath ?? fallbackName] + arguments
+            process.arguments = [executablePath] + arguments
         }
         process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
         process.environment = environment
@@ -19732,8 +19767,10 @@ struct CMUXCLI {
     private static let legacyOmoPluginName = "oh-my-opencode"
     private static let openCodeSessionPluginConfigSpec = "./plugins/cmux-session.js"
 
-    private func resolveExecutableInPath(_ name: String) -> String? {
-        let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
+    private func resolveExecutableInPath(_ name: String, searchPath: String? = nil) -> String? {
+        let entries = (searchPath ?? ProcessInfo.processInfo.environment["PATH"])?
+            .split(separator: ":")
+            .map(String.init) ?? []
         for entry in entries where !entry.isEmpty {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
@@ -19815,12 +19852,14 @@ struct CMUXCLI {
     private func omoRunPackageInstall(
         executablePath: String,
         arguments: [String],
-        currentDirectoryURL: URL
+        currentDirectoryURL: URL,
+        environment: [String: String]
     ) throws -> Int32 {
         let process = Process()
         process.currentDirectoryURL = currentDirectoryURL
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        process.environment = environment
         process.standardOutput = FileHandle.standardError
         process.standardError = FileHandle.standardError
         try process.run()
@@ -19943,7 +19982,7 @@ struct CMUXCLI {
     /// Creates a shadow config directory that layers oh-my-openagent on top of the user's
     /// existing opencode config without modifying the original. Sets OPENCODE_CONFIG_DIR
     /// to point at the shadow directory.
-    private func omoEnsurePlugin() throws {
+    private func omoEnsurePlugin(processEnvironment: [String: String]) throws {
         let userDir = omoUserConfigDir()
         let shadowDir = omoShadowConfigDir()
         let fm = FileManager.default
@@ -20010,13 +20049,14 @@ struct CMUXCLI {
         let pluginPackageDir = shadowNodeModules.appendingPathComponent(Self.omoPluginName)
         if !fm.fileExists(atPath: pluginPackageDir.path) {
             let installDir = shadowDir
-            if let bunPath = resolveExecutableInPath("bun") {
+            if let bunPath = resolveExecutableInPath("bun", searchPath: processEnvironment["PATH"]) {
                 omoWriteStatus(Self.omoInstallingPluginMessage())
                 let installArguments = ["add", Self.omoPluginName]
                 let firstAttemptStatus = try omoRunPackageInstall(
                     executablePath: bunPath,
                     arguments: installArguments,
-                    currentDirectoryURL: installDir
+                    currentDirectoryURL: installDir,
+                    environment: processEnvironment
                 )
                 if firstAttemptStatus != 0 {
                     omoWriteStatus(Self.omoRetryingInstallMessage())
@@ -20026,18 +20066,20 @@ struct CMUXCLI {
                     let retryStatus = try omoRunPackageInstall(
                         executablePath: bunPath,
                         arguments: installArguments,
-                        currentDirectoryURL: installDir
+                        currentDirectoryURL: installDir,
+                        environment: processEnvironment
                     )
                     if retryStatus != 0 {
                         throw CLIError(message: Self.omoInstallFailedMessage())
                     }
                 }
-            } else if let npmPath = resolveExecutableInPath("npm") {
+            } else if let npmPath = resolveExecutableInPath("npm", searchPath: processEnvironment["PATH"]) {
                 omoWriteStatus(Self.omoInstallingPluginMessage())
                 let status = try omoRunPackageInstall(
                     executablePath: npmPath,
                     arguments: ["install", Self.omoPluginName],
-                    currentDirectoryURL: installDir
+                    currentDirectoryURL: installDir,
+                    environment: processEnvironment
                 )
                 if status != 0 {
                     throw CLIError(message: Self.omoInstallFailedMessage())
@@ -20151,23 +20193,19 @@ struct CMUXCLI {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
 
-        // Check for opencode before doing expensive plugin setup
-        let openCodeExecutablePath = resolveOpenCodeExecutable(searchPath: launcherEnvironment["PATH"])
-        if openCodeExecutablePath == nil {
-            let checkProcess = Process()
-            checkProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-            checkProcess.arguments = ["opencode"]
-            checkProcess.standardOutput = Pipe()
-            checkProcess.standardError = Pipe()
-            try? checkProcess.run()
-            checkProcess.waitUntilExit()
-            if checkProcess.terminationStatus != 0 {
-                throw CLIError(message: "opencode is not installed. Install it first:\n  npm install -g opencode-ai\n  # or\n  bun install -g opencode-ai\n\nThen run: cmux omo")
-            }
+        guard let openCodeExecutablePath = resolveOpenCodeExecutable(searchPath: launcherEnvironment["PATH"]) else {
+            throw CLIError(message: missingProviderExecutableMessage(
+                displayName: "OpenCode",
+                executableName: "opencode"
+            ))
         }
+        launcherEnvironment["PATH"] = providerExecutableSearchPath(
+            searchPath: launcherEnvironment["PATH"],
+            includingExecutableAt: openCodeExecutablePath
+        )
 
         // Ensure oh-my-openagent plugin is registered and installed
-        try omoEnsurePlugin()
+        try omoEnsurePlugin(processEnvironment: launcherEnvironment)
 
         let shimDirectory = try createOMOShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
@@ -20190,7 +20228,7 @@ struct CMUXCLI {
             openCodePort: openCodePort
         )
 
-        let launchPath = openCodeExecutablePath ?? "opencode"
+        let launchPath = openCodeExecutablePath
         // oh-my-openagent needs the OpenCode API server running to attach
         // subagent sessions to tmux panes. Prefer the historic default port
         // when it is available, otherwise fall back to a free loopback port.
@@ -20213,11 +20251,7 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        if openCodeExecutablePath != nil {
-            execv(launchPath, &argv)
-        } else {
-            execvp("opencode", &argv)
-        }
+        execv(launchPath, &argv)
         let code = errno
         throw CLIError(message: "Failed to launch opencode: \(String(cString: strerror(code)))\n\nIs opencode installed? Install with:\n  npm install -g opencode-ai")
     }
@@ -20309,19 +20343,13 @@ struct CMUXCLI {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
 
-        let omxExecutablePath = resolveOMXExecutable(searchPath: launcherEnvironment["PATH"])
-        if omxExecutablePath == nil {
-            let checkProcess = Process()
-            checkProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-            checkProcess.arguments = ["omx"]
-            checkProcess.standardOutput = Pipe()
-            checkProcess.standardError = Pipe()
-            try? checkProcess.run()
-            checkProcess.waitUntilExit()
-            if checkProcess.terminationStatus != 0 {
-                throw CLIError(message: "omx is not installed. Install it first:\n  npm install -g oh-my-codex\n\nThen run: cmux omx")
-            }
+        guard let omxExecutablePath = resolveOMXExecutable(searchPath: launcherEnvironment["PATH"]) else {
+            throw CLIError(message: "omx is not installed. Install it first:\n  npm install -g oh-my-codex\n\nThen run: cmux omx")
         }
+        launcherEnvironment["PATH"] = providerExecutableSearchPath(
+            searchPath: launcherEnvironment["PATH"],
+            includingExecutableAt: omxExecutablePath
+        )
 
         let shimDirectory = try createOMXShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
@@ -20338,7 +20366,7 @@ struct CMUXCLI {
             focusedContext: focusedContext
         )
 
-        let launchPath = omxExecutablePath ?? "omx"
+        let launchPath = omxExecutablePath
         exportAgentLaunchCommandEnvironment(
             launcher: "omx",
             executablePath: executablePath,
@@ -20353,11 +20381,7 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        if omxExecutablePath != nil {
-            execv(launchPath, &argv)
-        } else {
-            execvp("omx", &argv)
-        }
+        execv(launchPath, &argv)
         let code = errno
         throw CLIError(message: "Failed to launch omx: \(String(cString: strerror(code)))\n\nIs oh-my-codex installed? Install with:\n  npm install -g oh-my-codex")
     }
@@ -20438,19 +20462,13 @@ struct CMUXCLI {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
 
-        let omcExecutablePath = resolveOMCExecutable(searchPath: launcherEnvironment["PATH"])
-        if omcExecutablePath == nil {
-            let checkProcess = Process()
-            checkProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-            checkProcess.arguments = ["omc"]
-            checkProcess.standardOutput = Pipe()
-            checkProcess.standardError = Pipe()
-            try? checkProcess.run()
-            checkProcess.waitUntilExit()
-            if checkProcess.terminationStatus != 0 {
-                throw CLIError(message: "omc is not installed. Install it first:\n  npm install -g oh-my-claude-sisyphus\n\nThen run: cmux omc")
-            }
+        guard let omcExecutablePath = resolveOMCExecutable(searchPath: launcherEnvironment["PATH"]) else {
+            throw CLIError(message: "omc is not installed. Install it first:\n  npm install -g oh-my-claude-sisyphus\n\nThen run: cmux omc")
         }
+        launcherEnvironment["PATH"] = providerExecutableSearchPath(
+            searchPath: launcherEnvironment["PATH"],
+            includingExecutableAt: omcExecutablePath
+        )
 
         let shimDirectory = try createOMCShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
@@ -20467,7 +20485,7 @@ struct CMUXCLI {
             focusedContext: focusedContext
         )
 
-        let launchPath = omcExecutablePath ?? "omc"
+        let launchPath = omcExecutablePath
         exportAgentLaunchCommandEnvironment(
             launcher: "omc",
             executablePath: executablePath,
@@ -20482,11 +20500,7 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        if omcExecutablePath != nil {
-            execv(launchPath, &argv)
-        } else {
-            execvp("omc", &argv)
-        }
+        execv(launchPath, &argv)
         let code = errno
         throw CLIError(message: "Failed to launch omc: \(String(cString: strerror(code)))\n\nIs oh-my-claude-sisyphus installed? Install with:\n  npm install -g oh-my-claude-sisyphus")
     }
@@ -20743,6 +20757,41 @@ struct CMUXCLI {
                 "workspace_id": target.workspaceId,
                 "orientation": "vertical"
             ])
+
+        case "respawn-pane", "respawnp":
+            let parsed = try parseTmuxArguments(
+                rawArgs,
+                valueFlags: ["-c", "-t"],
+                boolFlags: ["-k"]
+            )
+            guard parsed.hasFlag("-k") else {
+                throw CLIError(message: String(
+                    localized: "cli.tmuxCompat.respawnPane.requiresForce",
+                    defaultValue: "respawn-pane requires -k in cmux tmux compatibility mode"
+                ))
+            }
+            let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
+            let commandText: String
+            if let explicitCommand = tmuxStartCommand(commandTokens: parsed.positional) {
+                commandText = explicitCommand
+            } else {
+                commandText = try tmuxStoredStartCommand(
+                    workspaceId: target.workspaceId,
+                    surfaceId: target.surfaceId,
+                    client: client
+                ) ?? "exec ${SHELL:-/bin/sh} -l"
+            }
+            var params: [String: Any] = [
+                "workspace_id": target.workspaceId,
+                "surface_id": target.surfaceId,
+                "command": commandText,
+                "tmux_start_command": commandText
+            ]
+            if let cwd = parsed.value("-c")?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !cwd.isEmpty {
+                params["working_directory"] = resolvePath(cwd)
+            }
+            _ = try client.sendV2(method: "surface.respawn", params: params)
 
         case "send-keys", "send":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: ["-l"])
@@ -21677,14 +21726,24 @@ struct CMUXCLI {
             let workspaceArg = workspaceOpt ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let commandText = (commandOpt ?? respawnRem3.dropFirst(respawnRem3.first == "--" ? 1 : 0).joined(separator: " ")).trimmingCharacters(in: .whitespacesAndNewlines)
             let finalCommand = commandText.isEmpty ? "exec ${SHELL:-/bin/zsh} -l" : commandText
-            var params: [String: Any] = ["text": finalCommand + "\n"]
+            var params: [String: Any] = [
+                "command": finalCommand,
+                "tmux_start_command": finalCommand
+            ]
             let winId = try normalizeWindowHandle(effectiveWindowRaw, client: client)
             if let winId { params["window_id"] = winId }
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId, allowCurrent: winId == nil)
+            let wsHandle = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId, allowCurrent: winId == nil)
+            let wsId = try wsHandle.map { try resolveWorkspaceId($0, client: client, windowHandle: winId) }
             if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId, allowFocused: true)
-            if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.send_text", params: params)
+            let sfHandle = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId, allowFocused: true)
+            if let sfHandle {
+                if let wsId {
+                    params["surface_id"] = try resolveSurfaceId(sfHandle, workspaceId: wsId, client: client)
+                } else {
+                    params["surface_id"] = sfHandle
+                }
+            }
+            let payload = try client.sendV2(method: "surface.respawn", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "display-message":
@@ -26705,6 +26764,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             try installPiExtensionHooks(def)
             return
         }
+        if def.name == "omp" {
+            try installOmpExtensionHooks(def)
+            return
+        }
         if def.name == "amp" {
             try installAmpExtensionHooks(def)
             return
@@ -27060,6 +27123,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         if def.name == "pi" {
             try uninstallPiExtensionHooks(def)
+            return
+        }
+        if def.name == "omp" {
+            try uninstallOmpExtensionHooks(def)
             return
         }
         if def.name == "amp" {
@@ -32434,7 +32501,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]
-          new-surface [--type <terminal|browser>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]
+          new-surface [--type <terminal|browser|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
           close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]

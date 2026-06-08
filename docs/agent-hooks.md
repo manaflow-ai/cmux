@@ -11,7 +11,7 @@ cmux hooks setup --agent <agent>
 cmux hooks uninstall <agent>
 ```
 
-Supported agent names are `codex`, `grok`, `opencode`, `pi`, `amp`, `cursor`, `gemini`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
+Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `amp`, `cursor`, `gemini`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
 
 ## Integrations
 
@@ -22,6 +22,7 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `amp`, `cursor`, `g
 | Grok | `grok` | `~/.grok/hooks/cmux-session.json` | `grok -r <id>` | PreToolUse |
 | OpenCode | `opencode` | `~/.config/opencode/plugins/cmux-session.js`, `~/.config/opencode/plugins/cmux-feed.js` | `opencode --session <id>` | plugin event bus |
 | Pi | `pi` | `~/.pi/agent/extensions/cmux-session.ts` | `pi --session <id>` | none |
+| OMP | `omp` | `~/.omp/agent/extensions/cmux-omp-session.ts` or `$PI_CODING_AGENT_DIR/extensions/cmux-omp-session.ts` | `omp --session <id>` | none |
 | Amp | `amp` | `~/.config/amp/plugins/cmux-session.ts` | `amp threads continue <id>` | none |
 | Cursor CLI | `cursor-agent` | `~/.cursor/hooks.json` | `cursor-agent --resume <id>` | beforeShellExecution |
 | Gemini | `gemini` | `~/.gemini/settings.json` | `gemini --resume <id>` | PreToolUse |
@@ -50,37 +51,53 @@ Grok uses its `Notification` hook for user-facing completion messages. cmux reco
 
 ## Agent Hibernation
 
-Agent Hibernation is opt-in. It can free old background terminals only when all of these are true:
+Agent Hibernation kills idle background agent processes to free their RAM and CPU, then resumes each one with its saved session when you return to its tab. It is opt-in and off by default. cmux knows which process belongs to which terminal because the agent hooks associate each session ID with its surface (see the session-restore section above), so it can terminate the right process and bring back the right session.
 
-- the terminal has a saved restorable agent session
-- the saved launch data can build a resume command
-- the agent lifecycle is `idle`
-- the terminal has had no output or input for the configured idle window
-- the number of live restorable agent terminals is above the configured limit
-- the panel is not currently visible
+### When a terminal hibernates
 
-cmux double-checks the terminal tail before hibernating. A hibernated terminal stays as a placeholder while it is in the background and automatically resumes when you visit its tab. The Resume button is a fallback for manual retry.
+A live terminal is only ever a candidate when all of these hold:
 
-Enable it from **Settings > Terminal > Agent Hibernation**, or from the CLI:
+- it has a saved restorable agent session, and the saved launch data can build a resume command
+- the agent lifecycle is `idle` (not running, not waiting on input)
+- the terminal is in the background (its panel is not currently visible)
+- you have more live restorable agent terminals than the live-terminal limit (`maxLiveTerminals`, default `12`)
+- the terminal has had no output, input, or lifecycle change for at least the idle window (`idleSeconds`, default `5`)
+
+The live-terminal limit is the first gate. Under the limit, nothing hibernates no matter how long it sits idle. Once you are over the limit, cmux frees only the oldest-idle background terminals, just enough to get back under the limit. Visible terminals are never touched.
+
+Before killing, cmux watches the terminal tail. It samples the last lines of output and a fingerprint of the process, and waits a short confirmation window (`confirmationSeconds`, ~60s) during which the output and process must stay unchanged. Any new output, input, lifecycle change, or PID change cancels the pending hibernation. This is why a small `idleSeconds` is safe: a freshly idle agent that resumes work on its own is never killed mid-task.
+
+So with the defaults, hibernation only affects power users running more than 12 agents at once, and even then only ~1 minute after an agent has gone quiet off-screen.
+
+### What gets killed and how it comes back
+
+cmux sends `SIGTERM` to the agent's process group (scoped to that workspace and surface), then swaps the live terminal for a lightweight placeholder, releasing the terminal's memory and CPU. When you visit the tab again, cmux runs the agent's native resume command with the saved session ID, so the session continues where it left off. The placeholder also shows a Resume button as a manual fallback.
+
+### Enable and configure
+
+Enable from the command palette (`⌘⇧P` -> **Enable Agent Hibernation**), from **Settings > Terminal > Agent Hibernation**, or from the CLI:
 
 ```bash
 cmux agent-hibernation on
 cmux agent-hibernation off
 ```
 
-Configure the idle window and live-terminal limit from Settings, or set them in `~/.config/cmux/cmux.json`:
+Tune the idle window and live-terminal limit from Settings, or set them in `~/.config/cmux/cmux.json`:
 
 ```json
 {
   "terminal": {
     "agentHibernation": {
       "enabled": true,
-      "idleSeconds": 3600,
+      "idleSeconds": 5,
       "maxLiveTerminals": 12
     }
   }
 }
 ```
+
+- `idleSeconds` (default `5`, range `5`-`604800`): how long a background idle agent terminal must be quiet before it can hibernate. Raise it to keep agents alive longer; lower it to reclaim resources sooner. The `confirmationSeconds` settle window still applies on top of this.
+- `maxLiveTerminals` (default `12`, range `1`-`256`): how many live restorable agent terminals to keep before cmux hibernates the oldest idle background ones. Lower it to hibernate more aggressively; raise it to keep more agents live.
 
 ## Custom surface resume commands
 
@@ -114,6 +131,7 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 | Grok | `GROK_HOME` | `CMUX_GROK_HOOKS_DISABLED=1` |
 | OpenCode | `OPENCODE_CONFIG_DIR` | `CMUX_OPENCODE_HOOKS_DISABLED=1` |
 | Pi | `PI_CODING_AGENT_DIR` | `CMUX_PI_HOOKS_DISABLED=1` |
+| OMP | `PI_CODING_AGENT_DIR` for the full agent directory; otherwise `PI_CONFIG_DIR` for the config root | `CMUX_OMP_HOOKS_DISABLED=1` |
 | Amp | none | `CMUX_AMP_HOOKS_DISABLED=1` |
 | Cursor CLI | none | `CMUX_CURSOR_HOOKS_DISABLED=1` |
 | Gemini | none | `CMUX_GEMINI_HOOKS_DISABLED=1` |
@@ -126,6 +144,8 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 
 Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extension is auto-discovered from `~/.pi/agent/extensions/` or `$PI_CODING_AGENT_DIR/extensions/`.
 
+OMP uses OMP's native extension system. OMP native extension discovery scans `${PI_CODING_AGENT_DIR:-~/${PI_CONFIG_DIR:-.omp}/agent}/extensions/`, so cmux installs OMP's extension with a distinct `cmux-omp-session.ts` filename and does not reuse Pi's `cmux-session.ts`.
+
 Kiro stores hooks inside agent configuration files. The cmux installer creates or updates a `cmux` agent config with lifecycle, tool, and completion hooks; merge the generated `hooks` block into another Kiro agent config if you want the same cmux notifications on that agent.
 
 Kiro Feed verbosity follows **Settings > Automation > Kiro Notification Level** or `automation.kiroNotificationLevel` in `cmux.json`. `minimal` keeps actionable approval cards only, `standard` also keeps mutating tool events, and `verbose` keeps every Kiro tool event.
@@ -134,6 +154,6 @@ Kiro Feed verbosity follows **Settings > Automation > Kiro Notification Level** 
 
 Run `cmux hooks <agent> install --yes` to reinstall one integration. Run `cmux hooks <agent> uninstall --yes` before editing generated files by hand.
 
-If Feed shows nothing, confirm the terminal has `CMUX_SURFACE_ID` and the hook file contains a `cmux hooks feed --source <agent>` command or OpenCode feed plugin. Pi and Rovo Dev currently provide lifecycle and restore hooks only, so they do not create Feed approval cards. Amp's bundled plugin reports live tab-status updates (idle / thinking / running / reading / done / error / interrupted) and lifecycle restore but does not create Feed approval cards.
+If Feed shows nothing, confirm the terminal has `CMUX_SURFACE_ID` and the hook file contains a `cmux hooks feed --source <agent>` command or OpenCode feed plugin. Pi, OMP, and Rovo Dev currently provide lifecycle and restore hooks only, so they do not create Feed approval cards. Amp's bundled plugin reports live tab-status updates (idle / thinking / running / reading / done / error / interrupted) and lifecycle restore but does not create Feed approval cards.
 
 If relaunch does not resume an agent, check `~/.cmuxterm/<agent>-hook-sessions.json` for the saved session and verify the agent's resume command still works outside cmux.

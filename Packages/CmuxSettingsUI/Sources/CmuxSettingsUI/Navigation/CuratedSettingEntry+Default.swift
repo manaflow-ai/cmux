@@ -96,6 +96,12 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "show-progress", title: "Show Progress in Sidebar", synonyms: "sidebar.showProgress progress bar percent status set_progress"),
             .init(section: .sidebarAppearance, id: "show-metadata", title: "Show Custom Metadata in Sidebar", synonyms: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
 
+            // Mobile
+            .init(section: .mobile, id: "pairDevice", title: "Pair a Device", synonyms: "pair pairing add device qr qr code scan iphone ipad ios mobile tailscale connect onboarding sign in"),
+            .init(section: .mobile, id: "iOSPairingHost", title: "iOS Pairing", synonyms: "ios iphone ipad mobile pairing local network permission sync"),
+            .init(section: .mobile, id: "iOSPairingPort", title: String(localized: "settings.mobile.port", defaultValue: "Pairing Port"), synonyms: "mobile.iOSPairingHost.port ios iphone mobile pairing port tcp listener firewall conflict"),
+            .init(section: .mobile, id: "iOSPairingDisplayName", title: String(localized: "settings.mobile.displayName", defaultValue: "Display Name"), synonyms: "mobile.iOSPairingHost.displayName ios iphone mobile pairing display name mac hostname device label"),
+
             // Beta
             .init(section: .betaFeatures, id: "feed", title: "Feed", synonyms: "feed right sidebar agent decisions permissions questions approval beta unstable"),
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),

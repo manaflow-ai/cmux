@@ -6,6 +6,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case terminal
     case textBox
     case paneTabBar
+    case mobile
     case sidebarAppearance
     case betaFeatures
     case automation
@@ -31,6 +32,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .paneTabBar:
             return String(localized: "settings.section.paneTabBar", defaultValue: "Pane Tab Bar")
+        case .mobile:
+            return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .workspaceColors:
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
@@ -66,6 +69,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "textformat"
         case .paneTabBar:
             return "slider.horizontal.3"
+        case .mobile:
+            return "iphone"
         case .workspaceColors:
             return "paintpalette"
         case .sidebarAppearance:
@@ -101,6 +106,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) textbox text box rich input prompt beta new terminal workspace split tab focus height"
         case .paneTabBar:
             return "\(title) surface tab bar pane buttons more menu customize cmux json project local directory"
+        case .mobile:
+            return "\(title) ios iphone ipad mobile pairing local network sync"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:

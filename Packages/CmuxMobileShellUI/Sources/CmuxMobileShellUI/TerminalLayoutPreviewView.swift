@@ -1,4 +1,4 @@
-#if canImport(UIKit)
+#if canImport(UIKit) && DEBUG
 import CMUXMobileCore
 import CmuxMobileTerminal
 import SwiftUI
