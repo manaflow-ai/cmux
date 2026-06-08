@@ -2756,11 +2756,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     MobileDebugLog.anchormux("CMUX_REPLAY render_grid surface=\(surfaceID) spans=\(renderGrid.rowSpans.count) seq=\(renderGrid.stateSeq) gen=\(renderGrid.geometryGen) grid=\(renderGrid.columns)x\(renderGrid.rows)")
                 } else if let snapshotBytes, !snapshotBytes.isEmpty {
                     deliverBytes = Self.terminalSnapshotReplacementBytes(snapshotBytes)
-                    deliverGrid = Self.replayResponseGridPin(payload)
+                    deliverGrid = replayResponseGridPin(payload)
                     MobileDebugLog.anchormux("CMUX_REPLAY snapshot surface=\(surfaceID) bytes=\(snapshotBytes.count) seq=\(replaySeq ?? 0)")
                 } else {
                     deliverBytes = bytes
-                    deliverGrid = Self.replayResponseGridPin(payload)
+                    deliverGrid = replayResponseGridPin(payload)
                     MobileDebugLog.anchormux("CMUX_REPLAY raw_tail surface=\(surfaceID) bytes=\(bytes?.count ?? -1) seq=\(replaySeq ?? 0)")
                 }
                 if let replaySeq {
@@ -2780,20 +2780,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 _ = self.disconnectForAuthorizationFailureIfNeeded(error)
             }
         }
-    }
-
-    /// The authoritative grid pin for a snapshot/raw-tail replay (no render-grid
-    /// frame), drawn from the host `columns`/`rows` the replay response carries.
-    /// `nil` when the host reported no grid, so the pin is left to the first
-    /// live render-grid frame instead.
-    private static func replayResponseGridPin(
-        _ payload: MobileTerminalReplayResponse?
-    ) -> MobileTerminalGridPin? {
-        guard let payload, let columns = payload.columns, let rows = payload.rows,
-              columns > 0, rows > 0 else {
-            return nil
-        }
-        return MobileTerminalGridPin(columns: columns, rows: rows, geometrySeq: payload.geometryGen)
     }
 
     private func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
@@ -3237,4 +3223,18 @@ private extension MobileWorkspacePreview {
     var hasReadyTerminal: Bool {
         terminals.contains(where: \.isReady)
     }
+}
+
+/// The authoritative grid pin for a snapshot/raw-tail replay (no render-grid
+/// frame), drawn from the host `columns`/`rows` the replay response carries.
+/// `nil` when the host reported no grid, so the pin is left to the first live
+/// render-grid frame instead.
+private func replayResponseGridPin(
+    _ payload: MobileTerminalReplayResponse?
+) -> MobileTerminalGridPin? {
+    guard let payload, let columns = payload.columns, let rows = payload.rows,
+          columns > 0, rows > 0 else {
+        return nil
+    }
+    return MobileTerminalGridPin(columns: columns, rows: rows, geometrySeq: payload.geometryGen)
 }

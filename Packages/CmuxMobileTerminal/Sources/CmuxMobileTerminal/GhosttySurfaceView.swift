@@ -755,7 +755,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// pin: every live frame and the cold-attach replay carry the Mac's grid +
     /// byte sequence, so the surface converges on attach and on any Mac-side
     /// resize without a phone-initiated viewport round-trip. The sequence guard
-    /// (see `MobileTerminalGeometryPinDecision`) ensures a stale / out-of-order
+    /// (see `mobileTerminalNextGridPin`) ensures a stale / out-of-order
     /// frame can never overwrite a newer grid.
     private var geometryPin: MobileTerminalGridPin?
     /// Cached cell metrics derived from the most recent
@@ -2151,12 +2151,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// converges the pin on initial attach and on any Mac-side resize with no
     /// phone-initiated viewport report. The frame stream is an ordered
     /// `AsyncStream`, so frames apply in the order the Mac produced them; the
-    /// sequence guard in ``MobileTerminalGeometryPinDecision`` is the defensive
+    /// order key checked by ``mobileTerminalNextGridPin(current:incomingColumns:incomingRows:incomingSeq:)`` is the defensive
     /// backstop against a cold-attach replay overlapping the first live frames.
     /// Called from the output-stream consumer immediately before the same
     /// frame's bytes are applied, so grid and content stay atomic.
     public func applyAuthoritativeGrid(_ grid: MobileTerminalGridPin) {
-        guard let next = MobileTerminalGeometryPinDecision.nextPin(
+        guard let next = mobileTerminalNextGridPin(
             current: geometryPin,
             incomingColumns: grid.columns,
             incomingRows: grid.rows,
