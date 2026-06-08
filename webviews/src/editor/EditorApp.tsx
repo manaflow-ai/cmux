@@ -41,6 +41,16 @@ export function EditorApp({ filePath, content, themeName, options }: EditorAppPr
       // on every resize, so the editor lays out as soon as the pane has a size.
       const resizeObserver = new ResizeObserver(() => editor.layout());
       resizeObserver.observe(node);
+      // Force synchronous tokenization, then re-render. Monaco tokenizes lazily
+      // via a throttled async scheduler (timers/idle callbacks); cmux's
+      // offscreen-IOSurface WKWebView starves that scheduler, so files render
+      // plain non-deterministically even though the grammar is registered.
+      // Forcing tokenization up front makes highlighting deterministic.
+      const tokenization = (
+        model as unknown as { tokenization?: { forceTokenization?: (line: number) => void } }
+      ).tokenization;
+      tokenization?.forceTokenization?.(Math.min(model.getLineCount(), 2000));
+      editor.render(true);
       node.dataset.cmuxEditorReady = "true";
       return () => {
         resizeObserver.disconnect();

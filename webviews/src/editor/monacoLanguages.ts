@@ -1,12 +1,40 @@
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
-// JSON has no Monarch grammar; its language service provides `.json`
-// highlighting (its worker is wired in `monacoEnvironment`).
-import "monaco-editor/esm/vs/language/json/monaco.contribution.js";
 
 type LanguageDef = {
   id: string;
   extensions: string[];
   grammar: () => Promise<{ language: unknown; conf?: unknown }>;
+};
+
+// Minimal Monarch grammar for JSON. JSON has no basic-languages grammar; we use
+// this instead of the JSON language service so it highlights through the same
+// deterministic eager-preload + forced-tokenization path as every other
+// language (the service tokenizes via a separate async path the offscreen
+// WKWebView starves, leaving JSON plain). Highlighting only; no validation.
+const jsonGrammar = {
+  language: {
+    tokenizer: {
+      root: [
+        [/"(?:[^"\\]|\\.)*"\s*(?=:)/, "type"],
+        [/"(?:[^"\\]|\\.)*"/, "string"],
+        [/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/, "number"],
+        [/\b(?:true|false|null)\b/, "keyword"],
+        [/[{}[\]]/, "delimiter.bracket"],
+        [/[,:]/, "delimiter"],
+      ],
+    },
+  },
+  conf: {
+    brackets: [
+      ["{", "}"],
+      ["[", "]"],
+    ],
+    autoClosingPairs: [
+      { open: "{", close: "}" },
+      { open: "[", close: "]" },
+      { open: '"', close: '"' },
+    ],
+  },
 };
 
 // Common languages registered WITHOUT Monaco's per-language `.contribution.js`
@@ -37,6 +65,7 @@ const LANGUAGES: LanguageDef[] = [
   { id: "ini", extensions: [".ini", ".properties", ".gitconfig"], grammar: () => import("monaco-editor/esm/vs/basic-languages/ini/ini.js") },
   { id: "java", extensions: [".java", ".jav"], grammar: () => import("monaco-editor/esm/vs/basic-languages/java/java.js") },
   { id: "javascript", extensions: [".js", ".es6", ".jsx", ".mjs", ".cjs"], grammar: () => import("monaco-editor/esm/vs/basic-languages/javascript/javascript.js") },
+  { id: "json", extensions: [".json", ".jsonc", ".jsonl", ".geojson", ".webmanifest"], grammar: () => Promise.resolve(jsonGrammar) },
   { id: "julia", extensions: [".jl"], grammar: () => import("monaco-editor/esm/vs/basic-languages/julia/julia.js") },
   { id: "kotlin", extensions: [".kt", ".kts"], grammar: () => import("monaco-editor/esm/vs/basic-languages/kotlin/kotlin.js") },
   { id: "less", extensions: [".less"], grammar: () => import("monaco-editor/esm/vs/basic-languages/less/less.js") },
