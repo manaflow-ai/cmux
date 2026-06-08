@@ -184,7 +184,6 @@
 		C8000314C8000314C8000314 /* CmuxFileWatch in Frameworks */ = {isa = PBXBuildFile; productRef = C8000312C8000312C8000312 /* CmuxFileWatch */; };
 		5E2701040000000000000004 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000002 /* CmuxFoundation */; };
 		CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CF00F00000000000000000A2 /* CmuxFoundation */; };
-		CF00F00000000000000000A4 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CF00F00000000000000000A2 /* CmuxFoundation */; };
 		C617000000000000000000A3 /* CmuxGit in Frameworks */ = {isa = PBXBuildFile; productRef = C617000000000000000000A2 /* CmuxGit */; };
 		C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000003 /* CmuxHelpCommands.swift */; };
 		C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000004 /* CmuxHelpResource.swift */; };
@@ -504,9 +503,7 @@
 		C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C20000000000000002 /* SemanticVersion.swift */; };
 		5E2701040000000000000003 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000001 /* Sentry */; };
 		A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
-		B9000024A1B2C3D4E5F60719 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
 		5E2701020000000000000001 /* SentryEventScrubber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2701020000000000000002 /* SentryEventScrubber.swift */; };
-		5E2701020000000000000003 /* SentryEventScrubber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2701020000000000000002 /* SentryEventScrubber.swift */; };
 		5E2701030000000000000001 /* SentryEventScrubberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2701030000000000000002 /* SentryEventScrubberTests.swift */; };
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
 		FE003106 /* SessionAgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003006 /* SessionAgentPresentation.swift */; };
@@ -579,6 +576,7 @@
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		E3309A0D /* SplitEqualizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A0E /* SplitEqualizer.swift */; };
+		B900005A0000000000000001 /* SSHAgentSocketResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900005B0000000000000001 /* SSHAgentSocketResolver.swift */; };
 		F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */; };
 		F20F85FC5900550685FA33AD /* StackAuth in Frameworks */ = {isa = PBXBuildFile; productRef = A8BD195031FC4B82B4354297 /* StackAuth */; };
 		D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B71010000000000000002 /* StartupBreadcrumbLog.swift */; };
@@ -781,9 +779,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
-		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
-		A9F100000000000000000001 /* AgentExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolver.swift; sourceTree = "<group>"; };
+			A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
+			A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
+			A9F100000000000000000001 /* AgentExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolver.swift; sourceTree = "<group>"; };
 		A9F100000000000000000002 /* AgentExecutableResolverError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverError.swift; sourceTree = "<group>"; };
 		A9E010000000000000000005 /* AgentExecutableResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverTests.swift; sourceTree = "<group>"; };
 		C0DEF0C10000000000000002 /* AgentForkSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkSupport.swift; sourceTree = "<group>"; };
@@ -1303,6 +1301,7 @@
 		F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
 		C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
 		E3309A0E /* SplitEqualizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitEqualizer.swift; sourceTree = "<group>"; };
+			B900005B0000000000000001 /* SSHAgentSocketResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/CmuxFoundation/Sources/CmuxFoundation/SSHAgentSocketResolver.swift; sourceTree = SOURCE_ROOT; };
 		F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupSignalLifecycleTests.swift; sourceTree = "<group>"; };
 		D35B71010000000000000002 /* StartupBreadcrumbLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/StartupBreadcrumbLog.swift; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
@@ -1488,13 +1487,11 @@
 			files = (
 				A5B00006A1B2C3D4E5F60718 /* CMUXAgentLaunchStatic in Frameworks */,
 				C8000314C8000314C8000314 /* CmuxFileWatch in Frameworks */,
-				CF00F00000000000000000A4 /* CmuxFoundation in Frameworks */,
 				C8000304C8000304C8000304 /* CmuxProcess in Frameworks */,
 				C5A1FED200000000000000E2 /* CmuxSidebarInterpreterClient in Frameworks */,
 				B900004CA1B2C3D4E5F60719 /* CmuxSocketControl in Frameworks */,
 				C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */,
 				C5A1FED100000000000000D2 /* CmuxSwiftRenderUI in Frameworks */,
-				B9000024A1B2C3D4E5F60719 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2341,7 +2338,6 @@
 			);
 			name = "cmux-cli";
 			packageProductDependencies = (
-				A5001251 /* Sentry */,
 				A5B00007A1B2C3D4E5F60718 /* CMUXAgentLaunchStatic */,
 				A5354305A5354305A5354305 /* CmuxSocketControl */,
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
@@ -2349,7 +2345,6 @@
 				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
 				C8000302C8000302C8000302 /* CmuxProcess */,
 				C8000312C8000312C8000312 /* CmuxFileWatch */,
-				CF00F00000000000000000A2 /* CmuxFoundation */,
 			);
 			productName = cmux;
 			productReference = B9000004A1B2C3D4E5F60719 /* cmux */;
@@ -3086,12 +3081,12 @@
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
 					FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 				C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */,
-				C47110020000000000000003 /* ProcessPipeReader.swift in Sources */,
-				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
-				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
-				5E2701020000000000000003 /* SentryEventScrubber.swift in Sources */,
-				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
-			);
+					C47110020000000000000003 /* ProcessPipeReader.swift in Sources */,
+					B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
+					B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
+					C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
+					B900005A0000000000000001 /* SSHAgentSocketResolver.swift in Sources */,
+				);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		D1320AA0D1320AA0D1320AB0 /* Sources */ = {
