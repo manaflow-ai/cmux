@@ -1962,9 +1962,9 @@ extension Workspace {
 
         if let browserSnapshot = snapshot.browser,
            let browserPanel = browserPanel(for: panelId) {
-            let pageZoom = CGFloat(max(0.25, min(5.0, browserSnapshot.pageZoom)))
+            let pageZoom = CGFloat(BrowserPageZoomSettings.clamp(browserSnapshot.pageZoom))
             if pageZoom.isFinite {
-                _ = browserPanel.setPageZoomFactor(pageZoom)
+                _ = browserPanel.restorePageZoomFactor(pageZoom)
             }
 
             browserPanel.restoreSessionSnapshot(browserSnapshot)

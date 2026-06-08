@@ -355,6 +355,37 @@ enum BrowserSearchSettings {
     }
 }
 
+enum BrowserPageZoomSettings {
+    /// UserDefaults / cmux.json key (`browser.pageZoom`).
+    static let key = "browser.pageZoom"
+    static let defaultPageZoom: Double = 1.0
+    static let minimumPageZoom: Double = 0.25
+    static let maximumPageZoom: Double = 5.0
+    static let stepPageZoom: Double = 0.1
+
+    static func clamp(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultPageZoom }
+        return min(max(value, minimumPageZoom), maximumPageZoom)
+    }
+
+    static func isSupported(_ value: Double) -> Bool {
+        value.isFinite && value >= minimumPageZoom && value <= maximumPageZoom
+    }
+
+    /// The persistent default page zoom for newly-created browser panels.
+    static func resolvedDefault(defaults: UserDefaults = .standard) -> Double {
+        guard let raw = defaults.object(forKey: key) as? NSNumber else {
+            return defaultPageZoom
+        }
+        return clamp(raw.doubleValue)
+    }
+
+    /// Persists `pageZoom` as the default for future browser panels.
+    static func setDefault(_ pageZoom: Double, defaults: UserDefaults = .standard) {
+        defaults.set(clamp(pageZoom), forKey: key)
+    }
+}
+
 enum BrowserThemeMode: String, CaseIterable, Identifiable {
     case system
     case light
@@ -3557,9 +3588,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var faviconTask: Task<Void, Never>?
     private var faviconRefreshGeneration: Int = 0
     private var lastFaviconURLString: String?
-    private let minPageZoom: CGFloat = 0.25
-    private let maxPageZoom: CGFloat = 5.0
-    private let pageZoomStep: CGFloat = 0.1
+    private let minPageZoom = CGFloat(BrowserPageZoomSettings.minimumPageZoom)
+    private let maxPageZoom = CGFloat(BrowserPageZoomSettings.maximumPageZoom)
+    private let pageZoomStep = CGFloat(BrowserPageZoomSettings.stepPageZoom)
     private var insecureHTTPBypassHostOnce: String?
     private var insecureHTTPAlertFactory: () -> NSAlert
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
@@ -4342,6 +4373,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
             BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
             BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
+            BrowserPageZoomSettings.key: BrowserPageZoomSettings.defaultPageZoom,
         ])
 
         let resolvedThemeMode = BrowserThemeSettings.mode(defaults: defaults)
@@ -4377,6 +4409,16 @@ final class BrowserPanel: Panel, ObservableObject {
             ?? BrowserProfilePopoverDebugSettings.defaultVerticalPadding
         if currentVerticalPadding != resolvedVerticalPadding {
             defaults.set(resolvedVerticalPadding, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+        }
+
+        let resolvedPageZoom = BrowserPageZoomSettings.resolvedDefault(defaults: defaults)
+        let currentPageZoomObject = defaults.object(forKey: BrowserPageZoomSettings.key)
+        let currentPageZoom = (currentPageZoomObject as? NSNumber)?.doubleValue
+        let shouldRewritePageZoom = currentPageZoom.map {
+            !$0.isFinite || abs($0 - resolvedPageZoom) > 0.0001
+        } ?? true
+        if shouldRewritePageZoom {
+            defaults.set(resolvedPageZoom, forKey: BrowserPageZoomSettings.key)
         }
     }
 
@@ -4421,6 +4463,7 @@ final class BrowserPanel: Panel, ObservableObject {
             profileID: resolvedProfileID,
             websiteDataStore: websiteDataStore
         )
+        webView.pageZoom = CGFloat(BrowserPageZoomSettings.resolvedDefault())
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
         hiddenWebViewDiscardManager.delegate = self
@@ -7443,8 +7486,12 @@ extension BrowserPanel {
 
     @discardableResult
     func setPageZoomFactor(_ pageZoom: CGFloat) -> Bool {
-        let clamped = max(minPageZoom, min(maxPageZoom, pageZoom))
-        return applyPageZoom(clamped)
+        applyPageZoom(pageZoom)
+    }
+
+    @discardableResult
+    func restorePageZoomFactor(_ pageZoom: CGFloat) -> Bool {
+        applyPageZoom(pageZoom, persistAsDefault: false)
     }
 
     /// Take a snapshot of the web view
@@ -8567,8 +8614,11 @@ extension BrowserPanel {
 
 private extension BrowserPanel {
     @discardableResult
-    func applyPageZoom(_ candidate: CGFloat) -> Bool {
-        let clamped = max(minPageZoom, min(maxPageZoom, candidate))
+    func applyPageZoom(_ candidate: CGFloat, persistAsDefault: Bool = true) -> Bool {
+        let clamped = CGFloat(BrowserPageZoomSettings.clamp(Double(candidate)))
+        if persistAsDefault {
+            BrowserPageZoomSettings.setDefault(Double(clamped))
+        }
         if abs(webView.pageZoom - clamped) < 0.0001 {
             return false
         }

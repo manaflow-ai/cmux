@@ -1198,12 +1198,14 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             BrowserSearchSettings.searchEngineKey,
             BrowserSearchSettings.customSearchEngineNameKey,
             BrowserSearchSettings.customSearchEngineURLTemplateKey,
+            BrowserPageZoomSettings.key,
             settingsFileBackupsDefaultsKey,
             importedManagedDefaultsKey,
         ]) {
             defaults.removeObject(forKey: BrowserSearchSettings.searchEngineKey)
             defaults.removeObject(forKey: BrowserSearchSettings.customSearchEngineNameKey)
             defaults.removeObject(forKey: BrowserSearchSettings.customSearchEngineURLTemplateKey)
+            defaults.removeObject(forKey: BrowserPageZoomSettings.key)
             defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             defaults.removeObject(forKey: importedManagedDefaultsKey)
 
@@ -1217,7 +1219,8 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                   "browser": {
                     "defaultSearchEngine": "custom",
                     "customSearchEngineName": "Kagi Site Search",
-                    "customSearchEngineURLTemplate": "https://kagi.com/search?q={query}"
+                    "customSearchEngineURLTemplate": "https://kagi.com/search?q={query}",
+                    "pageZoom": 0.8
                   }
                 }
                 """,
@@ -1238,6 +1241,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             XCTAssertEqual(configuration.displayName, "Kagi Site Search")
             XCTAssertEqual(url.host, "kagi.com")
             XCTAssertTrue(url.absoluteString.contains("q=browser%20settings"))
+            XCTAssertEqual(BrowserPageZoomSettings.resolvedDefault(defaults: defaults), 0.8, accuracy: 0.0001)
         }
     }
 
