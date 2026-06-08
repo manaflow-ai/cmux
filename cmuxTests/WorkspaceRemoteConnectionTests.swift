@@ -2070,13 +2070,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
 
         workspace.configureRemoteConnection(config, autoConnect: true)
-
-        XCTAssertEqual(forwardInvoked.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(waitForSignalPumpingMainRunLoop(forwardInvoked, timeout: 15), .success)
         lock.lock()
         let operations = controlOperations
         lock.unlock()
 
         XCTAssertGreaterThanOrEqual(operations.count, 2)
+        guard operations.count >= 2 else { return }
         XCTAssertEqual(operations[0].command, "cancel")
         XCTAssertEqual(operations[0].spec, "127.0.0.1:64044")
         XCTAssertEqual(operations[1].command, "forward")
@@ -2184,8 +2184,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
 
         workspace.configureRemoteConnection(config, autoConnect: true)
-
-        XCTAssertEqual(retryForwardInvoked.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(waitForSignalPumpingMainRunLoop(retryForwardInvoked, timeout: 15), .success)
         lock.lock()
         let operations = controlOperations
         let cleanupWasInvoked = cleanupInvoked
@@ -2200,6 +2199,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(capturedCleanupArguments.contains(where: { $0.hasPrefix("ControlPath=") }))
         let relayOperations = operations.filter { $0.spec.contains("127.0.0.1:64045") }
         XCTAssertGreaterThanOrEqual(relayOperations.count, 3)
+        guard relayOperations.count >= 3 else { return }
         XCTAssertEqual(relayOperations[0].command, "cancel")
         XCTAssertEqual(relayOperations[0].spec, "127.0.0.1:64045")
         XCTAssertEqual(relayOperations[1].command, "forward")
