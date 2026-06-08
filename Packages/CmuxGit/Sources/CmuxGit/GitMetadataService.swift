@@ -23,10 +23,9 @@ import Foundation
 /// nothing. (If this ever gains an in-memory cache, promote it to an `actor`
 /// then — the mutable state would justify the serialization.)
 ///
-/// - Important: If the package ever adopts the `NonisolatedNonsendingByDefault`
-///   upcoming feature, a bare `nonisolated async` method flips to running on the
-///   *caller's* actor (the main thread, here). At that point these reads must be
-///   annotated `@concurrent` to keep them off the main thread.
+/// - Important: These reads are annotated `@concurrent` so they stay off the
+///   caller's actor even if the package adopts the
+///   `NonisolatedNonsendingByDefault` upcoming feature.
 ///
 /// ```swift
 /// let git = GitMetadataService()
@@ -46,6 +45,7 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: The git metadata for the enclosing repository, or
     ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
+    @concurrent
     public nonisolated func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
         await workspaceMetadata(for: directory, options: .full)
     }
@@ -54,6 +54,7 @@ public struct GitMetadataService: Sendable {
     ///
     /// Use ``GitMetadataReadOptions/sidebarLargeRepository`` for UI code where
     /// responsiveness is more important than exact dirty/index metadata.
+    @concurrent
     public nonisolated func workspaceMetadata(
         for directory: String,
         options: GitMetadataReadOptions
@@ -102,12 +103,14 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: Sorted existing paths to watch, or `nil` when `directory` is
     ///   not inside a git repository.
+    @concurrent
     public nonisolated func watchedPaths(for directory: String) async -> [String]? {
         await watchedPaths(for: directory, options: .full)
     }
 
     /// The set of existing filesystem paths whose changes can alter the
     /// metadata returned by ``workspaceMetadata(for:options:)`` for `directory`.
+    @concurrent
     public nonisolated func watchedPaths(
         for directory: String,
         options: GitMetadataReadOptions
