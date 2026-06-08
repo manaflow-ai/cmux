@@ -11626,15 +11626,11 @@ enum BrowserDataImporter {
             )
         case .webkit:
             if browser.descriptor.id == "safari" {
-                return CookieImportResult(
-                    importedCount: 0,
-                    skippedCount: 0,
-                    warnings: [
-                        String(
-                            localized: "browser.import.warning.safariCookiesUnsupported",
-                            defaultValue: "Safari cookies are stored in Cookies.binarycookies and are not yet supported by this importer."
-                        )
-                    ]
+                return await importSafariCookies(
+                    from: browser,
+                    sourceProfiles: sourceProfiles,
+                    destinationProfileID: destinationProfileID,
+                    domainFilters: domainFilters
                 )
             }
             return CookieImportResult(
@@ -11836,6 +11832,98 @@ enum BrowserDataImporter {
         }
         let skippedCount = max(0, dedupedCookies.count - importedCount) + skippedEncryptedCookies
         return CookieImportResult(importedCount: importedCount, skippedCount: skippedCount, warnings: warnings)
+    }
+
+    private static func importSafariCookies(
+        from browser: InstalledBrowserCandidate,
+        sourceProfiles: [InstalledBrowserProfile],
+        destinationProfileID: UUID,
+        domainFilters: [String]
+    ) async -> CookieImportResult {
+        let fileManager = FileManager.default
+        var cookies: [HTTPCookie] = []
+        var warnings: [String] = []
+
+        // Profile roots may contain Cookies.binarycookies for non-default profiles.
+        var candidateURLs = sourceProfiles.map {
+            $0.rootURL.appendingPathComponent("Cookies.binarycookies", isDirectory: false)
+        }
+        // Modern sandboxed Safari stores its primary cookies file inside its container:
+        // ~/Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies
+        candidateURLs.append(
+            browser.homeDirectoryURL
+                .appendingPathComponent(
+                    "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies",
+                    isDirectory: false
+                )
+        )
+        // Legacy (pre-sandbox) location, kept as a fallback.
+        candidateURLs.append(
+            browser.homeDirectoryURL
+                .appendingPathComponent("Library/Cookies/Cookies.binarycookies", isDirectory: false)
+        )
+
+        let uniqueURLs = dedupedCanonicalURLs(candidateURLs).filter { fileManager.fileExists(atPath: $0.path) }
+
+        if uniqueURLs.isEmpty {
+            return CookieImportResult(
+                importedCount: 0,
+                skippedCount: 0,
+                warnings: [
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.noCookiesFile",
+                            defaultValue: "No cookies file found for %@."
+                        ),
+                        browser.displayName
+                    )
+                ]
+            )
+        }
+
+        for cookieFileURL in uniqueURLs {
+            do {
+                let parsed = try SafariBinaryCookiesParser.parse(fileURL: cookieFileURL)
+                for p in parsed {
+                    guard !p.name.isEmpty else { continue }
+                    // Reject syntactically invalid hosts from the untrusted file so a
+                    // planted cookie can't be injected for an arbitrary/garbage domain,
+                    // independent of whether a domain filter narrows the import further.
+                    guard isPlausibleCookieHost(p.domain) else { continue }
+                    guard domainMatches(host: p.domain, filters: domainFilters) else { continue }
+                    var properties: [HTTPCookiePropertyKey: Any] = [
+                        .domain: p.domain,
+                        .path: p.path.isEmpty ? "/" : p.path,
+                        .name: p.name,
+                        .value: p.value,
+                    ]
+                    if p.isSecure { properties[.secure] = "TRUE" }
+                    if let exp = p.expiresDate { properties[.expires] = exp }
+                    if let cookie = HTTPCookie(properties: properties) {
+                        cookies.append(cookie)
+                    }
+                }
+            } catch {
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.safariCookiesReadFailed",
+                            defaultValue: "Failed reading Safari cookies at %@: %@"
+                        ),
+                        cookieFileURL.lastPathComponent,
+                        error.localizedDescription
+                    )
+                )
+            }
+        }
+
+        let dedupedCookies = dedupeCookies(cookies)
+        let importedCount = await setCookiesInStore(dedupedCookies, destinationProfileID: destinationProfileID)
+        return CookieImportResult(
+            importedCount: importedCount,
+            skippedCount: max(0, dedupedCookies.count - importedCount),
+            warnings: warnings
+        )
     }
 
     private static func importFirefoxHistory(
@@ -12115,6 +12203,22 @@ enum BrowserDataImporter {
             if normalizedHost.hasSuffix(".\(filter)") { return true }
         }
         return false
+    }
+
+    // Basic hostname sanity check for cookie domains read from an untrusted file.
+    // Accepts a leading "." (cookie domain attribute). Rejects empty hosts, hosts
+    // with whitespace/control characters, and bare single-label names with no dot
+    // (e.g. "localhost" is allowed; "garbage value" or "" is not).
+    private static func isPlausibleCookieHost(_ rawHost: String) -> Bool {
+        var host = rawHost
+        while host.hasPrefix(".") { host.removeFirst() }
+        guard !host.isEmpty, host.count <= 253 else { return false }
+        guard host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return false }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
+        guard host.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return false }
+        // No empty labels (rejects "..", leading/trailing/double dots).
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        return labels.allSatisfy { !$0.isEmpty }
     }
 
     private static func chromiumDate(fromWebKitMicroseconds rawValue: Int64) -> Date? {
