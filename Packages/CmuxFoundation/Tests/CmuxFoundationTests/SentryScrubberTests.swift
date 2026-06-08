@@ -106,6 +106,23 @@ import Testing
         )
     }
 
+    @Test func redactsBroaderCredentialMarkersInRawQueryStrings() {
+        // The free-text assignment markers stay in sync with the dictionary
+        // sensitive-key set, so auth/session/cookie params are caught as raw text.
+        #expect(
+            scrubber.scrub("GET /x?auth=opaquesessionvalue&page=1")
+                == "GET /x?auth=<redacted-secret>&page=1"
+        )
+        #expect(
+            scrubber.scrub("session_id=abc123def456ghi has expired")
+                == "session_id=<redacted-secret> has expired"
+        )
+        #expect(
+            scrubber.scrub("cookie=sid%3Dabcdef0123 set")
+                == "cookie=<redacted-secret> set"
+        )
+    }
+
     @Test func redactsEnvStyleSecretAssignmentWithLongerKeyName() {
         // The sensitive marker is embedded in a longer env identifier.
         #expect(

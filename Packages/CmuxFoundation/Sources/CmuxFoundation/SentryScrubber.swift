@@ -56,13 +56,15 @@ public struct SentryScrubber: Sendable {
         SentryRegexPattern(#"(Bearer\s+)[A-Za-z0-9\-._~+/]+=*"#),
         // Authorization: <scheme> <token>  (Basic / Digest / token / etc.)
         SentryRegexPattern(#"(Authorization:\s*\w+\s+)\S+"#),
-        // key/token/secret/password/pwd/passwd/api[_-]?key/access[_-]?token = value
-        // in query strings, env-style, or JSON ("key":"value"). The marker word
-        // may be embedded in a longer identifier (e.g. AWS_SECRET_ACCESS_KEY,
-        // SECRET_ACCESS_KEY, MY_API_KEY), so optional identifier characters are
-        // allowed around it.
+        // `<sensitive-key> = value` in raw query strings, env-style assignments,
+        // or JSON ("key":"value"). The marker set is kept in sync with the
+        // key-aware dictionary path (``isSensitiveKey(_:)``) so a credential like
+        // `auth=…`, `session_id=…`, or `cookie=…` is redacted whether it arrives
+        // as a dictionary entry or as raw text. The marker may be embedded in a
+        // longer identifier (e.g. AWS_SECRET_ACCESS_KEY, MY_API_KEY), so optional
+        // identifier characters are allowed around it.
         SentryRegexPattern(
-            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|secret|token|password|passwd|pwd|access[_\-]?key)[A-Za-z0-9.\-]*["']?\s*[:=]\s*["']?)[^\s"'&,}]+"#
+            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*["']?)[^\s"'&,}]+"#
         ),
         // Provider-style keys: sk-..., pk-..., ghp_..., xoxb-..., and similar prefixes.
         SentryRegexPattern(#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|xox[baprs])[_\-][A-Za-z0-9_\-]{16,}"#),
