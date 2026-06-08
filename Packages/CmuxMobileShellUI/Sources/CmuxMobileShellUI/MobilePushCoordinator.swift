@@ -30,6 +30,15 @@ public final class MobilePushCoordinator {
 
     @ObservationIgnored private weak var store: CMUXMobileShellStore?
 
+    /// The set of workspace ids muted for phone push, as an observation-tracked
+    /// stored property so SwiftUI re-renders the workspace list when a row is
+    /// muted/unmuted. Hydrated from the registration service at launch (the
+    /// service owns the persisted source of truth) and kept in lock-step on
+    /// every toggle. Unlike ``isEnabled`` (a deliberately non-observable
+    /// `UserDefaults` mirror), this must be observable: the list's per-row mute
+    /// indicator and context-menu label derive from it directly.
+    public private(set) var mutedWorkspaceIDs: Set<String> = []
+
     /// Creates a push coordinator.
     /// - Parameters:
     ///   - registration: The injected push-registration service.
@@ -58,10 +67,41 @@ public final class MobilePushCoordinator {
     /// Install the notification-center delegate and, if already opted in,
     /// re-assert remote registration so a rotated token re-uploads. Call once at
     /// launch from the AppDelegate.
+    ///
+    /// This never requests notification authorization: the OS prompt only ever
+    /// fires from ``enable()`` (the explicit user opt-in), so a fresh launch on a
+    /// phone that has not opted in shows no permission dialog.
     public func configure(delegate: any UNUserNotificationCenterDelegate) {
         UNUserNotificationCenter.current().delegate = delegate
         if isEnabled {
             UIApplication.shared.registerForRemoteNotifications()
+        }
+        // Hydrate the observable muted set from the persisted source of truth so
+        // the workspace list reflects prior mutes immediately on launch.
+        Task { mutedWorkspaceIDs = await registration.mutedWorkspaceIDs }
+    }
+
+    /// Whether `workspaceId` is currently muted for phone push.
+    public func isWorkspaceMuted(_ workspaceId: String) -> Bool {
+        mutedWorkspaceIDs.contains(workspaceId)
+    }
+
+    /// Toggle phone-push mute for a workspace. Updates the observable set
+    /// optimistically (so the list re-renders at once), persists, and syncs the
+    /// full muted set to the server, where delivery is actually gated.
+    public func toggleWorkspaceMuted(_ workspaceId: String) {
+        let willMute = !mutedWorkspaceIDs.contains(workspaceId)
+        if willMute {
+            mutedWorkspaceIDs.insert(workspaceId)
+        } else {
+            mutedWorkspaceIDs.remove(workspaceId)
+        }
+        analytics.capture("ios_push_workspace_mute_toggled", ["muted": .bool(willMute)])
+        Task {
+            await registration.setWorkspaceMuted(workspaceId, muted: willMute)
+            // Reconcile against the persisted authoritative set in case a
+            // concurrent toggle interleaved.
+            mutedWorkspaceIDs = await registration.mutedWorkspaceIDs
         }
     }
 

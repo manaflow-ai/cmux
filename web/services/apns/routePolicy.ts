@@ -6,6 +6,11 @@ export const MAX_PUSH_BODY_CHARS = 500;
 export const MAX_PUSH_ID_CHARS = 200;
 export const MAX_PUSH_REQUEST_BYTES = 8 * 1024;
 
+/// Defensive upper bound on a user's muted-workspace set, mirroring the iOS
+/// `PushRegistrationService.maxMutedWorkspaces`. Bounds the mute-sync body and
+/// the per-user rows stored server-side.
+export const MAX_MUTED_WORKSPACES_PER_USER = 500;
+
 export type ApnsBundlePolicy = {
   readonly bundleId: string;
   readonly environment: "sandbox" | "production";
@@ -27,6 +32,10 @@ export type PushPayloadResult =
 export type JsonObjectResult =
   | { readonly ok: true; readonly value: Record<string, unknown> }
   | { readonly ok: false; readonly error: "invalid_json" | "request_too_large" };
+
+export type MuteWorkspacesResult =
+  | { readonly ok: true; readonly value: readonly string[] }
+  | { readonly ok: false; readonly error: string };
 
 const DEV_TAGGED_BUNDLE_ID = /^dev\.cmux\.ios\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const PROD_BUNDLE_IDS = new Set(["com.cmuxterm.app", "dev.cmux.app.beta"]);
@@ -77,6 +86,42 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
       hideContent: body.hideContent === true,
     },
   };
+}
+
+/// Parse and normalize the `workspaceIds` array of a mute-sync `PUT`. Returns a
+/// deduplicated, bounded set of non-empty ids. The full set is an idempotent
+/// replacement of the user's muted workspaces.
+export function parseMuteWorkspacesPayload(body: Record<string, unknown>): MuteWorkspacesResult {
+  const raw = body.workspaceIds;
+  if (raw === undefined || raw === null) {
+    // Treat a missing array as "clear all mutes" so an unmute-to-empty syncs.
+    return { ok: true, value: [] };
+  }
+  if (!Array.isArray(raw)) return { ok: false, error: "workspace_ids_not_array" };
+
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    const id = boundedString(entry, MAX_PUSH_ID_CHARS);
+    if (id == null) return { ok: false, error: "workspace_id_too_long" };
+    if (!id) continue;
+    seen.add(id);
+    if (seen.size > MAX_MUTED_WORKSPACES_PER_USER) {
+      return { ok: false, error: "too_many_muted_workspaces" };
+    }
+  }
+  return { ok: true, value: [...seen] };
+}
+
+/// Pure delivery decision: `true` when a push for `workspaceId` should be sent,
+/// given the user's muted-workspace set. A `null`/empty workspace id is never
+/// muted (it cannot match a stored id), so it always delivers. Mirrors the iOS
+/// `PushMutePolicy.shouldDeliver`.
+export function shouldDeliverToWorkspace(
+  workspaceId: string | null,
+  mutedWorkspaceIds: ReadonlySet<string>,
+): boolean {
+  if (!workspaceId) return true;
+  return !mutedWorkspaceIds.has(workspaceId);
 }
 
 export async function readBoundedJsonObject(

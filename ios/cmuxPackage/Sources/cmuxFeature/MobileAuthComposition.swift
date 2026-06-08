@@ -101,7 +101,10 @@ public struct MobileAuthComposition {
             apnsEnvironment: Self.apnsEnvironment,
             session: .shared
         )
-        deferredSignIn.set { await push.syncTokenIfPossible() }
+        deferredSignIn.set {
+            await push.syncTokenIfPossible()
+            await push.syncMutedWorkspacesIfPossible()
+        }
         self.coordinator = coordinator
         self.pushRegistration = push
     }

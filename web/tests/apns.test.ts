@@ -9,10 +9,13 @@ import {
 import { summarizeApnsSendResults } from "../services/apns/response";
 import { sendApnsNotification, signApnsJwt, normalizeP8 } from "../services/apns/sender";
 import {
+  MAX_MUTED_WORKSPACES_PER_USER,
   MAX_PUSH_BODY_CHARS,
   normalizeApnsBundle,
+  parseMuteWorkspacesPayload,
   parsePushPayload,
   readBoundedJsonObject,
+  shouldDeliverToWorkspace,
 } from "../services/apns/routePolicy";
 
 describe("apns payload", () => {
@@ -185,6 +188,49 @@ describe("apns route policy", () => {
         64,
       ),
     ).resolves.toEqual({ ok: true, value: { title: "agent" } });
+  });
+});
+
+describe("apns per-workspace mute", () => {
+  test("delivers when the workspace is not muted, suppresses when it is", () => {
+    const muted = new Set(["ws-muted"]);
+    expect(shouldDeliverToWorkspace("ws-active", muted)).toBe(true);
+    expect(shouldDeliverToWorkspace("ws-muted", muted)).toBe(false);
+  });
+
+  test("always delivers when the push carries no workspace id", () => {
+    expect(shouldDeliverToWorkspace(null, new Set(["ws-muted"]))).toBe(true);
+  });
+
+  test("always delivers when nothing is muted", () => {
+    expect(shouldDeliverToWorkspace("ws-active", new Set())).toBe(true);
+  });
+
+  test("parses, trims, and dedupes a muted-workspace set", () => {
+    expect(parseMuteWorkspacesPayload({ workspaceIds: [" ws-a ", "ws-b", "ws-a", ""] })).toEqual({
+      ok: true,
+      value: ["ws-a", "ws-b"],
+    });
+  });
+
+  test("treats a missing array as clearing all mutes", () => {
+    expect(parseMuteWorkspacesPayload({})).toEqual({ ok: true, value: [] });
+  });
+
+  test("rejects a non-array, oversized ids, and an oversized set", () => {
+    expect(parseMuteWorkspacesPayload({ workspaceIds: "ws-a" })).toEqual({
+      ok: false,
+      error: "workspace_ids_not_array",
+    });
+    expect(parseMuteWorkspacesPayload({ workspaceIds: ["x".repeat(201)] })).toEqual({
+      ok: false,
+      error: "workspace_id_too_long",
+    });
+    const tooMany = Array.from({ length: MAX_MUTED_WORKSPACES_PER_USER + 1 }, (_, i) => `ws-${i}`);
+    expect(parseMuteWorkspacesPayload({ workspaceIds: tooMany })).toEqual({
+      ok: false,
+      error: "too_many_muted_workspaces",
+    });
   });
 });
 

@@ -3146,6 +3146,40 @@
         }
       }
     },
+    "mobile.workspace.muteNotifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mute Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知をミュート"
+          }
+        }
+      }
+    },
+    "mobile.workspace.unmuteNotifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unmute Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知のミュートを解除"
+          }
+        }
+      }
+    },
     "mobile.workspace.rename.placeholder": {
       "extractionState": "manual",
       "localizations": {

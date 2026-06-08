@@ -34,6 +34,13 @@ struct WorkspaceListView: View {
     /// Optional: pin/unpin a workspace on the Mac. When present, each row offers
     /// a Pin/Unpin context-menu action and pinned workspaces sort to the top.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    /// The set of workspace ids muted for phone push. Passed as a value snapshot
+    /// so the `@Observable` push coordinator never crosses the `List` boundary;
+    /// each row receives its `isMuted` as a computed `Bool`.
+    var mutedWorkspaceIDs: Set<String> = []
+    /// Optional: mute/unmute phone push for a workspace (phone-local). When
+    /// present, each row offers a Mute/Unmute context-menu action.
+    var setMuted: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
@@ -81,7 +88,9 @@ struct WorkspaceListView: View {
                         wrapWorkspaceTitles: wrapWorkspaceTitles,
                         selectWorkspace: selectWorkspace,
                         renameWorkspace: renameWorkspace,
-                        setPinned: setPinned
+                        setPinned: setPinned,
+                        isMuted: mutedWorkspaceIDs.contains(workspace.id.rawValue),
+                        setMuted: setMuted
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
                     .listRowSeparator(.hidden)
