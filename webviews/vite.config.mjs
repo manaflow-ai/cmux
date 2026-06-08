@@ -5,6 +5,11 @@ import { defineConfig } from "vite";
 const outDir = process.env.CMUX_WEBVIEWS_OUT_DIR ?? "../Resources/markdown-viewer/webviews-app";
 
 export default defineConfig({
+  // Relative asset base. The bundle is served from a sub-path (the diff viewer
+  // custom scheme serves under `<token>/assets/cmux-webviews-app/`, and the
+  // app-bundle file load is nested too), so asset URLs (e.g. Monaco's emitted
+  // worker) must be relative, not rooted at `/`.
+  base: "./",
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
@@ -32,6 +37,20 @@ export default defineConfig({
     // scheme registers every emitted `.js`/`.mjs`, and the agent-session file
     // load grants read access to the whole output directory.
     modulePreload: false,
+    // Monaco's `?worker` import builds a worker bundle. Emit it as an ES module
+    // worker with a stable name (no hash) so `new Worker(url, {type:"module"})`
+    // works and the file overwrites in place in the diff viewer asset cache,
+    // matching the main bundle's stable-name policy above.
+    worker: {
+      format: "es",
+      rollupOptions: {
+        output: {
+          entryFileNames: "chunks/[name].mjs",
+          chunkFileNames: "chunks/[name].mjs",
+          assetFileNames: "assets/[name][extname]",
+        },
+      },
+    },
     rollupOptions: {
       input: { main: "src/main.tsx" },
       output: {
@@ -76,6 +95,13 @@ export default defineConfig({
             id.includes("/oniguruma-to-es/")
           ) {
             return "diff-vendor";
+          }
+          // Collapse Monaco into one lazy chunk loaded only by the editor
+          // surface (same rationale as diff-vendor): keep the entry/agent/diff
+          // surfaces free of Monaco and the emitted-file count well under the
+          // diff viewer allowlist cap.
+          if (id.includes("/monaco-editor/")) {
+            return "monaco-vendor";
           }
           // Framework code both surfaces share. Pinning it to a stable `vendor`
           // chunk name keeps the shared chunk from being renamed (and rehashed)

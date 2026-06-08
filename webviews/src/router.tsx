@@ -34,11 +34,17 @@ export function createWebviewsRouter(WebviewComponent: WebviewRouteComponent) {
     path: "/agent-session",
     component: WebviewComponent,
   });
+  const editorRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/editor",
+    component: WebviewComponent,
+  });
   const routeTree = rootRoute.addChildren([
     indexRoute,
     diffRoute,
     generatedDiffRoute,
     agentSessionRoute,
+    editorRoute,
   ]);
   return createRouter({
     history: createHashHistory(),
