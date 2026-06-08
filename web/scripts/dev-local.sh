@@ -142,13 +142,7 @@ cmux web dev
   CMUX_WEB_EXTRA_SECRET_ENV_FILE=${CMUX_WEB_EXTRA_SECRET_ENV_FILE:-}
 EOF
 
-# Bind 0.0.0.0 so a physical iPhone on the same LAN can reach this dev web API
-# (device-token registration + phone push dogfood go to the Mac's LAN IP). Next
-# still serves localhost for the Mac app; this only widens the listen interface,
-# not the routes. Set CMUX_DEV_HOSTNAME to override (e.g. 127.0.0.1 to keep it
-# loopback-only).
-CMUX_DEV_HOSTNAME="${CMUX_DEV_HOSTNAME:-0.0.0.0}"
-next dev --hostname "$CMUX_DEV_HOSTNAME" --port "$CMUX_PORT" &
+next dev --port "$CMUX_PORT" &
 next_pid=$!
 
 set +e

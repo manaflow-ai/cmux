@@ -200,10 +200,23 @@ trap restore_local_config EXIT INT TERM
 
 if [[ -n "$API_BASE_URL" ]]; then
   echo "==> Baking dev ApiBaseURL into LocalConfig.plist: $API_BASE_URL"
-  /usr/libexec/PlistBuddy -c "Clear dict" "$LOCAL_CONFIG_PLIST" >/dev/null 2>&1 || true
-  /usr/libexec/PlistBuddy -c "Add :ApiBaseURL string $API_BASE_URL" "$LOCAL_CONFIG_PLIST" >/dev/null 2>&1 \
-    || /usr/libexec/PlistBuddy -c "Set :ApiBaseURL $API_BASE_URL" "$LOCAL_CONFIG_PLIST" >/dev/null 2>&1
+  # Mark dirty BEFORE touching the file: `Clear dict` rewrites the plist and
+  # strips the tracked comment, so the file is already modified even if the
+  # following Add/Set fails. Setting the flag first guarantees the EXIT trap
+  # restores the tracked default no matter where a failure lands.
   LOCAL_CONFIG_DIRTIED=1
+  if ! { /usr/libexec/PlistBuddy -c "Clear dict" "$LOCAL_CONFIG_PLIST" >/dev/null 2>&1 \
+    && { /usr/libexec/PlistBuddy -c "Add :ApiBaseURL string $API_BASE_URL" "$LOCAL_CONFIG_PLIST" >/dev/null 2>&1 \
+      || /usr/libexec/PlistBuddy -c "Set :ApiBaseURL $API_BASE_URL" "$LOCAL_CONFIG_PLIST" >/dev/null 2>&1; }; }; then
+    echo "error: failed to write ApiBaseURL into $LOCAL_CONFIG_PLIST" >&2
+    exit 1
+  fi
+  # Confirm the override actually landed so a silent PlistBuddy no-op can't ship a
+  # build that still points at localhost.
+  if ! /usr/libexec/PlistBuddy -c "Print :ApiBaseURL" "$LOCAL_CONFIG_PLIST" >/dev/null 2>&1; then
+    echo "error: ApiBaseURL not present in $LOCAL_CONFIG_PLIST after write" >&2
+    exit 1
+  fi
 fi
 
 XCODE_AUTH_ARGS=()
