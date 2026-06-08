@@ -208,6 +208,7 @@ jobs:
           bun test tests/db-schema.test.ts
           bun test tests/drizzle-effect.test.ts
           bun test tests/vm-db-read-model.test.ts
+          bun test tests/devices-route.test.ts
 
   tests:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}

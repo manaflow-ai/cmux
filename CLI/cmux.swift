@@ -296,7 +296,9 @@ private final class CLISocketSentryTelemetry {
             options.environment = "production-cli"
 #endif
             options.debug = false
-            options.sendDefaultPii = true
+            // Defense-in-depth: keep default PII (user, IP, etc.) off the wire.
+            // The scrubber below additionally redacts any user fields that slip in.
+            options.sendDefaultPii = false
             options.attachStacktrace = true
             options.tracesSampleRate = 0.0
             options.enableAppHangTracking = false
@@ -304,6 +306,11 @@ private final class CLISocketSentryTelemetry {
             options.enableAutoSessionTracking = false
             options.enableCaptureFailedRequests = false
             options.enableMetricKit = false
+            // Redact file paths, emails, and secrets from every outgoing event
+            // and breadcrumb before it leaves the device.
+            let scrubber = SentryEventScrubber()
+            options.beforeSend = { event in scrubber.scrub(event) }
+            options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
         }
         started = true
     }
@@ -4657,7 +4664,7 @@ struct CMUXCLI {
             )
 
         case "__codex-teams-watch":
-            try runCodexTeamsWatcher(commandArgs: commandArgs, client: client)
+            try runCodexTeamsWatcher(commandArgs: commandArgs, client: client, socketPassword: socketPasswordArg)
 
         case "capture-pane",
              "resize-pane",
@@ -5441,6 +5448,20 @@ struct CMUXCLI {
     }
 
     func authenticateClientIfNeeded(
+        _ client: SocketClient,
+        explicitPassword: String?,
+        socketPath: String,
+        responseTimeout: TimeInterval? = nil
+    ) throws {
+        try Self.authenticateSocketClientIfNeeded(
+            client,
+            explicitPassword: explicitPassword,
+            socketPath: socketPath,
+            responseTimeout: responseTimeout
+        )
+    }
+
+    private static func authenticateSocketClientIfNeeded(
         _ client: SocketClient,
         explicitPassword: String?,
         socketPath: String,
@@ -10420,6 +10441,7 @@ struct CMUXCLI {
         let lowered = trimmed.lowercased()
         if lowered.contains("missing required capability") ||
             lowered.contains("pty.session") ||
+            lowered.contains("pty.write.notification") ||
             lowered.contains("method_not_found") {
             return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
         }
@@ -17955,9 +17977,37 @@ struct CMUXCLI {
 
     private static let codexTeamsMaxAutoDepth = 2
     private static let codexTeamsReconcileInterval: TimeInterval = 1
+    private static let codexTeamsMaxCachedApprovalItems = 500
+    static let codexTeamsApprovalMethods: Set<String> = [
+        "item/commandExecution/requestApproval",
+        "item/fileChange/requestApproval",
+        "item/permissions/requestApproval"
+    ]
     private static let codexTeamsProbeClientName = "codex_app_server_daemon"
     private static let codexTeamsWatcherClientName = "cmux-codex-teams"
     private static let codexTeamsClientVersion = "0.1.0"
+    private static let codexTeamsWatcherResumeOptOutNotificationMethods = [
+        "thread/tokenUsage/updated",
+        "turn/diff/updated",
+        "turn/plan/updated",
+        "item/agentMessage/delta",
+        "item/plan/delta",
+        "item/reasoning/summaryTextDelta",
+        "item/reasoning/textDelta",
+        "command/exec/outputDelta",
+        "process/outputDelta",
+        "item/fileChange/outputDelta",
+        "item/mcpToolCall/progress",
+        "thread/turn/delta",
+        "turn/delta",
+        "item/textDelta",
+        "item/thinkingDelta",
+        "item/reasoningDelta",
+        "item/commandExecution/outputDelta",
+        "item/commandExecution/stdoutDelta",
+        "item/commandExecution/stderrDelta",
+        "item/outputDelta"
+    ]
 
     private struct CodexTeamsSpawn {
         let parentThreadId: String
@@ -18016,7 +18066,18 @@ struct CMUXCLI {
             session.invalidateAndCancel()
         }
 
-        func initialize(clientName: String, version: String, responseTimeout: TimeInterval = 10) throws {
+        func initialize(
+            clientName: String,
+            version: String,
+            optOutNotificationMethods: [String] = [],
+            responseTimeout: TimeInterval = 10
+        ) throws {
+            var capabilities: [String: Any] = [
+                "experimentalApi": true
+            ]
+            if !optOutNotificationMethods.isEmpty {
+                capabilities["optOutNotificationMethods"] = optOutNotificationMethods
+            }
             _ = try request(
                 method: "initialize",
                 params: [
@@ -18025,14 +18086,34 @@ struct CMUXCLI {
                         "title": "cmux Codex Teams",
                         "version": version
                     ],
-                    "capabilities": [
-                        "experimentalApi": true
-                    ]
+                    "capabilities": capabilities
                 ],
                 notificationHandler: nil,
                 responseTimeout: responseTimeout
             )
             try sendObject(["method": "initialized"], timeout: responseTimeout)
+        }
+
+        func respond(requestId: Any, result: [String: Any], timeout: TimeInterval = 10) throws {
+            try sendObject([
+                "id": requestId,
+                "result": result
+            ], timeout: timeout)
+        }
+
+        func respondError(
+            requestId: Any,
+            code: Int,
+            message: String,
+            timeout: TimeInterval = 10
+        ) throws {
+            try sendObject([
+                "id": requestId,
+                "error": [
+                    "code": code,
+                    "message": message
+                ]
+            ], timeout: timeout)
         }
 
         func request(
@@ -18054,6 +18135,11 @@ struct CMUXCLI {
 
             while true {
                 let message = try receiveObject(timeout: responseTimeout)
+                if message["method"] is String {
+                    try notificationHandler?(message)
+                    continue
+                }
+
                 if CodexTeamsAppServerConnection.message(message, hasId: requestId) {
                     if let error = message["error"] as? [String: Any] {
                         let message = (error["message"] as? String) ?? "Codex app-server request failed"
@@ -18063,10 +18149,6 @@ struct CMUXCLI {
                         return result
                     }
                     return ["result": message["result"] ?? NSNull()]
-                }
-
-                if message["method"] is String {
-                    try notificationHandler?(message)
                 }
             }
         }
@@ -18170,6 +18252,7 @@ struct CMUXCLI {
         private let launchPath: String?
         private let maxAutoDepth: Int
         private let socketClient: SocketClient
+        private let socketPassword: String?
 
         private var knownThreadIds = Set<String>()
         private var parentByThreadId: [String: String] = [:]
@@ -18183,6 +18266,11 @@ struct CMUXCLI {
         private let readinessLock = NSLock()
         private let stateLock = NSLock()
         private var lastAgentSurfaceId: String?
+        private var subscribedThreadIds = Set<String>()
+        private var approvalItemById: [String: [String: Any]] = [:]
+        private var approvalItemOrder: [String] = []
+        private var suppressedApprovalKeys = Set<String>()
+        private var suppressedApprovalOrder: [String] = []
 
         init(
             appServerURL: String,
@@ -18191,7 +18279,8 @@ struct CMUXCLI {
             codexExecutable: String,
             launchPath: String?,
             maxAutoDepth: Int,
-            socketClient: SocketClient
+            socketClient: SocketClient,
+            socketPassword: String?
         ) {
             self.appServerURL = appServerURL
             self.workspaceId = workspaceId
@@ -18200,6 +18289,7 @@ struct CMUXCLI {
             self.launchPath = launchPath
             self.maxAutoDepth = max(0, maxAutoDepth)
             self.socketClient = socketClient
+            self.socketPassword = socketPassword
         }
 
         func run() throws {
@@ -18214,8 +18304,10 @@ struct CMUXCLI {
                     defer { connection.close() }
                     try connection.initialize(
                         clientName: CMUXCLI.codexTeamsWatcherClientName,
-                        version: CMUXCLI.codexTeamsClientVersion
+                        version: CMUXCLI.codexTeamsClientVersion,
+                        optOutNotificationMethods: CMUXCLI.codexTeamsWatcherResumeOptOutNotificationMethods
                     )
+                    resetConnectionSubscriptions()
                     try backfillLoadedThreads(connection: connection)
                     try listenForNotifications(connection: connection)
                 } catch {
@@ -18230,30 +18322,19 @@ struct CMUXCLI {
                 method: "thread/loaded/list",
                 params: ["limit": 200],
                 notificationHandler: { [weak self] message in
-                    try self?.handleNotification(message)
+                    try self?.handleAppServerMessage(
+                        message,
+                        connection: connection,
+                        allowThreadSubscribe: false
+                    )
                 }
             )
             let threadIds = loaded["data"] as? [String] ?? []
             for threadId in threadIds {
-                let read: [String: Any]
                 do {
-                    read = try connection.request(
-                        method: "thread/read",
-                        params: [
-                            "threadId": threadId,
-                            "includeTurns": false
-                        ],
-                        notificationHandler: { [weak self] message in
-                            try self?.handleNotification(message)
-                        }
-                    )
+                    try subscribeToThreadIfNeeded(threadId, connection: connection)
                 } catch {
-                    fputs("cmux codex-teams watcher skipped unreadable thread \(threadId): \(error)\n", stderr)
-                    continue
-                }
-                if let threadObject = read["thread"] as? [String: Any],
-                   let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
-                    try observeThreadSafely(thread)
+                    fputs("cmux codex-teams watcher skipped thread \(threadId): \(error)\n", stderr)
                 }
             }
         }
@@ -18261,12 +18342,22 @@ struct CMUXCLI {
         private func listenForNotifications(connection: CodexTeamsAppServerConnection) throws {
             while true {
                 let message = try connection.receiveObject()
-                try handleNotification(message)
+                try handleAppServerMessage(message, connection: connection)
             }
         }
 
-        private func handleNotification(_ message: [String: Any]) throws {
+        private func handleAppServerMessage(
+            _ message: [String: Any],
+            connection: CodexTeamsAppServerConnection,
+            allowThreadSubscribe: Bool = true
+        ) throws {
             guard let method = message["method"] as? String else { return }
+            cacheApprovalItemIfPresent(message, method: method)
+            if let requestId = message["id"],
+               try handleApprovalRequest(message, method: method, requestId: requestId, connection: connection) {
+                return
+            }
+            if message["id"] != nil { return }
             guard method.hasPrefix("thread/"),
                   let params = message["params"] as? [String: Any],
                   let threadObject = params["thread"] as? [String: Any],
@@ -18274,6 +18365,189 @@ struct CMUXCLI {
                 return
             }
             try observeThreadSafely(thread)
+            if allowThreadSubscribe {
+                do {
+                    try subscribeToThreadIfNeeded(thread.id, connection: connection)
+                } catch {
+                    fputs("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n", stderr)
+                }
+            }
+        }
+
+        private func subscribeToThreadIfNeeded(
+            _ threadId: String,
+            connection: CodexTeamsAppServerConnection
+        ) throws {
+            stateLock.lock()
+            let inserted = subscribedThreadIds.insert(threadId).inserted
+            stateLock.unlock()
+            guard inserted else { return }
+
+            do {
+                let response = try connection.request(
+                    method: "thread/resume",
+                    params: [
+                        "threadId": threadId,
+                        "excludeTurns": true
+                    ],
+                    notificationHandler: { [weak self] message in
+                        try self?.handleAppServerMessage(
+                            message,
+                            connection: connection,
+                            allowThreadSubscribe: false
+                        )
+                    }
+                )
+                if let threadObject = response["thread"] as? [String: Any],
+                   let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
+                    try observeThreadSafely(thread)
+                }
+            } catch {
+                stateLock.lock()
+                subscribedThreadIds.remove(threadId)
+                stateLock.unlock()
+                throw error
+            }
+        }
+
+        private func resetConnectionSubscriptions() {
+            stateLock.lock()
+            subscribedThreadIds.removeAll(keepingCapacity: true)
+            stateLock.unlock()
+        }
+
+        private func cacheApprovalItemIfPresent(_ message: [String: Any], method: String) {
+            guard method == "item/started" || method == "item/completed" || method == "item/fileChange/patchUpdated",
+                  let params = message["params"] as? [String: Any] else {
+                return
+            }
+            if let item = params["item"] as? [String: Any],
+               let itemId = CMUXCLI.stringValue(in: item, keys: ["id"]) {
+                cacheApprovalItem(item, itemId: itemId)
+                return
+            }
+            guard method == "item/fileChange/patchUpdated",
+                  let itemId = CMUXCLI.stringValue(in: params, keys: ["itemId", "item_id"]) else {
+                return
+            }
+            var item = cachedApprovalItem(itemId: itemId) ?? [
+                "type": "fileChange",
+                "id": itemId
+            ]
+            if let changes = params["changes"] {
+                item["changes"] = changes
+            }
+            cacheApprovalItem(item, itemId: itemId)
+        }
+
+        private func cacheApprovalItem(_ item: [String: Any], itemId: String) {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            if approvalItemById[itemId] == nil {
+                approvalItemOrder.append(itemId)
+            }
+            approvalItemById[itemId] = CMUXCLI.codexTeamsApprovalItemSnapshot(item)
+            while approvalItemOrder.count > CMUXCLI.codexTeamsMaxCachedApprovalItems {
+                let evicted = approvalItemOrder.removeFirst()
+                approvalItemById.removeValue(forKey: evicted)
+            }
+        }
+
+        private func cachedApprovalItem(itemId: String) -> [String: Any]? {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return approvalItemById[itemId]
+        }
+
+        private func handleApprovalRequest(
+            _ message: [String: Any],
+            method: String,
+            requestId: Any,
+            connection: CodexTeamsAppServerConnection
+        ) throws -> Bool {
+            guard CMUXCLI.codexTeamsApprovalMethods.contains(method) else { return false }
+            guard let params = message["params"] as? [String: Any] else {
+                fputs("cmux codex-teams watcher ignoring malformed approval \(method) request \(CMUXCLI.requestIdString(requestId))\n", stderr)
+                return true
+            }
+            let relatedItem = CMUXCLI.stringValue(in: params, keys: ["itemId", "item_id"])
+                .flatMap { cachedApprovalItem(itemId: $0) }
+            let suppressionKey = approvalSuppressionKey(method: method, requestId: requestId, params: params)
+            if approvalIsSuppressed(suppressionKey) {
+                fputs("cmux codex-teams watcher leaving previously unresolved approval \(suppressionKey) to native Codex\n", stderr)
+                return true
+            }
+            let feedEvent = CMUXCLI.codexTeamsFeedEvent(
+                method: method,
+                requestId: requestId,
+                params: params,
+                workspaceId: workspaceId,
+                relatedItem: relatedItem
+            )
+            fputs("cmux codex-teams watcher forwarding approval \(method) request \(CMUXCLI.requestIdString(requestId)) to Feed\n", stderr)
+            let response: [String: Any]
+            do {
+                response = try pushCodexApprovalToFeed(event: feedEvent)
+            } catch {
+                suppressApproval(suppressionKey)
+                fputs("cmux codex-teams watcher leaving approval \(suppressionKey) to native Codex after Feed push failed: \(error)\n", stderr)
+                return true
+            }
+            guard let decision = CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: response) else {
+                suppressApproval(suppressionKey)
+                fputs("cmux codex-teams watcher leaving approval \(suppressionKey) to native Codex because Feed did not resolve it\n", stderr)
+                return true
+            }
+            guard let result = CMUXCLI.codexTeamsAppServerApprovalResponse(
+                method: method,
+                params: params,
+                mode: decision
+            ) else {
+                fputs("cmux codex-teams watcher cannot map Feed decision for \(suppressionKey); leaving it to native Codex\n", stderr)
+                return true
+            }
+            try connection.respond(requestId: requestId, result: result)
+            return true
+        }
+
+        private func approvalSuppressionKey(method: String, requestId: Any, params: [String: Any]) -> String {
+            let stableId = CMUXCLI.stringValue(
+                in: params,
+                keys: ["approvalId", "approval_id", "itemId", "item_id"]
+            ) ?? CMUXCLI.requestIdString(requestId)
+            return "\(method):\(stableId)"
+        }
+
+        private func approvalIsSuppressed(_ key: String) -> Bool {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return suppressedApprovalKeys.contains(key)
+        }
+
+        private func suppressApproval(_ key: String) {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            if suppressedApprovalKeys.insert(key).inserted {
+                suppressedApprovalOrder.append(key)
+            }
+            while suppressedApprovalOrder.count > 256 {
+                suppressedApprovalKeys.remove(suppressedApprovalOrder.removeFirst())
+            }
+        }
+
+        private func pushCodexApprovalToFeed(event: [String: Any]) throws -> [String: Any] {
+            let feedClient = SocketClient(path: socketClient.socketPath)
+            try feedClient.connect()
+            defer { feedClient.close() }
+            try CMUXCLI.authenticateSocketClientIfNeeded(
+                feedClient,
+                explicitPassword: socketPassword,
+                socketPath: socketClient.socketPath
+            )
+            return try feedClient.sendV2(method: "feed.push", params: [
+                "event": event,
+                "wait_timeout_seconds": 120
+            ], responseTimeout: 125)
         }
 
         private func observeThreadSafely(_ thread: CodexTeamsThread) throws {
@@ -18479,6 +18753,50 @@ struct CMUXCLI {
         }
     }
 
+    static func codexTeamsFeedEvent(
+        method: String,
+        requestId: Any,
+        params: [String: Any],
+        workspaceId: String,
+        relatedItem: [String: Any]? = nil
+    ) -> [String: Any] {
+        CodexTeamsApprovalBridge.feedEvent(
+            method: method,
+            requestId: requestId,
+            params: params,
+            workspaceId: workspaceId,
+            relatedItem: relatedItem
+        )
+    }
+
+    static func codexTeamsPermissionMode(fromFeedPushResponse response: [String: Any]) -> String? {
+        CodexTeamsApprovalBridge.permissionMode(fromFeedPushResponse: response)
+    }
+
+    static func codexTeamsAppServerApprovalResponse(
+        method: String,
+        params: [String: Any],
+        mode: String
+    ) -> [String: Any]? {
+        CodexTeamsApprovalBridge.appServerApprovalResponse(
+            method: method,
+            params: params,
+            mode: mode
+        )
+    }
+
+    static func codexTeamsApprovalItemSnapshot(_ item: [String: Any]) -> [String: Any] {
+        CodexTeamsApprovalBridge.approvalItemSnapshot(item)
+    }
+
+    static func requestIdString(_ requestId: Any) -> String {
+        CodexTeamsApprovalBridge.requestIdString(requestId)
+    }
+
+    static func stringValue(in object: [String: Any], keys: [String]) -> String? {
+        CodexTeamsApprovalBridge.stringValue(in: object, keys: keys)
+    }
+
     private static func codexTeamsThreadCanResume(appServerURL: String, threadId: String) -> Bool {
         guard let url = URL(string: appServerURL) else {
             return false
@@ -18664,6 +18982,10 @@ struct CMUXCLI {
             throw CLIError(message: "cmux codex-teams must be started from a cmux terminal surface")
         }
         let rootWorkspaceId = rootIdentity.workspaceId ?? focusedContext.workspaceId
+        try Self.validateCodexTeamsWorkingDirectory(
+            commandArgs: commandArgs,
+            baseDirectory: launcherEnvironment["PWD"] ?? FileManager.default.currentDirectoryPath
+        )
 
         guard let codexExecutablePath = resolveCodexExecutable(searchPath: launcherEnvironment["PATH"]) else {
             throw CLIError(message: missingProviderExecutableMessage(
@@ -18866,6 +19188,30 @@ struct CMUXCLI {
             .joined(separator: ":") ?? ""
     }
 
+    static func codexTeamsResolvedWorkingDirectory(
+        commandArgs: [String],
+        baseDirectory: String
+    ) -> String? {
+        CodexTeamsApprovalBridge.resolvedWorkingDirectory(
+            commandArgs: commandArgs,
+            baseDirectory: baseDirectory
+        )
+    }
+
+    static func validateCodexTeamsWorkingDirectory(
+        commandArgs: [String],
+        baseDirectory: String
+    ) throws {
+        do {
+            try CodexTeamsApprovalBridge.validateWorkingDirectory(
+                commandArgs: commandArgs,
+                baseDirectory: baseDirectory
+            )
+        } catch {
+            throw CLIError(message: error.localizedDescription)
+        }
+    }
+
     private func codexTeamsAppendPathEntry(
         _ entry: String,
         entries: inout [String],
@@ -19050,7 +19396,7 @@ struct CMUXCLI {
         process.terminate()
     }
 
-    private func runCodexTeamsWatcher(commandArgs: [String], client: SocketClient) throws {
+    private func runCodexTeamsWatcher(commandArgs: [String], client: SocketClient, socketPassword: String?) throws {
         let (workspaceId, rem0) = parseOption(commandArgs, name: "--workspace-id")
         let (surfaceId, rem1) = parseOption(rem0, name: "--surface-id")
         let (appServerURL, rem2) = parseOption(rem1, name: "--app-server-url")
@@ -19104,7 +19450,8 @@ struct CMUXCLI {
             codexExecutable: (codexExecutable?.isEmpty == false ? codexExecutable! : "codex"),
             launchPath: launchPath,
             maxAutoDepth: maxDepth,
-            socketClient: client
+            socketClient: client,
+            socketPassword: socketPassword
         )
         withExtendedLifetime(ownerSource) {
             do {
@@ -25249,13 +25596,13 @@ struct CMUXCLI {
                 break
             }
         }
-        // Layer in Feed bridge entries with a long timeout so blocking
-        // user decisions don't trip the agent's default per-event timeout.
-        // Most nested agents use milliseconds; Grok's and Antigravity's
-        // current hook schemas use seconds, so normalize before writing.
-        let feedTimeoutMs = 120_000
+        // Layer in Feed bridge entries. Blocking approval bridges get a long
+        // timeout; Codex telemetry stays short so it never delays Codex's own
+        // approval reviewer. Most nested agents use milliseconds. Codex, Grok,
+        // and Antigravity hook schemas use seconds, so normalize before writing.
         for agentEvent in def.feedHookEvents {
             let feedCmd = feedHookCommand(for: def, agentEvent: agentEvent)
+            let feedTimeoutMs = feedHookTimeoutMs(for: def, agentEvent: agentEvent)
             switch def.format {
             case .flat:
                 var entries = result[agentEvent] as? [[String: Any]] ?? []
@@ -25270,7 +25617,7 @@ struct CMUXCLI {
                 result[agentEvent] = entries
             case .nested:
                 var groups = result[agentEvent] as? [[String: Any]] ?? []
-                let timeout = nestedHookTimeout(feedTimeoutMs, for: def)
+                let timeout = nestedFeedHookTimeout(feedTimeoutMs, for: def)
                 groups.append([
                     "hooks": [["type": "command", "command": feedCmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
@@ -25291,8 +25638,20 @@ struct CMUXCLI {
     }
 
     private func nestedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
-        guard def.name == "grok" else { return timeoutMs }
+        guard def.name == "grok" else { return max(timeoutMs, 1) }
         return Self.timeoutSecondsFromMilliseconds(timeoutMs)
+    }
+
+    private func nestedFeedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
+        guard def.name == "codex" || def.name == "grok" else { return max(timeoutMs, 1) }
+        return Self.timeoutSecondsFromMilliseconds(timeoutMs)
+    }
+
+    private func feedHookTimeoutMs(for def: AgentHookDef, agentEvent _: String) -> Int {
+        if def.name == "codex" {
+            return 5_000
+        }
+        return 120_000
     }
 
     private static func timeoutSecondsFromMilliseconds(_ timeoutMs: Int) -> Int {
@@ -26967,6 +27326,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             guard let eventLabel = codexHookEventLabel(event.agentEvent) else { continue }
             insertHashes(
                 eventLabel: eventLabel,
+                command: Self.hookCommandString(for: def, event: event),
+                timeouts: [5_000, 600]
+            )
+            insertHashes(
+                eventLabel: eventLabel,
                 command: "cmux codex-hook \(event.cmuxSubcommand)",
                 timeouts: [hookTimeoutMs, 600]
             )
@@ -26974,6 +27338,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         for agentEvent in def.feedHookEvents {
             guard let eventLabel = codexHookEventLabel(agentEvent) else { continue }
+            insertHashes(
+                eventLabel: eventLabel,
+                command: Self.feedHookCommandString(for: def, agentEvent: agentEvent),
+                timeouts: [120_000, 120, 600]
+            )
             insertHashes(
                 eventLabel: eventLabel,
                 command: "cmux feed-hook --source \(def.name) --event \(agentEvent)",
@@ -29293,6 +29662,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let createdAt: Date?
         let title: String
         let detail: String
+        let toolInputJSON: String
+        let toolInputCapabilitiesJSON: String
         let defaultMode: String?
         let questionMultiSelect: Bool
         let questionOptions: [FeedTUIOption]
@@ -29342,6 +29713,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 createdAt: createdAt,
                 title: title,
                 detail: detail,
+                toolInputJSON: (dict["tool_input"] as? String) ?? "",
+                toolInputCapabilitiesJSON: (dict["tool_input_capabilities"] as? String)
+                    ?? (dict["tool_input"] as? String)
+                    ?? "",
                 defaultMode: dict["default_mode"] as? String,
                 questionMultiSelect: (dict["question_multi_select"] as? Bool) ?? false,
                 questionOptions: options,
@@ -30042,13 +30417,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         guard item.canResolve else { return "Resolved or informational item" }
         switch item.kind {
         case "permissionRequest":
-            if !feedTUISourceSupportsPersistentPermissionModes(item.source) {
-                return "Permission: Enter/o once, d deny"
-            }
-            if !feedTUISourceSupportsBypassPermissions(item.source) {
-                return "Permission: Enter/o once, a always, l all tools, d deny"
-            }
-            return "Permission: Enter/o once, a always, l all tools, b bypass, d deny"
+            let supportsOnce = feedTUISourceSupportsOncePermissionMode(
+                item.source,
+                toolInputJSON: item.toolInputCapabilitiesJSON
+            )
+            let supportsAlways = feedTUISourceSupportsAlwaysPermissionMode(
+                item.source,
+                toolInputJSON: item.toolInputCapabilitiesJSON
+            )
+            let supportsAll = feedTUISourceSupportsAllPermissionMode(
+                item.source,
+                toolInputJSON: item.toolInputCapabilitiesJSON
+            )
+            var actions: [String] = []
+            if supportsOnce { actions.append("Enter/o once") }
+            if supportsAlways { actions.append("a always") }
+            if supportsAll { actions.append("l all tools") }
+            if feedTUISourceSupportsBypassPermissions(item.source) { actions.append("b bypass") }
+            actions.append("d deny")
+            return "Permission: \(actions.joined(separator: ", "))"
         case "exitPlan":
             if !feedTUISourceSupportsBypassPermissions(item.source) {
                 return "Plan: Enter default, a auto, m manual, u ultraplan, f replan, d deny"
@@ -30073,12 +30460,40 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
     }
 
-    private func feedTUISourceSupportsPersistentPermissionModes(_ source: String) -> Bool {
-        source != "codex"
+    private func feedTUISourceSupportsOncePermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
+        CMUXCLI.feedSourceSupportsOncePermissionMode(source, toolInputJSON: toolInputJSON)
+    }
+
+    private func feedTUISourceSupportsAlwaysPermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
+        CMUXCLI.feedSourceSupportsAlwaysPermissionMode(source, toolInputJSON: toolInputJSON)
+    }
+
+    private func feedTUISourceSupportsAllPermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
+        CMUXCLI.feedSourceSupportsAllPermissionMode(source, toolInputJSON: toolInputJSON)
     }
 
     private func feedTUISourceSupportsBypassPermissions(_ source: String) -> Bool {
-        source != "codex" && source != "claude"
+        CMUXCLI.feedSourceSupportsBypassPermissions(source)
+    }
+
+    static func feedSourceSupportsPersistentPermissionModes(_ source: String) -> Bool {
+        CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes(source)
+    }
+
+    static func feedSourceSupportsOncePermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
+        CodexTeamsApprovalBridge.feedSourceSupportsOncePermissionMode(source, toolInputJSON: toolInputJSON)
+    }
+
+    static func feedSourceSupportsAlwaysPermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
+        CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode(source, toolInputJSON: toolInputJSON)
+    }
+
+    static func feedSourceSupportsAllPermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
+        CodexTeamsApprovalBridge.feedSourceSupportsAllPermissionMode(source, toolInputJSON: toolInputJSON)
+    }
+
+    static func feedSourceSupportsBypassPermissions(_ source: String) -> Bool {
+        CodexTeamsApprovalBridge.feedSourceSupportsBypassPermissions(source)
     }
 
     private func resolveFeedTUIItem(
@@ -30096,11 +30511,24 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "permissionRequest":
             let mode: String
             switch key {
-            case .enter, .once:
+            case .enter where feedTUISourceSupportsOncePermissionMode(
+                item.source,
+                toolInputJSON: item.toolInputCapabilitiesJSON
+            ),
+            .once where feedTUISourceSupportsOncePermissionMode(
+                item.source,
+                toolInputJSON: item.toolInputCapabilitiesJSON
+            ):
                 mode = "once"
-            case .always where feedTUISourceSupportsPersistentPermissionModes(item.source):
+            case .always where feedTUISourceSupportsAlwaysPermissionMode(
+                item.source,
+                toolInputJSON: item.toolInputCapabilitiesJSON
+            ):
                 mode = "always"
-            case .all where feedTUISourceSupportsPersistentPermissionModes(item.source):
+            case .all where feedTUISourceSupportsAllPermissionMode(
+                item.source,
+                toolInputJSON: item.toolInputCapabilitiesJSON
+            ):
                 mode = "all"
             case .bypass where feedTUISourceSupportsBypassPermissions(item.source):
                 mode = "bypass"

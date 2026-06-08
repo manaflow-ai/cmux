@@ -4839,16 +4839,16 @@ class TerminalController {
         }
         let childIds = parsedChildIds
         // When the caller explicitly listed children, refuse to create an
-        // anchor-only group if every one of them was ineligible (pinned or
-        // already an anchor of another group). The keyboard-shortcut path
+        // anchor-only group if every one of them was already an anchor of
+        // another group. The keyboard-shortcut path
         // already enforces this; the socket/CLI path used to return OK with
         // a fresh empty group, hiding the real failure.
         if childrenExplicit, !parsedChildIds.isEmpty {
             let ineligible: [String] = v2MainSync {
                 let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
                 return parsedChildIds.compactMap { id -> String? in
-                    guard let tab = tabManager.tabs.first(where: { $0.id == id }) else { return nil }
-                    if tab.isPinned || existingAnchorIds.contains(id) {
+                    guard tabManager.tabs.contains(where: { $0.id == id }) else { return nil }
+                    if existingAnchorIds.contains(id) {
                         return id.uuidString
                     }
                     return nil
@@ -4857,7 +4857,10 @@ class TerminalController {
             if ineligible.count == parsedChildIds.count {
                 return .err(
                     code: "invalid_state",
-                    message: "All requested children are ineligible (pinned or already an anchor); ungroup or unpin them first",
+                    message: String(
+                        localized: "workspaceGroup.error.allChildrenAreAnchors",
+                        defaultValue: "All requested children are ineligible because they are already group anchors; ungroup them first"
+                    ),
                     data: ["ineligible_workspace_ids": ineligible]
                 )
             }
@@ -5002,20 +5005,19 @@ class TerminalController {
             guard let tab = tabManager.tabs.first(where: { $0.id == wsId }), hasGroup else {
                 return
             }
-            // addWorkspaceToGroup silently no-ops for pinned workspaces and
-            // for anchors of other groups. Confirm membership actually
-            // changed before reporting success so scripts don't get OK on a
-            // no-op.
+            // addWorkspaceToGroup silently no-ops for anchors of other
+            // groups. Confirm membership actually changed before reporting
+            // success so scripts don't get OK on a no-op.
             tabManager.addWorkspaceToGroup(workspaceId: wsId, groupId: gid)
             if tab.groupId == gid {
                 ok = true
             } else {
-                if tab.isPinned {
+                if tabManager.workspaceGroups.contains(where: { $0.id != gid && $0.anchorWorkspaceId == wsId }) {
                     failureCode = "invalid_state"
-                    failureMessage = "Workspace is pinned and cannot join a group"
-                } else if tabManager.workspaceGroups.contains(where: { $0.id != gid && $0.anchorWorkspaceId == wsId }) {
-                    failureCode = "invalid_state"
-                    failureMessage = "Workspace is the anchor of another group; ungroup it first"
+                    failureMessage = String(
+                        localized: "workspaceGroup.error.workspaceIsOtherGroupAnchor",
+                        defaultValue: "Workspace is the anchor of another group; ungroup it first"
+                    )
                 }
             }
         }
@@ -20674,6 +20676,8 @@ class TerminalController {
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
+        case "mobile.terminal.paste_image", "terminal.paste_image":
+            result = v2MobileTerminalPasteImage(params: request.params)
         case "mobile.terminal.replay", "terminal.replay":
             result = v2MobileTerminalReplay(params: request.params)
         case "mobile.terminal.viewport", "terminal.viewport":
@@ -20684,6 +20688,10 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+#if DEBUG
+        case "dogfood.feedback.submit":
+            result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
+#endif
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method
@@ -20691,6 +20699,183 @@ class TerminalController {
         }
         return mobileHostResult(result)
     }
+
+#if DEBUG
+    /// Hard caps for the DEV dogfood feedback sink. A debug client is the only
+    /// caller, but a malformed or hostile request must not be able to allocate
+    /// huge buffers, block the Mac UI, or grow the cache without bound. Strings
+    /// are capped by character count before any large allocation; the base64
+    /// blob is rejected outright past its cap (so it is never decoded), and a
+    /// decoded blob past the byte cap is dropped.
+    nonisolated private static let dogfoodFeedbackMaxTextChars = 16_384
+    nonisolated private static let dogfoodFeedbackMaxTerminalChars = 262_144
+    nonisolated private static let dogfoodFeedbackMaxBuildStampChars = 512
+    nonisolated private static let dogfoodFeedbackMaxBlobBase64Chars = 8_388_608 // ~6 MiB decoded
+    nonisolated private static let dogfoodFeedbackMaxBlobBytes = 6_291_456 // 6 MiB
+    /// Keep at most this many bundle directories; older ones are pruned after
+    /// each write so a retrying client can't grow the cache without bound.
+    nonisolated private static let dogfoodFeedbackMaxRetainedBundles = 50
+
+    /// DEV-only dogfood feedback sink (P1 of the Mac↔phone feedback loop).
+    ///
+    /// Decodes `{ text, terminal_text, build_stamp, diagnostic_blob_base64 }`,
+    /// writes a self-contained bundle directory under
+    /// `~/.cache/cmux-dogfood-feedback/<ISO8601>_<shortid>/` (a `bundle.json`
+    /// manifest plus the decoded `diagnostic.log`), and returns the bundle path.
+    /// Gated behind `#if DEBUG` and the same-account Stack-auth authorization the
+    /// rest of the mobile data plane enforces, so it never exists in a release
+    /// build and never accepts an unauthenticated caller.
+    ///
+    /// Field sizes are capped on the main actor *before* any large allocation,
+    /// invalid/oversized base64 is rejected without decoding, and the decode +
+    /// filesystem writes run off the main actor so a large payload cannot block
+    /// the Mac UI.
+    private func v2MobileDogfoodFeedbackSubmit(params: [String: Any]) async -> V2CallResult {
+        // Cheap main-actor validation first: cap each field by character count
+        // before allocating anything large, and reject an oversized base64 blob
+        // outright so it is never decoded into a giant Data.
+        let text = String((v2RawString(params, "text") ?? "").prefix(Self.dogfoodFeedbackMaxTextChars))
+        let terminalText = String((v2RawString(params, "terminal_text") ?? "").prefix(Self.dogfoodFeedbackMaxTerminalChars))
+        let buildStamp = String((v2RawString(params, "build_stamp") ?? "").prefix(Self.dogfoodFeedbackMaxBuildStampChars))
+        let diagnosticBlobBase64 = v2RawString(params, "diagnostic_blob_base64") ?? ""
+        guard diagnosticBlobBase64.count <= Self.dogfoodFeedbackMaxBlobBase64Chars else {
+            return .err(
+                code: "invalid_params",
+                message: "diagnostic_blob_base64 exceeds size limit",
+                data: nil
+            )
+        }
+
+        let maxBlobBytes = Self.dogfoodFeedbackMaxBlobBytes
+        // Off-main: decode the blob and write the bundle. A `Task.detached`
+        // keeps the (potentially multi-MiB) decode + synchronous file I/O off the
+        // main actor so it never stalls the Mac UI. Returns a Sendable result.
+        let outcome = await Task.detached(priority: .utility) { () -> DogfoodFeedbackWriteOutcome in
+            let decoded = Data(base64Encoded: diagnosticBlobBase64) ?? Data()
+            guard decoded.count <= maxBlobBytes else {
+                return .rejected(reason: "diagnostic blob exceeds size limit")
+            }
+            return Self.writeDogfoodFeedbackBundle(
+                text: text,
+                terminalText: terminalText,
+                buildStamp: buildStamp,
+                diagnosticData: decoded
+            )
+        }.value
+
+        switch outcome {
+        case let .written(bundlePath, byteCount):
+            return .ok([
+                "ok": true,
+                "bundle_path": bundlePath,
+                "diagnostic_log_bytes": byteCount,
+            ])
+        case let .rejected(reason):
+            return .err(code: "invalid_params", message: reason, data: nil)
+        case .failed:
+            return .err(
+                code: "internal_error",
+                message: "Failed to persist dogfood feedback bundle",
+                data: nil
+            )
+        }
+    }
+
+    /// The result of writing a dogfood feedback bundle off the main actor.
+    private enum DogfoodFeedbackWriteOutcome: Sendable {
+        case written(bundlePath: String, byteCount: Int)
+        case rejected(reason: String)
+        case failed
+    }
+
+    /// Persist a validated dogfood feedback bundle to disk. Runs off the main
+    /// actor (called from a detached task), so its synchronous file I/O never
+    /// blocks the Mac UI. All inputs are already size-capped by the caller.
+    nonisolated private static func writeDogfoodFeedbackBundle(
+        text: String,
+        terminalText: String,
+        buildStamp: String,
+        diagnosticData: Data
+    ) -> DogfoodFeedbackWriteOutcome {
+        let fileManager = FileManager.default
+        let root = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache", isDirectory: true)
+            .appendingPathComponent("cmux-dogfood-feedback", isDirectory: true)
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        // Colons are legal in HFS+/APFS but awkward in shell globs; swap for `-`
+        // so the directory name is paste-safe.
+        let timestamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let shortID = String(UUID().uuidString.prefix(8)).lowercased()
+        let bundleDir = root.appendingPathComponent("\(timestamp)_\(shortID)", isDirectory: true)
+
+        do {
+            // The bundle holds visible terminal text and debug logs, which can
+            // contain credentials or other private data. Create the root and
+            // bundle dirs owner-only (0700) so no other local user can traverse
+            // into them, and chmod the written files to 0600. The dir is created
+            // 0700 first, so even the brief window before the file chmod is not
+            // world-readable through a traversable parent.
+            let dirAttributes: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
+            try fileManager.createDirectory(
+                at: root,
+                withIntermediateDirectories: true,
+                attributes: dirAttributes
+            )
+            try fileManager.createDirectory(
+                at: bundleDir,
+                withIntermediateDirectories: true,
+                attributes: dirAttributes
+            )
+            let diagnosticURL = bundleDir.appendingPathComponent("diagnostic.log")
+            try diagnosticData.write(to: diagnosticURL)
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: diagnosticURL.path)
+            let manifest: [String: Any] = [
+                "schema": "cmux.dogfood.feedback.v1",
+                "received_at": formatter.string(from: Date()),
+                "text": text,
+                "terminal_text": terminalText,
+                "build_stamp": buildStamp,
+                "diagnostic_log_file": "diagnostic.log",
+                "diagnostic_log_bytes": diagnosticData.count,
+            ]
+            let manifestData = try JSONSerialization.data(
+                withJSONObject: manifest,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+            let manifestURL = bundleDir.appendingPathComponent("bundle.json")
+            try manifestData.write(to: manifestURL)
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: manifestURL.path)
+        } catch {
+            return .failed
+        }
+
+        pruneDogfoodFeedbackBundles(root: root, keep: dogfoodFeedbackMaxRetainedBundles)
+        return .written(bundlePath: bundleDir.path, byteCount: diagnosticData.count)
+    }
+
+    /// Keep only the newest `keep` bundle directories under `root`, deleting the
+    /// rest. The directory names start with an ISO8601 timestamp, so a
+    /// lexicographic sort is chronological. Best-effort: a failure to enumerate
+    /// or remove is ignored (it only affects cleanup, not the just-written
+    /// bundle). Runs off the main actor with its writer.
+    nonisolated private static func pruneDogfoodFeedbackBundles(root: URL, keep: Int) {
+        let fileManager = FileManager.default
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let directories = entries
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard directories.count > keep else { return }
+        for stale in directories.dropLast(keep) {
+            try? fileManager.removeItem(at: stale)
+        }
+    }
+#endif
 
     /// The `workspace.action` sub-actions the mobile data plane may invoke.
     ///
@@ -20892,10 +21077,6 @@ class TerminalController {
         createdWorkspaceID: String? = nil,
         createdTerminalID: String? = nil
     ) -> V2CallResult {
-        guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
-        }
-
         let requestedWorkspaceID = v2UUID(params, "workspace_id")
         if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceID == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -20911,54 +21092,87 @@ class TerminalController {
         case .conflict:
             return .err(code: "invalid_params", message: "Conflicting terminal identifiers", data: nil)
         }
-        let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
-            tabManager.tabs.filter { $0.id == workspaceID }
-        } ?? tabManager.tabs
-        if let requestedWorkspaceID, visibleWorkspaces.isEmpty {
-            return .err(
-                code: "not_found",
-                message: "Workspace not found",
-                data: ["workspace_id": requestedWorkspaceID.uuidString]
-            )
-        }
 
-        let workspaces = visibleWorkspaces.enumerated().map { _, workspace in
-            let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
-                if let requestedTerminalID, terminal.id != requestedTerminalID {
-                    return nil
-                }
-                return [
-                    "id": terminal.id.uuidString,
-                    "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
-                    "current_directory": v2OrNull(
-                        mobileNonEmpty(workspace.panelDirectories[terminal.id])
-                            ?? mobileNonEmpty(terminal.directory)
-                            ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
-                    ),
-                    "is_ready": terminal.surface.surface != nil,
-                    "is_focused": terminal.id == workspace.focusedPanelId
-                ]
+        // The phone shows workspaces from *every* open Mac window. Enumerate all
+        // registered main windows and flatten their workspaces into one list,
+        // but only when the caller has not named a specific target. When a
+        // `workspace_id`, `window_id`, terminal alias, or an explicit
+        // `resolvedTabManager` (the create/terminal-create paths pass one) is
+        // present, keep today's single-window scoped behavior so those requests
+        // resolve exactly the named target.
+        let scopeToSingleWindow = resolvedTabManager != nil
+            || requestedWorkspaceID != nil
+            || v2HasNonNullParam(params, "window_id")
+            || requestedTerminalID != nil
+
+        // `is_selected` has no single answer across multiple windows. Mark only
+        // the frontmost/key window's selected workspace as selected; in the old
+        // single-window path this is exactly the one selected workspace. Using
+        // `currentScriptableMainWindow()` (not `isKeyWindow`) means a backgrounded
+        // app, where no window is key, still reports the same selection the old
+        // path would have, instead of marking nothing selected.
+        let selectedWorkspaceID = scopeToSingleWindow
+            ? nil
+            : AppDelegate.shared?.currentScriptableMainWindow()?.tabManager.selectedTabId
+
+        let workspaces: [[String: Any]]
+        if scopeToSingleWindow {
+            guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
+                return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
             }
-
-            return [
-                "id": workspace.id.uuidString,
-                "title": workspace.title,
-                "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
-                "is_selected": workspace.id == tabManager.selectedTabId,
-                "is_pinned": workspace.isPinned,
-                "terminals": terminals
-            ]
-        }
-        if let requestedTerminalID,
-           !workspaces.contains(where: { workspace in
-               guard let terminals = workspace["terminals"] as? [[String: Any]] else { return false }
-               return terminals.contains { ($0["id"] as? String) == requestedTerminalID.uuidString }
-           }) {
-            return .err(
-                code: "not_found",
-                message: "Terminal not found",
-                data: ["surface_id": requestedTerminalID.uuidString]
-            )
+            let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
+                tabManager.tabs.filter { $0.id == workspaceID }
+            } ?? tabManager.tabs
+            if let requestedWorkspaceID, visibleWorkspaces.isEmpty {
+                return .err(
+                    code: "not_found",
+                    message: "Workspace not found",
+                    data: ["workspace_id": requestedWorkspaceID.uuidString]
+                )
+            }
+            let scopedWorkspaces = visibleWorkspaces.map { workspace in
+                mobileWorkspacePayload(
+                    workspace: workspace,
+                    isSelected: workspace.id == tabManager.selectedTabId,
+                    requestedTerminalID: requestedTerminalID
+                )
+            }
+            if let requestedTerminalID,
+               !scopedWorkspaces.contains(where: { workspace in
+                   guard let terminals = workspace["terminals"] as? [[String: Any]] else { return false }
+                   return terminals.contains { ($0["id"] as? String) == requestedTerminalID.uuidString }
+               }) {
+                return .err(
+                    code: "not_found",
+                    message: "Terminal not found",
+                    data: ["surface_id": requestedTerminalID.uuidString]
+                )
+            }
+            workspaces = scopedWorkspaces
+        } else {
+            guard let app = AppDelegate.shared else {
+                return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
+            }
+            var flattened: [[String: Any]] = []
+            // `listMainWindowSummaries()` already dedupes window ids, but guard
+            // against the same window or workspace appearing twice anyway: a
+            // workspace lives in exactly one window, and ids are globally unique.
+            var seenWindowIDs: Set<UUID> = []
+            var seenWorkspaceIDs: Set<UUID> = []
+            for summary in app.listMainWindowSummaries() {
+                guard seenWindowIDs.insert(summary.windowId).inserted else { continue }
+                guard let windowTabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+                for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+                    flattened.append(
+                        mobileWorkspacePayload(
+                            workspace: workspace,
+                            isSelected: workspace.id == selectedWorkspaceID,
+                            requestedTerminalID: requestedTerminalID
+                        )
+                    )
+                }
+            }
+            workspaces = flattened
         }
 
         var payload: [String: Any] = [
@@ -20971,6 +21185,46 @@ class TerminalController {
             payload["created_terminal_id"] = createdTerminalID
         }
         return .ok(payload)
+    }
+
+    /// Serializes one workspace into the iOS-facing mobile workspace list shape.
+    ///
+    /// Shared by the single-window (scoped) and all-windows enumeration branches
+    /// of `v2MobileWorkspaceList` so the two never diverge. When
+    /// `requestedTerminalID` is non-nil the terminals array is filtered to that
+    /// one terminal (only the scoped branch passes it; the all-windows branch
+    /// always passes nil, so it lists every terminal). The scoped
+    /// terminal-not-found check is enforced by the caller after the list is built.
+    private func mobileWorkspacePayload(
+        workspace: Workspace,
+        isSelected: Bool,
+        requestedTerminalID: UUID?
+    ) -> [String: Any] {
+        let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
+            if let requestedTerminalID, terminal.id != requestedTerminalID {
+                return nil
+            }
+            return [
+                "id": terminal.id.uuidString,
+                "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
+                "current_directory": v2OrNull(
+                    mobileNonEmpty(workspace.panelDirectories[terminal.id])
+                        ?? mobileNonEmpty(terminal.directory)
+                        ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
+                ),
+                "is_ready": terminal.surface.surface != nil,
+                "is_focused": terminal.id == workspace.focusedPanelId
+            ]
+        }
+
+        return [
+            "id": workspace.id.uuidString,
+            "title": workspace.title,
+            "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
+            "is_selected": isSelected,
+            "is_pinned": workspace.isPinned,
+            "terminals": terminals
+        ]
     }
 
     private enum MobileTerminalAliasUUID {
@@ -21335,6 +21589,60 @@ class TerminalController {
             payload["terminal_seq"] = seq
         }
         return .ok(payload)
+    }
+
+    /// Handle `terminal.paste_image`: a paired client (the iOS app) forwards an
+    /// image it pasted as base64 bytes. We materialize it to a temp file on the
+    /// Mac and inject the shell-escaped path as terminal input, exactly the way a
+    /// local clipboard-image paste does, so the running TUI (e.g. Claude Code)
+    /// attaches the image from the path.
+    private func v2MobileTerminalPasteImage(params: [String: Any]) -> V2CallResult {
+        guard let base64 = v2RawString(params, "image_base64"),
+              let imageData = Data(base64Encoded: base64), !imageData.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or invalid image_base64", data: nil)
+        }
+        let format = v2RawString(params, "image_format") ?? "png"
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+
+        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+
+        guard let escapedPath = GhosttyPasteboardHelper.saveImageData(imageData, fileExtension: format) else {
+            return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
+        }
+
+        let sendResult = terminalPanel.surface.sendInputResult(escapedPath)
+        switch sendResult {
+        case .sent:
+            terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPasteImage")
+        case .queued:
+            break
+        case .inputQueueFull:
+            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
+        case .surfaceUnavailable:
+            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+        case .processExited:
+            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
+        }
+        #if DEBUG
+        cmuxDebugLog(
+            "mobile.terminal.paste_image workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) bytes=\(imageData.count) format=\(format)"
+        )
+        #endif
+        return .ok([
+            "workspace_id": resolved.workspace.id.uuidString,
+            "surface_id": terminalPanel.id.uuidString,
+            "queued": sendResult == .queued,
+        ])
     }
 
     private func applyMobileViewportReport(

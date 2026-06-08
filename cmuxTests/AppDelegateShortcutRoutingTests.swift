@@ -5761,6 +5761,73 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testInlineVSCodeCommandPaletteShortcutRoutesThroughWebContentForTrackedServeWebOrigin() {
+        let event = makeKeyEvent(
+            modifierFlags: [.command, .shift],
+            characters: "P",
+            charactersIgnoringModifiers: "p",
+            keyCode: 35
+        )
+        let pageURL = URL(string: "http://127.0.0.1:63266/?folder=%2FUsers%2Ftester%2Fproject")!
+
+        XCTAssertTrue(
+            shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
+                event,
+                pageURL: pageURL,
+                inlineVSCodeURLMatcher: { $0 == pageURL },
+                shortcutForAction: { action in
+                    XCTAssertEqual(action, .commandPalette)
+                    return StoredShortcut(key: "p", command: true, shift: true, option: false, control: false, keyCode: 35)
+                }
+            ),
+            "Expected Cmd+Shift+P to stay inside inline VS Code when the focused browser URL belongs to the live serve-web process"
+        )
+    }
+
+    func testInlineVSCodeCommandPaletteShortcutDoesNotRouteForUntrackedLocalhostPage() {
+        let event = makeKeyEvent(
+            modifierFlags: [.command, .shift],
+            characters: "P",
+            charactersIgnoringModifiers: "p",
+            keyCode: 35
+        )
+        let pageURL = URL(string: "http://127.0.0.1:3000/?folder=%2FUsers%2Ftester%2Fproject")!
+
+        XCTAssertFalse(
+            shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
+                event,
+                pageURL: pageURL,
+                inlineVSCodeURLMatcher: { _ in false },
+                shortcutForAction: { _ in
+                    StoredShortcut(key: "p", command: true, shift: true, option: false, control: false, keyCode: 35)
+                }
+            ),
+            "A localhost page with a folder query must not steal cmux's command palette shortcut unless it is the tracked VS Code serve-web origin"
+        )
+    }
+
+    func testInlineVSCodeCommandPaletteShortcutDoesNotRouteUnrelatedShortcut() {
+        let event = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "l",
+            charactersIgnoringModifiers: "l",
+            keyCode: 37
+        )
+        let pageURL = URL(string: "http://127.0.0.1:63266/?folder=%2FUsers%2Ftester%2Fproject")!
+
+        XCTAssertFalse(
+            shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
+                event,
+                pageURL: pageURL,
+                inlineVSCodeURLMatcher: { $0 == pageURL },
+                shortcutForAction: { _ in
+                    StoredShortcut(key: "p", command: true, shift: true, option: false, control: false, keyCode: 35)
+                }
+            ),
+            "Only the configured command palette shortcut should bypass cmux for inline VS Code"
+        )
+    }
+
     // MARK: - Non-Latin keyboard layout shortcut tests
 
     func testCmdTWorksWithRussianKeyboardLayout() {
