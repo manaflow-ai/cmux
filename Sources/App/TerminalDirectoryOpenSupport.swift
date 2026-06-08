@@ -183,10 +183,11 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     func isAvailable(in environment: DetectionEnvironment = .live) -> Bool {
         guard let applicationPath = applicationPath(in: environment) else { return false }
         guard self == .vscodeInline else { return true }
-        return VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
-            vscodeApplicationURL: URL(fileURLWithPath: applicationPath, isDirectory: true),
-            isExecutableAtPath: environment.isExecutableFileAtPath
-        ) != nil
+        // Keep menu/palette availability cheap. Cached code-server discovery does
+        // disk I/O and belongs to the actual launch path on the launch queue.
+        let codeTunnelURL = URL(fileURLWithPath: applicationPath, isDirectory: true)
+            .appendingPathComponent("Contents/Resources/app/bin/code-tunnel", isDirectory: false)
+        return environment.isExecutableFileAtPath(codeTunnelURL.path)
     }
 
     func applicationURL(in environment: DetectionEnvironment = .live) -> URL? {
