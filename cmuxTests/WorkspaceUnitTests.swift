@@ -6418,6 +6418,29 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testSidebarObservationPublisherEmitsForLateStatusSubscriber() {
+        let workspace = Workspace()
+        workspace.statusEntries["test_probe"] = SidebarStatusEntry(
+            key: "test_probe",
+            value: "VISIBLE?",
+            icon: "star.fill",
+            color: "#FF0000",
+            priority: 200
+        )
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        XCTAssertGreaterThan(
+            publishCount,
+            0,
+            "A sidebar row that subscribes after status metadata already exists must still refresh from the current workspace state."
+        )
+    }
+
     func testSidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
         let workspace = Workspace()
 
