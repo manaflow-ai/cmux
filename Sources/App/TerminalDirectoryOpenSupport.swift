@@ -544,6 +544,14 @@ final class VSCodeServeWebController {
         ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL, completion: completion)
     }
 
+    func isServeWebURL(_ candidateURL: URL?) -> Bool {
+        guard let candidateURL else { return false }
+        let serveWebURL = queue.sync {
+            self.serveWebURL
+        }
+        return Self.urlsShareLoopbackOrigin(candidateURL, serveWebURL)
+    }
+
     private func launchServeWebProcess(
         vscodeApplicationURL: URL,
         expectedGeneration: UInt64
@@ -710,6 +718,21 @@ final class VSCodeServeWebController {
 
     private static func removeConnectionTokenFile(at url: URL) {
         try? FileManager.default.removeItem(at: url)
+    }
+
+    private static func urlsShareLoopbackOrigin(_ lhs: URL, _ rhs: URL?) -> Bool {
+        guard let rhs else { return false }
+        guard lhs.scheme?.lowercased() == "http",
+              rhs.scheme?.lowercased() == "http" else {
+            return false
+        }
+        guard lhs.port == rhs.port, lhs.port != nil else { return false }
+        guard let lhsHost = BrowserInsecureHTTPSettings.normalizeHost(lhs.host ?? ""),
+              let rhsHost = BrowserInsecureHTTPSettings.normalizeHost(rhs.host ?? "") else {
+            return false
+        }
+        return RemoteLoopbackProxyAlias.isLoopbackHost(lhsHost)
+            && RemoteLoopbackProxyAlias.isLoopbackHost(rhsHost)
     }
 }
 
