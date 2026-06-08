@@ -173,7 +173,7 @@ struct WorkspaceDetailView: View {
         }
 
         Section {
-            Button(action: createWorkspaceFromTerminalPicker) {
+            Button(action: createWorkspaceFromToolbar) {
                 Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
             }
             .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
@@ -276,11 +276,6 @@ struct WorkspaceDetailView: View {
     #endif
 
     private func createWorkspaceFromToolbar() {
-        dismissTerminalKeyboardForChrome()
-        createWorkspace()
-    }
-
-    private func createWorkspaceFromTerminalPicker() {
         dismissTerminalKeyboardForChrome()
         createWorkspace()
     }
