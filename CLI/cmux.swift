@@ -18470,6 +18470,7 @@ struct CMUXCLI {
         private func pushCodexApprovalToFeed(event: [String: Any]) throws -> [String: Any] {
             let feedClient = SocketClient(path: socketClient.socketPath)
             try feedClient.connect()
+            defer { feedClient.close() }
             return try feedClient.sendV2(method: "feed.push", params: [
                 "event": event,
                 "wait_timeout_seconds": 120
