@@ -187,6 +187,30 @@ import Testing
         #expect(output["count"] as? Int == 2)
     }
 
+    @Test func redactsUrlUserinfoCredentialsKeepingHost() {
+        // scheme://user:pass@host — neither the token-assignment nor email rule
+        // catches the userinfo authority; redact it but keep scheme + host.
+        #expect(
+            scrubber.scrub("connecting to http://alice:secret@localhost/path")
+                == "connecting to http://<redacted-secret>@localhost/path"
+        )
+        // Username must not leak even when pass@host looks like an email.
+        #expect(
+            scrubber.scrub("redis://default:p4ss@cache.internal:6379")
+                == "redis://<redacted-secret>@cache.internal:6379"
+        )
+        // A URL with no userinfo is untouched.
+        #expect(scrubber.scrub("GET http://localhost/health") == "GET http://localhost/health")
+    }
+
+    @Test func redactsExactHomePathsWithoutTrailingSlash() {
+        #expect(scrubber.scrub("build dir /Users/buildbot") == "build dir /Users/<redacted>")
+        #expect(scrubber.scrub("file:///Users/alice") == "file:///Users/<redacted>")
+        #expect(scrubber.scrub("at /Users/bob in frame") == "at /Users/<redacted> in frame")
+        // A path with a trailing component still redacts only the username.
+        #expect(scrubber.scrub("/Users/carol/dev/app.swift") == "/Users/<redacted>/dev/app.swift")
+    }
+
     // MARK: - Grouping fields preserved
 
     @Test func preservesNormalErrorText() {

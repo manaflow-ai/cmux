@@ -44,11 +44,22 @@ public struct SentryScrubber: Sendable {
     /// string-content rules, so any `Data` the scrubber walks is dropped wholesale.
     public static let redactedData = "<redacted-data>"
 
-    /// Matches `/Users/<name>/` so the local username can be replaced regardless of the runtime home dir.
-    static let userHomePrefix = SentryRegexPattern(#"/Users/[^/\s"']+/"#)
+    /// Matches `/Users/<name>` (the username component stops at the next path
+    /// delimiter, quote, whitespace, or end of string) so the local username is
+    /// replaced regardless of the runtime home dir AND whether the path has a
+    /// trailing component. An exact `/Users/buildbot` or `file:///Users/alice`
+    /// is redacted, not just `/Users/alice/...`.
+    static let userHomePrefix = SentryRegexPattern(#"/Users/[^/\s"']+"#)
 
-    /// Matches `/home/<name>/` for Linux-style paths that can appear in build-machine stack frames.
-    static let linuxHomePrefix = SentryRegexPattern(#"/home/[^/\s"']+/"#)
+    /// Matches `/home/<name>` for Linux-style paths that can appear in build-machine stack frames.
+    static let linuxHomePrefix = SentryRegexPattern(#"/home/[^/\s"']+"#)
+
+    /// Matches the `userinfo@` authority of a URL (`scheme://user:pass@host`).
+    ///
+    /// Group 1 keeps the `scheme://` prefix; the `user[:pass]` credentials up to
+    /// (and including) the `@` are redacted, the host is preserved. Neither the
+    /// assignment-token rule nor the email rule covers a `user:pass@` authority.
+    static let urlUserInfo = SentryRegexPattern(#"([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#@\s]+@"#)
 
     /// Matches an email address.
     static let email = SentryRegexPattern(#"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"#)
@@ -116,10 +127,25 @@ public struct SentryScrubber: Sendable {
     public func scrub(_ text: String) -> String {
         guard !text.isEmpty else { return text }
         var result = text
+        result = redactURLCredentials(in: result)
         result = redactSecrets(in: result)
         result = redactEmails(in: result)
         result = redactPaths(in: result)
         return result
+    }
+
+    /// Replaces `user:password@` URL credentials with ``redactedSecret``,
+    /// preserving the `scheme://` and the host. Runs FIRST so it captures the
+    /// whole `user:pass@host` authority before the email rule could match
+    /// `pass@host.tld` (which would leak the username); its `>`-terminated
+    /// placeholder (`<redacted-secret>@host`) is then immune to the email rule.
+    private func redactURLCredentials(in text: String) -> String {
+        Self.urlUserInfo.replace(in: text) { match in
+            if let scheme = match.captureGroup(1) {
+                return "\(scheme)\(Self.redactedSecret)@"
+            }
+            return "\(Self.redactedSecret)@"
+        }
     }
 
     /// Returns `text` scrubbed, or `nil` when the input is `nil`.
@@ -246,8 +272,8 @@ public struct SentryScrubber: Sendable {
         if !homeDirectory.isEmpty, homeDirectory != "/" {
             result = result.replacingOccurrences(of: homeDirectory, with: Self.redactedHomePath(for: homeDirectory))
         }
-        result = Self.userHomePrefix.replace(in: result) { _ in "/Users/\(Self.redactedUser)/" }
-        result = Self.linuxHomePrefix.replace(in: result) { _ in "/home/\(Self.redactedUser)/" }
+        result = Self.userHomePrefix.replace(in: result) { _ in "/Users/\(Self.redactedUser)" }
+        result = Self.linuxHomePrefix.replace(in: result) { _ in "/home/\(Self.redactedUser)" }
         return result
     }
 
