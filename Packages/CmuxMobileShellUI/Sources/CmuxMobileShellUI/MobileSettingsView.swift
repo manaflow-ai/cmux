@@ -61,35 +61,40 @@ struct MobileSettingsView: View {
                     ))
                 }
 
-                Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
-                    if !connectedHostName.isEmpty {
-                        LabeledContent(
-                            L10n.string("mobile.settings.mac", defaultValue: "Mac"),
-                            value: connectedHostName
-                        )
-                    }
-                    if store != nil {
-                        Button {
-                            showingHostPicker = true
-                        } label: {
-                            Label(
-                                L10n.string("mobile.settings.switchMac", defaultValue: "Switch Mac"),
-                                systemImage: "macbook.and.iphone"
+                // Hidden entirely when there is nothing to show (no connected
+                // Mac, no store to switch with, no rescan), so the no-devices
+                // screen's reuse of this sheet does not render an empty header.
+                if hasConnectionSection {
+                    Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
+                        if !connectedHostName.isEmpty {
+                            LabeledContent(
+                                L10n.string("mobile.settings.mac", defaultValue: "Mac"),
+                                value: connectedHostName
                             )
                         }
-                        .accessibilityIdentifier("MobileSettingsSwitchMac")
-                    }
-                    if let rescanQR {
-                        Button {
-                            rescanQR()
-                            dismiss()
-                        } label: {
-                            Label(
-                                L10n.string("mobile.workspaces.rescan", defaultValue: "Rescan QR"),
-                                systemImage: "qrcode.viewfinder"
-                            )
+                        if store != nil {
+                            Button {
+                                showingHostPicker = true
+                            } label: {
+                                Label(
+                                    L10n.string("mobile.settings.switchMac", defaultValue: "Switch Mac"),
+                                    systemImage: "macbook.and.iphone"
+                                )
+                            }
+                            .accessibilityIdentifier("MobileSettingsSwitchMac")
                         }
-                        .accessibilityIdentifier("MobileSettingsRescanQR")
+                        if let rescanQR {
+                            Button {
+                                rescanQR()
+                                dismiss()
+                            } label: {
+                                Label(
+                                    L10n.string("mobile.workspaces.rescan", defaultValue: "Rescan QR"),
+                                    systemImage: "qrcode.viewfinder"
+                                )
+                            }
+                            .accessibilityIdentifier("MobileSettingsRescanQR")
+                        }
                     }
                 }
 
@@ -147,6 +152,13 @@ struct MobileSettingsView: View {
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
+    }
+
+    /// Whether the Connection section has any rows to show. When this sheet is
+    /// reused from the no-devices screen there is no connected Mac, no store to
+    /// switch with, and no rescan action, so the section is omitted entirely.
+    private var hasConnectionSection: Bool {
+        !connectedHostName.isEmpty || store != nil || rescanQR != nil
     }
 
     private var accountEmail: String {

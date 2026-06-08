@@ -133,7 +133,8 @@ struct CMUXMobileRootView: View {
         } else if store.connectionState != .connected {
             DisconnectedWorkspaceShellView(
                 showAddDevice: showAddDevice,
-                signOut: signOut
+                signOut: signOut,
+                store: store
             )
             .sheet(isPresented: $isShowingAddDeviceSheet) {
                 PairingView(
