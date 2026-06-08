@@ -1233,7 +1233,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "workspace_id": workspaceID,
             "surface_id": terminal.id,
             "seq": streamOffset,
-            "data_b64": bytes.base64EncodedString(),
+            "snapshot_format": "ghostty.active.vt",
+            "snapshot_data_b64": bytes.base64EncodedString(),
             "columns": 80,
             "rows": 24,
         ]
