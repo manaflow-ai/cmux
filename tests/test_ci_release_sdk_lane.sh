@@ -4,11 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 RELEASE_FILE="$ROOT_DIR/.github/workflows/release.yml"
+BUILD_SIGN_UPLOAD_FILE="$ROOT_DIR/scripts/build-sign-upload.sh"
 
-# nightly.yml is intentionally not covered here. It builds the macOS 26 SDK app
-# with its own inline helper-build model (PR #5077) and self-guards via its
-# "Select Xcode" loud-fail and "Verify nightly binary architectures" steps.
-# This lane guards the release/CI artifact-download model added by this change.
+# nightly.yml builds the macOS 26 SDK app with its own inline helper-build model
+# (PR #5077). This lane guards the release/CI artifact-download model added by
+# this change; nightly's verifier call is covered by the universal verifier test.
 
 job_section() {
   local file="$1" job="$2"
@@ -69,10 +69,15 @@ for workflow in "$CI_FILE" "$RELEASE_FILE"; do
     exit 1
   fi
 
-  if ! grep -Fq '[[ "$SDK_VERSION" == 26.* ]]' "$workflow"; then
-    echo "FAIL: $(basename "$workflow") must verify the app binary was built with a macOS 26 SDK" >&2
+  if ! grep -Fq -- '--require-sdk-prefix "26."' "$workflow"; then
+    echo "FAIL: $(basename "$workflow") must verify the app binary was built with a macOS 26 SDK through the universal app verifier" >&2
     exit 1
   fi
 done
 
-echo "PASS: release and CI app builds use macOS 26 SDK with a macOS 15-built Ghostty CLI helper"
+if ! grep -Fq -- '--require-sdk-prefix "26."' "$BUILD_SIGN_UPLOAD_FILE"; then
+  echo "FAIL: build-sign-upload.sh must verify the app binary was built with a macOS 26 SDK through the universal app verifier" >&2
+  exit 1
+fi
+
+echo "PASS: release, CI, and manual app builds use macOS 26 SDK with a macOS 15-built Ghostty CLI helper"

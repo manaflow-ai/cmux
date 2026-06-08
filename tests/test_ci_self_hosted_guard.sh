@@ -13,6 +13,16 @@ CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
+UNIVERSAL_VERIFIER="$ROOT_DIR/scripts/verify-universal-macos-app.sh"
+
+job_section() {
+  local file="$1" job="$2"
+  awk -v job="$job" '
+    $0 ~ "^  "job":" { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { exit }
+    in_job { print }
+  ' "$file"
+}
 
 check_macos_runner() {
   local file="$1" job="$2"
@@ -105,18 +115,26 @@ check_xcode_selection() {
 }
 
 check_release_build_signal() {
-  if ! grep -Fq 'lipo "$APP_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
-    echo "FAIL: release-build must verify the Release app binary stays universal"
+  local section
+  section="$(job_section "$CI_FILE" "release-build")"
+
+  if ! grep -Eq '^[[:space:]]*\./scripts/verify-universal-macos-app\.sh([[:space:]\\]|$)' <<< "$section"; then
+    echo "FAIL: release-build must verify the Release artifact through the universal app verifier"
     exit 1
   fi
 
-  if ! grep -Fq 'lipo "$CLI_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
-    echo "FAIL: release-build must verify the bundled CLI stays universal"
+  if ! grep -Fq 'verify_binary_archs "app binary" "$APP_BINARY"' "$UNIVERSAL_VERIFIER"; then
+    echo "FAIL: universal app verifier must check the Release app binary"
     exit 1
   fi
 
-  if ! grep -Fq 'lipo "$HELPER_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
-    echo "FAIL: release-build must verify the bundled Ghostty helper stays universal"
+  if ! grep -Fq 'verify_binary_archs "CLI binary" "$CLI_BINARY"' "$UNIVERSAL_VERIFIER"; then
+    echo "FAIL: universal app verifier must check the bundled CLI"
+    exit 1
+  fi
+
+  if ! grep -Fq 'verify_binary_archs "Ghostty helper" "$HELPER_BINARY"' "$UNIVERSAL_VERIFIER"; then
+    echo "FAIL: universal app verifier must check the bundled Ghostty helper"
     exit 1
   fi
 

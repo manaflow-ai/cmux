@@ -229,22 +229,10 @@ jobs:
       - name: Verify binary architectures
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          set -euo pipefail
-          APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
-          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
-          HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
-          APP_ARCHS="$(lipo -archs "$APP_BINARY")"
-          CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
-          HELPER_ARCHS="$(lipo -archs "$HELPER_BINARY")"
-          SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
-          echo "App binary architectures: $APP_ARCHS"
-          echo "CLI binary architectures: $CLI_ARCHS"
-          echo "Ghostty helper architectures: $HELPER_ARCHS"
-          echo "App SDK version: $SDK_VERSION"
-          [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
-          [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
-          [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
-          [[ "$SDK_VERSION" == 26.* ]]
+          ./scripts/verify-universal-macos-app.sh \
+            "build-universal/Build/Products/Release/cmux.app" \
+            --label "Release app" \
+            --require-sdk-prefix "26."
 
       - name: Build remote daemon release assets and inject manifest
         if: steps.guard_release_assets.outputs.skip_all != 'true'

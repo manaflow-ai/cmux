@@ -71,7 +71,11 @@ cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 # --- Build app (Release, unsigned) ---
 echo "Building app..."
 rm -rf build/
-xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
+xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build \
+  -destination 'generic/platform=macOS' \
+  ARCHS="arm64 x86_64" \
+  ONLY_ACTIVE_ARCH=NO \
+  CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
 echo "Build succeeded"
 
 HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
@@ -79,6 +83,10 @@ if [ ! -x "$HELPER_PATH" ]; then
   echo "Ghostty theme picker helper not found at $HELPER_PATH" >&2
   exit 1
 fi
+./scripts/verify-universal-macos-app.sh \
+  "$APP_PATH" \
+  --label "Release app" \
+  --require-sdk-prefix "26."
 
 # --- Inject Sparkle keys ---
 echo "Injecting Sparkle keys..."
