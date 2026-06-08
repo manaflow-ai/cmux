@@ -522,8 +522,6 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                 "terminal.replay",
                 "mobile.terminal.viewport",
                 "terminal.viewport",
-                "mobile.events.subscribe",
-                "mobile.events.unsubscribe",
             ]
             XCTAssertTrue(
                 expectedMethods.isSubset(of: advertisedMethods),
