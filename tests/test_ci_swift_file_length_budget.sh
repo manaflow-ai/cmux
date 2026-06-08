@@ -25,6 +25,7 @@ write_lines(root / "Sources" / "Small.swift", 4)
 write_lines(root / "Sources" / "vendor" / "Ignored.swift", 100)
 write_lines(root / "CLI" / "Tool.swift", 6)
 write_lines(root / "Packages" / "Fixture" / "Sources" / "Fixture.swift", 7)
+write_lines(root / "Packages" / "Fixture" / ".build" / "checkouts" / "Dependency" / "Sources" / "Ignored.swift", 100)
 PY
 
 python3 scripts/swift_file_length_budget.py \
@@ -55,6 +56,11 @@ fi
 
 if grep -Fq 'vendor' "$BUDGET"; then
   echo "ignored source should not be included" >&2
+  exit 1
+fi
+
+if grep -Fq '.build' "$BUDGET"; then
+  echo "SwiftPM .build products should not be included" >&2
   exit 1
 fi
 
@@ -168,5 +174,90 @@ fi
 if ! grep -Fq 'duplicate entry' "$TMP_DIR/duplicate.out"; then
   echo "expected duplicate budget error output" >&2
   cat "$TMP_DIR/duplicate.out" >&2
+  exit 1
+fi
+
+BASELINE_FIXTURE="$TMP_DIR/baseline-repo"
+BASELINE_BUDGET="$BASELINE_FIXTURE/.github/swift-file-length-budget.tsv"
+python3 - "$BASELINE_FIXTURE" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+path = root / "Sources" / "Big.swift"
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text("".join(f"line {index}\n" for index in range(6)), encoding="utf-8")
+budget = root / ".github" / "swift-file-length-budget.tsv"
+budget.parent.mkdir(parents=True, exist_ok=True)
+budget.write_text(
+    "# cmux-owned Swift file length budget.\n"
+    "# Format: max_lines<TAB>relative path\n"
+    "5\tSources/Big.swift\n",
+    encoding="utf-8",
+)
+PY
+
+git -C "$BASELINE_FIXTURE" init -q
+git -C "$BASELINE_FIXTURE" config user.email ci@example.com
+git -C "$BASELINE_FIXTURE" config user.name "CI"
+git -C "$BASELINE_FIXTURE" add .
+git -C "$BASELINE_FIXTURE" commit -qm baseline
+
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$BASELINE_FIXTURE" \
+  --budget "$BASELINE_BUDGET" \
+  --threshold 5 >"$TMP_DIR/stale-budget.out" 2>&1; then
+  echo "expected stale static budget to fail without a baseline ref" >&2
+  exit 1
+fi
+
+python3 scripts/swift_file_length_budget.py \
+  --repo-root "$BASELINE_FIXTURE" \
+  --budget "$BASELINE_BUDGET" \
+  --threshold 5 \
+  --baseline-ref HEAD
+
+printf 'new growth\n' >>"$BASELINE_FIXTURE/Sources/Big.swift"
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$BASELINE_FIXTURE" \
+  --budget "$BASELINE_BUDGET" \
+  --threshold 5 \
+  --baseline-ref HEAD >"$TMP_DIR/baseline-growth.out" 2>&1; then
+  echo "expected growth beyond baseline ref to fail" >&2
+  exit 1
+fi
+
+if ! grep -Fq '+1 Sources/Big.swift' "$TMP_DIR/baseline-growth.out"; then
+  echo "expected baseline growth delta" >&2
+  cat "$TMP_DIR/baseline-growth.out" >&2
+  exit 1
+fi
+
+python3 - "$BASELINE_BUDGET" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+path.write_text(
+    "# cmux-owned Swift file length budget.\n"
+    "# Format: max_lines<TAB>relative path\n"
+    "7\tSources/Big.swift\n",
+    encoding="utf-8",
+)
+PY
+
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$BASELINE_FIXTURE" \
+  --budget "$BASELINE_BUDGET" \
+  --threshold 5 \
+  --baseline-ref HEAD \
+  --reject-budget-increases-from HEAD >"$TMP_DIR/budget-increase.out" 2>&1; then
+  echo "expected budget increase rejection" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'Swift file length budget increases are not allowed' "$TMP_DIR/budget-increase.out"; then
+  echo "expected budget increase rejection output" >&2
+  cat "$TMP_DIR/budget-increase.out" >&2
   exit 1
 fi

@@ -676,6 +676,30 @@ check_no_swift_test_skip_quarantines() {
   echo "PASS: workflows do not hide Swift package coverage with swift test --skip"
 }
 
+check_swift_file_length_budget_active() {
+  if ! awk '
+    /^[[:space:]]*- name: Validate Swift file length budget$/ { in_step=1; saw_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /PR_BASE_SHA:/ { saw_pr_base_env=1 }
+    in_step && /git fetch --no-tags --depth=1 origin "\$PR_BASE_SHA"/ { saw_base_fetch=1 }
+    in_step && /baseline_ref="HEAD\^"/ { saw_push_baseline=1 }
+    in_step && /--budget \.github\/swift-file-length-budget\.tsv/ { saw_budget=1 }
+    in_step && /--baseline-ref "\$baseline_ref"/ { saw_baseline_ref=1 }
+    in_step && /--reject-budget-increases-from "\$baseline_ref"/ { saw_reject_budget_increase=1 }
+    END { exit(saw_step && saw_pr_base_env && saw_base_fetch && saw_push_baseline && saw_budget && saw_baseline_ref && saw_reject_budget_increase ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: ci.yml must actively enforce the Swift file length budget against a git baseline and reject budget increases"
+    exit 1
+  fi
+
+  if grep -n "Paused: stale-base merge races" "$CI_FILE"; then
+    echo "FAIL: Swift file length budget enforcement must not be left paused"
+    exit 1
+  fi
+
+  echo "PASS: Swift file length budget enforcement is active and baseline-scoped"
+}
+
 check_vm_socket_tests_do_not_skip_ctrl_interactive() {
   for script in "$ROOT_DIR/scripts/run-tests-v1.sh" "$ROOT_DIR/scripts/run-tests-v2.sh"; do
     if grep -n "test_ctrl_interactive.py" "$script" | grep -Eq "SKIP|continue"; then
@@ -1549,6 +1573,7 @@ check_cmux_top_process_fixture_fails_closed_on_ci
 check_file_explorer_search_fails_closed_on_ci
 check_cli_notify_bundled_cli_fails_closed_on_ci
 check_no_swift_test_skip_quarantines
+check_swift_file_length_budget_active
 check_vm_socket_tests_do_not_skip_ctrl_interactive
 check_vm_socket_tests_do_not_self_skip
 check_vm_socket_runners_fail_closed_without_test_retries
