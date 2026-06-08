@@ -59,46 +59,28 @@ public struct SentryScrubber: Sendable {
     /// Group 1 keeps the `scheme://` prefix; the `user[:pass]` credentials up to
     /// (and including) the `@` are redacted, the host is preserved. Neither the
     /// assignment-token rule nor the email rule covers a `user:pass@` authority.
+    ///
+    /// This is cmux's equivalent of relay's `@common` `@urlauth` rule
+    /// (getsentry/relay @ 99c91d92845fe436713b51018a7f8d2b7b469be5,
+    /// relay-pii/src/regexes.rs:319-326). It is kept here, applied first in
+    /// ``scrub(_:)`` via `redactURLCredentials`, rather than ported into
+    /// ``ScrubberDenylists/valuePatterns`` because cmux's redaction loop treats
+    /// group 1 as a prefix to keep (the scheme), the inverse of relay's group-1
+    /// convention; duplicating relay's pattern would double-handle with the wrong
+    /// group meaning.
     static let urlUserInfo = SentryRegexPattern(#"([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#@\s]+@"#)
 
     /// Matches an email address.
     static let email = SentryRegexPattern(#"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"#)
 
-    /// The ordered secret / token / key / bearer / password patterns.
+    /// The ordered secret / token / key / PEM / financial value patterns.
     ///
-    /// Patterns that capture a field prefix in group 1 (e.g. `token=`) keep that
-    /// prefix in the output so the redacted field stays legible; patterns with no
-    /// capture group replace the whole match.
-    static let secretPatterns: [SentryRegexPattern] = [
-        // Bearer <token>
-        SentryRegexPattern(#"(Bearer\s+)[A-Za-z0-9\-._~+/]+=*"#),
-        // Authorization: <scheme> <token>  (Basic / Digest / token / etc.)
-        SentryRegexPattern(#"(Authorization:\s*\w+\s+)\S+"#),
-        // `<sensitive-key> = value` in raw query strings, env-style assignments,
-        // or JSON ("key":"value"). The marker set is kept in sync with the
-        // key-aware dictionary path (``isSensitiveKey(_:)``) so a credential like
-        // `auth=…`, `session_id=…`, or `cookie=…` is redacted whether it arrives
-        // as a dictionary entry or as raw text. The marker may be embedded in a
-        // longer identifier (e.g. AWS_SECRET_ACCESS_KEY, MY_API_KEY), so optional
-        // identifier characters are allowed around it.
-        SentryRegexPattern(
-            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*["']?)[^\s"'&,}]+"#
-        ),
-        // The bare `sid` session alias (`?sid=…`, `&sid=…`, `sid:…`) carries a
-        // session credential but is too short to embed in the marker set above
-        // without matching innocuous substrings (`inside=`, `aside=`). A `\b`
-        // word boundary anchors it so only a standalone `sid` key is redacted.
-        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*["']?)[^\s"'&,}]+"#),
-        // Provider-style keys: sk-..., pk-..., ghp_..., xoxb-..., and similar prefixes.
-        SentryRegexPattern(#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|xox[baprs])[_\-][A-Za-z0-9_\-]{16,}"#),
-        // JSON Web Tokens: three base64url segments separated by dots.
-        SentryRegexPattern(
-            #"\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+"#,
-            options: []
-        ),
-        // AWS access key IDs.
-        SentryRegexPattern(#"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"#, options: []),
-    ]
+    /// Sourced from ``ScrubberDenylists/valuePatterns`` so the maintained relay
+    /// `@common` ports and cmux's own provider-key / JWT / AWS rules live in one
+    /// provenance-pinned place. Patterns that capture a field prefix in group 1
+    /// (e.g. `token=`) keep that prefix in the output; patterns with no capture
+    /// group replace the whole match.
+    static let secretPatterns: [SentryRegexPattern] = ScrubberDenylists.valuePatterns
 
     /// The absolute home directory whose prefix is replaced wherever it appears.
     private let homeDirectory: String
@@ -241,27 +223,23 @@ public struct SentryScrubber: Sendable {
     }
 
     /// Substrings that mark a dictionary/header key as secret-bearing.
-    static let sensitiveKeyMarkers: [String] = [
-        "password",
-        "passwd",
-        "secret",
-        "token",
-        "apikey",
-        "accesskey",
-        "authorization",
-        "auth",
-        "cookie",
-        "credential",
-        "bearer",
-        "session",
-        "privatekey",
-    ]
+    ///
+    /// Sourced from ``ScrubberDenylists/sensitiveKeyMarkers`` (ported from
+    /// sentry-python `DEFAULT_DENYLIST`). cmux's substring-contains semantics
+    /// (vs. sentry-python's exact match) make each marker catch longer
+    /// identifiers like `AWS_SECRET_ACCESS_KEY` or `sessionid`.
+    static let sensitiveKeyMarkers: [String] = ScrubberDenylists.sensitiveKeyMarkers
 
-    /// Short credential key aliases matched WHOLE (not as substrings), so they
-    /// don't redact innocuous keys that merely contain them (e.g. `sid` must not
-    /// match `inside`/`aside`). The free-text scrubber covers their `key=value`
-    /// form via a `\b`-anchored pattern.
-    static let sensitiveKeyExactMarkers: Set<String> = ["sid"]
+    /// Short or marker-free credential key aliases matched WHOLE (not as
+    /// substrings), so they don't redact innocuous keys that merely contain them
+    /// (e.g. `sid` must not match `inside`/`aside`). The free-text scrubber
+    /// covers their `key=value` form via a `\b`-anchored pattern.
+    ///
+    /// Sourced from ``ScrubberDenylists/sensitiveKeyExactMarkers`` (ported from
+    /// sentry-python `DEFAULT_DENYLIST` + `DEFAULT_PII_DENYLIST` and relay's
+    /// sensitive-cookie list). Entries are pre-normalized to match against the
+    /// normalized key.
+    static let sensitiveKeyExactMarkers: Set<String> = ScrubberDenylists.sensitiveKeyExactMarkers
 
     // MARK: - Paths
 
