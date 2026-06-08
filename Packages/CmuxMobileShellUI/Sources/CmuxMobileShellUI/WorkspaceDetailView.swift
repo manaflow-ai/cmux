@@ -160,26 +160,7 @@ struct WorkspaceDetailView: View {
                 .padding(.top, 14)
                 .padding(.bottom, 8)
 
-            if store.supportsDeleteActions {
-                terminalPickerList
-            } else {
-                ForEach(workspace.terminals) { terminal in
-                    Button {
-                        selectTerminalFromPicker(terminal.id)
-                    } label: {
-                        Label(
-                            terminal.name,
-                            systemImage: terminal.id == selectedTerminal?.id ? "checkmark.circle.fill" : "terminal"
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
-                }
-            }
+            terminalPickerList
 
             Divider()
                 .padding(.vertical, 4)
