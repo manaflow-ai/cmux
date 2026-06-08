@@ -80,9 +80,34 @@ private func nextPin(
 
 // MARK: - No-op cases
 
-@Test func unchangedGridDoesNotChurnThePin() {
+@Test func unchangedGridAtSameOrOlderGenerationIsANoOp() {
     let current = MobileTerminalGridPin(columns: 80, rows: 40, geometrySeq: 10)
-    #expect(nextPin(current: current, columns: 80, rows: 40, seq: 20) == nil)
+    #expect(nextPin(current: current, columns: 80, rows: 40, seq: 10) == nil)
+    #expect(nextPin(current: current, columns: 80, rows: 40, seq: 5) == nil)
+}
+
+@Test func unchangedGridAtNewerGenerationAdvancesTheHighWaterMark() {
+    // The grid did not change, so no geometry apply is needed, but the stored
+    // generation MUST advance: otherwise a later delayed frame at an
+    // intermediate generation could pass the staleness check and overwrite the
+    // pin. The returned pin keeps the same grid (caller's apply is a no-op) and
+    // carries the newer generation.
+    let current = MobileTerminalGridPin(columns: 80, rows: 40, geometrySeq: 10)
+    let advanced = nextPin(current: current, columns: 80, rows: 40, seq: 20)
+    #expect(advanced == MobileTerminalGridPin(columns: 80, rows: 40, geometrySeq: 20))
+}
+
+@Test func delayedIntermediateFrameCannotWinAfterResizeAwayAndBack() {
+    // Regression for the high-water-mark gap: pin 80x40@10, resize away to
+    // 100x50@11, then back to 80x40@12. The back-to-current frame must advance
+    // the stored generation to 12 so a delayed 100x50@11 is rejected as stale.
+    var pin = MobileTerminalGridPin(columns: 80, rows: 40, geometrySeq: 10)
+    pin = nextPin(current: pin, columns: 100, rows: 50, seq: 11) ?? pin
+    #expect(pin == MobileTerminalGridPin(columns: 100, rows: 50, geometrySeq: 11))
+    pin = nextPin(current: pin, columns: 80, rows: 40, seq: 12) ?? pin
+    #expect(pin == MobileTerminalGridPin(columns: 80, rows: 40, geometrySeq: 12))
+    // The delayed intermediate-grid frame at generation 11 must NOT win.
+    #expect(nextPin(current: pin, columns: 100, rows: 50, seq: 11) == nil)
 }
 
 @Test func sameGenerationDifferentGridStillUpdates() {
@@ -124,8 +149,8 @@ private func nextPin(
     // A delayed smaller frame from before the resize must be dropped.
     #expect(nextPin(current: pin, columns: 50, rows: 30, seq: 6) == nil)
 
-    // Steady-state same grid, newer generation: no churn.
-    #expect(nextPin(current: pin, columns: 80, rows: 40, seq: 12) == nil)
-
-    #expect(pin == MobileTerminalGridPin(columns: 80, rows: 40, geometrySeq: 9))
+    // Steady-state same grid, newer generation: the grid does not change but the
+    // high-water mark advances (so a later intermediate frame can't win).
+    pin = nextPin(current: pin, columns: 80, rows: 40, seq: 12) ?? pin
+    #expect(pin == MobileTerminalGridPin(columns: 80, rows: 40, geometrySeq: 12))
 }

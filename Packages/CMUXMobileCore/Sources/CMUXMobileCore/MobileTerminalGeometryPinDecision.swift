@@ -58,14 +58,25 @@ public func mobileTerminalNextGridPin(
         return nil
     }
 
-    // Same-or-newer generation: only move the pin when the grid actually
-    // differs, so an unchanged grid does not churn a geometry resync. The
-    // generation high-water mark tracks the newest observed frame.
     if incomingColumns == current.columns,
        incomingRows == current.rows {
-        return nil
+        // Same grid. Still advance the high-water mark on a strictly newer
+        // generation so a later delayed frame at an intermediate generation
+        // (e.g. resize away to a different grid at gen 11 then back to this
+        // grid at gen 12) cannot pass the `incomingSeq < current.geometrySeq`
+        // check and overwrite the pin with stale geometry. The returned pin
+        // carries the same grid, so the caller's geometry apply is a no-op; it
+        // only records the newer generation. Nothing new at the same-or-older
+        // generation is a true no-op.
+        guard incomingSeq > current.geometrySeq else { return nil }
+        return MobileTerminalGridPin(
+            columns: current.columns,
+            rows: current.rows,
+            geometrySeq: incomingSeq
+        )
     }
 
+    // Newer generation with a different grid: move the pin.
     return MobileTerminalGridPin(
         columns: incomingColumns,
         rows: incomingRows,
