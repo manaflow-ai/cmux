@@ -21,23 +21,6 @@ public enum MobileTerminalGeometryPinVerdict: Equatable, Sendable {
     case update(MobileTerminalGridPin)
 }
 
-/// Which channel an incoming authoritative grid arrived on.
-///
-/// The two channels need different staleness rules because of the legacy
-/// `geometry_gen == 0` host, where every frame shares one generation:
-/// - ``stream`` frames are ordered by the `AsyncStream`, so a different-grid
-///   frame at the *same* generation is a real legacy resize and must apply
-///   (otherwise Bug B — a Mac-side grow — is never learned on a legacy host).
-/// - ``viewportReply`` is out-of-band with no stream ordering, so a
-///   different-grid reply must be *strictly* newer to apply; an equal-generation
-///   reply could otherwise rewind a same-generation stream frame.
-public enum MobileTerminalGeometryPinSource: Equatable, Sendable {
-    /// An ordered render-grid frame (live frame or cold-attach replay).
-    case stream
-    /// The out-of-band `mobile.terminal.viewport` RPC reply.
-    case viewportReply
-}
-
 /// Decide how an incoming frame's geometry merges with the current pin.
 ///
 /// The phone's pinned grid (`effectiveGrid` on the surface) has exactly one
@@ -52,11 +35,23 @@ public enum MobileTerminalGeometryPinSource: Equatable, Sendable {
 ///
 /// Live frames arrive over an ordered `AsyncStream`, so steady-state ordering
 /// is already guaranteed by the stream itself. The generation is the order key
-/// that lets the out-of-band viewport reply be merged safely: an older
+/// that lets the out-of-band viewport reply be merged safely: a strictly older
 /// generation can never overwrite a newer grid, and a reply for a phone-side
 /// resize the Mac pushed no frame for still advances the pin. The surface holds
 /// the single merged high-water mark across both channels, so it is the only
 /// place that can decide whether a frame's bytes are stale.
+///
+/// On a modern (gen-stamping) host the generation bumps whenever the exported
+/// grid changes, so a different grid always carries a strictly newer generation
+/// and the high-water mark can never be rewound. On a legacy host that omits
+/// `geometry_gen` every frame and reply shares generation 0; ordering then comes
+/// only from the `AsyncStream`. An equal-generation different-grid input is a
+/// genuine legacy resize and applies (this is the only way a Mac-side grow, and
+/// a phone-side resize whose sole acknowledgement is the viewport reply, are
+/// learned on a legacy host). The residual is a theoretical out-of-band reply
+/// vs. stream race on legacy, which self-heals on the very next frame (any frame
+/// re-pins to the live grid); breaking legacy resizes to avoid it would be a far
+/// worse regression.
 ///
 /// - Parameters:
 ///   - current: The pin currently applied, or `nil` if none has been applied
@@ -64,16 +59,13 @@ public enum MobileTerminalGeometryPinSource: Equatable, Sendable {
 ///   - incomingColumns: The columns carried by the incoming frame.
 ///   - incomingRows: The rows carried by the incoming frame.
 ///   - incomingSeq: The geometry generation carried by the incoming frame.
-///   - source: Which channel the grid arrived on; controls the equal-generation
-///     different-grid rule (see ``MobileTerminalGeometryPinSource``).
 /// - Returns: The verdict the caller acts on (drop vs. apply bytes, and whether
 ///   to advance the pin).
 public func mobileTerminalGeometryPinVerdict(
     current: MobileTerminalGridPin?,
     incomingColumns: Int,
     incomingRows: Int,
-    incomingSeq: UInt64,
-    source: MobileTerminalGeometryPinSource
+    incomingSeq: UInt64
 ) -> MobileTerminalGeometryPinVerdict {
     guard let current else {
         // First authoritative grid wins unconditionally; the initial pin is
@@ -119,17 +111,10 @@ public func mobileTerminalGeometryPinVerdict(
         )
     }
 
-    // Different grid. On a gen-stamping host a grid change always bumps the
-    // generation, so `incomingSeq > current` and this is an unambiguous resize.
-    // The equal-generation case is reachable only on a legacy `geometry_gen == 0`
-    // host, where the channel decides:
-    // - stream: ordered by the AsyncStream, so an equal-gen different grid is a
-    //   real legacy resize (the only way Bug B is learned on legacy) — apply it.
-    // - viewportReply: out-of-band with no ordering proof, so an equal-gen reply
-    //   could rewind a same-gen stream frame — treat it as stale, drop its bytes.
-    if incomingSeq == current.geometrySeq, source == .viewportReply {
-        return .stale
-    }
+    // Different grid at a same-or-newer generation: a resize. On a modern host
+    // this is always strictly newer (a grid change bumps the generation); the
+    // equal-generation case is the legacy `geometry_gen == 0` path, where both a
+    // stream frame and a viewport reply must still apply (see the type doc).
     return .update(
         MobileTerminalGridPin(
             columns: incomingColumns,

@@ -16,15 +16,13 @@ private func verdict(
     current: MobileTerminalGridPin?,
     columns: Int,
     rows: Int,
-    seq: UInt64,
-    source: MobileTerminalGeometryPinSource = .stream
+    seq: UInt64
 ) -> MobileTerminalGeometryPinVerdict {
     mobileTerminalGeometryPinVerdict(
         current: current,
         incomingColumns: columns,
         incomingRows: rows,
-        incomingSeq: seq,
-        source: source
+        incomingSeq: seq
     )
 }
 
@@ -109,34 +107,17 @@ private func appliedPin(
 
 // MARK: - Legacy equal-generation different grid (geometry_gen == 0 host)
 
-@Test func legacyStreamEqualGenerationResizeApplies() {
-    // On a legacy host every frame carries gen 0, so a real Mac-side resize is
-    // an equal-generation different-grid stream frame. It MUST apply, otherwise
-    // a Mac-side grow (Bug B) is never learned on legacy. Ordering comes from
-    // the AsyncStream, not the generation.
+@Test func legacyEqualGenerationResizeApplies() {
+    // On a legacy host every frame and reply carries gen 0, so a real resize is
+    // an equal-generation different-grid input. It MUST apply: a Mac-side grow
+    // (Bug B) is learned only via the stream frame, and a phone-side resize's
+    // sole acknowledgement can be the equal-gen viewport reply. Ordering on
+    // legacy comes from the AsyncStream, not the generation; the residual
+    // out-of-band race self-heals on the next frame.
     let current = MobileTerminalGridPin(columns: 50, rows: 30, geometrySeq: 0)
     #expect(
-        verdict(current: current, columns: 80, rows: 40, seq: 0, source: .stream)
+        verdict(current: current, columns: 80, rows: 40, seq: 0)
             == .update(MobileTerminalGridPin(columns: 80, rows: 40, geometrySeq: 0))
-    )
-}
-
-@Test func legacyViewportReplyEqualGenerationDifferentGridIsStale() {
-    // The out-of-band viewport reply has no stream ordering, so an
-    // equal-generation different-grid reply could rewind a same-generation
-    // stream frame. Reject it as stale so it cannot overwrite the pin or apply
-    // its (reply carries no) bytes.
-    let current = MobileTerminalGridPin(columns: 80, rows: 40, geometrySeq: 0)
-    #expect(verdict(current: current, columns: 50, rows: 30, seq: 0, source: .viewportReply) == .stale)
-}
-
-@Test func viewportReplyStrictlyNewerDifferentGridApplies() {
-    // A viewport reply that IS strictly newer (a gen-stamping host, or after the
-    // generation advanced) still converges the pin.
-    let current = MobileTerminalGridPin(columns: 50, rows: 30, geometrySeq: 4)
-    #expect(
-        verdict(current: current, columns: 80, rows: 40, seq: 5, source: .viewportReply)
-            == .update(MobileTerminalGridPin(columns: 80, rows: 40, geometrySeq: 5))
     )
 }
 
