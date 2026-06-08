@@ -2045,7 +2045,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             }
             return (status: 0, stdout: "", stderr: "")
         }
+        WorkspaceRemoteSessionController.startSynchronouslyForTesting = true
         defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
+        defer { WorkspaceRemoteSessionController.startSynchronouslyForTesting = false }
 
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -2159,7 +2161,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             }
             return (status: 0, stdout: "", stderr: "")
         }
+        WorkspaceRemoteSessionController.startSynchronouslyForTesting = true
         defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
+        defer { WorkspaceRemoteSessionController.startSynchronouslyForTesting = false }
 
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
