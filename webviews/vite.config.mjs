@@ -96,11 +96,15 @@ export default defineConfig({
           ) {
             return "diff-vendor";
           }
-          // Collapse Monaco into one lazy chunk loaded only by the editor
-          // surface (same rationale as diff-vendor): keep the entry/agent/diff
-          // surfaces free of Monaco and the emitted-file count well under the
-          // diff viewer allowlist cap.
+          // Collapse Monaco *core* into one lazy chunk loaded only by the
+          // editor surface. The basic-language Monarch grammars and the JSON
+          // language service must stay as their own lazy chunks: collapsing
+          // them into the core chunk breaks `_.contribution`'s lazy grammar
+          // `import()` (the tokenizers never register, so nothing highlights).
           if (id.includes("/monaco-editor/")) {
+            if (id.includes("/basic-languages/") || id.includes("/vs/language/")) {
+              return undefined;
+            }
             return "monaco-vendor";
           }
           // Framework code both surfaces share. Pinning it to a stable `vendor`
