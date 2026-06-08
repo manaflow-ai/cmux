@@ -32,6 +32,14 @@ public struct MobileFeedbackEmailClient: MobileFeedbackEmailSubmitting {
         self.requestTimeout = requestTimeout
     }
 
+    /// POST the feedback message + stamp to `/api/feedback` as multipart form
+    /// data.
+    ///
+    /// - Parameters:
+    ///   - email: The reply-to address.
+    ///   - message: The freeform feedback body.
+    ///   - stamp: The build + device stamp carried as form fields.
+    /// - Throws: ``MobileFeedbackEmailError`` on a transport or non-2xx error.
     public func submit(email: String, message: String, stamp: MobileFeedbackStamp) async throws {
         let boundary = "Boundary-\(UUID().uuidString)"
         var request = URLRequest(url: endpoint)
