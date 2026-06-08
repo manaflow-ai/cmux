@@ -13169,8 +13169,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .groupSelectedWorkspaces) {
             // Only consume the event when grouping actually happened; otherwise
             // fall through so the dispatcher reaches the later
-            // `.toggleReactGrab` check (default ⌘⇧G collides with React Grab
-            // and grouping returns false when no multi-selection exists).
+            // `.toggleReactGrab` check (default ⌘⇧G collides with React Grab).
+            // Grouping returns false when React Grab would act on the current
+            // focus or there's nothing to group, so React Grab still wins on
+            // browser-bearing workspaces.
             if handleGroupSelectedWorkspacesShortcut(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             ) {
@@ -14498,15 +14500,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let orderedSelectedIds: [UUID] = selectedSet.isEmpty
             ? []
             : tabManager.tabs.compactMap { selectedSet.contains($0.id) ? $0.id : nil }
-        // Only consume the shortcut when there's an explicit sidebar
-        // multi-selection. Anything ≤ 1 falls through so ⌘⇧G keeps working as
-        // React Grab's default in browser/terminal contexts. A single-tab
-        // group can still be created via right-click → New Group from
-        // Workspace. `sidebarSelectedWorkspaceIds` is normally synced to the
-        // focused workspace (clearSidebarMultiSelection sets it to a
-        // singleton after keyboard nav), so the singleton case must be
-        // treated the same as "no selection."
-        guard orderedSelectedIds.count >= 2 else { return false }
+        // Two or more sidebar-selected workspaces → group them under a fresh
+        // anchor (the original multi-select behavior below).
+        //
+        // A single focused workspace (or no explicit multi-selection) → turn
+        // that workspace itself into a group in place, but only when React
+        // Grab would not act on the current focus. React Grab keeps ⌘⇧G on
+        // browser-bearing workspaces; in a plain terminal the chord otherwise
+        // just beeps, so we use it to promote the focused workspace.
+        // `sidebarSelectedWorkspaceIds` is normally synced to the focused
+        // workspace (a singleton after keyboard nav), so ≤ 1 is treated as
+        // "no multi-selection."
+        guard orderedSelectedIds.count >= 2 else {
+            guard !tabManager.reactGrabWouldHandleCurrentFocus(),
+                  let focusedId = tabManager.selectedTabId,
+                  let focused = tabManager.tabs.first(where: { $0.id == focusedId }),
+                  focused.groupId == nil else {
+                return false
+            }
+            return tabManager.makeWorkspaceGroupFromWorkspace(anchorWorkspaceId: focusedId) != nil
+        }
         let candidateIds: [UUID] = orderedSelectedIds
         // Match the workspace context-menu eligibility filter so the shortcut
         // doesn't silently create an anchor-only group when every selected

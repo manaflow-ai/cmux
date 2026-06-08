@@ -6272,9 +6272,13 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func toggleReactGrabFromCurrentFocus() -> Bool {
-        guard let workspace = selectedWorkspace else { return false }
-
+    /// Resolve the React Grab shortcut route for the currently-focused
+    /// workspace, if any. Read-only; used both to decide whether ⌘⇧G should
+    /// defer to React Grab and to actually run it.
+    private func reactGrabShortcutRouteForCurrentFocus()
+        -> (workspace: Workspace, route: ReactGrabShortcutRoute, browserPanel: BrowserPanel)?
+    {
+        guard let workspace = selectedWorkspace else { return nil }
         let snapshots = workspace.panels.values.map { panel in
             ReactGrabShortcutPanelSnapshot(
                 id: panel.id,
@@ -6284,8 +6288,22 @@ class TabManager: ObservableObject {
         }
         guard let route = resolveReactGrabShortcutRoute(panels: snapshots),
               let browserPanel = workspace.browserPanel(for: route.browserPanelId) else {
-            return false
+            return nil
         }
+        return (workspace, route, browserPanel)
+    }
+
+    /// True when ⌘⇧G would activate React Grab for the current focus (a
+    /// browser is focused, or a single browser panel is reachable from the
+    /// focused terminal). The "turn this workspace into a group" shortcut
+    /// defers to React Grab in that case so React Grab keeps ⌘⇧G on
+    /// browser-bearing workspaces.
+    func reactGrabWouldHandleCurrentFocus() -> Bool {
+        reactGrabShortcutRouteForCurrentFocus() != nil
+    }
+
+    func toggleReactGrabFromCurrentFocus() -> Bool {
+        guard let (workspace, route, browserPanel) = reactGrabShortcutRouteForCurrentFocus() else { return false }
 
         if let returnTerminalPanelId = route.returnTerminalPanelId {
             browserPanel.armReactGrabRoundTrip(returnTo: returnTerminalPanelId)

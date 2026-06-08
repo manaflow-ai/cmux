@@ -30,9 +30,11 @@ The sidebar layout, top to bottom:
 
 ### From the keyboard (`⌘⇧G`)
 
-Select two or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` collides with React Grab's default; the group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and browser/terminal contexts. Rebind in Settings → Keyboard if you'd rather the two not share a key.
+Select two or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu).
 
-Single-tab groups are not created from the shortcut. Use the workspace context menu's **New Group from Workspace** entry for that.
+With a single focused workspace (no multi-selection), `⌘⇧G` **turns that workspace into a group in place** (the workspace becomes the anchor, named after itself). `⌘⇧G` collides with React Grab's default, so the group handler defers to React Grab whenever React Grab would act on the current focus (a browser is focused, or a single browser panel is reachable from the focused terminal). In a plain terminal workspace — where `⌘⇧G` would otherwise just beep — it promotes the workspace instead. Rebind in Settings → Keyboard if you'd rather the two not share a key.
+
+You can also turn a single workspace into a group from the workspace context menu's **New Group from Workspace** entry, which works regardless of focus.
 
 ### From a workspace context menu
 
