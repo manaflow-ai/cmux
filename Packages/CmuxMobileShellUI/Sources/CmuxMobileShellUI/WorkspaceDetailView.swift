@@ -356,14 +356,14 @@ struct WorkspaceDetailView: View {
     #endif
 
     private func createWorkspaceFromToolbar() {
-        dismissTerminalKeyboardForChrome()
         createWorkspace()
+        dismissTerminalKeyboardForChrome()
     }
 
     private func createWorkspaceFromTerminalPicker() {
-        dismissTerminalKeyboardForChrome()
-        isTerminalPickerPresented = false
         createWorkspace()
+        isTerminalPickerPresented = false
+        dismissTerminalKeyboardForChrome()
     }
 
     private func createTerminalFromToolbar() {

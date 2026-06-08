@@ -16,6 +16,11 @@ struct WorkspaceDetailContainer: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
 
     private var workspace: MobileWorkspacePreview? {
+        if let selectedWorkspaceID = store.selectedWorkspaceID,
+           selectedWorkspaceID != workspaceID,
+           let selectedWorkspace = store.workspaces.first(where: { $0.id == selectedWorkspaceID }) {
+            return selectedWorkspace
+        }
         if let workspaceID {
             return store.workspaces.first { $0.id == workspaceID } ?? store.selectedWorkspace
         }
