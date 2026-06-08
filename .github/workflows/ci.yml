@@ -379,6 +379,8 @@ jobs:
         run: scripts/ci/prune-deriveddata-module-cache.sh .ci-derived-data/unit-tests
 
       - name: Cache Swift packages
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
@@ -617,6 +619,8 @@ jobs:
         run: scripts/ci/prune-deriveddata-module-cache.sh .ci-derived-data/tests
 
       - name: Cache Swift packages
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
@@ -948,6 +952,8 @@ jobs:
         run: scripts/ci/prune-deriveddata-module-cache.sh .ci-derived-data/build
 
       - name: Cache Swift packages
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
@@ -1253,6 +1259,8 @@ jobs:
         run: scripts/ci/prune-deriveddata-module-cache.sh build-universal
 
       - name: Cache Swift packages
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .spm-cache
@@ -1405,6 +1413,8 @@ jobs:
         run: scripts/ci/prune-deriveddata-module-cache.sh .ci-derived-data/ui-regressions
 
       - name: Cache Swift packages
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
