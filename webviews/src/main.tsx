@@ -33,9 +33,7 @@ if (webviewKind === "agent-session") {
     surface.mountAgentSessionSurface(rootElement);
   });
 } else if (webviewKind === "editor") {
-  void import("./surfaces/editorSurface").then((surface) => {
-    surface.mountEditorSurface(rootElement);
-  });
+  void import("./surfaces/editorSurface").then((surface) => surface.mountEditorSurface(rootElement));
 } else {
   void import("./surfaces/diffSurface").then((surface) => {
     surface.mountDiffSurface(rootElement);
