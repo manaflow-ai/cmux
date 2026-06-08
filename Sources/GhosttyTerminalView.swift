@@ -7251,6 +7251,39 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return true
     }
 
+    /// Deliver `text` through Ghostty's paste path (`ghostty_surface_text`), the
+    /// same route a desktop clipboard paste or file drop takes.
+    ///
+    /// Unlike ``sendInputResult(_:)`` (which feeds bytes as typed text via
+    /// `ghostty_surface_text_input`, with bracketed paste *disabled*), this wraps
+    /// the bytes in a bracketed paste when the foreground program has enabled
+    /// bracketed paste mode (DECSET 2004). That framing is what lets prompt UIs
+    /// such as Claude Code recognize a pasted image file path and attach it as
+    /// `[Image #N]` instead of inserting the literal path string. It mirrors the
+    /// rich ``InputSendResult`` reporting of ``sendInputResult(_:)`` so callers
+    /// keep precise queue/availability error mapping.
+    @MainActor
+    @discardableResult
+    func sendTextResult(_ text: String) -> InputSendResult {
+        guard let data = text.data(using: .utf8), !data.isEmpty else { return .sent }
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
+            let queued = enqueuePendingSocketInput(.pasteText(data))
+            if queued {
+                recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+                requestBackgroundSurfaceStartIfNeeded()
+            }
+            return queued ? .queued : .inputQueueFull
+        }
+        guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendText") else {
+            return .surfaceUnavailable
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
+        recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+        writeTextData(data, to: liveSurface)
+        return .sent
+    }
+
     @MainActor
     @discardableResult
     func sendKeyText(_ text: String) -> Bool {
