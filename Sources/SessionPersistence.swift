@@ -117,6 +117,126 @@ enum SessionPersistencePolicy {
     }
 }
 
+/// Coordinates autosave-only state so the application delegate remains focused
+/// on collecting window snapshots and dispatching persistence writes.
+final class SessionAutosaveCoordinator {
+    final class RunToken: @unchecked Sendable {}
+
+    private var autosaveTask: Task<Void, Never>?
+    private var activeRunToken: RunToken?
+    private var isTickInFlight = false
+    private var isDeferredRetryPending = false
+    private var lastAutosaveFingerprint: Int?
+    private var lastAutosavePersistedAt: Date = .distantPast
+    private var cachedRestorableAgentIndex: RestorableAgentSessionIndex?
+    private var lastTypingActivityAt: TimeInterval = 0
+
+    func cancelInFlightTick() {
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        activeRunToken = nil
+        isTickInFlight = false
+        isDeferredRetryPending = false
+    }
+
+    @discardableResult
+    func beginTick(startTask: (RunToken) -> Task<Void, Never>) -> Bool {
+        guard !isTickInFlight else { return false }
+        let runToken = RunToken()
+        isTickInFlight = true
+        activeRunToken = runToken
+        autosaveTask = startTask(runToken)
+        return true
+    }
+
+    func finishTick(runToken: RunToken) {
+        guard activeRunToken === runToken else { return }
+        autosaveTask = nil
+        activeRunToken = nil
+        isTickInFlight = false
+    }
+
+    func markDeferredRetryPending() -> Bool {
+        guard !isDeferredRetryPending else { return false }
+        isDeferredRetryPending = true
+        return true
+    }
+
+    func clearDeferredRetryPending() {
+        isDeferredRetryPending = false
+    }
+
+    func recordTypingActivity(nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        lastTypingActivityAt = nowUptime
+    }
+
+    func remainingTypingQuietPeriod(
+        quietPeriod: TimeInterval,
+        nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> TimeInterval? {
+        guard lastTypingActivityAt > 0 else { return nil }
+        let elapsed = nowUptime - lastTypingActivityAt
+        guard elapsed < quietPeriod else { return nil }
+        return quietPeriod - elapsed
+    }
+
+    func cacheRestorableAgentIndex(_ index: RestorableAgentSessionIndex) {
+        cachedRestorableAgentIndex = index
+    }
+
+    func restorableAgentIndexForCheapSnapshot(
+        explicitIndex: RestorableAgentSessionIndex?,
+        fallbackLoader: () -> RestorableAgentSessionIndex
+    ) -> RestorableAgentSessionIndex {
+        if let explicitIndex {
+            cachedRestorableAgentIndex = explicitIndex
+            return explicitIndex
+        }
+        if let cachedRestorableAgentIndex {
+            return cachedRestorableAgentIndex
+        }
+
+        let index = fallbackLoader()
+        cachedRestorableAgentIndex = index
+        return index
+    }
+
+    func loadStaleTolerantRestorableAgentIndex() async -> RestorableAgentSessionIndex {
+        await Task.detached(priority: .utility) {
+            RestorableAgentSessionIndex.loadStaleTolerant()
+        }.value
+    }
+
+    func shouldSkipSaveForUnchangedFingerprint(
+        isTerminatingApp: Bool,
+        includeScrollback: Bool,
+        currentFingerprint: Int?,
+        now: Date,
+        maximumAutosaveSkippableInterval: TimeInterval = 5 * 60
+    ) -> Bool {
+        guard !isTerminatingApp,
+              !includeScrollback,
+              let lastAutosaveFingerprint,
+              let currentFingerprint,
+              lastAutosaveFingerprint == currentFingerprint else {
+            return false
+        }
+
+        return now.timeIntervalSince(lastAutosavePersistedAt) < maximumAutosaveSkippableInterval
+    }
+
+    func recordSuccessfulSave(
+        isTerminatingApp: Bool,
+        includeScrollback: Bool,
+        persistedAt: Date,
+        fingerprint: Int?
+    ) {
+        guard !isTerminatingApp, !includeScrollback else { return }
+        lastAutosaveFingerprint = fingerprint
+        lastAutosavePersistedAt = persistedAt
+    }
+}
+
 enum SessionRestorePolicy {
     static func isRunningUnderAutomatedTests(
         environment: [String: String] = ProcessInfo.processInfo.environment
