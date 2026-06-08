@@ -301,7 +301,7 @@ struct FeedCoordinatorTests {
                 method: "item/commandExecution/requestApproval",
                 params: ["availableDecisions": ["accept", "decline"]],
                 mode: "always"
-            )?["decision"] as? String == "decline"
+            )?["decision"] as? String == "accept"
         )
         #expect(
             CodexTeamsApprovalBridge.appServerApprovalResponse(
@@ -322,7 +322,7 @@ struct FeedCoordinatorTests {
                 method: "item/fileChange/requestApproval",
                 params: ["availableDecisions": ["accept", "decline"]],
                 mode: "always"
-            )?["decision"] as? String == "decline"
+            )?["decision"] as? String == "accept"
         )
         #expect(
             CodexTeamsApprovalBridge.appServerApprovalResponse(

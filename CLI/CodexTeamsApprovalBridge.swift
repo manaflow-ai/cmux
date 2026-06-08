@@ -253,6 +253,9 @@ enum CodexTeamsApprovalBridge {
             return decision
         }
         if mode == "all" || mode == "bypass" {
+            if decisionAvailableOrUnspecified("accept", params: params) {
+                return "accept"
+            }
             return rejectApprovalDecision(params: params)
         }
         if modeRequestsPersistentApproval(mode),
@@ -264,6 +267,9 @@ enum CodexTeamsApprovalBridge {
             return decision
         }
         if modeRequestsPersistentApproval(mode) {
+            if decisionAvailableOrUnspecified("accept", params: params) {
+                return "accept"
+            }
             return rejectApprovalDecision(params: params)
         }
         guard mode == "once" else {
@@ -317,6 +323,9 @@ enum CodexTeamsApprovalBridge {
             return "acceptForSession"
         }
         if modeRequestsPersistentApproval(mode) {
+            if decisionAvailableOrUnspecified("accept", params: params) {
+                return "accept"
+            }
             return rejectApprovalDecision(params: params)
         }
         guard mode == "once" else {
