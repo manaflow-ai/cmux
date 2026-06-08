@@ -704,12 +704,17 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         allowLauncherScript: Bool = true,
         allowOversizedInlineInput: Bool = false
     ) -> String? {
+        let retryPolicy = AgentResumeRetryPolicy.policy(
+            agentKind: kind.rawValue,
+            launcher: launchCommand?.launcher
+        )
         startupInput(
             command: resumeCommand,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
             allowLauncherScript: allowLauncherScript,
-            allowOversizedInlineInput: allowOversizedInlineInput
+            allowOversizedInlineInput: allowOversizedInlineInput,
+            retryPolicy: retryPolicy
         )
     }
 
@@ -725,6 +730,10 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   returnToLoginShell: true,
+                  retryPolicy: AgentResumeRetryPolicy.policy(
+                      agentKind: kind.rawValue,
+                      launcher: launchCommand?.launcher
+                  ),
                   // Match the resume command's own cd: agents with an `.ignore` cwd policy resume from
                   // the current directory (no cd), so the post-exit shell must not force the launch dir.
                   workingDirectory: registration?.cwd == .ignore
@@ -754,23 +763,31 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         fileManager: FileManager,
         temporaryDirectory: URL,
         allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false
+        allowOversizedInlineInput: Bool = false,
+        retryPolicy: AgentResumeRetryPolicy = .disabled
     ) -> String? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
-        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+        guard retryPolicy.isEnabled || inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
             return inlineInput
         }
-        guard !allowOversizedInlineInput else {
+        guard retryPolicy.isEnabled || !allowOversizedInlineInput else {
             return inlineInput
         }
-        guard allowLauncherScript else { return nil }
+        guard allowLauncherScript else {
+            return retryPolicy.isEnabled ? inlineInput : nil
+        }
         guard let scriptURL = AgentResumeScriptStore.writeLauncherScript(
             command: command,
             kind: kind,
             sessionId: sessionId,
             fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory
+            temporaryDirectory: temporaryDirectory,
+            returnToLoginShell: retryPolicy.isEnabled,
+            retryPolicy: retryPolicy,
+            workingDirectory: registration?.cwd == .ignore
+                ? nil
+                : (workingDirectory ?? launchCommand?.workingDirectory)
         ) else {
             return nil
         }
@@ -801,6 +818,7 @@ private enum AgentResumeScriptStore {
         fileManager: FileManager,
         temporaryDirectory: URL,
         returnToLoginShell: Bool = false,
+        retryPolicy: AgentResumeRetryPolicy = .disabled,
         workingDirectory: String? = nil
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
@@ -822,10 +840,11 @@ private enum AgentResumeScriptStore {
                 "#!/bin/zsh",
                 "rm -f -- \"$0\" 2>/dev/null || true"
             ]
-            if returnToLoginShell {
+            if returnToLoginShell || retryPolicy.isEnabled {
                 lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
                     command: command,
-                    workingDirectory: workingDirectory
+                    workingDirectory: workingDirectory,
+                    retryPolicy: retryPolicy
                 ))
             } else {
                 lines.append(command)

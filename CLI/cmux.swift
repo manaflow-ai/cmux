@@ -18592,16 +18592,24 @@ struct CMUXCLI {
 
     private static func codexTeamsStartupScript(commandText: String, cwd: String?) -> String? {
         let scriptURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-codex-teams-\(UUID().uuidString.lowercased()).sh")
+            .appendingPathComponent("cmux-codex-teams-\(UUID().uuidString.lowercased()).zsh")
         var lines = [
-            "#!/bin/sh",
+            "#!/bin/zsh",
             "rm -f -- \"$0\" 2>/dev/null || true"
         ]
-        if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty {
+        let trimmedCwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let launchCommand: String
+        if let cwd = trimmedCwd, !cwd.isEmpty {
             let quotedCwd = codexTeamsShellQuote(cwd)
-            lines.append("{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } || exit $?")
+            launchCommand = "{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } && \(commandText)"
+        } else {
+            launchCommand = commandText
         }
-        lines.append("exec \"${SHELL:-/bin/sh}\" -lc \(codexTeamsShellQuote(commandText))")
+        lines.append(contentsOf: AgentResumeShellScriptBuilder().commandThenReturnLines(
+            command: launchCommand,
+            workingDirectory: trimmedCwd,
+            retryPolicy: .codexStateDatabaseLock
+        ))
         do {
             try (lines.joined(separator: "\n") + "\n").write(
                 to: scriptURL,

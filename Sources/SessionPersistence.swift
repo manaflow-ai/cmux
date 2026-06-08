@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Bonsplit
+import CMUXAgentLaunch
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
@@ -399,7 +400,8 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         allowLauncherScript: Bool = true
     ) -> String? {
         guard let inlineInput = inlineStartupInput else { return nil }
-        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+        let retryPolicy = AgentResumeRetryPolicy.policy(agentKind: kind)
+        guard retryPolicy.isEnabled || inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
             return inlineInput
         }
         guard allowLauncherScript else { return inlineInput }
@@ -407,7 +409,9 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             inlineInput: inlineInput,
             binding: self,
             fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory
+            temporaryDirectory: temporaryDirectory,
+            returnToLoginShell: retryPolicy.isEnabled,
+            retryPolicy: retryPolicy
         ) else {
             return nil
         }
@@ -426,7 +430,8 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
                   binding: self,
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  returnToLoginShell: true
+                  returnToLoginShell: true,
+                  retryPolicy: AgentResumeRetryPolicy.policy(agentKind: kind)
               ) else {
             return nil
         }
@@ -1268,38 +1273,16 @@ enum SurfaceResumeApprovalStore {
 }
 
 nonisolated enum TerminalStartupReturnShellScript {
-    private static let shellLine = #"_cmux_resume_shell="${SHELL:-/bin/zsh}""#
-    private static let zshIntegrationReentryLines = [
-        #"if [[ "${_cmux_resume_shell:t}" == "zsh" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
-        #"  if [[ -n "${ZDOTDIR+X}" ]]; then"#,
-        #"    export CMUX_ZSH_ZDOTDIR="$ZDOTDIR""#,
-        #"  else"#,
-        #"    unset CMUX_ZSH_ZDOTDIR"#,
-        #"  fi"#,
-        #"  export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
-        #"fi"#,
-    ]
-
-    static func commandThenReturnLines(command: String, workingDirectory: String? = nil) -> [String] {
-        let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
-        var lines = [
-            shellLine,
-            #"case "${_cmux_resume_shell:t}" in"#,
-            #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
-            #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
-            #"  *) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
-            #"esac"#,
-        ] + zshIntegrationReentryLines
-        // The resume command's `cd` runs inside the child shell above, so after the resumed agent
-        // exits the outer login shell would otherwise land in this script's launch cwd (the surface
-        // default), not the session's directory. Return the outer shell to the session's working
-        // directory so killing a resumed agent leaves you where the session lived.
-        if let workingDirectory, !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let quotedDirectory = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
-            lines.append(#"{ cd -- \#(quotedDirectory) 2>/dev/null || true; }"#)
-        }
-        lines.append(#"exec -l "$_cmux_resume_shell""#)
-        return lines
+    static func commandThenReturnLines(
+        command: String,
+        workingDirectory: String? = nil,
+        retryPolicy: AgentResumeRetryPolicy = .disabled
+    ) -> [String] {
+        AgentResumeShellScriptBuilder().commandThenReturnLines(
+            command: command,
+            workingDirectory: workingDirectory,
+            retryPolicy: retryPolicy
+        )
     }
 }
 
@@ -1312,7 +1295,8 @@ private enum SurfaceResumeBindingScriptStore {
         binding: SurfaceResumeBindingSnapshot,
         fileManager: FileManager,
         temporaryDirectory: URL,
-        returnToLoginShell: Bool = false
+        returnToLoginShell: Bool = false,
+        retryPolicy: AgentResumeRetryPolicy = .disabled
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -1329,10 +1313,11 @@ private enum SurfaceResumeBindingScriptStore {
                 "#!/bin/zsh",
                 "rm -f -- \"$0\" 2>/dev/null || true"
             ]
-            if returnToLoginShell {
+            if returnToLoginShell || retryPolicy.isEnabled {
                 lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
                     command: inlineInput,
-                    workingDirectory: binding.cwd
+                    workingDirectory: binding.cwd,
+                    retryPolicy: retryPolicy
                 ))
             } else {
                 lines.append(inlineInput)
