@@ -1142,25 +1142,32 @@ class TerminalController {
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
 
-                if isEventsStreamRequest(trimmed) {
-                    if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
-                        guard writeSocketResponse(response, to: socket) else {
+                var shouldCloseSocket = false
+                autoreleasepool {
+                    if isEventsStreamRequest(trimmed) {
+                        if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                            if !writeSocketResponse(response, to: socket) {
+                                shouldCloseSocket = true
+                            }
                             return
                         }
-                        continue
-                    }
-                    handleEventsStreamRequest(trimmed, socket: socket)
-                    return
-                }
-
-                let result = processSocketLine(trimmed, authenticated: authenticated)
-                authenticated = result.authenticated
-                if let response = result.response {
-                    let didWriteResponse = writeSocketResponse(response, to: socket)
-                    publishSocketEvents(command: trimmed, response: response)
-                    guard didWriteResponse else {
+                        handleEventsStreamRequest(trimmed, socket: socket)
+                        shouldCloseSocket = true
                         return
                     }
+
+                    let result = processSocketLine(trimmed, authenticated: authenticated)
+                    authenticated = result.authenticated
+                    if let response = result.response {
+                        let didWriteResponse = writeSocketResponse(response, to: socket)
+                        publishSocketEvents(command: trimmed, response: response)
+                        if !didWriteResponse {
+                            shouldCloseSocket = true
+                        }
+                    }
+                }
+                if shouldCloseSocket {
+                    return
                 }
             }
         }
@@ -1254,17 +1261,48 @@ class TerminalController {
         if trimmed.hasPrefix("ERROR:") {
             return "error"
         }
-        if trimmed.hasPrefix("{"),
-           let data = trimmed.data(using: .utf8),
-           let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] {
-            if let ok = dict["ok"] as? Bool {
-                return ok ? "ok" : "error"
+        if trimmed.hasPrefix("{") {
+            let prefix = trimmed.prefix(4096)
+            if jsonBooleanField("ok", in: prefix) == false {
+                return "error"
             }
-            if dict["error"] != nil {
+            if prefix.contains("\"error\"") {
                 return "error"
             }
         }
         return "ok"
+    }
+
+    private nonisolated static func jsonBooleanField(_ key: String, in text: Substring) -> Bool? {
+        guard let keyRange = text.range(of: "\"\(key)\"") else {
+            return nil
+        }
+        var index = keyRange.upperBound
+        skipJSONWhitespace(in: text, index: &index)
+        guard index < text.endIndex, text[index] == ":" else {
+            return nil
+        }
+        index = text.index(after: index)
+        skipJSONWhitespace(in: text, index: &index)
+        let tail = text[index...]
+        if tail.hasPrefix("true") {
+            return true
+        }
+        if tail.hasPrefix("false") {
+            return false
+        }
+        return nil
+    }
+
+    private nonisolated static func skipJSONWhitespace(in text: Substring, index: inout String.Index) {
+        while index < text.endIndex {
+            switch text[index] {
+            case " ", "\t", "\n", "\r":
+                index = text.index(after: index)
+            default:
+                return
+            }
+        }
     }
 
     private nonisolated static func debugLogSocketCommandEndIfNeeded(
