@@ -527,6 +527,25 @@ check_cmux_config_icon_fixture_fails_closed() {
   echo "PASS: CmuxConfig context-menu icon fixture failures fail closed"
 }
 
+check_cjk_font_resolution_regressions_fail_closed_on_ci() {
+  local file="$ROOT_DIR/cmuxTests/GhosttyConfigTests.swift"
+  if grep -Fq 'throw XCTSkip("Hiragino Sans is unavailable on this runner")' "$file" ||
+     grep -Fq 'throw XCTSkip("PingFang SC is unavailable on this runner")' "$file"; then
+    echo "FAIL: CJK font resolution regressions must fail closed on hosted CI when required system fonts are unavailable"
+    exit 1
+  fi
+  if ! grep -Fq "hosted CI must exercise CJK font resolution coverage" "$file"; then
+    echo "FAIL: CJK font resolution regressions must explain hosted CI font fixture failures"
+    exit 1
+  fi
+  if ! grep -Fq 'environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true"' "$file"; then
+    echo "FAIL: CJK font resolution regressions must explicitly distinguish hosted CI from local font availability skips"
+    exit 1
+  fi
+
+  echo "PASS: CJK font resolution regressions fail closed on hosted CI"
+}
+
 check_ssh_fish_shell_regression_fails_closed_on_ci() {
   local file="$ROOT_DIR/cmuxTests/WorkspaceSSHFishShellTests.swift"
   if ! grep -Fq "hosted CI must exercise SSH bootstrap fish shell coverage" "$file"; then
@@ -1563,6 +1582,7 @@ check_no_debug_xctest_self_skips
 check_ui_expected_failures_are_activation_scoped
 check_port_scanner_fd_regression_fails_closed_on_ci
 check_cmux_config_icon_fixture_fails_closed
+check_cjk_font_resolution_regressions_fail_closed_on_ci
 check_ssh_fish_shell_regression_fails_closed_on_ci
 check_ssh_fish_shell_socket_fixture_fails_closed
 check_settings_frame_clamping_fails_closed_on_ci

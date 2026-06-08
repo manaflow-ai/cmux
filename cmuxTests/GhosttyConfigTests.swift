@@ -54,6 +54,22 @@ final class GhosttyConfigTests: XCTestCase {
         let blue: Int
     }
 
+    private func hostedCIFontUnavailableError(
+        _ fontName: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> Error {
+        let message = "\(fontName) is unavailable on this runner"
+        let environment = ProcessInfo.processInfo.environment
+        if environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true" {
+            XCTFail("\(message); hosted CI must exercise CJK font resolution coverage", file: file, line: line)
+            return NSError(domain: "cmux.tests", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
+        }
+        return XCTSkip(message)
+    }
+
     func testLaunchGhosttyResourcesPreferCurrentBundleOverInheritedEnvironment() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -4244,7 +4260,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
               let pinned = GhosttyApp.discoveredCTFont(
                   named: GhosttyApp.resolvedInjectedCJKFontName(named: "Hiragino Sans")
               ) else {
-            throw XCTSkip("Hiragino Sans is unavailable on this runner")
+            throw hostedCIFontUnavailableError("Hiragino Sans")
         }
 
         let plainFullName = CTFontCopyFullName(plain) as String
@@ -4262,7 +4278,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     func testResolvedInjectedCJKFontNameLeavesPingFangSCStable() throws {
         guard GhosttyApp.discoveredCTFont(named: "PingFang SC") != nil else {
-            throw XCTSkip("PingFang SC is unavailable on this runner")
+            throw hostedCIFontUnavailableError("PingFang SC")
         }
 
         XCTAssertEqual(
