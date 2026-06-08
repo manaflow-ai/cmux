@@ -1055,6 +1055,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
+    private var sessionAutosaveTask: Task<Void, Never>?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
     private let sessionPersistenceQueue = DispatchQueue(
@@ -3640,6 +3641,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func stopSessionAutosaveTimer() {
         sessionAutosaveTimer?.cancel()
         sessionAutosaveTimer = nil
+        sessionAutosaveTask?.cancel()
+        sessionAutosaveTask = nil
         sessionAutosaveTickInFlight = false
         sessionAutosaveDeferredRetryPending = false
     }
@@ -3997,7 +4000,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         sessionAutosaveTickInFlight = true
-        Task { @MainActor in await self.finishSessionAutosaveTick(source: source) }
+        sessionAutosaveTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.finishSessionAutosaveTick(source: source)
+        }
     }
 
     private func finishSessionAutosaveTick(source: String) async {
@@ -4007,6 +4013,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var fingerprintMs: Double = 0
         var saveMs: Double = 0
         defer {
+            sessionAutosaveTask = nil
             sessionAutosaveTickInFlight = false
             let totalMs = (ProcessInfo.processInfo.systemUptime - phaseStart) * 1000.0
             CmuxTypingTiming.logBreakdown(
@@ -4026,9 +4033,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 #else
-        defer { sessionAutosaveTickInFlight = false }
+        defer {
+            sessionAutosaveTask = nil
+            sessionAutosaveTickInFlight = false
+        }
 #endif
 
+        guard !Task.isCancelled else { return }
         let now = Date()
 #if DEBUG
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
@@ -4042,6 +4053,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         let restorableAgentIndex = await loadStaleTolerantRestorableAgentIndexForAutosave()
+        guard !Task.isCancelled else { return }
         cachedRestorableAgentIndexForCheapSessionSnapshot = restorableAgentIndex
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
@@ -4070,6 +4082,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let saveStart = ProcessInfo.processInfo.systemUptime
 #endif
+        guard !Task.isCancelled else { return }
         _ = saveSessionSnapshotUsingCachedResumeMetadata(
             includeScrollback: false,
             restorableAgentIndex: restorableAgentIndex
