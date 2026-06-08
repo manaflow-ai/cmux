@@ -163,10 +163,22 @@ export async function POST(request: Request): Promise<Response> {
     // legitimate row (a Mac in two teams), so there is no cross-team conflict to
     // guard against. Team B creating its own row cannot read or mutate team A's.
     const [existingDevice] = await tx
-      .select({ id: devices.id })
+      .select({ id: devices.id, userId: devices.userId })
       .from(devices)
       .where(and(eq(devices.teamId, team.teamId), eq(devices.deviceUuid, deviceUuid)))
       .limit(1);
+
+    // Only the user who registered a device row may update it. GET exposes
+    // device UUIDs to every team member, so without this a co-member could POST
+    // another member's device UUID and overwrite its attach routes (redirecting
+    // that user's phone reconnect at their own host). This keeps route
+    // population owned by the registering user, matching the pre-registry trust
+    // boundary where only the user's own pairing populated their phone's routes.
+    // Cryptographic proof-of-possession (so even the same user must prove they
+    // hold the device) is the deferred key-pinning phase.
+    if (existingDevice && existingDevice.userId !== user.id) {
+      return { error: "device_not_owned" as const };
+    }
 
     if (!existingDevice) {
       const [{ total }] = await tx
@@ -248,6 +260,9 @@ export async function POST(request: Request): Promise<Response> {
     return { error: null };
   });
 
+  if (registered.error === "device_not_owned") {
+    return jsonResponse({ error: "device_not_owned" }, 403);
+  }
   if (registered.error === "too_many_devices") {
     return jsonResponse({ error: "too_many_devices" }, 429);
   }

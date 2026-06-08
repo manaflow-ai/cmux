@@ -7,11 +7,13 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
 
 // Stack user in two teams ("team-a" default-selected, plus "team-b"), so the
-// multi-team registration path can be exercised.
+// multi-team registration path can be exercised. `currentUserId` is switchable
+// so a test can impersonate a second member of the same team.
+let currentUserId = "registry-user-1";
 const getUser = mock(async () => ({
-  id: "registry-user-1",
+  id: currentUserId,
   displayName: null,
-  primaryEmail: "registry@example.com",
+  primaryEmail: `${currentUserId}@example.com`,
   selectedTeam: { id: "team-a" },
   listTeams: async () => [{ id: "team-a" }, { id: "team-b" }],
 }));
@@ -64,6 +66,7 @@ beforeEach(async () => {
   if (!sql) return;
   await sql`truncate devices, device_app_instances restart identity cascade`;
   getUser.mockClear();
+  currentUserId = "registry-user-1";
 });
 
 describe("device registry route", () => {
@@ -221,6 +224,53 @@ describe("device registry route", () => {
     ).json()) as { teamId: string; devices: Array<{ deviceId: string }> };
     expect(listA.teamId).toBe("team-a");
     expect(listA.devices.map((d) => d.deviceId)).toEqual([DEVICE_A]);
+  });
+
+  dbTest("only the registering user may overwrite a device's routes", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    // User 1 registers their Mac with their own routes.
+    const ownRoutes = [
+      { id: "own", kind: "tailscale", priority: 0, endpoint: { type: "host_port", host: "100.1.1.1", port: 51001 } },
+    ];
+    expect(
+      (await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "stable", routes: ownRoutes }))).status,
+    ).toBe(200);
+
+    // A second member of the same team tries to overwrite those routes with
+    // their own host (a redirect attack). It must be rejected, routes untouched.
+    currentUserId = "registry-user-2";
+    const attack = await POST(
+      registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        tag: "stable",
+        routes: [
+          { id: "evil", kind: "tailscale", priority: 0, endpoint: { type: "host_port", host: "100.6.6.6", port: 51666 } },
+        ],
+      }),
+    );
+    expect(attack.status).toBe(403);
+
+    const [{ routes }] = await sql<{ routes: Array<{ endpoint: { host: string } }> }[]>`
+      select routes from device_app_instances
+      where device_id in (select id from devices where device_uuid = ${DEVICE_A}) and tag = 'stable'
+    `;
+    expect(routes[0].endpoint.host).toBe("100.1.1.1");
+
+    // The owner can still update their own device.
+    currentUserId = "registry-user-1";
+    const reRegister = await POST(
+      registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        tag: "stable",
+        routes: [
+          { id: "own2", kind: "tailscale", priority: 0, endpoint: { type: "host_port", host: "100.9.9.9", port: 51999 } },
+        ],
+      }),
+    );
+    expect(reRegister.status).toBe(200);
   });
 
   dbTest("rejects a team the caller is not a member of", async () => {

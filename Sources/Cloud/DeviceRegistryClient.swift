@@ -73,6 +73,11 @@ final class DeviceRegistryClient {
 
     private func startObserving() {
         observeTask?.cancel()
+        // Registration is currently driven only by host-route changes. The dedup
+        // key includes the team, so a team switch *does* re-register once the
+        // next status tick arrives, but a mid-session team switch with otherwise
+        // unchanged routes is not registered in the new team until then. Known
+        // limitation; an explicit auth/team-change trigger is a follow-up.
         observeTask = Task { @MainActor [weak self] in
             for await status in MobileHostService.shared.statusUpdates() {
                 if Task.isCancelled { break }
