@@ -11,6 +11,7 @@ import SwiftUI
 struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     let connectedHostName: String
     let rescanQR: (() -> Void)?
     let signOut: (() -> Void)?
@@ -28,7 +29,8 @@ struct MobileSettingsView: View {
     @State private var showingHostPicker = false
 
     var body: some View {
-        NavigationStack {
+        @Bindable var displaySettings = displaySettings
+        return NavigationStack {
             Form {
                 Section {
                     LabeledContent {
@@ -103,6 +105,13 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
+                }
+
+                Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
+                    Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
+                        Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
+                    }
+                    .accessibilityIdentifier("MobileSettingsWrapTitles")
                 }
 
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Notifications")) {

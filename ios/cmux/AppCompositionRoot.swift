@@ -12,9 +12,9 @@ import CmuxMobileDiagnostics
 /// Holds the de-singletonized graph the `cmuxApp` builds once at launch.
 ///
 /// Owns the mobile runtime, the auth composition (coordinator + push
-/// registration), the process-wide reachability monitor, and the shared push
-/// coordinator. Everything below the app shell receives these by injection
-/// instead of reaching for a singleton.
+/// registration), the process-wide reachability monitor, the shared push
+/// coordinator, and the mobile display settings. Everything below the app shell
+/// receives these by injection instead of reaching for a singleton.
 @MainActor
 final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
@@ -22,6 +22,7 @@ final class AppCompositionRoot {
     let reachability: any ReachabilityProviding
     let pushCoordinator: MobilePushCoordinator
     let analytics: MobileAnalyticsComposition
+    let displaySettings: MobileDisplaySettings
 
     #if DEBUG
     /// The structured diagnostic log, built once here and injected into the
@@ -48,6 +49,7 @@ final class AppCompositionRoot {
             registration: auth.pushRegistration,
             analytics: analytics.emitter
         )
+        self.displaySettings = MobileDisplaySettings()
         #if DEBUG
         self.diagnosticLog = DiagnosticLog(buildStamp: MobileDebugLog.buildStamp)
         #endif
