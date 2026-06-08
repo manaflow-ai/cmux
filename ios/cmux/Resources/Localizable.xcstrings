@@ -1537,13 +1537,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose which buttons appear on the terminal keyboard bar, and drag to reorder them. Swipe a custom action to edit or delete it. The modifier keys and zoom controls are always shown."
+            "value": "Choose which buttons appear on the terminal keyboard bar, and drag to reorder them. The modifier keys, zoom, and paste can be moved or hidden along with the shortcuts. Swipe a custom action to edit or delete it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルのキーボードバーに表示するボタンを選び、ドラッグして並べ替えできます。カスタムアクションはスワイプで編集または削除できます。修飾キーとズームコントロールは常に表示されます。"
+            "value": "ターミナルのキーボードバーに表示するボタンを選び、ドラッグして並べ替えできます。修飾キー、ズーム、ペーストもショートカットと一緒に移動したり非表示にしたりできます。カスタムアクションはスワイプで編集または削除できます。"
           }
         }
       }
@@ -3465,6 +3465,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "クリア (Control-L)"
+          }
+        }
+      }
+    },
+    "terminal.shortcut.name.control": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control"
+          }
+        }
+      }
+    },
+    "terminal.shortcut.name.alternate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option"
+          }
+        }
+      }
+    },
+    "terminal.shortcut.name.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command"
           }
         }
       }
