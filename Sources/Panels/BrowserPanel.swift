@@ -6713,7 +6713,7 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 
 extension BrowserPanel {
     private func cancelInFlightNavigationBeforeHistoryTraversal() {
-        guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
+        guard isMainFrameProvisionalNavigationActive else { return }
         if let targetURL = webView.url {
             historyTraversalRecoveryState = .awaitingTarget(targetURL)
         }
