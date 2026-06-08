@@ -485,7 +485,7 @@ jobs:
           if-no-files-found: error
 
       - name: Post results to cmux-dev-artifacts
-        if: always()
+        if: ${{ always() && !cancelled() }}
         env:
           GH_TOKEN: ${{ secrets.DEV_ARTIFACTS_TOKEN }}
           TEST_RESULT: ${{ steps.tests.outputs.test_result || 'failed' }}

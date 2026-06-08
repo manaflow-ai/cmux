@@ -121,6 +121,17 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
+  if ! awk '
+    /^[[:space:]]*- name: Post results to cmux-dev-artifacts$/ { in_step=1; saw_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /if:[[:space:]]*\$\{\{ always\(\) && !cancelled\(\) \}\}/ { saw_cancel_guard=1 }
+    in_step && /TEST_RESULT:[[:space:]]*\$\{\{ steps\.tests\.outputs\.test_result \|\| '\''failed'\'' \}\}/ { saw_default_failure=1 }
+    END { exit(saw_step && saw_cancel_guard && saw_default_failure ? 0 : 1) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must post failed E2E artifacts for real setup/test failures but avoid misreporting cancelled runs as failed tests"
+    exit 1
+  fi
+
   echo "PASS: test-e2e.yml exposes Depot runner choices, identity guard, and duplicate-queue cancellation"
 }
 
