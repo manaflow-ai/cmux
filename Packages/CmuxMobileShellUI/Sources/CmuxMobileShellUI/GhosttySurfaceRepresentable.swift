@@ -44,6 +44,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             fontSize: fontSize
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        #if DEBUG
+        // Hand the surface the structured diagnostic log so the keyboard-input
+        // probes (hold-backspace + dictation evidence round) land in the blob the
+        // "Send to agent" feedback pane exports. `nil` until P1's log is wired.
+        view.diagnosticLog = store.diagnosticLog
+        #endif
         context.coordinator.attach(surfaceView: view)
         return view
     }

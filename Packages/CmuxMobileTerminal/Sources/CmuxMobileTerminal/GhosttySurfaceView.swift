@@ -827,8 +827,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastReportedSize ?? TerminalGridSize(columns: 100, rows: 32, pixelWidth: 900, pixelHeight: 650)
     }
 
+    /// Structured diagnostic log (DEBUG dogfood builds only), property-injected
+    /// from the shell store by ``GhosttySurfaceRepresentable`` so the
+    /// hold-backspace + dictation input probes land in the blob the "Send to
+    /// agent" feedback pane exports. Forwarded to ``inputProxy`` on set. `nil` in
+    /// release and in hosts that do not wire it; every probe is then a no-op.
+    public var diagnosticLog: DiagnosticLog? {
+        didSet { inputProxy.diagnosticLog = diagnosticLog }
+    }
+
     private lazy var inputProxy: TerminalInputTextView = {
         let inputProxy = TerminalInputTextView()
+        inputProxy.diagnosticLog = diagnosticLog
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
             self.resetCursorBlink()
@@ -848,6 +858,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self.resetCursorBlink()
             // Send DEL (0x7F) directly to transport as raw byte.
             let data = Data([0x7F])
+            #if DEBUG
+            // Pairs with `inputDeleteBackward`: if N delete calls produce N
+            // emitted DEL bytes, the iOS input view is correct and the
+            // hold-backspace failure is downstream (transport/Mac/render), not in
+            // this view — redirecting the hunt instead of a 4th input-view guess.
+            self.diagnosticLog?.record(DiagnosticEvent(.inputBackspaceEmitted, ms: UInt32(data.count)))
+            #endif
             TerminalInputDebugLog.log("surface.onBackspace data=\(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
@@ -1067,6 +1084,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var autoFocusOnWindowAttach = true
 
     @objc private func handleKeyboardWillShow(_ notification: Notification) {
+        #if DEBUG
+        // Capture WHICH view owns first responder the instant the keyboard comes
+        // up — the load-bearing question for the hold-backspace + dictation hunt.
+        // Recorded before any geometry guard so it fires on every keyboard-up,
+        // even when the height is unchanged. This is the iOS analog of checking
+        // for a Mac-style `keyRepair` focus-steal: if this is not
+        // `terminalInputProxy`, the keyboard never drives the view we instrument.
+        let kbResponder = CurrentResponderProbe.current()
+        let kbIdentity = TerminalInputTextView.responderIdentity(of: kbResponder)
+        diagnosticLog?.record(DiagnosticEvent(.inputKeyboardUp, a: kbIdentity.rawValue))
+        MobileDebugLog.anchormux(
+            "input.keyboardUp identity=\(kbIdentity) class=\(TerminalInputTextView.responderClassName(kbResponder)) proxyIsFR=\(inputProxy.isFirstResponder)"
+        )
+        #endif
         guard let frameEnd = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
               let window else { return }
         let keyboardFrameInView = convert(frameEnd, from: window)

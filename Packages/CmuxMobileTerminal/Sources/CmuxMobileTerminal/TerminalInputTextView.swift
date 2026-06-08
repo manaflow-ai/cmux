@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxMobileDiagnostics
 import CmuxMobileTerminalKit
 import Foundation
 import UIKit
@@ -54,6 +56,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     var onPasteImage: ((Data, String) -> Void)?
     var onZoom: ((TerminalFontZoomDirection) -> Void)?
     var onHideKeyboard: (() -> Void)?
+    /// Structured diagnostic log (DEBUG dogfood builds only) for the
+    /// hold-backspace + dictation evidence round. Property-injected by
+    /// ``GhosttySurfaceView`` from the shell store's `diagnosticLog` so the
+    /// "Send to agent" feedback pane captures input-path events. `nil` in release
+    /// and in any host that does not wire it; every probe is a no-op then. The
+    /// integer payloads are decoded by `scripts/decode-ios-diagnostic.py`.
+    var diagnosticLog: DiagnosticLog?
     /// Fired by the trailing "customize" button so the SwiftUI host can present
     /// the toolbar shortcuts editor.
     var onOpenToolbarSettings: (() -> Void)?
@@ -113,6 +122,30 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     lazy var tokenizer: any UITextInputTokenizer = UITextInputStringTokenizer(textInput: self)
 
     override var canBecomeFirstResponder: Bool { true }
+
+    /// Records the outcome of becoming first responder for the hold-backspace +
+    /// dictation evidence round, then defers to the default. `super` already does
+    /// the real work; this only stamps the result into ``diagnosticLog`` (DEBUG
+    /// dogfood builds) so the captured log shows whether this proxy actually owns
+    /// first responder when the keyboard is up — the load-bearing question behind
+    /// the "is `TerminalInputTextView` even being driven" hypothesis.
+    @discardableResult
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        #if DEBUG
+        let responder = CurrentResponderProbe.current()
+        let identity = Self.responderIdentity(of: responder)
+        diagnosticLog?.record(DiagnosticEvent(
+            .inputBecomeFirstResponder,
+            a: became ? 1 : 0,
+            b: identity.rawValue
+        ))
+        MobileDebugLog.anchormux(
+            "input.becomeFirstResponder became=\(became) identity=\(identity) class=\(Self.responderClassName(responder)) onSelf=\(responder === self)"
+        )
+        #endif
+        return became
+    }
 
     /// Conforming to ``UITextInput`` would otherwise make this an accessibility
     /// element, which would shadow the real terminal surface's accessibility
@@ -460,6 +493,17 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// remote terminal. Committing here also ends any IME composition.
     func insertText(_ text: String) {
         guard !text.isEmpty else { return }
+        #if DEBUG
+        // A dictation result arrives here as one multi-character block, so a
+        // non-trivial `a` (UTF-8 byte length) after a mic tap proves dictation
+        // fired and reached this view. `b` flags an active IME composition.
+        diagnosticLog?.record(DiagnosticEvent(
+            .inputInsertText,
+            a: text.utf8.count,
+            b: markedText != nil ? 1 : 0
+        ))
+        MobileDebugLog.anchormux("input.insertText len=\(text.utf8.count) composing=\(markedText != nil)")
+        #endif
         TerminalInputDebugLog.log("proxy.insertText text=\(TerminalInputDebugLog.textSummary(text)) composing=\(markedText != nil)")
         // A committed insert ends composition. The candidate the IME was showing
         // is exactly `text`, so clear the marked state and emit `text` once.
@@ -470,6 +514,23 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     func deleteBackward() {
+        #if DEBUG
+        // Logged on EVERY call (not just the first): a held backspace that
+        // auto-repeats shows as many events; one that does not shows as a single
+        // event. `a` carries the responder identity at the moment of the delete
+        // (resolved from the live responder chain, so a focus-steal between
+        // keyboard-up and the keystroke is visible, not assumed).
+        let deleteResponder = CurrentResponderProbe.current()
+        let deleteIdentity = Self.responderIdentity(of: deleteResponder)
+        diagnosticLog?.record(DiagnosticEvent(
+            .inputDeleteBackward,
+            a: deleteIdentity.rawValue,
+            b: markedText != nil ? 1 : 0
+        ))
+        MobileDebugLog.anchormux(
+            "input.deleteBackward identity=\(deleteIdentity) class=\(Self.responderClassName(deleteResponder)) onSelf=\(deleteResponder === self) composing=\(markedText != nil)"
+        )
+        #endif
         // Routing keys off `markedText` (IME composition in progress), NOT
         // `hasText`: `hasText` is a forced constant `true` so the software
         // keyboard auto-repeats backspace, so it can no longer mean "the local
@@ -960,8 +1021,27 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private func emitUnmodifiedText(_ text: String) {
         switch TerminalCommitRouter.route(for: text) {
         case .paste where onPasteText != nil:
+            #if DEBUG
+            // The path a dictation result (multi-character, no modifier) takes:
+            // bracketed paste. Pairing this with ``inputInsertText`` proves a
+            // recognized phrase reached a byte sink that goes to the Mac.
+            diagnosticLog?.record(DiagnosticEvent(
+                .inputCommitRouted,
+                a: text.utf8.count,
+                b: InputCommitSink.pasteText.rawValue
+            ))
+            MobileDebugLog.anchormux("input.commitRouted len=\(text.utf8.count) sink=pasteText")
+            #endif
             onPasteText?(text)
         case .paste, .input:
+            #if DEBUG
+            diagnosticLog?.record(DiagnosticEvent(
+                .inputCommitRouted,
+                a: text.utf8.count,
+                b: InputCommitSink.text.rawValue
+            ))
+            MobileDebugLog.anchormux("input.commitRouted len=\(text.utf8.count) sink=text")
+            #endif
             // No paste sink wired (or a single character): per-character input.
             onText?(text)
         }
@@ -1087,6 +1167,33 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private func setShiftAccessoryArmed(_ armed: Bool) {
         if !armed { consumeModifier(.shift) }
     }
+
+    #if DEBUG
+    /// Maps a `UIResponder` to its compact ``InputResponderIdentity`` for the
+    /// hold-backspace + dictation diagnostic round. Used to encode *which* view
+    /// owns first responder into the integer ``DiagnosticEvent`` payload. The
+    /// `.other` case is paired with the responder's class name in the companion
+    /// `anchormux` string log for a human-readable readback.
+    static func responderIdentity(of responder: UIResponder?) -> InputResponderIdentity {
+        switch responder {
+        case nil: return .none
+        case is TerminalInputTextView: return .terminalInputProxy
+        case is GhosttySurfaceView: return .ghosttySurface
+        case is UITextField: return .uiTextField
+        case is UITextView: return .uiTextView
+        default: return .other
+        }
+    }
+
+    /// The responder's concrete class name for the human-readable `anchormux`
+    /// readback (the integer ``InputResponderIdentity`` collapses every
+    /// unexpected class to `.other`; this preserves the exact type for the copied
+    /// debug log).
+    static func responderClassName(_ responder: UIResponder?) -> String {
+        guard let responder else { return "nil" }
+        return String(describing: type(of: responder))
+    }
+    #endif
 }
 
 // MARK: - UITextInputTraits
@@ -1218,6 +1325,28 @@ extension TerminalInputTextView {
     // empty token; iSH does the same) is what tells the framework this view
     // accepts dictation; the recognized text then arrives via `insertText`. The
     // remove hook is a no-op because there is no document placeholder to strip.
-    func insertDictationResultPlaceholder() -> Any { "" }
-    func removeDictationResultPlaceholder(_ placeholder: Any, willInsertResult: Bool) {}
+    func insertDictationResultPlaceholder() -> Any {
+        #if DEBUG
+        // The ENTRY signal that the mic was tapped and UIKit accepted this view
+        // as a dictation target. Its absence after a mic tap proves dictation
+        // never engaged this view at all (the framework dictated into something
+        // else, or nowhere).
+        diagnosticLog?.record(DiagnosticEvent(.inputDictationPlaceholder))
+        MobileDebugLog.anchormux("input.dictation.placeholder requested")
+        #endif
+        return ""
+    }
+
+    func removeDictationResultPlaceholder(_ placeholder: Any, willInsertResult: Bool) {
+        #if DEBUG
+        // `a == 0` after a mic tap means recognition produced nothing for this
+        // view; `a == 1` means a recognized result is about to arrive via
+        // ``insertText(_:)``.
+        diagnosticLog?.record(DiagnosticEvent(
+            .inputDictationRemove,
+            a: willInsertResult ? 1 : 0
+        ))
+        MobileDebugLog.anchormux("input.dictation.remove willInsertResult=\(willInsertResult)")
+        #endif
+    }
 }
