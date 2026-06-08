@@ -73,8 +73,10 @@ struct FeedCoordinatorTests {
         let codexOneShotOnly = #"""
         {"app_server_method":"item/commandExecution/requestApproval","available_decisions":["accept","decline"]}
         """#
+        #expect(FeedPermissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: codexOneShotOnly))
         #expect(!FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexOneShotOnly))
         #expect(!FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: codexOneShotOnly))
+        #expect(CodexTeamsApprovalBridge.feedSourceSupportsOncePermissionMode("codex", toolInputJSON: codexOneShotOnly))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: codexOneShotOnly))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsAllPermissionMode("codex", toolInputJSON: codexOneShotOnly))
 
@@ -87,8 +89,10 @@ struct FeedCoordinatorTests {
         let codexAmendment = #"""
         {"app_server_method":"item/commandExecution/requestApproval","available_decisions":[{"acceptWithExecpolicyAmendment":{}}],"proposed_execpolicy_amendment":[{"kind":"prefix","value":"npm test"}]}
         """#
+        #expect(!FeedPermissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: codexAmendment))
         #expect(!FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexAmendment))
         #expect(FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: codexAmendment))
+        #expect(!CodexTeamsApprovalBridge.feedSourceSupportsOncePermissionMode("codex", toolInputJSON: codexAmendment))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: codexAmendment))
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsAllPermissionMode("codex", toolInputJSON: codexAmendment))
 
@@ -344,7 +348,8 @@ struct FeedCoordinatorTests {
             "changes": [
                 [
                     "path": "/tmp/file.txt",
-                    "diff": String(repeating: "z", count: 100_000)
+                    "diff": String(repeating: "z", count: 100_000),
+                    "summary": "file summary"
                 ]
             ]
         ])
@@ -355,7 +360,8 @@ struct FeedCoordinatorTests {
         #expect(snapshot["output"] == nil)
         let changes = try #require(snapshot["changes"] as? [[String: Any]])
         #expect(changes.first?["path"] as? String == "/tmp/file.txt")
-        #expect(changes.first?["diff"] == nil)
+        #expect((changes.first?["diff"] as? String)?.count == 4_096)
+        #expect(changes.first?["summary"] as? String == "file summary")
     }
 
     @Test func blockingIngestExpiresItemWhenHookTimesOut() async {

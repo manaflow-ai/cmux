@@ -6,6 +6,11 @@ enum FeedPermissionActionPolicy {
         source != .hermesAgent
     }
 
+    static func supportsOncePermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
+        guard source == .codex else { return true }
+        return codexCapabilities(toolInputJSON: toolInputJSON).supportsOnce
+    }
+
     static func supportsAlwaysPermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
         guard supportsPersistentPermissionModes(source: source) else { return false }
         guard source == .codex else { return true }
@@ -27,30 +32,35 @@ enum FeedPermissionActionPolicy {
               let data = toolInputJSON.data(using: .utf8),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else {
-            return CodexPermissionCapabilities(supportsAlways: true, supportsAll: true)
+            return CodexPermissionCapabilities(supportsOnce: true, supportsAlways: true, supportsAll: true)
         }
 
         let method = object["app_server_method"] as? String
         let decisions = codexAvailableDecisions(in: object)
+        let acceptsOnce = decisions?.contains("accept") ?? true
         let acceptsSession = decisions?.contains("acceptForSession") ?? true
         switch method {
         case "item/permissions/requestApproval":
             return CodexPermissionCapabilities(
+                supportsOnce: true,
                 supportsAlways: true,
                 supportsAll: true
             )
         case "item/commandExecution/requestApproval":
             return CodexPermissionCapabilities(
+                supportsOnce: acceptsOnce,
                 supportsAlways: acceptsSession,
                 supportsAll: codexSupportsAmendmentDecision(object: object, decisions: decisions)
             )
         case "item/fileChange/requestApproval":
             return CodexPermissionCapabilities(
+                supportsOnce: acceptsOnce,
                 supportsAlways: acceptsSession,
                 supportsAll: false
             )
         default:
             return CodexPermissionCapabilities(
+                supportsOnce: acceptsOnce,
                 supportsAlways: acceptsSession,
                 supportsAll: false
             )
@@ -94,6 +104,7 @@ enum FeedPermissionActionPolicy {
 }
 
 private struct CodexPermissionCapabilities {
+    let supportsOnce: Bool
     let supportsAlways: Bool
     let supportsAll: Bool
 }

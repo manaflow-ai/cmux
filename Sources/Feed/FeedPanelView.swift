@@ -1447,12 +1447,17 @@ private struct PermissionActionArea: View {
                         onApprove(.deny)
                     }
                         .accessibilityIdentifier("FeedPermissionDenyButton")
-                    FeedButton(label: String(localized: "feed.permission.once", defaultValue: "Allow Once"),
-                               kind: .light, size: .medium, fullWidth: true) {
-                        onActionRow()
-                        onApprove(.once)
+                    if FeedPermissionActionPolicy.supportsOncePermissionMode(
+                        source: source,
+                        toolInputJSON: toolInputJSON
+                    ) {
+                        FeedButton(label: String(localized: "feed.permission.once", defaultValue: "Allow Once"),
+                                   kind: .light, size: .medium, fullWidth: true) {
+                            onActionRow()
+                            onApprove(.once)
+                        }
+                            .accessibilityIdentifier("FeedPermissionAllowOnceButton")
                     }
-                        .accessibilityIdentifier("FeedPermissionAllowOnceButton")
                     if FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
                         source: source,
                         toolInputJSON: toolInputJSON

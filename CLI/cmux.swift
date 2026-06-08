@@ -18033,7 +18033,18 @@ struct CMUXCLI {
             session.invalidateAndCancel()
         }
 
-        func initialize(clientName: String, version: String, responseTimeout: TimeInterval = 10) throws {
+        func initialize(
+            clientName: String,
+            version: String,
+            optOutNotificationMethods: [String] = [],
+            responseTimeout: TimeInterval = 10
+        ) throws {
+            var capabilities: [String: Any] = [
+                "experimentalApi": true
+            ]
+            if !optOutNotificationMethods.isEmpty {
+                capabilities["optOutNotificationMethods"] = optOutNotificationMethods
+            }
             _ = try request(
                 method: "initialize",
                 params: [
@@ -18042,9 +18053,7 @@ struct CMUXCLI {
                         "title": "cmux Codex Teams",
                         "version": version
                     ],
-                    "capabilities": [
-                        "experimentalApi": true
-                    ]
+                    "capabilities": capabilities
                 ],
                 notificationHandler: nil,
                 responseTimeout: responseTimeout
@@ -18189,8 +18198,7 @@ struct CMUXCLI {
                     method: "thread/resume",
                     params: [
                         "threadId": threadId,
-                        "excludeTurns": true,
-                        "optOutNotificationMethods": CMUXCLI.codexTeamsWatcherResumeOptOutNotificationMethods
+                        "excludeTurns": true
                     ],
                     notificationHandler: nil,
                     responseTimeout: 2
@@ -18257,7 +18265,8 @@ struct CMUXCLI {
                     defer { connection.close() }
                     try connection.initialize(
                         clientName: CMUXCLI.codexTeamsWatcherClientName,
-                        version: CMUXCLI.codexTeamsClientVersion
+                        version: CMUXCLI.codexTeamsClientVersion,
+                        optOutNotificationMethods: CMUXCLI.codexTeamsWatcherResumeOptOutNotificationMethods
                     )
                     resetConnectionSubscriptions()
                     try backfillLoadedThreads(connection: connection)
@@ -18345,8 +18354,7 @@ struct CMUXCLI {
                     method: "thread/resume",
                     params: [
                         "threadId": threadId,
-                        "excludeTurns": true,
-                        "optOutNotificationMethods": CMUXCLI.codexTeamsWatcherResumeOptOutNotificationMethods
+                        "excludeTurns": true
                     ],
                     notificationHandler: { [weak self] message in
                         try self?.handleAppServerMessage(
@@ -30324,6 +30332,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         guard item.canResolve else { return "Resolved or informational item" }
         switch item.kind {
         case "permissionRequest":
+            let supportsOnce = feedTUISourceSupportsOncePermissionMode(
+                item.source,
+                toolInputJSON: item.toolInputJSON
+            )
             let supportsAlways = feedTUISourceSupportsAlwaysPermissionMode(
                 item.source,
                 toolInputJSON: item.toolInputJSON
@@ -30332,19 +30344,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 item.source,
                 toolInputJSON: item.toolInputJSON
             )
-            if !supportsAlways && !supportsAll {
-                return "Permission: Enter/o once, d deny"
-            }
-            if !feedTUISourceSupportsBypassPermissions(item.source) {
-                if supportsAlways && supportsAll {
-                    return "Permission: Enter/o once, a always, l all tools, d deny"
-                }
-                if supportsAlways {
-                    return "Permission: Enter/o once, a always, d deny"
-                }
-                return "Permission: Enter/o once, l all tools, d deny"
-            }
-            return "Permission: Enter/o once, a always, l all tools, b bypass, d deny"
+            var actions: [String] = []
+            if supportsOnce { actions.append("Enter/o once") }
+            if supportsAlways { actions.append("a always") }
+            if supportsAll { actions.append("l all tools") }
+            if feedTUISourceSupportsBypassPermissions(item.source) { actions.append("b bypass") }
+            actions.append("d deny")
+            return "Permission: \(actions.joined(separator: ", "))"
         case "exitPlan":
             if !feedTUISourceSupportsBypassPermissions(item.source) {
                 return "Plan: Enter default, a auto, m manual, u ultraplan, f replan, d deny"
@@ -30369,6 +30375,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
     }
 
+    private func feedTUISourceSupportsOncePermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
+        CMUXCLI.feedSourceSupportsOncePermissionMode(source, toolInputJSON: toolInputJSON)
+    }
+
     private func feedTUISourceSupportsAlwaysPermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
         CMUXCLI.feedSourceSupportsAlwaysPermissionMode(source, toolInputJSON: toolInputJSON)
     }
@@ -30383,6 +30393,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     static func feedSourceSupportsPersistentPermissionModes(_ source: String) -> Bool {
         CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes(source)
+    }
+
+    static func feedSourceSupportsOncePermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
+        CodexTeamsApprovalBridge.feedSourceSupportsOncePermissionMode(source, toolInputJSON: toolInputJSON)
     }
 
     static func feedSourceSupportsAlwaysPermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
@@ -30412,7 +30426,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "permissionRequest":
             let mode: String
             switch key {
-            case .enter, .once:
+            case .enter where feedTUISourceSupportsOncePermissionMode(
+                item.source,
+                toolInputJSON: item.toolInputJSON
+            ),
+            .once where feedTUISourceSupportsOncePermissionMode(
+                item.source,
+                toolInputJSON: item.toolInputJSON
+            ):
                 mode = "once"
             case .always where feedTUISourceSupportsAlwaysPermissionMode(
                 item.source,
