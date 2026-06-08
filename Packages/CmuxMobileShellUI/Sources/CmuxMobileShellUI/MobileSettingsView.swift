@@ -134,6 +134,20 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsNotifications")
                 }
+
+                Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
+                    LabeledContent {
+                        Text(AppVersionInfo.current().displayString)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.version", defaultValue: "Version"),
+                            systemImage: "info.circle"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsVersionRow")
+                }
             }
             .onAppear { notificationsEnabled = pushCoordinator.isEnabled }
             .navigationTitle(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
