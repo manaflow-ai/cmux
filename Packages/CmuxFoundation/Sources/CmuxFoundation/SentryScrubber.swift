@@ -57,9 +57,12 @@ public struct SentryScrubber: Sendable {
         // Authorization: <scheme> <token>  (Basic / Digest / token / etc.)
         SentryRegexPattern(#"(Authorization:\s*\w+\s+)\S+"#),
         // key/token/secret/password/pwd/passwd/api[_-]?key/access[_-]?token = value
-        // in query strings, env-style, or JSON ("key":"value").
+        // in query strings, env-style, or JSON ("key":"value"). The marker word
+        // may be embedded in a longer identifier (e.g. AWS_SECRET_ACCESS_KEY,
+        // SECRET_ACCESS_KEY, MY_API_KEY), so optional identifier characters are
+        // allowed around it.
         SentryRegexPattern(
-            #"((?:access[_\-]?token|api[_\-]?key|secret|token|password|passwd|pwd)["']?\s*[:=]\s*["']?)[^\s"'&,}]+"#
+            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|secret|token|password|passwd|pwd|access[_\-]?key)[A-Za-z0-9.\-]*["']?\s*[:=]\s*["']?)[^\s"'&,}]+"#
         ),
         // Provider-style keys: sk-..., pk-..., ghp_..., xoxb-..., and similar prefixes.
         SentryRegexPattern(#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|xox[baprs])[_\-][A-Za-z0-9_\-]{16,}"#),

@@ -160,13 +160,15 @@ import Testing
     @Test func scrubsExtraAndTags() {
         let event = Event()
         event.extra = ["cwd": "/Users/lawrence/dev", "n": 3]
-        event.tags = ["path": "/Users/lawrence/x", "kind": "warning"]
+        event.tags = ["path": "/Users/lawrence/x", "kind": "warning", "access_token": "abc123plain"]
 
         let scrubbed = scrubber.scrub(event)
         #expect(scrubbed.extra?["cwd"] as? String == "/Users/<redacted>/dev")
         #expect(scrubbed.extra?["n"] as? Int == 3)
         #expect(scrubbed.tags?["path"] == "/Users/<redacted>/x")
         #expect(scrubbed.tags?["kind"] == "warning")
+        // A sensitive tag key is redacted by name even when its value matches no pattern.
+        #expect(scrubbed.tags?["access_token"] == "<redacted-secret>")
     }
 
     @Test func scrubsBreadcrumbMessageAndData() {

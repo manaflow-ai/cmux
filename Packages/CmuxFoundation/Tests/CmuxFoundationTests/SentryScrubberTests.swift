@@ -106,6 +106,18 @@ import Testing
         )
     }
 
+    @Test func redactsEnvStyleSecretAssignmentWithLongerKeyName() {
+        // The sensitive marker is embedded in a longer env identifier.
+        #expect(
+            scrubber.scrub("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEY done")
+                == "AWS_SECRET_ACCESS_KEY=<redacted-secret> done"
+        )
+        #expect(
+            scrubber.scrub("export MY_API_KEY=plainlettersvalue123")
+                == "export MY_API_KEY=<redacted-secret>"
+        )
+    }
+
     // MARK: - Grouping fields preserved
 
     @Test func preservesNormalErrorText() {

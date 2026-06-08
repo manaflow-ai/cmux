@@ -83,7 +83,9 @@ struct SentryEventScrubber {
         scrubUser(event.user)
 
         if let tags = event.tags {
-            event.tags = tags.mapValues { scrubber.scrub($0) }
+            // Key-aware so a tag like `access_token` is redacted by name even
+            // when its value matches no standalone secret pattern.
+            event.tags = scrubber.scrub(dictionary: tags).compactMapValues { $0 as? String }
         }
         if let extra = event.extra {
             event.extra = scrubber.scrub(dictionary: extra)
