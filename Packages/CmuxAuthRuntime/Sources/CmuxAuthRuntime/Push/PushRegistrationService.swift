@@ -163,6 +163,18 @@ public actor PushRegistrationService: PushRegistering {
         afterHydrationFetchForTesting = hook
     }
 
+    /// Test-only seam: awaited inside ``uploadMutedWorkspaces(_:expectedUserKey:)``
+    /// after the request is built but before the user-match guard, so a test can
+    /// deterministically switch accounts in the credential-binding window. Always
+    /// `nil` in production.
+    private var afterMakeMuteRequestForTesting: (@Sendable () async -> Void)?
+
+    /// Install the test-only upload interleave hook. See
+    /// ``afterMakeMuteRequestForTesting``.
+    func setAfterMakeMuteRequestForTesting(_ hook: @escaping @Sendable () async -> Void) {
+        afterMakeMuteRequestForTesting = hook
+    }
+
     @discardableResult
     public func hydrateMutedWorkspacesFromServer() async -> Set<String> {
         let userKey = await currentUserKey()
@@ -233,7 +245,10 @@ public actor PushRegistrationService: PushRegistering {
             // Upload the signed-in user's current persisted set. The server route
             // keys by the bearer's user id, so this matches the key we read.
             let userKey = await currentUserKey()
-            let uploaded = await uploadMutedWorkspaces(cachedMutedWorkspaceIDs(forUserKey: userKey))
+            let uploaded = await uploadMutedWorkspaces(
+                cachedMutedWorkspaceIDs(forUserKey: userKey),
+                expectedUserKey: userKey
+            )
             if uploaded {
                 // The server now matches local: clear the unsynced marker so the
                 // next hydration is free to adopt the server set.
@@ -245,7 +260,7 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     @discardableResult
-    private func uploadMutedWorkspaces(_ set: Set<String>) async -> Bool {
+    private func uploadMutedWorkspaces(_ set: Set<String>, expectedUserKey: String) async -> Bool {
         // Idempotent full-set replace so the server always reflects the phone's
         // authoritative local state. Bounded to mirror the route's limit.
         let workspaceIds = Array(set).sorted().prefix(Self.maxMutedWorkspaces)
@@ -254,6 +269,17 @@ public actor PushRegistrationService: PushRegistering {
             path: "/api/notifications/mutes",
             jsonBody: ["workspaceIds": Array(workspaceIds)]
         ) else { return false }
+        await afterMakeMuteRequestForTesting?()
+        // Bind the cached set to the credential: the request now carries
+        // `tokenProvider`'s CURRENT bearer (resolved inside `makeRequest`). If the
+        // account changed across the suspension since we read `expectedUserKey`'s
+        // set, that bearer belongs to a DIFFERENT user, and PUTing this set would
+        // overwrite the new account's server mutes with the old account's ids.
+        // Abort instead; the original user re-syncs on their next sign-in (the
+        // pending marker, keyed by their id, stays set). The token in `request`
+        // was captured atomically with this check, so a later sign-in cannot make
+        // an already-built request target the wrong user.
+        guard await currentUserKey() == expectedUserKey else { return false }
         return await perform(request, label: "mute-sync")
     }
 

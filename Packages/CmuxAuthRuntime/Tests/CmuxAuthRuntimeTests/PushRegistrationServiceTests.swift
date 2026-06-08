@@ -145,6 +145,18 @@ actor RequestRecorder {
     }
 }
 
+/// A token provider whose reported user id can change between calls, to exercise
+/// the account-switch-mid-sync credential-binding guard.
+actor MutableUserTokenProvider: TokenProviding {
+    private var userID: String?
+    init(userID: String?) { self.userID = userID }
+    func setUserID(_ id: String?) { userID = id }
+    func accessToken() async throws -> String { "access" }
+    func refreshToken() async -> String? { "refresh" }
+    func forceRefreshAccessToken() async throws -> String { "access" }
+    func currentUserID() async -> String? { userID }
+}
+
 struct FakeTokenProvider: TokenProviding {
     var access: String? = "access"
     var refresh: String? = "refresh"
@@ -431,6 +443,33 @@ struct FakeTokenProvider: TokenProviding {
         #expect(await service.mutedWorkspaceIDs == ["ws-a"])
         // It re-uploaded local rather than adopting the empty server set.
         #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs(host: host) == ["ws-a"])
+    }
+
+    @Test func muteUploadAbortsIfAccountSwitchesMidFlight() async {
+        // User A mutes; the account switches to B in the credential-binding window
+        // (after the request is built, before the user-match guard). The PUT must
+        // abort so A's ids are never sent with B's bearer (which would overwrite
+        // B's server mutes).
+        let suite = "push-switch-\(UUID().uuidString)"
+        let host = "t-\(UUID().uuidString).example.test"
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecordingURLProtocol.self]
+        let provider = MutableUserTokenProvider(userID: "user-a")
+        let service = PushRegistrationService(
+            tokenProvider: provider,
+            apiBaseURL: "https://\(host)",
+            bundleID: "dev.cmux.ios",
+            apnsEnvironment: "sandbox",
+            suiteName: suite,
+            session: URLSession(configuration: configuration)
+        )
+        await service.setAfterMakeMuteRequestForTesting { await provider.setUserID("user-b") }
+        await service.setWorkspaceMuted("ws-a", muted: true)
+        // No mute PUT reached the server (it was aborted at the guard).
+        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs(host: host) == nil)
+        // A's local set + unsynced marker survive (A re-syncs on next sign-in).
+        await provider.setUserID("user-a")
+        #expect(await service.mutedWorkspaceIDs == ["ws-a"])
     }
 
     @Test func hydrateAdoptsServerSetOnceLocalChangeIsConfirmed() async {
