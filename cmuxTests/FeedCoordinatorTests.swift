@@ -14,19 +14,19 @@ struct FeedCoordinatorTests {
         let base = "/tmp/cmux-base"
 
         #expect(
-            CMUXCLI.codexTeamsResolvedWorkingDirectory(
+            CodexTeamsApprovalBridge.resolvedWorkingDirectory(
                 commandArgs: ["-C", "child", "prompt"],
                 baseDirectory: base
             ) == "/tmp/cmux-base/child"
         )
         #expect(
-            CMUXCLI.codexTeamsResolvedWorkingDirectory(
+            CodexTeamsApprovalBridge.resolvedWorkingDirectory(
                 commandArgs: ["--cwd=/tmp/cmux-review", "--cd", "/tmp/cmux-final"],
                 baseDirectory: base
             ) == "/tmp/cmux-final"
         )
         #expect(
-            CMUXCLI.codexTeamsResolvedWorkingDirectory(
+            CodexTeamsApprovalBridge.resolvedWorkingDirectory(
                 commandArgs: ["--", "-C", "/tmp/inside-prompt"],
                 baseDirectory: base
             ) == nil
@@ -40,7 +40,7 @@ struct FeedCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: existing) }
 
         do {
-            try CMUXCLI.validateCodexTeamsWorkingDirectory(
+            try CodexTeamsApprovalBridge.validateWorkingDirectory(
                 commandArgs: ["-C", existing.path],
                 baseDirectory: "/tmp"
             )
@@ -49,7 +49,7 @@ struct FeedCoordinatorTests {
         }
 
         do {
-            try CMUXCLI.validateCodexTeamsWorkingDirectory(
+            try CodexTeamsApprovalBridge.validateWorkingDirectory(
                 commandArgs: ["-C", existing.appendingPathComponent("missing").path],
                 baseDirectory: "/tmp"
             )
@@ -62,27 +62,27 @@ struct FeedCoordinatorTests {
     @Test func claudePermissionActionPolicyKeepsBypassUserOwned() {
         #expect(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .claude))
         #expect(!FeedPermissionActionPolicy.supportsBypassPermissions(source: .claude))
-        #expect(CMUXCLI.feedSourceSupportsPersistentPermissionModes("claude"))
-        #expect(!CMUXCLI.feedSourceSupportsBypassPermissions("claude"))
+        #expect(CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes("claude"))
+        #expect(!CodexTeamsApprovalBridge.feedSourceSupportsBypassPermissions("claude"))
 
         #expect(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .codex))
         #expect(!FeedPermissionActionPolicy.supportsBypassPermissions(source: .codex))
-        #expect(CMUXCLI.feedSourceSupportsPersistentPermissionModes("codex"))
-        #expect(!CMUXCLI.feedSourceSupportsBypassPermissions("codex"))
+        #expect(CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes("codex"))
+        #expect(!CodexTeamsApprovalBridge.feedSourceSupportsBypassPermissions("codex"))
 
         #expect(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .opencode))
         #expect(FeedPermissionActionPolicy.supportsBypassPermissions(source: .opencode))
-        #expect(CMUXCLI.feedSourceSupportsPersistentPermissionModes("opencode"))
-        #expect(CMUXCLI.feedSourceSupportsBypassPermissions("opencode"))
+        #expect(CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes("opencode"))
+        #expect(CodexTeamsApprovalBridge.feedSourceSupportsBypassPermissions("opencode"))
 
         #expect(!FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .hermesAgent))
         #expect(!FeedPermissionActionPolicy.supportsBypassPermissions(source: .hermesAgent))
-        #expect(!CMUXCLI.feedSourceSupportsPersistentPermissionModes("hermes-agent"))
-        #expect(!CMUXCLI.feedSourceSupportsBypassPermissions("hermes-agent"))
+        #expect(!CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes("hermes-agent"))
+        #expect(!CodexTeamsApprovalBridge.feedSourceSupportsBypassPermissions("hermes-agent"))
     }
 
     @Test func codexAppServerApprovalBuildsActionableFeedEvent() throws {
-        let event = CMUXCLI.codexTeamsFeedEvent(
+        let event = CodexTeamsApprovalBridge.feedEvent(
             method: "item/commandExecution/requestApproval",
             requestId: 41,
             params: [
@@ -144,7 +144,7 @@ struct FeedCoordinatorTests {
                 "write": ["/tmp/write"]
             ]
         ]
-        let event = CMUXCLI.codexTeamsFeedEvent(
+        let event = CodexTeamsApprovalBridge.feedEvent(
             method: "item/permissions/requestApproval",
             requestId: "permissions-request",
             params: [
@@ -167,7 +167,7 @@ struct FeedCoordinatorTests {
         #expect(toolInput["permissions"] != nil)
 
         let once = try #require(
-            CMUXCLI.codexTeamsAppServerApprovalResponse(
+            CodexTeamsApprovalBridge.appServerApprovalResponse(
                 method: "item/permissions/requestApproval",
                 params: ["permissions": permissions],
                 mode: "once"
@@ -177,7 +177,7 @@ struct FeedCoordinatorTests {
         #expect(once["permissions"] != nil)
 
         let always = try #require(
-            CMUXCLI.codexTeamsAppServerApprovalResponse(
+            CodexTeamsApprovalBridge.appServerApprovalResponse(
                 method: "item/permissions/requestApproval",
                 params: ["permissions": permissions],
                 mode: "always"
@@ -186,7 +186,7 @@ struct FeedCoordinatorTests {
         #expect(always["scope"] as? String == "session")
 
         let deny = try #require(
-            CMUXCLI.codexTeamsAppServerApprovalResponse(
+            CodexTeamsApprovalBridge.appServerApprovalResponse(
                 method: "item/permissions/requestApproval",
                 params: ["permissions": permissions],
                 mode: "deny"
@@ -202,26 +202,26 @@ struct FeedCoordinatorTests {
         ]
 
         #expect(
-            CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: [
+            CodexTeamsApprovalBridge.permissionMode(fromFeedPushResponse: [
                 "status": "resolved",
                 "decision": ["kind": "permission", "mode": "always"]
             ]) == "always"
         )
         #expect(
-            CMUXCLI.codexTeamsAppServerApprovalResponse(
+            CodexTeamsApprovalBridge.appServerApprovalResponse(
                 method: "item/commandExecution/requestApproval",
                 params: params,
                 mode: "always"
             )?["decision"] as? String == "acceptForSession"
         )
         #expect(
-            CMUXCLI.codexTeamsAppServerApprovalResponse(
+            CodexTeamsApprovalBridge.appServerApprovalResponse(
                 method: "item/commandExecution/requestApproval",
                 params: [:],
                 mode: "always"
             )?["decision"] as? String == "acceptForSession"
         )
-        let amendmentDecision = CMUXCLI.codexTeamsAppServerApprovalResponse(
+        let amendmentDecision = CodexTeamsApprovalBridge.appServerApprovalResponse(
             method: "item/commandExecution/requestApproval",
             params: [
                 "availableDecisions": [["acceptWithExecpolicyAmendment": [:]]],
@@ -230,7 +230,7 @@ struct FeedCoordinatorTests {
             mode: "always"
         )?["decision"] as? [String: Any]
         #expect(amendmentDecision?["acceptWithExecpolicyAmendment"] != nil)
-        let onceAmendmentDecision = CMUXCLI.codexTeamsAppServerApprovalResponse(
+        let onceAmendmentDecision = CodexTeamsApprovalBridge.appServerApprovalResponse(
             method: "item/commandExecution/requestApproval",
             params: [
                 "availableDecisions": [["applyNetworkPolicyAmendment": [:]]],
@@ -239,7 +239,7 @@ struct FeedCoordinatorTests {
             mode: "once"
         )?["decision"] as? [String: Any]
         #expect(onceAmendmentDecision?["applyNetworkPolicyAmendment"] != nil)
-        let unspecifiedAmendmentDecision = CMUXCLI.codexTeamsAppServerApprovalResponse(
+        let unspecifiedAmendmentDecision = CodexTeamsApprovalBridge.appServerApprovalResponse(
             method: "item/commandExecution/requestApproval",
             params: [
                 "proposedExecpolicyAmendment": [["kind": "prefix", "value": "npm test"]]
@@ -255,58 +255,58 @@ struct FeedCoordinatorTests {
             "proposedExecpolicyAmendment": [["kind": "prefix", "value": "npm test"]]
         ]
         #expect(
-            CMUXCLI.codexTeamsAppServerApprovalResponse(
+            CodexTeamsApprovalBridge.appServerApprovalResponse(
                 method: "item/commandExecution/requestApproval",
                 params: mixedParams,
                 mode: "always"
             )?["decision"] as? String == "acceptForSession"
         )
-        let allToolsDecision = CMUXCLI.codexTeamsAppServerApprovalResponse(
+        let allToolsDecision = CodexTeamsApprovalBridge.appServerApprovalResponse(
             method: "item/commandExecution/requestApproval",
             params: mixedParams,
             mode: "all"
         )?["decision"] as? [String: Any]
         #expect(allToolsDecision?["acceptWithExecpolicyAmendment"] != nil)
         #expect(
-            CMUXCLI.codexTeamsAppServerApprovalResponse(
+            CodexTeamsApprovalBridge.appServerApprovalResponse(
                 method: "item/commandExecution/requestApproval",
                 params: ["availableDecisions": ["decline"]],
                 mode: "once"
             )?["decision"] as? String == "decline"
         )
         #expect(
-            CMUXCLI.codexTeamsAppServerApprovalResponse(
+            CodexTeamsApprovalBridge.appServerApprovalResponse(
                 method: "item/fileChange/requestApproval",
                 params: [:],
                 mode: "once"
             )?["decision"] as? String == "accept"
         )
         #expect(
-            CMUXCLI.codexTeamsAppServerApprovalResponse(
+            CodexTeamsApprovalBridge.appServerApprovalResponse(
                 method: "item/fileChange/requestApproval",
                 params: [:],
                 mode: "always"
             )?["decision"] as? String == "acceptForSession"
         )
         #expect(
-            CMUXCLI.codexTeamsAppServerApprovalResponse(
+            CodexTeamsApprovalBridge.appServerApprovalResponse(
                 method: "item/fileChange/requestApproval",
                 params: ["availableDecisions": ["accept", "decline"]],
                 mode: "always"
             )?["decision"] as? String == "accept"
         )
         #expect(
-            CMUXCLI.codexTeamsAppServerApprovalResponse(
+            CodexTeamsApprovalBridge.appServerApprovalResponse(
                 method: "item/commandExecution/requestApproval",
                 params: params,
                 mode: "deny"
             )?["decision"] as? String == "decline"
         )
-        #expect(CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: ["status": "timed_out"]) == nil)
+        #expect(CodexTeamsApprovalBridge.permissionMode(fromFeedPushResponse: ["status": "timed_out"]) == nil)
     }
 
     @Test func codexApprovalItemSnapshotStripsLargePayloads() throws {
-        let snapshot = CMUXCLI.codexTeamsApprovalItemSnapshot([
+        let snapshot = CodexTeamsApprovalBridge.approvalItemSnapshot([
             "id": "call-1",
             "type": "commandExecution",
             "command": String(repeating: "x", count: 5_000),

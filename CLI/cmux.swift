@@ -18655,104 +18655,17 @@ struct CMUXCLI {
         workspaceId: String,
         relatedItem: [String: Any]? = nil
     ) -> [String: Any] {
-        let threadId = stringValue(in: params, keys: ["threadId", "thread_id"])
-            ?? stringValue(in: params, keys: ["threadID", "thread_id"])
-            ?? "unknown"
-        let turnId = stringValue(in: params, keys: ["turnId", "turn_id"])
-        let itemId = stringValue(in: params, keys: ["approvalId", "approval_id", "itemId", "item_id"])
-            ?? requestIdString(requestId)
-        let cwd = stringValue(in: params, keys: ["cwd"])
-        let reason = stringValue(in: params, keys: ["reason"])
-        let command = stringValue(in: params, keys: ["command"])
-        let toolName: String
-        switch method {
-        case "item/fileChange/requestApproval":
-            toolName = "Write"
-        case "item/permissions/requestApproval":
-            toolName = "request_permissions"
-        default:
-            toolName = "Bash"
-        }
-        var toolInput: [String: Any] = [
-            "app_server_method": method,
-            "request_id": requestIdString(requestId),
-            "item_id": itemId,
-            "approval_params": params
-        ]
-        if let turnId { toolInput["turn_id"] = turnId }
-        if let reason { toolInput["reason"] = reason }
-        if let command { toolInput["command"] = command }
-        if let cwd { toolInput["cwd"] = cwd }
-        if let approvalId = stringValue(in: params, keys: ["approvalId", "approval_id"]) {
-            toolInput["approval_id"] = approvalId
-        }
-        if let grantRoot = params["grantRoot"] ?? params["grant_root"] {
-            toolInput["grant_root"] = grantRoot
-        }
-        if let available = params["availableDecisions"] ?? params["available_decisions"] {
-            toolInput["available_decisions"] = codexTeamsDecisionNames(available)
-        }
-        if let permissions = params["permissions"] {
-            toolInput["permissions"] = permissions
-        }
-        if let networkApprovalContext = params["networkApprovalContext"] ?? params["network_approval_context"] {
-            toolInput["network_approval_context"] = networkApprovalContext
-        }
-        if let additionalPermissions = params["additionalPermissions"] ?? params["additional_permissions"] {
-            toolInput["additional_permissions"] = additionalPermissions
-        }
-        if let commandActions = params["commandActions"] ?? params["command_actions"] {
-            toolInput["command_actions"] = commandActions
-        }
-        if let proposed = params["proposedExecpolicyAmendment"] ?? params["proposed_execpolicy_amendment"] {
-            toolInput["proposed_execpolicy_amendment"] = proposed
-        }
-        if let proposed = params["proposedNetworkPolicyAmendments"] ?? params["proposed_network_policy_amendments"] {
-            toolInput["proposed_network_policy_amendments"] = proposed
-        }
-        if let relatedItem {
-            toolInput["related_item"] = relatedItem
-            if command == nil,
-               let relatedCommand = relatedItem["command"] as? String {
-                toolInput["command"] = relatedCommand
-            }
-            if cwd == nil,
-               let relatedCwd = relatedItem["cwd"] as? String {
-                toolInput["cwd"] = relatedCwd
-            }
-        }
-
-        var context: [String: Any] = [
-            "permissionMode": "codex app-server"
-        ]
-        if let reason {
-            context["assistantPreamble"] = reason
-        }
-        if let command {
-            context["toolSummary"] = command
-        }
-
-        var event: [String: Any] = [
-            "session_id": "codex-\(threadId)",
-            "hook_event_name": "PermissionRequest",
-            "_source": "codex",
-            "workspace_id": workspaceId,
-            "tool_name": toolName,
-            "tool_input": toolInput,
-            "context": context,
-            "_opencode_request_id": "codex-app-server-\(itemId)"
-        ]
-        if let cwd { event["cwd"] = cwd }
-        return event
+        CodexTeamsApprovalBridge.feedEvent(
+            method: method,
+            requestId: requestId,
+            params: params,
+            workspaceId: workspaceId,
+            relatedItem: relatedItem
+        )
     }
 
     static func codexTeamsPermissionMode(fromFeedPushResponse response: [String: Any]) -> String? {
-        guard (response["status"] as? String) == "resolved",
-              let decision = response["decision"] as? [String: Any],
-              (decision["kind"] as? String) == "permission",
-              let mode = decision["mode"] as? String
-        else { return nil }
-        return mode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        CodexTeamsApprovalBridge.permissionMode(fromFeedPushResponse: response)
     }
 
     static func codexTeamsAppServerApprovalResponse(
@@ -18760,187 +18673,23 @@ struct CMUXCLI {
         params: [String: Any],
         mode: String
     ) -> [String: Any]? {
-        switch method {
-        case "item/commandExecution/requestApproval":
-            return ["decision": codexTeamsCommandApprovalDecision(params: params, mode: mode)]
-        case "item/fileChange/requestApproval":
-            return ["decision": codexTeamsFileChangeApprovalDecision(params: params, mode: mode)]
-        case "item/permissions/requestApproval":
-            return codexTeamsPermissionsApprovalResponse(params: params, mode: mode)
-        default:
-            return nil
-        }
-    }
-
-    static func codexTeamsCommandApprovalDecision(params: [String: Any], mode: String) -> Any {
-        if mode == "deny" { return codexTeamsRejectApprovalDecision(params: params) }
-        if mode == "all" || mode == "bypass",
-           let decision = codexTeamsCommandApprovalAmendmentDecision(params: params) {
-            return decision
-        }
-        if codexTeamsModeRequestsPersistentApproval(mode),
-           codexTeamsDecisionAvailableOrUnspecified("acceptForSession", params: params) {
-            return "acceptForSession"
-        }
-        if codexTeamsModeRequestsPersistentApproval(mode),
-           let decision = codexTeamsCommandApprovalAmendmentDecision(params: params) {
-            return decision
-        }
-        if codexTeamsDecisionAvailableOrUnspecified("accept", params: params) {
-            return "accept"
-        }
-        if let decision = codexTeamsCommandApprovalAmendmentDecision(params: params) {
-            return decision
-        }
-        return codexTeamsRejectApprovalDecision(params: params)
-    }
-
-    static func codexTeamsCommandApprovalAmendmentDecision(params: [String: Any]) -> Any? {
-        if codexTeamsDecisionAvailableOrUnspecified("acceptWithExecpolicyAmendment", params: params),
-           let amendment = params["proposedExecpolicyAmendment"] ?? params["proposed_execpolicy_amendment"] {
-            return [
-                "acceptWithExecpolicyAmendment": [
-                    "execpolicy_amendment": amendment
-                ]
-            ]
-        }
-        if codexTeamsDecisionAvailableOrUnspecified("applyNetworkPolicyAmendment", params: params),
-           let amendments = (params["proposedNetworkPolicyAmendments"] as? [Any])
-                ?? (params["proposed_network_policy_amendments"] as? [Any]),
-           let amendment = amendments.first {
-            return [
-                "applyNetworkPolicyAmendment": [
-                    "network_policy_amendment": amendment
-                ]
-            ]
-        }
-        return nil
+        CodexTeamsApprovalBridge.appServerApprovalResponse(
+            method: method,
+            params: params,
+            mode: mode
+        )
     }
 
     static func codexTeamsApprovalItemSnapshot(_ item: [String: Any]) -> [String: Any] {
-        var snapshot: [String: Any] = [:]
-        for key in ["id", "type", "threadId", "thread_id", "turnId", "turn_id", "command", "cwd", "path", "status"] {
-            if let value = item[key],
-               let bounded = codexTeamsBoundedApprovalItemValue(value) {
-                snapshot[key] = bounded
-            }
-        }
-        if let changes = item["changes"] as? [[String: Any]] {
-            snapshot["changes"] = changes.prefix(20).map { change in
-                var changeSnapshot: [String: Any] = [:]
-                for key in ["path", "kind", "type", "status"] {
-                    if let value = change[key],
-                       let bounded = codexTeamsBoundedApprovalItemValue(value) {
-                        changeSnapshot[key] = bounded
-                    }
-                }
-                return changeSnapshot
-            }
-        }
-        return snapshot
-    }
-
-    static func codexTeamsBoundedApprovalItemValue(_ value: Any) -> Any? {
-        if let string = value as? String {
-            let limit = 4_096
-            guard string.count > limit else { return string }
-            let index = string.index(string.startIndex, offsetBy: limit)
-            return String(string[..<index])
-        }
-        if value is NSNumber || value is Bool || value is NSNull {
-            return value
-        }
-        return nil
-    }
-
-    static func codexTeamsFileChangeApprovalDecision(params: [String: Any], mode: String) -> String {
-        if mode == "deny" { return codexTeamsRejectApprovalDecision(params: params) }
-        if codexTeamsModeRequestsPersistentApproval(mode)
-            && codexTeamsDecisionAvailableOrUnspecified("acceptForSession", params: params) {
-            return "acceptForSession"
-        }
-        if codexTeamsDecisionAvailableOrUnspecified("accept", params: params) {
-            return "accept"
-        }
-        return codexTeamsRejectApprovalDecision(params: params)
-    }
-
-    static func codexTeamsPermissionsApprovalResponse(params: [String: Any], mode: String) -> [String: Any] {
-        if mode == "deny" {
-            return [
-                "permissions": [String: Any](),
-                "scope": "turn"
-            ]
-        }
-        return [
-            "permissions": params["permissions"] ?? [String: Any](),
-            "scope": codexTeamsModeRequestsPersistentApproval(mode) ? "session" : "turn"
-        ]
-    }
-
-    static func codexTeamsModeRequestsPersistentApproval(_ mode: String) -> Bool {
-        mode == "always" || mode == "all" || mode == "bypass"
-    }
-
-    static func codexTeamsAvailableDecisions(_ params: [String: Any]) -> Set<String> {
-        guard let raw = params["availableDecisions"] ?? params["available_decisions"] else {
-            return []
-        }
-        return Set(codexTeamsDecisionNames(raw))
-    }
-
-    static func codexTeamsDecisionAvailableOrUnspecified(_ decision: String, params: [String: Any]) -> Bool {
-        guard params["availableDecisions"] != nil || params["available_decisions"] != nil else {
-            return true
-        }
-        return codexTeamsAvailableDecisions(params).contains(decision)
-    }
-
-    static func codexTeamsRejectApprovalDecision(params: [String: Any]) -> String {
-        let available = codexTeamsAvailableDecisions(params)
-        if available.contains("decline") || available.isEmpty {
-            return "decline"
-        }
-        if available.contains("cancel") {
-            return "cancel"
-        }
-        return "decline"
-    }
-
-    static func codexTeamsDecisionNames(_ raw: Any) -> [String] {
-        let values = raw as? [Any] ?? []
-        return values.compactMap { value in
-            if let string = value as? String {
-                return string
-            }
-            if let object = value as? [String: Any],
-               let key = object.keys.first {
-                return key
-            }
-            return nil
-        }
+        CodexTeamsApprovalBridge.approvalItemSnapshot(item)
     }
 
     static func requestIdString(_ requestId: Any) -> String {
-        if let string = requestId as? String {
-            return string
-        }
-        if let number = requestId as? NSNumber {
-            return number.stringValue
-        }
-        return String(describing: requestId)
+        CodexTeamsApprovalBridge.requestIdString(requestId)
     }
 
     static func stringValue(in object: [String: Any], keys: [String]) -> String? {
-        for key in keys {
-            if let value = object[key] as? String {
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { return trimmed }
-            } else if let value = object[key] as? NSNumber {
-                return value.stringValue
-            }
-        }
-        return nil
+        CodexTeamsApprovalBridge.stringValue(in: object, keys: keys)
     }
 
     private static func codexTeamsThreadCanResume(appServerURL: String, threadId: String) -> Bool {
@@ -19332,51 +19081,23 @@ struct CMUXCLI {
         commandArgs: [String],
         baseDirectory: String
     ) -> String? {
-        let valueOptions: Set<String> = ["-C", "--cd", "--cwd"]
-        let optionPrefixes = valueOptions.map { "\($0)=" }
-        var index = 0
-        var requested: String?
-        while index < commandArgs.count {
-            let arg = commandArgs[index]
-            if arg == "--" { break }
-            if valueOptions.contains(arg), index + 1 < commandArgs.count {
-                requested = commandArgs[index + 1]
-                index += 2
-                continue
-            }
-            if let prefix = optionPrefixes.first(where: { arg.hasPrefix($0) }) {
-                requested = String(arg.dropFirst(prefix.count))
-            }
-            index += 1
-        }
-        guard let requested = requested?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !requested.isEmpty else {
-            return nil
-        }
-        let expanded = (requested as NSString).expandingTildeInPath
-        if expanded.hasPrefix("/") {
-            return URL(fileURLWithPath: expanded).standardizedFileURL.path
-        }
-        return URL(
-            fileURLWithPath: expanded,
-            relativeTo: URL(fileURLWithPath: baseDirectory, isDirectory: true)
-        ).standardizedFileURL.path
+        CodexTeamsApprovalBridge.resolvedWorkingDirectory(
+            commandArgs: commandArgs,
+            baseDirectory: baseDirectory
+        )
     }
 
     static func validateCodexTeamsWorkingDirectory(
         commandArgs: [String],
         baseDirectory: String
     ) throws {
-        guard let cwd = codexTeamsResolvedWorkingDirectory(
-            commandArgs: commandArgs,
-            baseDirectory: baseDirectory
-        ) else {
-            return
-        }
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            throw CLIError(message: "cmux codex-teams cwd does not exist: \(cwd)")
+        do {
+            try CodexTeamsApprovalBridge.validateWorkingDirectory(
+                commandArgs: commandArgs,
+                baseDirectory: baseDirectory
+            )
+        } catch let error as CodexTeamsApprovalBridgeError {
+            throw CLIError(message: error.description)
         }
     }
 
@@ -30635,11 +30356,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     static func feedSourceSupportsPersistentPermissionModes(_ source: String) -> Bool {
-        source != "hermes-agent"
+        CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes(source)
     }
 
     static func feedSourceSupportsBypassPermissions(_ source: String) -> Bool {
-        source != "codex" && source != "claude" && source != "hermes-agent"
+        CodexTeamsApprovalBridge.feedSourceSupportsBypassPermissions(source)
     }
 
     private func resolveFeedTUIItem(
