@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Foundation
 import Testing
 
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/5427.
@@ -60,5 +61,28 @@ struct ClaudeResumeHookSettingsTests {
             arguments: ["/opt/homebrew/bin/claude", "--settings", "/home/me/settings.json"]
         )
         #expect(argv == ["claude", "--resume", "s", "--settings", "/home/me/settings.json"])
+    }
+
+    @Test("Merged hook --settings keeps user keys when resuming")
+    func mergedHookSettingsKeepsUserKeysOnResume() throws {
+        let mergedSettings = #"{"effortLevel":"max","preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"cmux hooks claude session-start","timeout":10}]}]}}"#
+
+        let argv = try #require(
+            AgentResumeArgv().builtInKind(
+                kind: "claude",
+                sessionId: "s",
+                executablePath: "/opt/homebrew/bin/claude",
+                arguments: ["/opt/homebrew/bin/claude", "--settings", mergedSettings]
+            )
+        )
+
+        let settingsIndex = try #require(argv.firstIndex(of: "--settings"))
+        try #require(settingsIndex + 1 < argv.count)
+        let settingsData = try #require(argv[settingsIndex + 1].data(using: .utf8))
+        let settingsObject = try #require(JSONSerialization.jsonObject(with: settingsData) as? [String: Any])
+
+        #expect(settingsObject["effortLevel"] as? String == "max")
+        #expect(!settingsObject.keys.contains("hooks"))
+        #expect(!settingsObject.keys.contains("preferredNotifChannel"))
     }
 }
