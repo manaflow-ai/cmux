@@ -891,6 +891,18 @@ struct RestorableAgentSessionIndex: Sendable {
         let processIDs: Set<Int>
     }
 
+    enum ProcessDetectedSessionIDSource: Sendable {
+        case explicit
+        case inferredLatestSessionFile
+    }
+
+    typealias ProcessDetectedSnapshotEntry = (
+        snapshot: SessionRestorableAgentSnapshot,
+        updatedAt: TimeInterval,
+        processIDs: Set<Int>,
+        sessionIDSource: ProcessDetectedSessionIDSource
+    )
+
     private struct SessionKey: Hashable {
         let kind: RestorableAgentKind
         let sessionId: String
@@ -969,7 +981,7 @@ struct RestorableAgentSessionIndex: Sendable {
         homeDirectory: String,
         fileManager: FileManager,
         registry: CmuxVaultAgentRegistry,
-        detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)],
+        detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         }
@@ -1077,6 +1089,16 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: detected.snapshot,
                     lifecycle: existing.lifecycle,
                     updatedAt: existing.updatedAt,
+                    processIDs: detected.processIDs
+                )
+            } else if detected.sessionIDSource == .inferredLatestSessionFile,
+                      let panelCandidate = hookCandidatesByPanel[key] {
+                // Latest-file detection is ambiguous when multiple panels share a cwd; preserve the exact
+                // hook-store identity while still carrying live process evidence for this panel.
+                resolved[key] = Entry(
+                    snapshot: panelCandidate.snapshot,
+                    lifecycle: panelCandidate.lifecycle,
+                    updatedAt: panelCandidate.updatedAt,
                     processIDs: detected.processIDs
                 )
             } else {
