@@ -39,16 +39,24 @@ final class DeviceRegistryClient {
 
     /// Whether the current advertised routes differ from what was last registered.
     ///
-    /// Pure so it is unit-testable without any network or host service. Returns
-    /// `false` for an empty current set (nothing to advertise / pairing off) and
-    /// for an unchanged set (a connection-only `statusUpdates()` tick), and
-    /// `true` only when there are routes that differ from the last registration.
+    /// Pure so it is unit-testable without any network or host service.
+    ///
+    /// Fires (returns `true`) only when the advertised routes differ from the
+    /// last registration. That includes the nonempty -> empty transition (the
+    /// user turned mobile pairing off): publishing the now-empty route set once
+    /// clears the stale routes from the registry, and the phone already skips
+    /// empty-route instances. It does NOT fire for an unchanged set (a
+    /// connection-only `statusUpdates()` tick) or for the empty -> still-empty
+    /// case (`nil`/`[]` start with pairing off), so the off-state is published
+    /// exactly once rather than on every empty tick.
     static func shouldReRegister(
         previous: [CmxAttachRoute]?,
         current: [CmxAttachRoute]
     ) -> Bool {
-        guard !current.isEmpty else { return false }
-        return previous != current
+        // Treat "never registered" as an empty baseline so an initial empty set
+        // (pairing off at launch) is a no-op, but a later clear still fires once.
+        let baseline = previous ?? []
+        return baseline != current
     }
 
     private func startObserving() {

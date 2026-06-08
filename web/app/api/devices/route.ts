@@ -26,7 +26,12 @@ export const dynamic = "force-dynamic";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_DEVICES_PER_TEAM = 200;
+// A device's app instances are keyed by `(deviceId, tag)`, and `tag` is
+// client-supplied, so cap instances per device to keep one device from creating
+// unbounded rows (and an unbounded GET response) by varying the tag.
+const MAX_INSTANCES_PER_DEVICE = 25;
 const MAX_ROUTES = 16;
+const MAX_TAG_LENGTH = 64;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -94,8 +99,19 @@ function recordOrEmpty(value: unknown): Record<string, unknown> {
     : {};
 }
 
+/**
+ * Keep only structurally valid route entries (a plain object), bounded by
+ * `MAX_ROUTES`. Semantic validation of the `CmxAttachRoute` wire schema is left
+ * to the typed Mac/iOS clients, so the server stays forward-compatible with new
+ * route kinds; this only guarantees the stored jsonb is a bounded array of
+ * objects (never a string, number, or array element that would corrupt the
+ * column or bloat the row).
+ */
 function routesArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value.slice(0, MAX_ROUTES) : [];
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry) => entry !== null && typeof entry === "object" && !Array.isArray(entry))
+    .slice(0, MAX_ROUTES);
 }
 
 /**
@@ -129,6 +145,9 @@ export async function POST(request: Request): Promise<Response> {
   }
   if (!ALLOWED_PLATFORMS.has(platform)) {
     return jsonResponse({ error: "invalid_platform" }, 400);
+  }
+  if (tag.length > MAX_TAG_LENGTH) {
+    return jsonResponse({ error: "invalid_tag" }, 400);
   }
 
   const db = cloudDb();
@@ -186,6 +205,25 @@ export async function POST(request: Request): Promise<Response> {
         },
       });
 
+    // Cap instances per device. `tag` is client-supplied and the instance key is
+    // `(deviceId, tag)`, so without this a single device could create unbounded
+    // rows by varying the tag. Re-registering an existing tag is an update (the
+    // onConflict below), so only a genuinely new tag counts against the cap.
+    const [existingInstance] = await tx
+      .select({ id: deviceAppInstances.id })
+      .from(deviceAppInstances)
+      .where(and(eq(deviceAppInstances.deviceId, deviceId), eq(deviceAppInstances.tag, tag)))
+      .limit(1);
+    if (!existingInstance) {
+      const [{ total }] = await tx
+        .select({ total: sql<number>`count(*)::int` })
+        .from(deviceAppInstances)
+        .where(eq(deviceAppInstances.deviceId, deviceId));
+      if (Number(total) >= MAX_INSTANCES_PER_DEVICE) {
+        return { error: "too_many_instances" as const };
+      }
+    }
+
     await tx
       .insert(deviceAppInstances)
       .values({
@@ -216,6 +254,9 @@ export async function POST(request: Request): Promise<Response> {
   }
   if (registered.error === "too_many_devices") {
     return jsonResponse({ error: "too_many_devices" }, 429);
+  }
+  if (registered.error === "too_many_instances") {
+    return jsonResponse({ error: "too_many_instances" }, 429);
   }
 
   return jsonResponse({ ok: true, deviceId, teamId: team.teamId, tag });

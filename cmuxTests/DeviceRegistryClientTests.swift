@@ -22,7 +22,8 @@ import CMUXMobileCore
         )
     }
 
-    @Test func emptyRoutesNeverRegister() {
+    @Test func initialEmptyRoutesDoNotRegister() {
+        // Pairing off at launch: nothing was ever advertised, nothing to publish.
         #expect(DeviceRegistryClient.shouldReRegister(previous: nil, current: []) == false)
     }
 
@@ -44,9 +45,16 @@ import CMUXMobileCore
         #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: current) == true)
     }
 
-    @Test func clearingRoutesSkipsRegistration() throws {
-        // Pairing turned off after having registered: nothing new to advertise.
+    @Test func clearingRoutesRegistersOnceToPublishOffState() throws {
+        // Pairing turned off after having registered: publish the now-empty set
+        // once so the registry no longer advertises stale routes for this Mac.
         let previous = [try route(host: "100.0.0.1", port: 51000)]
-        #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: []) == false)
+        #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: []) == true)
+    }
+
+    @Test func stillEmptyAfterClearDoesNotReRegister() {
+        // Once the empty off-state has been published, repeated empty ticks are
+        // no-ops (the baseline is now empty too).
+        #expect(DeviceRegistryClient.shouldReRegister(previous: [], current: []) == false)
     }
 }

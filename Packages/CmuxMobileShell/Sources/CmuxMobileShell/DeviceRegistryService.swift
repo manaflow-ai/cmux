@@ -95,9 +95,24 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// device whose id matches `macDeviceID`, preferring its most recently seen
     /// app instance. Returns `nil` when the device or routes are absent so the
     /// caller falls back to local routes.
+    ///
+    /// Each route is decoded *failably* and individually: a malformed or
+    /// unknown-kind route from any instance (even another Mac's) is skipped
+    /// rather than failing the whole response. This keeps one bad sibling row
+    /// from disabling registry refresh for every Mac, and makes old clients
+    /// forward-compatible when a newer build advertises a route kind they cannot
+    /// decode.
     static func routes(forMacDeviceID macDeviceID: String, in data: Data) -> [CmxAttachRoute]? {
+        // Decode each route element through an optional wrapper so a single bad
+        // element decodes to `nil` and is dropped, never throwing for the array.
+        struct FailableRoute: Decodable {
+            let value: CmxAttachRoute?
+            init(from decoder: Decoder) throws {
+                value = try? CmxAttachRoute(from: decoder)
+            }
+        }
         struct Instance: Decodable {
-            let routes: [CmxAttachRoute]
+            let routes: [FailableRoute]
         }
         struct Device: Decodable {
             let deviceId: String
@@ -113,10 +128,11 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         guard let device = decoded.devices.first(where: { $0.deviceId.lowercased() == target }) else {
             return nil
         }
-        // Instances are returned most-recently-seen first; the first non-empty
-        // route set is the freshest reachable instance for this Mac.
-        for instance in device.instances where !instance.routes.isEmpty {
-            return instance.routes
+        // Instances are returned most-recently-seen first; the first instance
+        // with at least one decodable route is the freshest reachable one.
+        for instance in device.instances {
+            let routes = instance.routes.compactMap(\.value)
+            if !routes.isEmpty { return routes }
         }
         return nil
     }

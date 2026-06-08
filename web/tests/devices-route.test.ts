@@ -134,6 +134,67 @@ describe("device registry route", () => {
     expect(list.devices[0].instances[0].routes[0].endpoint.host).toBe("100.9.9.9");
   });
 
+  dbTest("caps app instances per device when the tag varies", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    // Register one device under 25 distinct tags (the cap), then a 26th.
+    const statuses: number[] = [];
+    for (let i = 0; i < 26; i++) {
+      const response = await POST(
+        registerRequest({
+          deviceId: DEVICE_A,
+          platform: "mac",
+          tag: `tag-${i}`,
+          routes: [],
+        }),
+      );
+      statuses.push(response.status);
+    }
+    // First 25 succeed, the 26th distinct tag is rejected.
+    expect(statuses.slice(0, 25).every((s) => s === 200)).toBe(true);
+    expect(statuses[25]).toBe(429);
+
+    const [{ total }] = await sql<{ total: number }[]>`
+      select count(*)::int as total from device_app_instances where device_id = ${DEVICE_A}
+    `;
+    expect(total).toBe(25);
+
+    // Re-registering an existing tag is an update, not a new row, so it is not
+    // capped even at the limit.
+    const reRegister = await POST(
+      registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "tag-0", routes: [] }),
+    );
+    expect(reRegister.status).toBe(200);
+  });
+
+  dbTest("drops structurally invalid route entries on register", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    await POST(
+      registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        tag: "stable",
+        // Mix of valid objects and junk (string, number, null, nested array).
+        routes: [
+          { id: "r1", kind: "tailscale", endpoint: { type: "host_port", host: "100.1.1.1", port: 1 } },
+          "not-a-route",
+          42,
+          null,
+          ["nested"],
+          { id: "r2", kind: "tailscale", endpoint: { type: "host_port", host: "100.2.2.2", port: 2 } },
+        ],
+      }),
+    );
+
+    const [{ routes }] = await sql<{ routes: unknown[] }[]>`
+      select routes from device_app_instances where device_id = ${DEVICE_A} and tag = 'stable'
+    `;
+    // Only the two object entries are stored; scalars/arrays are dropped.
+    expect(Array.isArray(routes)).toBe(true);
+    expect(routes).toHaveLength(2);
+  });
+
   dbTest("rejects a team the caller is not a member of", async () => {
     if (!sql) throw new Error("test database not initialized");
 

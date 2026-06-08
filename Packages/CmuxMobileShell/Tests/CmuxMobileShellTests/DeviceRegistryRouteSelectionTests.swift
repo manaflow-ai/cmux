@@ -90,6 +90,73 @@ import Testing
         #expect(DeviceRegistryService.routes(forMacDeviceID: "missing", in: json) == nil)
     }
 
+    @Test func malformedSiblingRouteDoesNotPoisonTheList() throws {
+        // One instance has a malformed/unknown route; the target Mac's own valid
+        // route must still parse (a bad sibling must not nil the whole response).
+        let json = """
+        {
+          "teamId": "team-a",
+          "devices": [
+            {
+              "deviceId": "AAAA1111-1111-4111-8111-111111111111",
+              "platform": "mac",
+              "instances": [
+                { "tag": "stable", "routes": [
+                  { "id": "bad", "kind": "unknown_future_kind", "endpoint": { "type": "???" } }
+                ] }
+              ]
+            },
+            {
+              "deviceId": "BBBB2222-2222-4222-8222-222222222222",
+              "platform": "mac",
+              "instances": [
+                { "tag": "stable", "routes": [
+                  { "id": "r1", "kind": "tailscale", "priority": 0,
+                    "endpoint": { "type": "host_port", "host": "100.9.9.9", "port": 51999 } }
+                ] }
+              ]
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let routes = DeviceRegistryService.routes(
+            forMacDeviceID: "bbbb2222-2222-4222-8222-222222222222",
+            in: json
+        )
+        #expect(routes?.count == 1)
+    }
+
+    @Test func malformedRouteWithinTargetInstanceIsSkipped() throws {
+        // A bad route mixed with a good one in the target's own instance: keep
+        // the good one, drop the bad one.
+        let json = """
+        {
+          "teamId": "team-a",
+          "devices": [
+            {
+              "deviceId": "BBBB2222-2222-4222-8222-222222222222",
+              "platform": "mac",
+              "instances": [
+                { "tag": "stable", "routes": [
+                  { "id": "bad", "kind": "tailscale", "endpoint": { "type": "host_port", "host": "", "port": 0 } },
+                  { "id": "good", "kind": "tailscale", "priority": 0,
+                    "endpoint": { "type": "host_port", "host": "100.9.9.9", "port": 51999 } }
+                ] }
+              ]
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let routes = DeviceRegistryService.routes(
+            forMacDeviceID: "bbbb2222-2222-4222-8222-222222222222",
+            in: json
+        )
+        #expect(routes?.count == 1)
+        #expect(routes?.first?.id == "good")
+    }
+
     @Test func deviceIdentityPersistsAcrossLookups() {
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
