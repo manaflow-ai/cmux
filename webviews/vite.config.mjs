@@ -48,6 +48,14 @@ export default defineConfig({
         // lazy loading (and de-duplicating against the worker copy) is a
         // follow-up once the allowlist cap is revisited.
         manualChunks(id) {
+          // Vite's dynamic-import preload helper is the one module the slim
+          // entry statically imports. Pin it to the always-shared `vendor`
+          // chunk so Rollup never co-locates it with a surface vendor chunk,
+          // which would make the entry statically pull that chunk (e.g. the
+          // agent session eagerly loading the 10MB diff vendor bundle).
+          if (id.includes("vite/preload-helper")) {
+            return "vendor";
+          }
           if (!id.includes("node_modules")) {
             return undefined;
           }
