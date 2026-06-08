@@ -26,6 +26,7 @@ import struct
 import sys
 import subprocess
 import termios
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -119,6 +120,29 @@ def _drain(master_fd: int, settle: float = 0.4) -> None:
             break
 
 
+def _start_drain(master_fd: int):
+    """Continuously read (discard) the pty master while an attach is held open
+    but we are not otherwise reading it. Without this the slave's output buffer
+    fills, the CLI blocks on `write(stdout)`, and it can no longer process a
+    detach. Returns (stop_event, thread); call stop after the client exits."""
+    stop = threading.Event()
+
+    def run() -> None:
+        while not stop.is_set():
+            ready, _, _ = select.select([master_fd], [], [], 0.2)
+            if master_fd not in ready:
+                continue
+            try:
+                if not os.read(master_fd, 65536):
+                    break
+            except OSError:
+                break
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return stop, thread
+
+
 def _detach(proc, master_fd: int) -> None:
     """Detach by sending Ctrl+\\ (0x1C), then wait for the client to exit."""
     try:
@@ -166,9 +190,44 @@ def _wait_shell_ready(client: cmux, surface: str) -> None:
     raise cmuxError("terminal surface never produced shell output")
 
 
-def _surface_columns(client: cmux, surface: str) -> int:
-    stats = client.render_stats(surface)
-    return int(stats.get("columns") or stats.get("cols") or 0)
+def _pane_columns(client: cmux, surface: str, timeout_s: float = 4.0) -> int:
+    """The pane's *PTY* width, as the shell sees it via `tput cols`.
+
+    This reflects the real `TIOCSWINSZ` the host applies on attach (size
+    arbitration resizes the pane's terminal, which the shell observes through a
+    SIGWINCH). It is render-independent, so it works for an off-screen surface
+    where the GUI render grid would report nothing.
+    """
+    marker = f"COLS_{uuid.uuid4().hex[:6]}"
+    client.send_surface(surface, f'printf "{marker}=%s\\n" "$(tput cols)"\n')
+    box: dict[str, int] = {}
+
+    def got() -> bool:
+        for line in reversed(_scrollback(client, surface).splitlines()):
+            cleaned = clean_line(line)
+            if cleaned.startswith(f"{marker}="):
+                value = cleaned.split("=", 1)[1].strip()
+                if value.isdigit():
+                    box["v"] = int(value)
+                    return True
+        return False
+
+    wait_for(got, timeout_s=timeout_s)
+    return box["v"]
+
+
+def _settle_columns(client: cmux, surface: str, want: int, timeout_s: float = 6.0) -> int:
+    """Re-probe the PTY width until it reaches `want` (or time out). Each probe
+    sends one command, so this avoids spamming the pane the way a tight
+    `wait_for` over `_pane_columns` would."""
+    deadline = time.time() + timeout_s
+    last = -1
+    while time.time() < deadline:
+        last = _pane_columns(client, surface)
+        if last == want:
+            return last
+        time.sleep(0.3)
+    return last
 
 
 def _check_replay_and_live(cli: str, client: cmux, surface: str) -> None:
@@ -226,21 +285,27 @@ def _check_input_roundtrip(cli: str, client: cmux, surface: str) -> None:
 
 
 def _check_size_arbitration(cli: str, client: cmux, surface: str) -> None:
-    base_cols = _surface_columns(client, surface)
+    base_cols = _pane_columns(client, surface)
     _must(base_cols > 0, f"could not read base column count: {base_cols}")
     target_cols = 40 if base_cols > 45 else max(10, base_cols - 5)
     _must(target_cols < base_cols, f"GUI surface too narrow to test arbitration (base={base_cols})")
 
     proc, master_fd = _spawn_attach(cli, surface, cols=target_cols, rows=12, read_only=True)
+    # Hold the attach open while we probe via the socket; drain its output so the
+    # CLI never blocks on a full pty and can still process the detach.
+    stop, _thread = _start_drain(master_fd)
     try:
-        # min(gui, attachment): the surface shrinks to the smaller client.
-        wait_for(lambda: _surface_columns(client, surface) == target_cols, timeout_s=4.0)
+        # min(gui, attachment): the pane's PTY shrinks to the smaller client.
+        got = _settle_columns(client, surface, target_cols)
+        _must(got == target_cols, f"attach did not arbitrate width: got {got}, want {target_cols} (base {base_cols})")
     finally:
         _detach(proc, master_fd)
+        stop.set()
         _cleanup(proc, master_fd)
 
-    # Last client gone -> GUI's own size is restored.
-    wait_for(lambda: _surface_columns(client, surface) == base_cols, timeout_s=4.0)
+    # Last client gone -> the GUI's own size is restored.
+    restored = _settle_columns(client, surface, base_cols)
+    _must(restored == base_cols, f"width not restored after detach: got {restored}, want {base_cols}")
 
 
 def main() -> int:
