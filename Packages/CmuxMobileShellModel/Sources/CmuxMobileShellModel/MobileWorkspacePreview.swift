@@ -32,6 +32,10 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// Whether the workspace is pinned on the Mac. Pinned workspaces sort to the
     /// top of the mobile list.
     public var isPinned: Bool
+    /// The id of the group this workspace belongs to, if any. `nil` for ungrouped
+    /// workspaces. Used to fold contiguous same-group workspaces under their
+    /// group header, mirroring the Mac sidebar.
+    public var groupID: MobileWorkspaceGroupPreview.ID?
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
 
@@ -40,11 +44,19 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - id: The workspace's stable identifier.
     ///   - name: The workspace's user-facing display name.
     ///   - isPinned: Whether the workspace is pinned on the Mac. Defaults to `false`.
+    ///   - groupID: The group this workspace belongs to, if any. Defaults to `nil`.
     ///   - terminals: The terminals contained in the workspace, in display order.
-    public init(id: ID, name: String, isPinned: Bool = false, terminals: [MobileTerminalPreview]) {
+    public init(
+        id: ID,
+        name: String,
+        isPinned: Bool = false,
+        groupID: MobileWorkspaceGroupPreview.ID? = nil,
+        terminals: [MobileTerminalPreview]
+    ) {
         self.id = id
         self.name = name
         self.isPinned = isPinned
+        self.groupID = groupID
         self.terminals = terminals
     }
 }
