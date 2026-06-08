@@ -10,7 +10,10 @@ import { summarizeApnsSendResults } from "../services/apns/response";
 import { sendApnsNotification, signApnsJwt, normalizeP8 } from "../services/apns/sender";
 import {
   MAX_MUTED_WORKSPACES_PER_USER,
+  MAX_MUTE_REQUEST_BYTES,
   MAX_PUSH_BODY_CHARS,
+  MAX_PUSH_ID_CHARS,
+  MAX_PUSH_REQUEST_BYTES,
   normalizeApnsBundle,
   parseMuteWorkspacesPayload,
   parsePushPayload,
@@ -231,6 +234,17 @@ describe("apns per-workspace mute", () => {
       ok: false,
       error: "too_many_muted_workspaces",
     });
+  });
+
+  test("the mute byte limit admits a full max-size set the push limit would reject", () => {
+    // Worst case: the max number of ids, each at the id-char bound.
+    const id = "w".repeat(MAX_PUSH_ID_CHARS);
+    const fullSet = Array.from({ length: MAX_MUTED_WORKSPACES_PER_USER }, () => id);
+    const bodyBytes = Buffer.byteLength(JSON.stringify({ workspaceIds: fullSet }), "utf8");
+    // The route's byte gate must accept a legitimate max-size set...
+    expect(bodyBytes).toBeLessThanOrEqual(MAX_MUTE_REQUEST_BYTES);
+    // ...which the single-push 8 KiB limit would have wrongly 413'd.
+    expect(bodyBytes).toBeGreaterThan(MAX_PUSH_REQUEST_BYTES);
   });
 });
 

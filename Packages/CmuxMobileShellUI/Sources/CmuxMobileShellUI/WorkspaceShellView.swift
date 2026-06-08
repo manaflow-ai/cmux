@@ -178,7 +178,10 @@ struct WorkspaceShellView: View {
     /// lives server-side in the web push route.
     private var setWorkspaceMutedClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
         let pushCoordinator = pushCoordinator
-        return { id, _ in pushCoordinator.toggleWorkspaceMuted(id.rawValue) }
+        // Honor the explicit target state from the row's context menu (the menu
+        // passes the state it wants), so a stale row snapshot can't flip mute the
+        // wrong way.
+        return { id, muted in pushCoordinator.setWorkspaceMuted(id.rawValue, muted: muted) }
     }
 
     private func createWorkspaceInCompactStack() {

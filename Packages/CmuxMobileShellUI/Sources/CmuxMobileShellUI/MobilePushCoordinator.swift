@@ -95,21 +95,24 @@ public final class MobilePushCoordinator {
         Task { mutedWorkspaceIDs = await registration.hydrateMutedWorkspacesFromServer() }
     }
 
-    /// Toggle phone-push mute for a workspace. Updates the observable set
-    /// optimistically (so the list re-renders at once), persists, and syncs the
-    /// full muted set to the server, where delivery is actually gated.
-    public func toggleWorkspaceMuted(_ workspaceId: String) {
-        let willMute = !mutedWorkspaceIDs.contains(workspaceId)
-        if willMute {
+    /// Set phone-push mute for a workspace to an explicit state. Updates the
+    /// observable set optimistically (so the list re-renders at once), persists,
+    /// and syncs the full muted set to the server, where delivery is actually
+    /// gated. Honors the requested `muted` value rather than toggling, so a stale
+    /// row snapshot or a state change while a context menu is open can never flip
+    /// the workspace to the wrong state.
+    public func setWorkspaceMuted(_ workspaceId: String, muted: Bool) {
+        if muted == mutedWorkspaceIDs.contains(workspaceId) { return }
+        if muted {
             mutedWorkspaceIDs.insert(workspaceId)
         } else {
             mutedWorkspaceIDs.remove(workspaceId)
         }
-        analytics.capture("ios_push_workspace_mute_toggled", ["muted": .bool(willMute)])
+        analytics.capture("ios_push_workspace_mute_toggled", ["muted": .bool(muted)])
         Task {
-            await registration.setWorkspaceMuted(workspaceId, muted: willMute)
+            await registration.setWorkspaceMuted(workspaceId, muted: muted)
             // Reconcile against the persisted authoritative set in case a
-            // concurrent toggle interleaved.
+            // concurrent change interleaved.
             mutedWorkspaceIDs = await registration.mutedWorkspaceIDs
         }
     }

@@ -11,6 +11,16 @@ export const MAX_PUSH_REQUEST_BYTES = 8 * 1024;
 /// the per-user rows stored server-side.
 export const MAX_MUTED_WORKSPACES_PER_USER = 500;
 
+/// Byte cap for the mute-sync `PUT` body. Unlike a single push, a full muted
+/// set can legitimately carry up to `MAX_MUTED_WORKSPACES_PER_USER` ids of up to
+/// `MAX_PUSH_ID_CHARS` chars each, so the 8 KiB push limit would 413 a valid
+/// max-size set. Size it to the worst-case set (ids at the char bound) plus JSON
+/// structural overhead (quotes, commas, the `{"workspaceIds":[...]}` envelope),
+/// so the parser's per-id and per-set bounds — not the byte gate — are what
+/// reject oversized input.
+export const MAX_MUTE_REQUEST_BYTES =
+  MAX_MUTED_WORKSPACES_PER_USER * (MAX_PUSH_ID_CHARS + 4) + 64;
+
 export type ApnsBundlePolicy = {
   readonly bundleId: string;
   readonly environment: "sandbox" | "production";

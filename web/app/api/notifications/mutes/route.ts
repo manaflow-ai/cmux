@@ -12,7 +12,7 @@ import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
 import { withApnsApiRoute } from "../../../../services/apns/routeHandler";
 import {
-  MAX_PUSH_REQUEST_BYTES,
+  MAX_MUTE_REQUEST_BYTES,
   parseMuteWorkspacesPayload,
   readBoundedJsonObject,
 } from "../../../../services/apns/routePolicy";
@@ -45,7 +45,7 @@ async function replaceMutes(request: Request): Promise<Response> {
   const user = await verifyRequest(request, { allowCookie: false });
   if (!user) return unauthorized();
 
-  const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);
+  const body = await readBoundedJsonObject(request, MAX_MUTE_REQUEST_BYTES);
   if (!body.ok) return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
 
   const parsed = parseMuteWorkspacesPayload(body.value);
