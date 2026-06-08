@@ -1217,36 +1217,43 @@ private final class ClaudeHookSessionStore {
         }
     }
 
-    /// Relaxed gate for Claude CLEARING transitions (stop->idle, prompt-submit->running,
-    /// pre-tool-use->running). Returns true when the event is current (`isCurrent`) OR when it
-    /// belongs to the SAME active session and that session is currently stuck on `.needsInput`.
-    /// The second clause lets a follow-up event whose `turnId` drifted (Notification leaves the
-    /// active turn pointing at the prior prompt) still clear a stale "Needs input" badge, while a
-    /// DIFFERENT-session event stays blocked because it requires `active.sessionId == sessionId`.
-    /// Fixes https://github.com/manaflow-ai/cmux/issues/1027.
+    /// Gate for Claude CLEARING transitions (stop->idle, prompt-submit->running,
+    /// pre-tool-use->running). Equivalent to `isCurrent`, except that when an event matches the
+    /// active session but its `turnId` has drifted (a Notification leaves the active turn pointing
+    /// at the prior prompt), it still returns true IF that session is currently stuck on
+    /// `.needsInput` -- so a follow-up clearing event can drop a stale "Needs input" badge. A
+    /// DIFFERENT-session event always fails closed (`active.sessionId == sessionId` is required).
+    /// The whole decision is taken under a SINGLE `withLockedState` (the `isCurrent` predicate is
+    /// inlined) so the turn-identity check and the `needsInput` check can't race a concurrent
+    /// session update across two lock windows. Fixes https://github.com/manaflow-ai/cmux/issues/1027.
     func isCurrentOrClearsStaleNeedsInput(
         sessionId: String?,
         workspaceId: String,
         turnId: String? = nil
     ) throws -> Bool {
-        if try isCurrent(sessionId: sessionId, workspaceId: workspaceId, turnId: turnId) {
-            return true
-        }
         guard let normalizedSessionId = normalizeOptional(sessionId),
               let normalizedWorkspace = normalizeOptional(workspaceId) else {
-            return false
+            // Matches isCurrent's fail-open: an event that can't identify a session/workspace is
+            // treated as current.
+            return true
         }
-        // The two-phase read (the `isCurrent` lock above + this one) is intentional: this is an
-        // optimistic gate hint, not a critical section. A benign TOCTOU can at most let a clearing
-        // event proceed against a `needsInput` that just changed -- which only ever clears a stale
-        // badge, never the reverse -- so a single combined lock isn't needed.
+        let normalizedTurnId = normalizeOptional(turnId)
         return try withLockedState { state in
-            guard let active = state.activeSessionsByWorkspace[normalizedWorkspace],
-                  active.sessionId == normalizedSessionId,
-                  state.sessions[normalizedSessionId]?.agentLifecycle == .needsInput else {
+            guard let active = state.activeSessionsByWorkspace[normalizedWorkspace] else {
+                return true
+            }
+            guard active.sessionId == normalizedSessionId else {
                 return false
             }
-            return true
+            guard let activeTurnId = normalizeOptional(active.turnId),
+                  let normalizedTurnId else {
+                return true
+            }
+            if activeTurnId == normalizedTurnId {
+                return true
+            }
+            // Same session, but the turnId drifted: still clear a stale "Needs input" badge.
+            return state.sessions[normalizedSessionId]?.agentLifecycle == .needsInput
         }
     }
 
@@ -22394,7 +22401,7 @@ struct CMUXCLI {
             )
         } catch {
             telemetry.breadcrumb(
-                "claude-hook.is-current.error",
+                "claude-hook.clearing-gate.error",
                 data: [
                     "error": String(describing: error),
                     "session_id": parsedInput.sessionId ?? "",
