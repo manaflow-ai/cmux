@@ -9,13 +9,11 @@ import {
 import { summarizeApnsSendResults } from "../services/apns/response";
 import { sendApnsNotification, signApnsJwt, normalizeP8 } from "../services/apns/sender";
 import {
-  MAX_MUTED_WORKSPACES_PER_USER,
   MAX_MUTE_REQUEST_BYTES,
   MAX_PUSH_BODY_CHARS,
   MAX_PUSH_ID_CHARS,
-  MAX_PUSH_REQUEST_BYTES,
   normalizeApnsBundle,
-  parseMuteWorkspacesPayload,
+  parseMuteMutationPayload,
   parsePushPayload,
   readBoundedJsonObject,
   shouldDeliverToWorkspace,
@@ -209,42 +207,35 @@ describe("apns per-workspace mute", () => {
     expect(shouldDeliverToWorkspace("ws-active", new Set())).toBe(true);
   });
 
-  test("parses, trims, and dedupes a muted-workspace set", () => {
-    expect(parseMuteWorkspacesPayload({ workspaceIds: [" ws-a ", "ws-b", "ws-a", ""] })).toEqual({
+  test("parses and trims a per-workspace mute mutation", () => {
+    expect(parseMuteMutationPayload({ workspaceId: " ws-a ", muted: true })).toEqual({
       ok: true,
-      value: ["ws-a", "ws-b"],
+      value: { workspaceId: "ws-a", muted: true },
+    });
+    expect(parseMuteMutationPayload({ workspaceId: "ws-a", muted: false })).toEqual({
+      ok: true,
+      value: { workspaceId: "ws-a", muted: false },
     });
   });
 
-  test("treats a missing array as clearing all mutes", () => {
-    expect(parseMuteWorkspacesPayload({})).toEqual({ ok: true, value: [] });
-  });
-
-  test("rejects a non-array, oversized ids, and an oversized set", () => {
-    expect(parseMuteWorkspacesPayload({ workspaceIds: "ws-a" })).toEqual({
+  test("rejects a missing/oversized workspace id and a non-boolean muted", () => {
+    expect(parseMuteMutationPayload({ muted: true })).toEqual({
       ok: false,
-      error: "workspace_ids_not_array",
+      error: "workspace_id_required",
     });
-    expect(parseMuteWorkspacesPayload({ workspaceIds: ["x".repeat(201)] })).toEqual({
+    expect(parseMuteMutationPayload({ workspaceId: "x".repeat(MAX_PUSH_ID_CHARS + 1), muted: true })).toEqual({
       ok: false,
       error: "workspace_id_too_long",
     });
-    const tooMany = Array.from({ length: MAX_MUTED_WORKSPACES_PER_USER + 1 }, (_, i) => `ws-${i}`);
-    expect(parseMuteWorkspacesPayload({ workspaceIds: tooMany })).toEqual({
+    expect(parseMuteMutationPayload({ workspaceId: "ws-a", muted: "yes" })).toEqual({
       ok: false,
-      error: "too_many_muted_workspaces",
+      error: "muted_not_boolean",
     });
   });
 
-  test("the mute byte limit admits a full max-size set the push limit would reject", () => {
-    // Worst case: the max number of ids, each at the id-char bound.
-    const id = "w".repeat(MAX_PUSH_ID_CHARS);
-    const fullSet = Array.from({ length: MAX_MUTED_WORKSPACES_PER_USER }, () => id);
-    const bodyBytes = Buffer.byteLength(JSON.stringify({ workspaceIds: fullSet }), "utf8");
-    // The route's byte gate must accept a legitimate max-size set...
-    expect(bodyBytes).toBeLessThanOrEqual(MAX_MUTE_REQUEST_BYTES);
-    // ...which the single-push 8 KiB limit would have wrongly 413'd.
-    expect(bodyBytes).toBeGreaterThan(MAX_PUSH_REQUEST_BYTES);
+  test("a single mutation body fits the mute byte limit", () => {
+    const body = JSON.stringify({ workspaceId: "w".repeat(MAX_PUSH_ID_CHARS), muted: true });
+    expect(Buffer.byteLength(body, "utf8")).toBeLessThanOrEqual(MAX_MUTE_REQUEST_BYTES);
   });
 });
 

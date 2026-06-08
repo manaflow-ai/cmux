@@ -7,19 +7,14 @@ export const MAX_PUSH_ID_CHARS = 200;
 export const MAX_PUSH_REQUEST_BYTES = 8 * 1024;
 
 /// Defensive upper bound on a user's muted-workspace set, mirroring the iOS
-/// `PushRegistrationService.maxMutedWorkspaces`. Bounds the mute-sync body and
-/// the per-user rows stored server-side.
+/// `PushRegistrationService.maxMutedWorkspaces`. Bounds the per-user rows the
+/// client will defensively cache/hydrate.
 export const MAX_MUTED_WORKSPACES_PER_USER = 500;
 
-/// Byte cap for the mute-sync `PUT` body. Unlike a single push, a full muted
-/// set can legitimately carry up to `MAX_MUTED_WORKSPACES_PER_USER` ids of up to
-/// `MAX_PUSH_ID_CHARS` chars each, so the 8 KiB push limit would 413 a valid
-/// max-size set. Size it to the worst-case set (ids at the char bound) plus JSON
-/// structural overhead (quotes, commas, the `{"workspaceIds":[...]}` envelope),
-/// so the parser's per-id and per-set bounds — not the byte gate — are what
-/// reject oversized input.
-export const MAX_MUTE_REQUEST_BYTES =
-  MAX_MUTED_WORKSPACES_PER_USER * (MAX_PUSH_ID_CHARS + 4) + 64;
+/// Byte cap for a per-workspace mute mutation `POST` body. The body is a single
+/// `{ workspaceId, muted }`, so a small cap (one bounded id + the boolean + JSON
+/// overhead) is plenty; the parser's id-length bound is the real gate.
+export const MAX_MUTE_REQUEST_BYTES = MAX_PUSH_ID_CHARS + 128;
 
 export type ApnsBundlePolicy = {
   readonly bundleId: string;
@@ -43,8 +38,13 @@ export type JsonObjectResult =
   | { readonly ok: true; readonly value: Record<string, unknown> }
   | { readonly ok: false; readonly error: "invalid_json" | "request_too_large" };
 
-export type MuteWorkspacesResult =
-  | { readonly ok: true; readonly value: readonly string[] }
+export type MuteMutation = {
+  readonly workspaceId: string;
+  readonly muted: boolean;
+};
+
+export type MuteMutationResult =
+  | { readonly ok: true; readonly value: MuteMutation }
   | { readonly ok: false; readonly error: string };
 
 const DEV_TAGGED_BUNDLE_ID = /^dev\.cmux\.ios\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -98,34 +98,21 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
   };
 }
 
-/// Parse and normalize the `workspaceIds` array of a mute-sync `PUT`. Returns a
-/// deduplicated, bounded set of non-empty ids. The full set is an idempotent
-/// replacement of the user's muted workspaces.
-export function parseMuteWorkspacesPayload(body: Record<string, unknown>): MuteWorkspacesResult {
-  const raw = body.workspaceIds;
-  if (raw === undefined || raw === null) {
-    // Treat a missing array as "clear all mutes" so an unmute-to-empty syncs.
-    return { ok: true, value: [] };
-  }
-  if (!Array.isArray(raw)) return { ok: false, error: "workspace_ids_not_array" };
-
-  const seen = new Set<string>();
-  for (const entry of raw) {
-    const id = boundedString(entry, MAX_PUSH_ID_CHARS);
-    if (id == null) return { ok: false, error: "workspace_id_too_long" };
-    if (!id) continue;
-    seen.add(id);
-    if (seen.size > MAX_MUTED_WORKSPACES_PER_USER) {
-      return { ok: false, error: "too_many_muted_workspaces" };
-    }
-  }
-  return { ok: true, value: [...seen] };
+/// Parse a single per-workspace mute mutation `POST` (`{ workspaceId, muted }`).
+/// One add/remove per request keeps multiple devices on the same account from
+/// clobbering each other (no full-set replace from a stale local cache).
+export function parseMuteMutationPayload(body: Record<string, unknown>): MuteMutationResult {
+  const workspaceId = boundedString(body.workspaceId, MAX_PUSH_ID_CHARS);
+  if (workspaceId == null) return { ok: false, error: "workspace_id_too_long" };
+  if (!workspaceId) return { ok: false, error: "workspace_id_required" };
+  if (typeof body.muted !== "boolean") return { ok: false, error: "muted_not_boolean" };
+  return { ok: true, value: { workspaceId, muted: body.muted } };
 }
 
 /// Pure delivery decision: `true` when a push for `workspaceId` should be sent,
 /// given the user's muted-workspace set. A `null`/empty workspace id is never
 /// muted (it cannot match a stored id), so it always delivers. Mirrors the iOS
-/// `PushMutePolicy.shouldDeliver`.
+/// `pushShouldDeliver`.
 export function shouldDeliverToWorkspace(
   workspaceId: string | null,
   mutedWorkspaceIds: ReadonlySet<string>,

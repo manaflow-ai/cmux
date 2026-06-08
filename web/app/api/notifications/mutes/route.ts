@@ -1,11 +1,14 @@
-// Read or replace the authenticated user's set of workspaces muted for phone
-// push. The iOS app owns the set and replaces it wholesale on every mute/unmute
-// (idempotent PUT). The push route reads this set and drops push for a muted
-// workspace before it ever reaches APNs, so a muted workspace stays silent even
-// while the phone is backgrounded or locked.
-// Auth: Stack Bearer from the native client; the set is keyed by that user id.
+// Read or mutate the authenticated user's set of workspaces muted for phone
+// push. Mutations are PER-WORKSPACE (POST {workspaceId, muted}), not a full-set
+// replace: with multiple iOS devices on one account, a wholesale replace from
+// one device's stale local cache would silently delete mutes another device
+// added. A single add/remove touches exactly one row, so devices never clobber
+// each other and there is no stale-base problem. The push route reads this set
+// and drops push for a muted workspace before it reaches APNs, so a muted
+// workspace stays silent even while the phone is backgrounded or locked.
+// Auth: Stack Bearer from the native client; rows are keyed by that user id.
 
-import { and, eq, notInArray, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { cloudDb } from "../../../../db/client";
 import { notificationWorkspaceMutes } from "../../../../db/schema";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
@@ -13,7 +16,7 @@ import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
 import { withApnsApiRoute } from "../../../../services/apns/routeHandler";
 import {
   MAX_MUTE_REQUEST_BYTES,
-  parseMuteWorkspacesPayload,
+  parseMuteMutationPayload,
   readBoundedJsonObject,
 } from "../../../../services/apns/routePolicy";
 
@@ -37,45 +40,40 @@ async function listMutes(request: Request): Promise<Response> {
   return jsonResponse({ workspaceIds: rows.map((r) => r.workspaceId) });
 }
 
-export async function PUT(request: Request): Promise<Response> {
-  return withApnsApiRoute(request, "/api/notifications/mutes", "replace", async () => replaceMutes(request));
+export async function POST(request: Request): Promise<Response> {
+  return withApnsApiRoute(request, "/api/notifications/mutes", "mutate", async () => mutateMute(request));
 }
 
-async function replaceMutes(request: Request): Promise<Response> {
+async function mutateMute(request: Request): Promise<Response> {
   const user = await verifyRequest(request, { allowCookie: false });
   if (!user) return unauthorized();
 
   const body = await readBoundedJsonObject(request, MAX_MUTE_REQUEST_BYTES);
   if (!body.ok) return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
 
-  const parsed = parseMuteWorkspacesPayload(body.value);
+  const parsed = parseMuteMutationPayload(body.value);
   if (!parsed.ok) return jsonResponse({ error: parsed.error }, 400);
-  const workspaceIds = parsed.value;
+  const { workspaceId, muted } = parsed.value;
 
   const db = cloudDb();
-  await db.transaction(async (tx) => {
-    // Serialize concurrent replaces for the same user so the set never tears.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 3))`);
-
-    // Remove rows no longer in the set (or all rows when the set is empty).
-    if (workspaceIds.length === 0) {
-      await tx.delete(notificationWorkspaceMutes).where(eq(notificationWorkspaceMutes.userId, user.id));
-    } else {
-      await tx.delete(notificationWorkspaceMutes).where(
+  if (muted) {
+    // Idempotent add of exactly this workspace; other devices' rows untouched.
+    await db
+      .insert(notificationWorkspaceMutes)
+      .values({ userId: user.id, workspaceId })
+      .onConflictDoNothing({
+        target: [notificationWorkspaceMutes.userId, notificationWorkspaceMutes.workspaceId],
+      });
+  } else {
+    await db
+      .delete(notificationWorkspaceMutes)
+      .where(
         and(
           eq(notificationWorkspaceMutes.userId, user.id),
-          notInArray(notificationWorkspaceMutes.workspaceId, [...workspaceIds]),
+          eq(notificationWorkspaceMutes.workspaceId, workspaceId),
         ),
       );
-      // Insert the desired set; ignore rows that already exist.
-      await tx
-        .insert(notificationWorkspaceMutes)
-        .values(workspaceIds.map((workspaceId) => ({ userId: user.id, workspaceId })))
-        .onConflictDoNothing({
-          target: [notificationWorkspaceMutes.userId, notificationWorkspaceMutes.workspaceId],
-        });
-    }
-  });
+  }
 
-  return jsonResponse({ ok: true, workspaceIds });
+  return jsonResponse({ ok: true, workspaceId, muted });
 }

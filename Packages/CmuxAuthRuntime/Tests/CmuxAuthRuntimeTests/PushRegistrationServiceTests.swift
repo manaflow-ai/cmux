@@ -131,17 +131,32 @@ actor RequestRecorder {
         requests.filter { $0.host == host }.count
     }
 
-    /// The decoded `workspaceIds` array from the most recent mute-sync PUT for
-    /// `host`, or `nil` if no such request was recorded.
-    func lastMutedWorkspaceIDs(host: String) -> [String]? {
+    /// The decoded `{ workspaceId, muted }` of the most recent per-workspace mute
+    /// mutation POST for `host`, or `nil` if no such request was recorded.
+    func lastMuteMutation(host: String) -> (workspaceId: String, muted: Bool)? {
         guard let request = requests.last(where: {
-            $0.host == host && $0.method == "PUT" && $0.path.hasSuffix("/api/notifications/mutes")
+            $0.host == host && $0.method == "POST" && $0.path.hasSuffix("/api/notifications/mutes")
         }),
               let body = request.body,
               let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-              let ids = object["workspaceIds"] as? [String]
+              let workspaceId = object["workspaceId"] as? String,
+              let muted = object["muted"] as? Bool
         else { return nil }
-        return ids
+        return (workspaceId, muted)
+    }
+
+    /// All mute mutation POSTs for `host`, in order.
+    func muteMutations(host: String) -> [(workspaceId: String, muted: Bool)] {
+        requests.compactMap { request -> (String, Bool)? in
+            guard request.host == host, request.method == "POST",
+                  request.path.hasSuffix("/api/notifications/mutes"),
+                  let body = request.body,
+                  let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+                  let workspaceId = object["workspaceId"] as? String,
+                  let muted = object["muted"] as? Bool
+            else { return nil }
+            return (workspaceId, muted)
+        }
     }
 }
 
@@ -230,26 +245,31 @@ struct FakeTokenProvider: TokenProviding {
         #expect(await service.mutedWorkspaceIDs.isEmpty)
     }
 
-    @Test func mutingPersistsAndUploadsFullSet() async {
+    @Test func mutingPostsASinglePerWorkspaceMutation() async {
         let (service, _, host) = makeService()
         await service.setWorkspaceMuted("ws-a", muted: true)
         #expect(await service.mutedWorkspaceIDs == ["ws-a"])
-        // The mute sync is a full-set idempotent replace via PUT.
-        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs(host: host) == ["ws-a"])
+        // Each toggle is a single per-workspace add/remove, not a full-set replace.
+        #expect(await RecordingURLProtocol.recorder.lastMuteMutation(host: host)?.workspaceId == "ws-a")
+        #expect(await RecordingURLProtocol.recorder.lastMuteMutation(host: host)?.muted == true)
 
         await service.setWorkspaceMuted("ws-b", muted: true)
         #expect(await service.mutedWorkspaceIDs == ["ws-a", "ws-b"])
-        // Sorted full set, not a per-workspace delta.
-        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs(host: host) == ["ws-a", "ws-b"])
+        // The second POST carries only ws-b, leaving ws-a's server row untouched.
+        #expect(await RecordingURLProtocol.recorder.lastMuteMutation(host: host)?.workspaceId == "ws-b")
+        let mutations = await RecordingURLProtocol.recorder.muteMutations(host: host)
+        #expect(mutations.count == 2)
     }
 
-    @Test func unmutingRemovesFromSetAndReuploads() async {
+    @Test func unmutingPostsARemovalForThatWorkspaceOnly() async {
         let (service, _, host) = makeService()
         await service.setWorkspaceMuted("ws-a", muted: true)
         await service.setWorkspaceMuted("ws-b", muted: true)
         await service.setWorkspaceMuted("ws-a", muted: false)
         #expect(await service.mutedWorkspaceIDs == ["ws-b"])
-        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs(host: host) == ["ws-b"])
+        let last = await RecordingURLProtocol.recorder.lastMuteMutation(host: host)
+        #expect(last?.workspaceId == "ws-a")
+        #expect(last?.muted == false)
     }
 
     @Test func mutedSetSurvivesAcrossServiceInstances() async {
@@ -280,18 +300,16 @@ struct FakeTokenProvider: TokenProviding {
         #expect(await RecordingURLProtocol.recorder.hasRequests(host: host) == false)
     }
 
-    @Test func rapidTogglesCoalesceToASingleConvergedUpload() async {
-        let (service, _, host) = makeService()
-        // Fire many toggles back-to-back. With coalescing, the final server
-        // upload must reflect the final local set, not an intermediate one.
+    @Test func rapidTogglesConvergeToTheFinalLocalSet() async {
+        let (service, _, _) = makeService()
+        // Fire many toggles back-to-back. Each is an independent idempotent POST,
+        // so the local set ends at the union of the final intents.
         async let a: Void = service.setWorkspaceMuted("ws-a", muted: true)
         async let b: Void = service.setWorkspaceMuted("ws-b", muted: true)
         async let c: Void = service.setWorkspaceMuted("ws-a", muted: false)
         async let d: Void = service.setWorkspaceMuted("ws-c", muted: true)
         _ = await (a, b, c, d)
-        let finalLocal = await service.mutedWorkspaceIDs
-        // The last PUT the server sees must equal the final local set.
-        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs(host: host) == finalLocal.sorted())
+        #expect(await service.mutedWorkspaceIDs == ["ws-b", "ws-c"])
     }
 
     // MARK: - Sign-in hydration / sign-out clear (per-user scoping)
@@ -313,26 +331,26 @@ struct FakeTokenProvider: TokenProviding {
         #expect(await service.mutedWorkspaceIDs == ["ws-server-1", "ws-server-2"])
     }
 
-    @Test func hydrateDoesNotClobberAConcurrentLocalMutation() async {
+    @Test func hydrateDoesNotClobberAConcurrentUnsyncedLocalMutation() async {
         let (service, _, host) = makeService()
-        // Server set differs from what the user is about to tap.
+        // The server set already has ws-server (e.g. from another device).
         RecordingURLProtocol.responseStore.set(
             .init(body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": ["ws-server"]])),
             for: host
         )
-        // Deterministically interleave a local mutation into the hydration's
-        // reentrancy window (after the GET resolves, before the generation
-        // re-check) via the test seam. The local change is newer, so hydration
-        // must keep local and NOT overwrite it with the stale server set.
+        // The just-tapped mutation's POST fails, so it stays an unsynced pending
+        // delta. Interleave it into the hydration window (after the GET resolves)
+        // via the test seam. Hydration merges pending deltas over the server set,
+        // so the just-tapped change is never lost AND the server's own mute is
+        // adopted — both survive.
+        RecordingURLProtocol.responseStore.set(.init(status: 503, body: nil), forHost: host, method: "POST")
         await service.setAfterHydrationFetchForTesting { [service] in
             await service.setWorkspaceMuted("ws-just-tapped", muted: true)
         }
         let hydrated = await service.hydrateMutedWorkspacesFromServer()
-        // The just-tapped local change is never lost.
-        #expect(await service.mutedWorkspaceIDs.contains("ws-just-tapped"))
         #expect(hydrated.contains("ws-just-tapped"))
-        // And the stale server-only id did not replace it.
-        #expect(!(await service.mutedWorkspaceIDs).contains("ws-server"))
+        #expect(hydrated.contains("ws-server"))
+        #expect(await service.mutedWorkspaceIDs == ["ws-just-tapped", "ws-server"])
     }
 
     @Test func hydrateKeepsLocalWhenServerUnreachable() async {
@@ -419,37 +437,39 @@ struct FakeTokenProvider: TokenProviding {
         #expect(!(await service(forUser: "user-b").mutedWorkspaceIDs).contains("ws-secret"))
     }
 
-    // MARK: - Unsynced-local durability (failed PUT not lost by later hydrate)
+    // MARK: - Unsynced-local durability (failed POST not lost by later hydrate)
 
     @Test func hydrateRePushesUnsyncedLocalChangeInsteadOfLosingIt() async {
         let (service, _, host) = makeService()
-        // The mute PUT fails (transient server/network error), so the change is
-        // persisted locally but never confirmed on the server.
-        RecordingURLProtocol.responseStore.set(.init(status: 503, body: nil), forHost: host, method: "PUT")
+        // The mute POST fails (transient server/network error), so the change is
+        // persisted locally + as a pending delta but never confirmed on the server.
+        RecordingURLProtocol.responseStore.set(.init(status: 503, body: nil), forHost: host, method: "POST")
         await service.setWorkspaceMuted("ws-a", muted: true)
         #expect(await service.mutedWorkspaceIDs == ["ws-a"])
 
         // The server still reports an empty set. A naive hydrate would overwrite
-        // local and lose the mute; instead it must keep local and re-push it.
+        // local and lose the mute; instead it must merge the pending delta on top.
         RecordingURLProtocol.responseStore.set(
             .init(body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": [String]()])),
             for: host
         )
-        // Let the retried PUT succeed this time so the marker can clear.
-        RecordingURLProtocol.responseStore.set(.init(status: 200, body: nil), forHost: host, method: "PUT")
+        // Let the retried POST succeed this time so the pending delta can clear.
+        RecordingURLProtocol.responseStore.set(.init(status: 200, body: nil), forHost: host, method: "POST")
         let hydrated = await service.hydrateMutedWorkspacesFromServer()
         // The locally-made mute survives the hydrate.
         #expect(hydrated == ["ws-a"])
         #expect(await service.mutedWorkspaceIDs == ["ws-a"])
-        // It re-uploaded local rather than adopting the empty server set.
-        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs(host: host) == ["ws-a"])
+        // It re-posted the unsynced delta rather than adopting the empty server set.
+        let last = await RecordingURLProtocol.recorder.lastMuteMutation(host: host)
+        #expect(last?.workspaceId == "ws-a")
+        #expect(last?.muted == true)
     }
 
-    @Test func muteUploadAbortsIfAccountSwitchesMidFlight() async {
+    @Test func muteMutationAbortsIfAccountSwitchesMidFlight() async {
         // User A mutes; the account switches to B in the credential-binding window
-        // (after the request is built, before the user-match guard). The PUT must
-        // abort so A's ids are never sent with B's bearer (which would overwrite
-        // B's server mutes).
+        // (after the request is built, before the user-match guard). The POST must
+        // abort so A's id is never sent with B's bearer (which would mutate B's
+        // server mutes).
         let suite = "push-switch-\(UUID().uuidString)"
         let host = "t-\(UUID().uuidString).example.test"
         let configuration = URLSessionConfiguration.ephemeral
@@ -465,9 +485,9 @@ struct FakeTokenProvider: TokenProviding {
         )
         await service.setAfterMakeMuteRequestForTesting { await provider.setUserID("user-b") }
         await service.setWorkspaceMuted("ws-a", muted: true)
-        // No mute PUT reached the server (it was aborted at the guard).
-        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs(host: host) == nil)
-        // A's local set + unsynced marker survive (A re-syncs on next sign-in).
+        // No mute mutation reached the server (it was aborted at the guard).
+        #expect(await RecordingURLProtocol.recorder.lastMuteMutation(host: host) == nil)
+        // A's local set + pending delta survive (A re-syncs on next sign-in).
         await provider.setUserID("user-a")
         #expect(await service.mutedWorkspaceIDs == ["ws-a"])
     }
@@ -505,15 +525,13 @@ struct FakeTokenProvider: TokenProviding {
         #expect(!(await service.mutedWorkspaceIDs).contains("ws-from-b"))
     }
 
-    @Test func failedUploadKeepsPendingSoHydrationDoesNotLoseTheMute() async {
-        // Every mute PUT fails, so the local changes are never confirmed on the
-        // server and the unsynced marker must stay set. A later hydration (server
-        // reports empty) must then re-push local instead of adopting the stale
-        // empty set and losing the mutes. This guards the same durability
-        // invariant as the coalesced-resync race: the marker is only cleared by a
-        // confirmed upload of the latest set, never by a stale/failed one.
+    @Test func failedPostsKeepPendingDeltasSoHydrationMergesThemBackIn() async {
+        // Every mute POST fails, so the changes are persisted locally + as pending
+        // deltas but never confirmed. A later hydration (server reports empty) must
+        // merge the pending deltas on top of the server set rather than adopting
+        // the empty set and losing the mutes.
         let (service, _, host) = makeService()
-        RecordingURLProtocol.responseStore.set(.init(status: 503, body: nil), forHost: host, method: "PUT")
+        RecordingURLProtocol.responseStore.set(.init(status: 503, body: nil), forHost: host, method: "POST")
         await service.setWorkspaceMuted("ws-a", muted: true)
         await service.setWorkspaceMuted("ws-b", muted: true)
         #expect(await service.mutedWorkspaceIDs == ["ws-a", "ws-b"])
@@ -527,9 +545,26 @@ struct FakeTokenProvider: TokenProviding {
         #expect(await service.mutedWorkspaceIDs == ["ws-a", "ws-b"])
     }
 
+    @Test func hydrationMergesAnotherDevicesMuteWithThisDevicesPendingDelta() async {
+        // The multi-device case the per-workspace model fixes: another device
+        // muted ws-other (now in the server set); this device has an unsynced local
+        // mute of ws-mine. Hydration must end with BOTH, not lose either.
+        let (service, _, host) = makeService()
+        RecordingURLProtocol.responseStore.set(.init(status: 503, body: nil), forHost: host, method: "POST")
+        await service.setWorkspaceMuted("ws-mine", muted: true)
+
+        RecordingURLProtocol.responseStore.set(
+            .init(body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": ["ws-other"]])),
+            for: host
+        )
+        let hydrated = await service.hydrateMutedWorkspacesFromServer()
+        #expect(hydrated == ["ws-mine", "ws-other"])
+        #expect(await service.mutedWorkspaceIDs == ["ws-mine", "ws-other"])
+    }
+
     @Test func hydrateAdoptsServerSetOnceLocalChangeIsConfirmed() async {
         let (service, _, host) = makeService()
-        // First mute succeeds, clearing the pending marker.
+        // First mute's POST succeeds (default 200), clearing its pending delta.
         await service.setWorkspaceMuted("ws-a", muted: true)
         // Now the server is the source of truth: it reports a different set.
         RecordingURLProtocol.responseStore.set(
@@ -537,7 +572,7 @@ struct FakeTokenProvider: TokenProviding {
             for: host
         )
         let hydrated = await service.hydrateMutedWorkspacesFromServer()
-        // With no unsynced change, hydration adopts the server set.
+        // With no unsynced delta, hydration adopts the server set.
         #expect(hydrated == ["ws-server"])
         #expect(await service.mutedWorkspaceIDs == ["ws-server"])
     }
