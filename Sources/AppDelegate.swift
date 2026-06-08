@@ -13839,6 +13839,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if !hasFocusedAddressBarInShortcutContext,
+           shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
+               event,
+               pageURL: shortcutEventBrowserPanel(event)?.webView.url
+           ) {
+            return false
+        }
+
         if matchConfiguredShortcut(event: event, action: .commandPalette) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
