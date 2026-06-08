@@ -3638,6 +3638,193 @@
           }
         }
       }
+    },
+    "mobile.onboarding.skip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキップ"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.next": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次へ"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.getStarted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get started"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "始める"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.whatTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac's terminals, on your phone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのターミナルを、iPhoneで"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.whatBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux runs your terminals and AI coding agents on your Mac. This app lets you watch them, type, and get notified when an agent needs you, right from your phone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxはMac上でターミナルとAIコーディングエージェントを動かします。このアプリを使えば、iPhoneからその様子を見たり、入力したり、エージェントから呼ばれたときに通知を受け取れます。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connectTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A private link to your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macへのプライベートな接続"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connectBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your phone connects straight to your Mac over Tailscale, with both signed in to the same cmux account. It is a direct, private connection to a computer you own, not a cloud relay. Put your Mac and phone on the same tailnet to pair."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhoneはTailscale経由でMacに直接つながります。両方を同じcmuxアカウントでサインインしてください。クラウド中継ではなく、あなた自身のコンピュータへの直接でプライベートな接続です。ペアリングするには、Macとこの端末を同じtailnetに参加させてください。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.tailscaleLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleを設定"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.pairTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macとペアリング"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.pairBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make sure cmux on your Mac is signed in to the same account, then scan the pairing QR code it shows (or enter its address by hand). You only do this once per Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac版cmuxが同じアカウントでサインインしていることを確認し、表示されるペアリングQRコードを読み取ってください（またはアドレスを手入力します）。これはMacごとに一度だけ行います。"
+          }
+        }
+      }
+    },
+    "mobile.settings.howPairingWorks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How Pairing Works"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングの仕組み"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

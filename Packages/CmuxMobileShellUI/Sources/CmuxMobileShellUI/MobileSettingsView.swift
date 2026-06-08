@@ -27,6 +27,7 @@ struct MobileSettingsView: View {
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
     @State private var showingHostPicker = false
+    @State private var showingOnboarding = false
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
@@ -93,6 +94,15 @@ struct MobileSettingsView: View {
                         }
                         .accessibilityIdentifier("MobileSettingsRescanQR")
                     }
+                    Button {
+                        showingOnboarding = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.howPairingWorks", defaultValue: "How Pairing Works"),
+                            systemImage: "questionmark.circle"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsHowPairingWorks")
                 }
 
                 Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
@@ -167,6 +177,11 @@ struct MobileSettingsView: View {
                 if let store {
                     MobileHostPickerView(store: store)
                 }
+            }
+            .sheet(isPresented: $showingOnboarding) {
+                // Re-entry from Settings: walk the explainer again. `onComplete`
+                // only dismisses; it never touches the persisted seen flag.
+                OnboardingFlowView { showingOnboarding = false }
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
