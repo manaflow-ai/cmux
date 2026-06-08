@@ -5,6 +5,7 @@ import { resolveDiffViewerAppearance } from "../appearance";
 import "../editor/monacoEnvironment";
 import { EditorApp } from "../editor/EditorApp";
 import editorStyles from "../editor/editor.css?inline";
+import { preloadGrammarForPath } from "../editor/monacoLanguages";
 import { defineMonacoThemes } from "../editor/monacoTheme";
 import { createWebviewsRouter } from "../router";
 import type { DiffViewerConfig } from "../types";
@@ -65,6 +66,10 @@ export async function mountEditorSurface(rootElement: HTMLElement): Promise<void
   if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
     document.title = config.payload.title;
   }
+  // Load the file's Monarch grammar before mounting so the editor tokenizes
+  // synchronously on first render (the WKWebView does not reliably repaint the
+  // lazy async re-tokenization).
+  await preloadGrammarForPath(filePath);
   const router = createWebviewsRouter(() => (
     <EditorApp
       filePath={filePath}
