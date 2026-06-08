@@ -70,6 +70,7 @@ struct WorkspaceShellView: View {
         NavigationStack(path: $compactNavigationPath) {
             WorkspaceListView(
                 workspaces: store.workspaces,
+                groups: store.workspaceGroups,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
                 connectionStatus: store.macConnectionStatus,
@@ -82,7 +83,8 @@ struct WorkspaceShellView: View {
                 signOut: signOut,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure
+                setPinned: setWorkspacePinnedClosure,
+                toggleGroupCollapsed: toggleGroupCollapsedClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -125,6 +127,7 @@ struct WorkspaceShellView: View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             WorkspaceListView(
                 workspaces: store.workspaces,
+                groups: store.workspaceGroups,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
                 connectionStatus: store.macConnectionStatus,
@@ -137,7 +140,8 @@ struct WorkspaceShellView: View {
                 signOut: signOut,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure
+                setPinned: setWorkspacePinnedClosure,
+                toggleGroupCollapsed: toggleGroupCollapsedClosure
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
@@ -198,6 +202,15 @@ struct WorkspaceShellView: View {
     private var refreshWorkspacesClosure: @Sendable () async -> Void {
         let store = store
         return { await store.refreshWorkspaces() }
+    }
+
+    /// Group collapse/expand closure, present only when the connected Mac
+    /// advertises `workspace.groups.v1`, so the list stays flat on older Macs that
+    /// would not round-trip a collapse.
+    private var toggleGroupCollapsedClosure: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)? {
+        guard store.supportsWorkspaceGroups else { return nil }
+        let store = store
+        return { id, collapsed in Task { await store.setWorkspaceGroupCollapsed(id: id, collapsed) } }
     }
 
     private func createWorkspaceInCompactStack() {

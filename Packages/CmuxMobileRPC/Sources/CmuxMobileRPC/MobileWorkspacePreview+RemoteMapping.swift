@@ -8,9 +8,24 @@ extension MobileWorkspacePreview {
             id: ID(rawValue: remote.id),
             name: remote.title,
             isPinned: remote.isPinned ?? false,
+            groupID: remote.groupID.map { MobileWorkspaceGroupPreview.ID(rawValue: $0) },
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
             }
+        )
+    }
+}
+
+extension MobileWorkspaceGroupPreview {
+    /// Build a group preview value from a remote workspace-list group entry.
+    /// - Parameter remote: A group decoded from the RPC response.
+    public init(remote: MobileSyncWorkspaceListResponse.Group) {
+        self.init(
+            id: ID(rawValue: remote.id),
+            name: remote.name,
+            isCollapsed: remote.isCollapsed,
+            isPinned: remote.isPinned,
+            anchorWorkspaceID: MobileWorkspacePreview.ID(rawValue: remote.anchorWorkspaceID)
         )
     }
 }

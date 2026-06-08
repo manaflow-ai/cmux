@@ -314,6 +314,11 @@ final class MobileHostService {
             "terminal.viewport.v1",
             "workspace.actions.v1",
             "dogfood.v1",
+            // The workspace list carries group sections (group_id per workspace +
+            // a top-level groups array) and the host accepts
+            // workspace.group.collapse/expand from mobile. iOS feature-detects
+            // this to render collapsible groups only against a Mac that emits them.
+            "workspace.groups.v1",
         ]
     }
 
@@ -1383,6 +1388,12 @@ final class MobileHostService {
         case "mobile.workspace.list", "workspace.list":
             return nil
         case "workspace.create":
+            return nil
+        case "workspace.group.collapse", "workspace.group.expand":
+            // Display-only group state. Keyed by `group_id` (not a workspace or
+            // terminal selection), so it is Mac-scoped like the workspace list and
+            // not constrained by the ticket's workspace/terminal pin. The Stack
+            // same-account gate in `authorizationError` remains authoritative.
             return nil
         case "mobile.terminal.create", "terminal.create":
             return nil

@@ -5712,6 +5712,40 @@
           }
         }
       }
+    },
+    "mobile.workspaceGroup.expand.a11y": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expand group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを展開"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.collapse.a11y": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapse group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを折りたたむ"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

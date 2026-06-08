@@ -60,6 +60,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
+    private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
 
     /// How long the render-grid stream may stay silent (no event of any topic)
@@ -185,6 +186,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
+    /// The Mac's workspace groups, in section order. Empty when the Mac reports no
+    /// groups (or is old enough not to emit them). Drives the collapsible group
+    /// sections in the workspace list.
+    public var workspaceGroups: [MobileWorkspaceGroupPreview] = []
+    /// Whether the connected Mac advertises the `workspace.groups.v1` capability
+    /// (group sections in the list + `workspace.group.collapse`/`expand` over the
+    /// mobile RPC). `false` until host status is read, and for older Macs that
+    /// lack the handler, so the UI can render a flat list instead of group UI that
+    /// would not round-trip.
+    public private(set) var supportsWorkspaceGroups: Bool = false
     /// Whether the connected Mac advertises the `workspace.actions.v1` capability
     /// (rename/pin over the mobile RPC). `false` until host status is read, and
     /// for older Macs that lack the handler, so the UI can hide rename/pin rather
@@ -843,6 +854,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             _ = try await client.sendRequest(request)
         } catch {
             mobileShellLog.error("workspace pin failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Collapse or expand a workspace group on the Mac.
+    ///
+    /// Fire-and-forget against the authoritative state, mirroring pin/rename: the
+    /// Mac toggles the group's `isCollapsed` and its workspace-list observer
+    /// (which watches `$workspaceGroups`) pushes `workspace.updated`, which
+    /// refreshes this list with the new collapse state. No local optimistic
+    /// mutation, so overlapping collapse/expand taps can never leave stale state.
+    /// - Parameters:
+    ///   - id: The group to collapse or expand.
+    ///   - collapsed: `true` to collapse (hide members), `false` to expand.
+    public func setWorkspaceGroupCollapsed(id: MobileWorkspaceGroupPreview.ID, _ collapsed: Bool) async {
+        guard let client = remoteClient else { return }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: collapsed ? "workspace.group.collapse" : "workspace.group.expand",
+                params: [
+                    "group_id": id.rawValue,
+                    "client_id": clientID,
+                ]
+            )
+            _ = try await client.sendRequest(request)
+        } catch {
+            mobileShellLog.error("workspace group collapse failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
     }
 
@@ -3008,6 +3045,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalOutputTransport = .rawBytes
         supportsWorkspaceActions = false
         supportsDogfoodFeedback = false
+        supportsWorkspaceGroups = false
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
@@ -3749,11 +3787,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 terminalOutputTransport = fallback
                 supportsWorkspaceActions = false
                 supportsDogfoodFeedback = false
+                supportsWorkspaceGroups = false
                 scheduleHostIdentityAdoptionIfNeeded(client: client)
                 return fallback
             }
             supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
             supportsDogfoodFeedback = payload.capabilities.contains(Self.dogfoodFeedbackCapability)
+            supportsWorkspaceGroups = payload.capabilities.contains(Self.workspaceGroupsCapability)
             await applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,
@@ -3775,6 +3815,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalOutputTransport = fallback
             supportsWorkspaceActions = false
             supportsDogfoodFeedback = false
+            supportsWorkspaceGroups = false
             // The probe is best-effort for the terminal transport, but a
             // freshly QR-paired Mac still needs its identity recovered, with
             // a real timeout instead of the probe's 750ms.
@@ -4630,6 +4671,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspaces = mergedWorkspaces
         } else {
             workspaces = remoteWorkspaces
+        }
+        // Group sections always reflect the latest full response (never merged):
+        // a merge path is a single-entry create/refresh that omits groups, so
+        // applying its empty groups array would wrongly clear the sections. Only a
+        // full-list response (the non-merge path, which the event-driven refresh
+        // and initial sync use) carries authoritative group state.
+        if !mergeExistingWorkspaces {
+            workspaceGroups = response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
         }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return

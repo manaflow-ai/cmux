@@ -10,6 +10,10 @@ import AppKit
 
 struct WorkspaceListView: View {
     let workspaces: [MobileWorkspacePreview]
+    /// The Mac's workspace groups, in section order. Empty when the Mac reports no
+    /// groups; the list then renders flat. Passed as value snapshots so no
+    /// `@Observable` store crosses the `List` boundary.
+    var groups: [MobileWorkspaceGroupPreview] = []
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let host: String
     let connectionStatus: MobileMacConnectionStatus
@@ -41,24 +45,44 @@ struct WorkspaceListView: View {
     /// Optional: pin/unpin a workspace on the Mac. When present, each row offers
     /// a Pin/Unpin context-menu action and pinned workspaces sort to the top.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    /// Optional: collapse/expand a group on the Mac. When present, group headers
+    /// toggle their section. `nil` when the Mac lacks the groups capability (the
+    /// list then renders flat regardless of `groups`).
+    var toggleGroupCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
     @State private var showingDeviceTree = false
 
+    private var trimmedQuery: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Whether the list renders grouped sections. Groups are honored only when the
+    /// Mac advertises the capability (`toggleGroupCollapsed != nil`), there are
+    /// groups, and the user is not searching. A search flattens to a single
+    /// matched, pinned-first list so members can be found across groups; floating
+    /// pinned members out of their group is acceptable while filtering.
+    private var rendersGroupedSections: Bool {
+        toggleGroupCollapsed != nil && !groups.isEmpty && trimmedQuery.isEmpty
+    }
+
+    private func matchesQuery(_ workspace: MobileWorkspacePreview, query: String) -> Bool {
+        workspace.name.localizedCaseInsensitiveContains(query)
+            || workspace.previewLine.localizedCaseInsensitiveContains(query)
+            || workspace.terminals.contains { $0.name.localizedCaseInsensitiveContains(query) }
+    }
+
     /// Workspaces after search filtering, pinned ones first (stable within each
-    /// group so the Mac's order is otherwise preserved).
+    /// group so the Mac's order is otherwise preserved). Used for the flat
+    /// (ungrouped or searching) presentation.
     private var filteredWorkspaces: [MobileWorkspacePreview] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = trimmedQuery
         let matches: [MobileWorkspacePreview]
         if query.isEmpty {
             matches = workspaces
         } else {
-            matches = workspaces.filter { workspace in
-                workspace.name.localizedCaseInsensitiveContains(query)
-                    || workspace.previewLine.localizedCaseInsensitiveContains(query)
-                    || workspace.terminals.contains { $0.name.localizedCaseInsensitiveContains(query) }
-            }
+            matches = workspaces.filter { matchesQuery($0, query: query) }
         }
         return matches.enumerated()
             .sorted { lhs, rhs in
@@ -68,6 +92,13 @@ struct WorkspaceListView: View {
                 return lhs.offset < rhs.offset
             }
             .map(\.element)
+    }
+
+    /// Ordered drawable items for the grouped presentation. Preserves the Mac's
+    /// member order and contiguity (no pinned-first flattening, which would
+    /// scatter group members).
+    private var groupedListItems: [MobileWorkspaceListItem] {
+        MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
     }
 
     var body: some View {
@@ -80,19 +111,10 @@ struct WorkspaceListView: View {
                 }
             }
             Section {
-                ForEach(filteredWorkspaces) { workspace in
-                    WorkspaceNavigationRow(
-                        workspace: workspace,
-                        connectionStatus: connectionStatus,
-                        isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
-                        navigationStyle: navigationStyle,
-                        wrapWorkspaceTitles: wrapWorkspaceTitles,
-                        selectWorkspace: selectWorkspace,
-                        renameWorkspace: renameWorkspace,
-                        setPinned: setPinned
-                    )
-                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
-                    .listRowSeparator(.hidden)
+                if rendersGroupedSections {
+                    groupedRows
+                } else {
+                    flatRows
                 }
             }
         }
@@ -156,6 +178,54 @@ struct WorkspaceListView: View {
         .accessibilityIdentifier("MobileWorkspaceDevicesButton")
     }
     #endif
+
+    /// Flat presentation: a pinned-first list with no group headers. Used when the
+    /// Mac has no groups (or lacks the capability) or while searching.
+    @ViewBuilder
+    private var flatRows: some View {
+        ForEach(filteredWorkspaces) { workspace in
+            workspaceRow(workspace, indented: false)
+        }
+    }
+
+    /// Grouped presentation: collapsible group headers with their members nested
+    /// underneath, mirroring the Mac sidebar. Order and contiguity follow the Mac.
+    @ViewBuilder
+    private var groupedRows: some View {
+        ForEach(groupedListItems) { item in
+            switch item {
+            case .groupHeader(let group):
+                WorkspaceGroupHeaderRow(
+                    group: group,
+                    navigationStyle: navigationStyle,
+                    isAnchorSelected: navigationStyle == .sidebar
+                        && selectedWorkspaceID == group.anchorWorkspaceID,
+                    selectWorkspace: selectWorkspace,
+                    toggleCollapsed: toggleGroupCollapsed
+                )
+                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                .listRowSeparator(.hidden)
+            case .workspace(let workspace, let indented):
+                workspaceRow(workspace, indented: indented)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool) -> some View {
+        WorkspaceNavigationRow(
+            workspace: workspace,
+            connectionStatus: connectionStatus,
+            isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
+            navigationStyle: navigationStyle,
+            wrapWorkspaceTitles: wrapWorkspaceTitles,
+            selectWorkspace: selectWorkspace,
+            renameWorkspace: renameWorkspace,
+            setPinned: setPinned
+        )
+        .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
+        .listRowSeparator(.hidden)
+    }
 
     private var newWorkspaceButton: some View {
         Button(action: createWorkspace) {
