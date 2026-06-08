@@ -106,12 +106,17 @@ static BOOL displayHasAppKitScreen(CGDirectDisplayID displayID) {
 
 static BOOL waitForReadyDisplay(CGDirectDisplayID displayID) {
     for (int attempt = 0; attempt < 1800; attempt += 1) {
-        if (displayIsOnline(displayID) && displayHasAppKitScreen(displayID)) {
-            return YES;
-        }
+        if (displayIsOnline(displayID)) { break; }
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
     }
-    return NO;
+    if (!displayIsOnline(displayID)) { return NO; }
+
+    for (int attempt = 0; attempt < 200; attempt += 1) {
+        if (displayHasAppKitScreen(displayID)) { return YES; }
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
+    }
+    fprintf(stderr, "WARNING: Virtual display %u is online in CoreGraphics but not visible in this helper's NSScreen list; app diagnostics will verify AppKit visibility\n", displayID);
+    return YES;
 }
 
 static NSDictionary<NSString *, NSNumber *> *parseModeSpec(NSString *raw) {
@@ -284,10 +289,10 @@ int main(int argc, const char *argv[]) {
             return 1;
         }
 
-        printf("Virtual display allocated: displayID=%u, waiting for online AppKit screen\n", display.displayID);
+        printf("Virtual display allocated: displayID=%u, waiting for CoreGraphics online display\n", display.displayID);
         fflush(stdout);
         if (!waitForReadyDisplay(display.displayID)) {
-            fprintf(stderr, "ERROR: Virtual display %u was not visible to CoreGraphics and AppKit after settings were applied\n", display.displayID);
+            fprintf(stderr, "ERROR: Virtual display %u was not visible to CoreGraphics after settings were applied\n", display.displayID);
             return 1;
         }
 
