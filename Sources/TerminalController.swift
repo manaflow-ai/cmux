@@ -20688,6 +20688,8 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+        case "mobile.workspace.diff", "workspace.diff":
+            result = await v2MobileWorkspaceDiff(params: request.params)
 #if DEBUG
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
@@ -20917,6 +20919,177 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
         return v2WorkspaceAction(params: params)
+    }
+
+    /// Hard cap on the patch text the mobile diff RPC returns. A working-tree
+    /// diff over a large change can be many megabytes; the iOS client only needs
+    /// it for read-only review, so a truncated patch (with a marker) is far
+    /// better than blocking the transport or letting the phone OOM. Mirrors the
+    /// explicit caps the dogfood feedback handler uses.
+    nonisolated private static let mobileWorkspaceDiffMaxPatchBytes = 4 * 1024 * 1024 // 4 MiB
+    /// Bounded git timeout so a wedged repository can never hang the RPC.
+    nonisolated private static let mobileWorkspaceDiffGitTimeout: TimeInterval = 30
+
+    /// Read-only git diff for a workspace, for the iOS diff/file viewer (P1).
+    ///
+    /// Resolves `workspace_id` to its working directory on the main actor, then
+    /// runs `git diff` off the main actor (so the potentially slow git invocation
+    /// never blocks the Mac UI) against that directory's repository. Returns the
+    /// unstaged working-tree patch — the same source the desktop "View diff"
+    /// affordance defaults to (`launchDiffViewerProcess` passes `--unstaged`) and
+    /// byte-identical git arguments to the CLI diff command
+    /// (`gitDiffPatchArguments`). The patch text is capped; a non-repository or
+    /// empty diff returns an empty patch (the viewer shows its empty state) rather
+    /// than an error, matching the desktop's friendly-empty behavior.
+    private func v2MobileWorkspaceDiff(params: [String: Any]) async -> V2CallResult {
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        // Resolve the workspace's working directory across every open window, on
+        // the main actor, then leave the actor for the git work. The directory is
+        // the cwd cmux tracks for the workspace (the repo the agent worked in).
+        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return .err(
+                code: "not_found",
+                message: "Workspace not found",
+                data: ["workspace_id": workspaceId.uuidString]
+            )
+        }
+        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !directory.isEmpty else {
+            // No tracked cwd yet: return an empty patch so the viewer shows its
+            // friendly empty state instead of a developer-facing error.
+            return .ok([
+                "patch": "",
+                "source_label": "git unstaged",
+                "current_directory": NSNull(),
+                "truncated": false,
+            ])
+        }
+
+        let maxBytes = Self.mobileWorkspaceDiffMaxPatchBytes
+        let timeout = Self.mobileWorkspaceDiffGitTimeout
+        let outcome = await Task.detached(priority: .userInitiated) { () -> MobileWorkspaceDiffOutcome in
+            Self.produceMobileWorkspaceDiff(directory: directory, maxBytes: maxBytes, timeout: timeout)
+        }.value
+
+        switch outcome {
+        case let .patch(text, truncated):
+            return .ok([
+                "patch": text,
+                "source_label": "git unstaged",
+                "current_directory": directory,
+                "truncated": truncated,
+            ])
+        case .notARepository:
+            // Mirror the desktop's friendly-empty behavior: a non-git directory
+            // simply has no diff to review.
+            return .ok([
+                "patch": "",
+                "source_label": "git unstaged",
+                "current_directory": directory,
+                "truncated": false,
+            ])
+        case .failed:
+            return .err(code: "internal_error", message: "git diff failed", data: nil)
+        }
+    }
+
+    /// The result of producing a workspace git diff off the main actor.
+    private enum MobileWorkspaceDiffOutcome: Sendable {
+        case patch(text: String, truncated: Bool)
+        case notARepository
+        case failed
+    }
+
+    /// Run `git diff` for the workspace directory off the main actor.
+    ///
+    /// Uses the same arguments as the CLI diff command's unstaged source
+    /// (`git diff --no-ext-diff --no-color --binary --`) so the patch the phone
+    /// renders matches what the desktop viewer would show. Resolves the
+    /// repository root first; a directory outside any git repository yields
+    /// `.notARepository`. The patch is decoded as UTF-8 (lossy, since `--binary`
+    /// hunks can contain non-UTF-8 bytes that the viewer renders as text) and
+    /// truncated to `maxBytes` with a trailing marker.
+    nonisolated private static func produceMobileWorkspaceDiff(
+        directory: String,
+        maxBytes: Int,
+        timeout: TimeInterval
+    ) -> MobileWorkspaceDiffOutcome {
+        func runGit(_ arguments: [String]) -> (status: Int32, stdout: Data, timedOut: Bool)? {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["git", "-C", directory] + arguments
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+            // Read stdout on a background queue while the process runs so a large
+            // patch can never deadlock on a full pipe buffer.
+            let stdoutQueue = DispatchQueue(label: "dev.cmux.mobile.workspace-diff.stdout")
+            var collected = Data()
+            let collectedLock = NSLock()
+            let readingDone = DispatchSemaphore(value: 0)
+            stdoutQueue.async {
+                let handle = stdoutPipe.fileHandleForReading
+                while true {
+                    let chunk = handle.availableData
+                    if chunk.isEmpty { break }
+                    collectedLock.lock()
+                    collected.append(chunk)
+                    collectedLock.unlock()
+                }
+                readingDone.signal()
+            }
+            do {
+                try process.run()
+            } catch {
+                return nil
+            }
+            let deadline = DispatchTime.now() + timeout
+            let processDone = DispatchSemaphore(value: 0)
+            DispatchQueue.global(qos: .userInitiated).async {
+                process.waitUntilExit()
+                processDone.signal()
+            }
+            if processDone.wait(timeout: deadline) == .timedOut {
+                process.terminate()
+                return (status: -1, stdout: Data(), timedOut: true)
+            }
+            _ = readingDone.wait(timeout: .now() + 5)
+            // Drain stderr so the pipe is closed; its content is not surfaced.
+            _ = try? stderrPipe.fileHandleForReading.readToEnd()
+            collectedLock.lock()
+            let stdout = collected
+            collectedLock.unlock()
+            return (status: process.terminationStatus, stdout: stdout, timedOut: false)
+        }
+
+        // A non-repository directory is not an error here; the viewer just has
+        // nothing to show. `rev-parse` is the cheap repository probe.
+        guard let probe = runGit(["rev-parse", "--is-inside-work-tree"]), !probe.timedOut else {
+            return .failed
+        }
+        if probe.status != 0 {
+            return .notARepository
+        }
+
+        guard let result = runGit(["diff", "--no-ext-diff", "--no-color", "--binary", "--"]),
+              !result.timedOut else {
+            return .failed
+        }
+        guard result.status == 0 else {
+            return .failed
+        }
+
+        let truncated = result.stdout.count > maxBytes
+        let limitedData = truncated ? result.stdout.prefix(maxBytes) : result.stdout
+        let text = String(decoding: limitedData, as: UTF8.self)
+        return .patch(text: text, truncated: truncated)
     }
 
     private func mobileHostResult(_ result: V2CallResult) -> MobileHostRPCResult {

@@ -139,6 +139,9 @@ jobs:
       - name: Verify generated webviews assets
         run: ./scripts/build-webviews-app.sh --check
 
+      - name: Verify iOS diff viewer bundle is in sync
+        run: ./scripts/sync-ios-diff-viewer-bundle.sh --check
+
       - name: Verify React Compiler for webviews
         run: ./scripts/check-webviews-react-compiler.mjs
 

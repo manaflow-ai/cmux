@@ -309,6 +309,7 @@ final class MobileHostService {
             "terminal.replay.v1",
             "terminal.viewport.v1",
             "workspace.actions.v1",
+            "workspace.diff.v1",
         ]
         #if DEBUG
         capabilities.append("dogfood.v1")
