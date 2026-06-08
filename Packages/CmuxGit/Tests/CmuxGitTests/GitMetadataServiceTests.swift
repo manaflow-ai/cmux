@@ -167,6 +167,32 @@ import Testing
         #expect(meta.headSignature != nil)
     }
 
+    @Test func dirtyMetadataCanOmitIndexSignatures() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        var entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
+        entry.size += 100
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+
+        let service = GitMetadataService()
+        let meta = await service.workspaceMetadata(
+            for: fixture.root.path,
+            options: GitMetadataReadOptions(
+                checkWorkingTreeDirty: true,
+                includeIndexSignatures: false,
+                includeIndexContentSignature: true,
+                includeWorkTreeRootWatchPath: true,
+                includeIndexWatchPath: true,
+                includeGitlinkWatchPaths: true
+            )
+        )
+
+        #expect(meta.isRepository)
+        #expect(meta.isDirty)
+        #expect(meta.indexSignature == nil)
+        #expect(meta.indexContentSignature == nil)
+    }
+
     // MARK: Index v4 prefix-compression
 
     @Test func indexVersionFourDecodesPrefixCompressedPaths() throws {

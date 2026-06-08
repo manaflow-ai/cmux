@@ -1070,6 +1070,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
+    private var cachedRestorableAgentIndexForCheapSessionSnapshot = RestorableAgentSessionIndex.empty
     private var lastTypingActivityAt: TimeInterval = 0
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
@@ -4040,9 +4041,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return
         }
+        let restorableAgentIndex = await loadStaleTolerantRestorableAgentIndexForAutosave()
+        cachedRestorableAgentIndexForCheapSessionSnapshot = restorableAgentIndex
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
-            restorableAgentIndex: .empty,
+            restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: nil
         )
 #if DEBUG
@@ -4067,7 +4070,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let saveStart = ProcessInfo.processInfo.systemUptime
 #endif
-        _ = saveSessionSnapshotUsingCachedResumeMetadata(includeScrollback: false)
+        _ = saveSessionSnapshotUsingCachedResumeMetadata(
+            includeScrollback: false,
+            restorableAgentIndex: restorableAgentIndex
+        )
 #if DEBUG
         saveMs = (ProcessInfo.processInfo.systemUptime - saveStart) * 1000.0
 #endif
@@ -4081,14 +4087,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     private func saveSessionSnapshotUsingCachedResumeMetadata(
         includeScrollback: Bool,
-        removeWhenEmpty: Bool = false
+        removeWhenEmpty: Bool = false,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> Bool {
         saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
-            restorableAgentIndex: RestorableAgentSessionIndex.empty,
+            restorableAgentIndex: restorableAgentIndex ?? cachedRestorableAgentIndexForCheapSessionSnapshot,
             surfaceResumeBindingIndex: nil
         )
+    }
+
+    private func loadStaleTolerantRestorableAgentIndexForAutosave() async -> RestorableAgentSessionIndex {
+        await Task.detached(priority: .utility) {
+            RestorableAgentSessionIndex.loadStaleTolerant()
+        }.value
     }
 
     @discardableResult
@@ -4097,6 +4110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false
     ) -> Bool {
         let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        cachedRestorableAgentIndexForCheapSessionSnapshot = resumeIndexes.restorableAgentIndex
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,

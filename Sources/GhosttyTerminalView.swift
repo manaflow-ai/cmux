@@ -4668,10 +4668,16 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             let title = GhosttyNSView.normalizedTerminalTitleForNotification(rawTitle)
             if let tabId = surfaceView.tabId,
-               let surfaceId = surfaceView.terminalSurface?.id,
-               surfaceView.shouldPostTerminalTitleNotification(tabId: tabId, surfaceId: surfaceId, title: title) {
+               let surfaceId = surfaceView.terminalSurface?.id {
                 DispatchQueue.main.async { [weak surfaceView] in
                     guard let surfaceView else { return }
+                    guard surfaceView.shouldPostTerminalTitleNotification(
+                        tabId: tabId,
+                        surfaceId: surfaceId,
+                        title: title
+                    ) else {
+                        return
+                    }
                     NotificationCenter.default.post(
                         name: .ghosttyDidSetTitle,
                         object: surfaceView,
@@ -8279,7 +8285,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private var _lastPostedTerminalTitleNotification: PostedTerminalTitleNotification?
-    private let _terminalTitleNotificationLock = NSLock()
     private var _renderedFrameFlushScheduled = false
     private let _renderedFrameLock = NSLock()
     var cellSize: CGSize = .zero
@@ -8296,14 +8301,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         let afterSpinner = title.dropFirst()
         guard afterSpinner.first == " " else { return title }
-        let normalized = afterSpinner.dropFirst()
+        let normalized = afterSpinner.drop { $0 == " " }
         return normalized.isEmpty ? title : String(normalized)
     }
 
     func shouldPostTerminalTitleNotification(tabId: UUID, surfaceId: UUID, title: String) -> Bool {
+        assert(Thread.isMainThread)
         let next = PostedTerminalTitleNotification(tabId: tabId, surfaceId: surfaceId, title: title)
-        _terminalTitleNotificationLock.lock()
-        defer { _terminalTitleNotificationLock.unlock() }
         guard _lastPostedTerminalTitleNotification != next else { return false }
         _lastPostedTerminalTitleNotification = next
         return true

@@ -63,10 +63,14 @@ public struct GitMetadataService: Sendable {
         }
         let trackedChanges: (isDirty: Bool, indexSignature: String?, indexContentSignature: String?) = {
             if options.checkWorkingTreeDirty {
-                return Self.gitTrackedChangesSnapshot(
+                let snapshot = Self.gitTrackedChangesSnapshot(
                     repository: repository,
                     includeIndexContentSignature: options.includeIndexContentSignature
                 )
+                guard options.includeIndexSignatures else {
+                    return (snapshot.isDirty, nil, nil)
+                }
+                return snapshot
             }
             guard options.includeIndexSignatures else {
                 return (false, nil, nil)

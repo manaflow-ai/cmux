@@ -152,6 +152,8 @@ extension GitMetadataService {
                 pathBytes = Array(bytes[pathStart..<offset])
             }
 
+            // Validate raw path bytes before decoding so malformed index entries
+            // fail closed instead of creating ambiguous filesystem paths.
             guard !pathBytes.isEmpty,
                   isValidIndexEntryPathBytes(pathBytes),
                   let path = String(bytes: pathBytes, encoding: .utf8) else {

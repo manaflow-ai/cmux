@@ -25,9 +25,10 @@ extension GitMetadataService: WorkspaceGitMetadataReading {}
 
 private struct SidebarWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
     let service: GitMetadataService
+    let options: GitMetadataReadOptions
 
     func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
-        await service.workspaceMetadata(for: directory, options: .sidebarLargeRepository)
+        await service.workspaceMetadata(for: directory, options: options)
     }
 }
 
@@ -1290,6 +1291,7 @@ class TabManager: ObservableObject {
     // directory argument.
     private let gitMetadataService: GitMetadataService
     private let workspaceGitMetadataReader: any WorkspaceGitMetadataReading
+    private let workspaceGitMetadataReadOptions: GitMetadataReadOptions
 
     // Resolves GitHub PR badges (slug resolution, REST fetch, candidate
     // matching). Stateless; the repo cache stays here in
@@ -1308,12 +1310,17 @@ class TabManager: ObservableObject {
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
+        workspaceGitMetadataReadOptions: GitMetadataReadOptions = .sidebarLargeRepository,
         gitPollClock: any GitPollClock = SystemGitPollClock()
     ) {
         self.commandRunner = commandRunner
         self.gitMetadataService = gitMetadataService
+        self.workspaceGitMetadataReadOptions = workspaceGitMetadataReadOptions
         self.workspaceGitMetadataReader = workspaceGitMetadataReader
-            ?? SidebarWorkspaceGitMetadataReader(service: gitMetadataService)
+            ?? SidebarWorkspaceGitMetadataReader(
+                service: gitMetadataService,
+                options: workspaceGitMetadataReadOptions
+            )
         self.gitPollClock = gitPollClock
 #if DEBUG
         self.pullRequestProbeService = PullRequestProbeService(
@@ -1624,10 +1631,12 @@ class TabManager: ObservableObject {
         workspaceGitMetadataWatcherDescriptorRequestsByKey[key] = request
 
         Task { [weak self] in
-            guard let gitMetadataService = self?.gitMetadataService else { return }
+            guard let self else { return }
+            let gitMetadataService = self.gitMetadataService
+            let options = self.workspaceGitMetadataReadOptions
             let watchedPaths = await gitMetadataService.watchedPaths(
                 for: directory,
-                options: .sidebarLargeRepository
+                options: options
             )
             await MainActor.run { [weak self] in
                 self?.applyWorkspaceGitMetadataWatcherDescriptor(

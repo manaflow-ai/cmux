@@ -3939,6 +3939,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
 final class GhosttyTerminalTitleNotificationTests: XCTestCase {
     func testTerminalTitleNotificationStripsVolatileSpinnerPrefix() {
         XCTAssertEqual(GhosttyNSView.normalizedTerminalTitleForNotification("⠦ server-wt"), "server-wt")
+        XCTAssertEqual(GhosttyNSView.normalizedTerminalTitleForNotification("⠦   server-wt"), "server-wt")
         XCTAssertEqual(GhosttyNSView.normalizedTerminalTitleForNotification("⠧ server-wt"), "server-wt")
         XCTAssertEqual(GhosttyNSView.normalizedTerminalTitleForNotification("server-wt"), "server-wt")
         XCTAssertEqual(GhosttyNSView.normalizedTerminalTitleForNotification("⠦"), "⠦")
