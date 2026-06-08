@@ -7729,6 +7729,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    /// Inject raw bytes as terminal stdin, byte-exact, for bare-terminal attach.
+    /// Bypasses the String input heuristics used by `sendInputResult` and feeds
+    /// bytes straight to the PTY via `ghostty_surface_text_input`.
+    @MainActor
+    func injectRawAttachInput(_ data: Data) {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "surfaceAttachInput") else { return }
+        writeInputTextData(data, to: surface)
+    }
+
     /// Sends bytes through Ghostty's PTY-output parser so OSC commands affect terminal state.
     private func writeProcessOutputData(_ data: Data, to surface: ghostty_surface_t) {
         data.withUnsafeBytes { rawBuffer in

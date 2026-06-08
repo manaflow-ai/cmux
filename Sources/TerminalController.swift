@@ -1153,6 +1153,17 @@ class TerminalController {
                     return
                 }
 
+                if isSurfaceAttachRequest(trimmed) {
+                    if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                        guard writeSocketResponse(response, to: socket) else {
+                            return
+                        }
+                        continue
+                    }
+                    handleSurfaceAttachRequest(trimmed, socket: socket)
+                    return
+                }
+
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
                 if let response = result.response {
