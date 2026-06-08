@@ -8,6 +8,7 @@ extension MobileWorkspacePreview {
             id: ID(rawValue: remote.id),
             name: remote.title,
             isPinned: remote.isPinned ?? false,
+            hasUnread: remote.hasUnread ?? false,
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
             }
