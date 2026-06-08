@@ -4,10 +4,11 @@ import Sentry
 /// Applies a ``SentryScrubber`` to outgoing Sentry events and breadcrumbs so
 /// file paths, emails, and secrets are redacted before they leave the device.
 ///
-/// Wire it into `SentrySDK.start` via `options.beforeSend` and
-/// `options.beforeBreadcrumb`. The Sentry SDK calls those closures on the
-/// dispatch queue that produced the event; the scrub is pure and synchronous,
-/// so no isolation is required.
+/// Wire it into `SentrySDK.start` via `options.beforeSend`,
+/// `options.beforeBreadcrumb`, and (when performance tracing is on)
+/// `options.beforeSendSpan`. The Sentry SDK calls those closures on the dispatch
+/// queue that produced the event; the scrub is pure and synchronous, so no
+/// isolation is required.
 ///
 /// The contract is **scrub every free-text field; preserve only an explicit
 /// grouping allowlist**, so a new free-text field is covered by default rather
@@ -120,6 +121,35 @@ struct SentryEventScrubber {
             breadcrumb.data = scrubber.scrub(dictionary: data)
         }
         return breadcrumb
+    }
+
+    /// Redacts the description, data, and tags of a performance span in place.
+    ///
+    /// Suitable as `beforeSendSpan`. When performance tracing is on, auto network
+    /// / file-I/O spans serialize URLs (`http.query`, `url`), file paths, and
+    /// other content in `spanDescription` and `data`; the transaction event
+    /// itself is scrubbed by ``scrub(_:)-(Event)`` via `beforeSend`, but child
+    /// spans pass through `beforeSendSpan` instead. Returns the same span (never
+    /// `nil`, which would drop it). `operation` and `origin` name the span kind
+    /// (e.g. `http.client`) and are preserved.
+    ///
+    /// - Parameter span: The span Sentry is about to send.
+    /// - Returns: The scrubbed span.
+    @discardableResult
+    func scrub(_ span: any Span) -> any Span {
+        span.spanDescription = scrubber.scrub(optional: span.spanDescription)
+        // `data` / `tags` are read-only; scrub via the key-aware dictionary
+        // scrubber and rewrite each entry through the per-key setters.
+        for (key, value) in scrubber.scrub(dictionary: span.data) {
+            span.setData(value: value, key: key)
+        }
+        let scrubbedTags = scrubber.scrub(dictionary: span.tags)
+        for (key, value) in scrubbedTags {
+            if let stringValue = value as? String {
+                span.setTag(value: stringValue, key: key)
+            }
+        }
+        return span
     }
 
     /// Rebuilds a message with its rendered text, template, and params scrubbed.

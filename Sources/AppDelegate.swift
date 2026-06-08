@@ -1342,10 +1342,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
                 // Redact file paths, emails, and secrets from every outgoing
-                // event and breadcrumb before it leaves the device.
+                // event, breadcrumb, and performance span before it leaves the
+                // device. The span hook matters because tracing is enabled above.
                 let scrubber = SentryEventScrubber()
                 options.beforeSend = { event in scrubber.scrub(event) }
                 options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
+                options.beforeSendSpan = { span in scrubber.scrub(span) }
             }
             StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.complete")
         }
