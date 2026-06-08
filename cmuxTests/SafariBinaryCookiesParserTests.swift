@@ -202,6 +202,60 @@ final class SafariBinaryCookiesParserTests: XCTestCase {
         XCTAssertEqual(cookies.count, 0)
     }
 
+    // MARK: - Import mapping (ParsedCookie -> HTTPCookie)
+
+    func testImportPreservesHttpOnly() {
+        let parsed = SafariBinaryCookiesParser.ParsedCookie(
+            domain: "example.com", name: "sid", path: "/", value: "v",
+            expiresDate: nil, isSecure: false, isHttpOnly: true
+        )
+        let cookie = BrowserDataImporter.makeSafariHTTPCookie(from: parsed)
+        XCTAssertNotNil(cookie)
+        XCTAssertTrue(cookie?.isHTTPOnly ?? false, "HttpOnly must survive import into HTTPCookie")
+    }
+
+    func testImportPreservesSecureAndValueAndPersistence() {
+        let parsed = SafariBinaryCookiesParser.ParsedCookie(
+            domain: "example.com", name: "sid", path: "/app", value: "abc=123",
+            expiresDate: Date(timeIntervalSince1970: 1_893_456_000), isSecure: true, isHttpOnly: false
+        )
+        let cookie = BrowserDataImporter.makeSafariHTTPCookie(from: parsed)
+        XCTAssertNotNil(cookie)
+        XCTAssertTrue(cookie?.isSecure ?? false)
+        XCTAssertFalse(cookie?.isHTTPOnly ?? true)
+        XCTAssertEqual(cookie?.name, "sid")
+        XCTAssertEqual(cookie?.value, "abc=123")
+        XCTAssertEqual(cookie?.path, "/app")
+        // Persistent cookie must stay persistent. The exact expiry is intentionally
+        // not asserted: HTTPCookie clamps far-future dates to the platform's max
+        // cookie lifetime (~400 days), which is time- and OS-version-dependent.
+        XCTAssertNotNil(cookie?.expiresDate)
+    }
+
+    func testImportSessionCookieHasNoExpiry() {
+        let parsed = SafariBinaryCookiesParser.ParsedCookie(
+            domain: "example.com", name: "sid", path: "/", value: "v",
+            expiresDate: nil, isSecure: false, isHttpOnly: false
+        )
+        XCTAssertNil(BrowserDataImporter.makeSafariHTTPCookie(from: parsed)?.expiresDate)
+    }
+
+    func testImportEmptyPathDefaultsToRoot() {
+        let parsed = SafariBinaryCookiesParser.ParsedCookie(
+            domain: "example.com", name: "sid", path: "", value: "v",
+            expiresDate: nil, isSecure: false, isHttpOnly: false
+        )
+        XCTAssertEqual(BrowserDataImporter.makeSafariHTTPCookie(from: parsed)?.path, "/")
+    }
+
+    func testImportEmptyNameReturnsNil() {
+        let parsed = SafariBinaryCookiesParser.ParsedCookie(
+            domain: "example.com", name: "", path: "/", value: "v",
+            expiresDate: nil, isSecure: false, isHttpOnly: false
+        )
+        XCTAssertNil(BrowserDataImporter.makeSafariHTTPCookie(from: parsed))
+    }
+
     // MARK: - Byte helpers
 
     private func leUInt32(_ v: UInt32) -> Data {

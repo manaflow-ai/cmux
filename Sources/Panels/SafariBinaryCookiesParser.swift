@@ -23,10 +23,32 @@ enum SafariBinaryCookiesParser {
 
         var errorDescription: String? {
             switch self {
-            case .tooShort: return "File is too short to be a valid Cookies.binarycookies file"
-            case .invalidMagic: return "File does not have the expected 'cook' magic header"
-            case .pageOutOfBounds(let i): return "Page \(i) offset is out of file bounds"
-            case .cookieOutOfBounds(let i): return "Cookie \(i) offset is out of page bounds"
+            case .tooShort:
+                return String(
+                    localized: "safari.cookies.parse.error.tooShort",
+                    defaultValue: "The Safari cookies file is too short or incomplete to read."
+                )
+            case .invalidMagic:
+                return String(
+                    localized: "safari.cookies.parse.error.invalidMagic",
+                    defaultValue: "The Safari cookies file is not in the expected format."
+                )
+            case .pageOutOfBounds(let i):
+                return String(
+                    format: String(
+                        localized: "safari.cookies.parse.error.pageOutOfBounds",
+                        defaultValue: "The Safari cookies file is corrupted (page %d is out of bounds)."
+                    ),
+                    i
+                )
+            case .cookieOutOfBounds(let i):
+                return String(
+                    format: String(
+                        localized: "safari.cookies.parse.error.cookieOutOfBounds",
+                        defaultValue: "The Safari cookies file is corrupted (cookie %d is out of bounds)."
+                    ),
+                    i
+                )
             }
         }
     }
