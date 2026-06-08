@@ -296,7 +296,9 @@ private final class CLISocketSentryTelemetry {
             options.environment = "production-cli"
 #endif
             options.debug = false
-            options.sendDefaultPii = true
+            // Do not send device/user identifying fields by default. The scrubber
+            // below additionally redacts any user fields that slip in.
+            options.sendDefaultPii = false
             options.attachStacktrace = true
             options.tracesSampleRate = 0.0
             options.enableAppHangTracking = false
@@ -304,6 +306,11 @@ private final class CLISocketSentryTelemetry {
             options.enableAutoSessionTracking = false
             options.enableCaptureFailedRequests = false
             options.enableMetricKit = false
+            // Redact file paths, emails, and secrets from every outgoing event
+            // and breadcrumb before it leaves the device.
+            let scrubber = SentryEventScrubber()
+            options.beforeSend = { event in scrubber.scrub(event) }
+            options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
         }
         started = true
     }
