@@ -3810,19 +3810,31 @@ class TabManager: ObservableObject {
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID?
     ) -> Bool {
+        sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: draggedWorkspaceId,
+            targetWorkspaceId: targetWorkspaceId,
+            workspaceById: Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        )
+    }
+
+    func sidebarReorderUsesTopLevelRows(
+        forDraggedWorkspaceId draggedWorkspaceId: UUID?,
+        targetWorkspaceId: UUID?,
+        workspaceById: [UUID: Workspace]
+    ) -> Bool {
         guard let draggedWorkspaceId else { return false }
         if isWorkspaceGroupAnchor(draggedWorkspaceId) ||
             targetWorkspaceId.map(isWorkspaceGroupAnchor) == true {
             return true
         }
-        guard let draggedWorkspace = tabs.first(where: { $0.id == draggedWorkspaceId }),
+        guard let draggedWorkspace = workspaceById[draggedWorkspaceId],
               draggedWorkspace.groupId != nil else {
             return false
         }
         // A grouped child dragged over top-level space is leaving the group;
         // plan in top-level rows so the promotion is explicit and ordered.
         guard let targetWorkspaceId else { return true }
-        guard let targetWorkspace = tabs.first(where: { $0.id == targetWorkspaceId }) else {
+        guard let targetWorkspace = workspaceById[targetWorkspaceId] else {
             return false
         }
         return targetWorkspace.groupId == nil
