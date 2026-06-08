@@ -3841,6 +3841,12 @@ class TabManager: ObservableObject {
                 count += 1
             }
         }
+        if !draggedWorkspace.isPinned,
+           let targetWorkspaceId,
+           tabs.contains(where: { $0.id == targetWorkspaceId && $0.groupId == groupId && $0.isPinned }),
+           let noOpInsertion = tabs.firstIndex(where: { $0.id == draggedWorkspaceId }) {
+            return noOpInsertion...noOpInsertion
+        }
         if draggedWorkspace.isPinned {
             let lower = min(firstIndex + 1, tabs.count)
             let upper = min(firstIndex + 1 + pinnedMemberCount, tabs.count)
@@ -4261,7 +4267,7 @@ class TabManager: ObservableObject {
         // reject those silently and let the user explicitly ungroup first.
         let existingAnchorIds = Set(workspaceGroups.map(\.anchorWorkspaceId))
         let eligibleChildren = childWorkspaceIds.compactMap { id -> UUID? in
-            guard tabs.contains(where: { $0.id == id }),
+            guard tabs.contains(where: { $0.id == id && !$0.isPinned }),
                   !existingAnchorIds.contains(id) else { return nil }
             return id
         }

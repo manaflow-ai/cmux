@@ -9,7 +9,7 @@
 16595	Sources/GhosttyTerminalView.swift
 13764	Sources/Panels/BrowserPanel.swift
 10274	cmuxTests/AppDelegateShortcutRoutingTests.swift
-10017	Sources/TabManager.swift
+10023	Sources/TabManager.swift
 8615	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7760	Sources/Panels/BrowserPanelView.swift
 7230	cmuxTests/WorkspaceUnitTests.swift

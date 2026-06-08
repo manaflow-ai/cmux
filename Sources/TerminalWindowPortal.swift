@@ -225,10 +225,12 @@ final class WindowTerminalHostView: NSView {
         for subview in subviews.reversed() {
             guard let hostedView = subview as? GhosttySurfaceScrollView,
                   !hostedView.isHidden,
-                  hostedView.alphaValue > 0,
-                  hostedView.frame.contains(point) else { continue }
+                  hostedView.alphaValue > 0 else { continue }
 
-            return hostedView.hitTest(hostedView.convert(point, from: self)) ?? hostedView
+            let pointInHostedView = hostedView.convert(point, from: self)
+            guard hostedView.bounds.contains(pointInHostedView) else { continue }
+
+            return hostedView.hitTest(pointInHostedView) ?? hostedView
         }
         return nil
     }

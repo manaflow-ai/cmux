@@ -826,6 +826,32 @@ check_split_theme_regression_timeout() {
 
 check_command_palette_nucleo_ffi_coverage() {
   if ! awk '
+    /^[[:space:]]*- name: Cache Cargo packages$/ { in_step=1; saw_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /~\/\.cargo\/registry/ { saw_registry=1 }
+    in_step && /~\/\.cargo\/git/ { saw_git=1 }
+    in_step && /Native\/CommandPaletteNucleoFFI\/target/ { saw_target=1 }
+    in_step && /key: cargo-nucleo-/ && /hashFiles/ && /Native\/CommandPaletteNucleoFFI\/Cargo\.lock/ { saw_key=1 }
+    in_step && /restore-keys: cargo-nucleo-\$\{\{ runner\.os \}\}-/ { saw_restore=1 }
+    END { exit(saw_step && saw_registry && saw_git && saw_target && saw_key && saw_restore ? 0 : 1) }
+  ' "$COMPAT_FILE"; then
+    echo "FAIL: ci-macos-compat.yml must cache Cargo registry/git and the nucleo target dir so macOS compatibility builds do not depend on cold crates.io downloads"
+    exit 1
+  fi
+
+  local build_script="$ROOT_DIR/scripts/build-command-palette-nucleo-ffi.sh"
+  if ! awk '
+    /cargo fetch --manifest-path "\$\{CRATE_DIR\}\/Cargo\.toml" --target "\$target"/ { saw_fetch=1 }
+    /warning: cargo fetch for \$\{target\} failed on attempt \$\{attempt\}; retrying/ { saw_fetch_retry=1 }
+    /cargo build --manifest-path "\$\{CRATE_DIR\}\/Cargo\.toml" --release --target "\$target"/ { saw_build=1 }
+    /warning: cargo build for \$\{target\} failed on attempt \$\{attempt\}; retrying/ { saw_build_retry=1 }
+    END { exit(saw_fetch && saw_fetch_retry && saw_build && saw_build_retry ? 0 : 1) }
+  ' "$build_script"; then
+    echo "FAIL: build-command-palette-nucleo-ffi.sh must fetch and build cargo dependencies with retries before XCTest app-host builds"
+    exit 1
+  fi
+
+  if ! awk '
     /^[[:space:]]*- name: Run command palette nucleo FFI tests$/ { in_step=1; next }
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
     in_step && /CMUX_NUCLEO_FFI_DERIVED_DATA=.*\.ci-derived-data\/nucleo-ffi/ { saw_derived_data=1 }

@@ -55,6 +55,18 @@ cargo_build_with_retry() {
   local attempt
   local status
   for attempt in 1 2 3; do
+    if cargo fetch --manifest-path "${CRATE_DIR}/Cargo.toml" --target "$target"; then
+      break
+    fi
+    status=$?
+    if [ "$attempt" -eq 3 ]; then
+      return "$status"
+    fi
+    echo "warning: cargo fetch for ${target} failed on attempt ${attempt}; retrying" >&2
+    sleep $((attempt * 5))
+  done
+
+  for attempt in 1 2 3; do
     if cargo build --manifest-path "${CRATE_DIR}/Cargo.toml" --release --target "$target"; then
       return 0
     fi
