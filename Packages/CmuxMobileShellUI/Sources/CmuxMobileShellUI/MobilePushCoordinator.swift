@@ -47,6 +47,13 @@ public final class MobilePushCoordinator {
     /// exactly one authoritative refresh and avoids a stale task performing any
     /// destructive cleanup. `@ObservationIgnored`: it is lifecycle, not rendered.
     @ObservationIgnored private var mutedRefreshTask: Task<Void, Never>?
+    /// In-flight per-workspace mute toggle syncs, owned so sign-out can cancel
+    /// any tap that has not yet reached the registration actor. Without this, a
+    /// toggle task created just before an account switch could run under the next
+    /// account and persist the previous screen's workspace id as that account's
+    /// mute. Cancelling them on sign-out (plus the service's per-user key) keeps
+    /// a tap from leaking across accounts.
+    @ObservationIgnored private var muteToggleTasks: Set<Task<Void, Never>> = []
 
     /// Creates a push coordinator.
     /// - Parameters:
@@ -134,12 +141,22 @@ public final class MobilePushCoordinator {
             mutedWorkspaceIDs.remove(workspaceId)
         }
         analytics.capture("ios_push_workspace_mute_toggled", ["muted": .bool(muted)])
-        Task {
-            await registration.setWorkspaceMuted(workspaceId, muted: muted)
+        // Own the toggle so sign-out can cancel a tap that has not yet reached the
+        // registration actor, so it can't run under (and write for) the next
+        // account.
+        var task: Task<Void, Never>!
+        task = Task { [weak self] in
+            guard let self else { return }
+            // If sign-out cancelled this before it ran, do not write.
+            if Task.isCancelled { self.muteToggleTasks.remove(task); return }
+            await self.registration.setWorkspaceMuted(workspaceId, muted: muted)
+            self.muteToggleTasks.remove(task)
+            guard !Task.isCancelled else { return }
             // Reconcile against the persisted authoritative set in case a
             // concurrent change interleaved.
-            mutedWorkspaceIDs = await registration.mutedWorkspaceIDs
+            self.mutedWorkspaceIDs = await self.registration.mutedWorkspaceIDs
         }
+        muteToggleTasks.insert(task)
     }
 
     /// Opt in: request system authorization, register for remote notifications,
@@ -203,6 +220,9 @@ public final class MobilePushCoordinator {
     public func handleSignedOut() async {
         mutedRefreshTask?.cancel()
         mutedRefreshTask = nil
+        // Cancel any pending toggle taps so they can't run under the next account.
+        for task in muteToggleTasks { task.cancel() }
+        muteToggleTasks.removeAll()
         mutedWorkspaceIDs = []
         await registration.unregisterFromServer()
     }

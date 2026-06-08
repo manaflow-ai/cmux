@@ -472,6 +472,39 @@ struct FakeTokenProvider: TokenProviding {
         #expect(await service.mutedWorkspaceIDs == ["ws-a"])
     }
 
+    @Test func hydrateDoesNotPersistAnotherAccountsResponseUnderCapturedKey() async {
+        // User A's hydration GET is in flight; the account switches to B before
+        // the response is applied. The GET response was authenticated as B, so it
+        // must NOT be saved under A's key.
+        let suite = "push-hydrate-switch-\(UUID().uuidString)"
+        let host = "t-\(UUID().uuidString).example.test"
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecordingURLProtocol.self]
+        let provider = MutableUserTokenProvider(userID: "user-a")
+        let service = PushRegistrationService(
+            tokenProvider: provider,
+            apiBaseURL: "https://\(host)",
+            bundleID: "dev.cmux.ios",
+            apnsEnvironment: "sandbox",
+            suiteName: suite,
+            session: URLSession(configuration: configuration)
+        )
+        RecordingURLProtocol.responseStore.set(
+            .init(body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": ["ws-from-b"]])),
+            for: host
+        )
+        // Switch accounts in the window after the GET resolves, before the write.
+        await service.setAfterHydrationFetchForTesting { await provider.setUserID("user-b") }
+        let hydrated = await service.hydrateMutedWorkspacesFromServer()
+        // The write was aborted: A's (empty) key is unchanged, and the returned
+        // set is A's local, not B's server response.
+        #expect(hydrated.isEmpty)
+        await provider.setUserID("user-a")
+        #expect(await service.mutedWorkspaceIDs.isEmpty)
+        // B's id was not saved under A's key.
+        #expect(!(await service.mutedWorkspaceIDs).contains("ws-from-b"))
+    }
+
     @Test func hydrateAdoptsServerSetOnceLocalChangeIsConfirmed() async {
         let (service, _, host) = makeService()
         // First mute succeeds, clearing the pending marker.

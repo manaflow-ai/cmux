@@ -194,6 +194,14 @@ public actor PushRegistrationService: PushRegistering {
             return cachedMutedWorkspaceIDs(forUserKey: userKey)
         }
         await afterHydrationFetchForTesting?()
+        // The GET was authenticated as whatever user was current at the fetch's
+        // suspension point. If the account switched while it was in flight, this
+        // response belongs to a DIFFERENT user and must not be saved under the
+        // originally-captured key (that would store account B's set as account
+        // A's). Abort the write; the now-current user hydrates separately.
+        guard await currentUserKey() == userKey else {
+            return cachedMutedWorkspaceIDs(forUserKey: userKey)
+        }
         // A local mute/unmute for THIS user happened during the GET: that change
         // is newer and is already syncing to the server, so the GET response is
         // stale. Keep local instead of clobbering the just-tapped change.
