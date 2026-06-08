@@ -406,14 +406,21 @@ check_activation_artifacts_are_required() {
     in_summary && /^[[:space:]]*exit 1$/ { saw_missing_failure=1 }
     /^[[:space:]]*- name: Upload benchmark results$/ { in_upload=1; next }
     in_upload && /^[[:space:]]*- name:/ { in_upload=0 }
+    in_upload && /id:[[:space:]]*upload-benchmark-results/ { saw_upload_id=1 }
+    in_upload && /continue-on-error:[[:space:]]*true/ { saw_upload_continue=1 }
     in_upload && /if-no-files-found:[[:space:]]*error/ { saw_upload_error=1 }
-    END { exit(saw_missing_message && saw_missing_failure && saw_upload_error ? 0 : 1) }
+    /^[[:space:]]*- name: Retry benchmark results upload$/ { in_retry=1; next }
+    in_retry && /^[[:space:]]*- name:/ { in_retry=0 }
+    in_retry && /steps\.upload-benchmark-results\.outcome == '\''failure'\''/ { saw_retry_condition=1 }
+    in_retry && /if-no-files-found:[[:space:]]*error/ { saw_retry_error=1 }
+    in_retry && /overwrite:[[:space:]]*true/ { saw_retry_overwrite=1 }
+    END { exit(saw_missing_message && saw_missing_failure && saw_upload_id && saw_upload_continue && saw_upload_error && saw_retry_condition && saw_retry_error && saw_retry_overwrite ? 0 : 1) }
   ' "$PERF_FILE"; then
-    echo "FAIL: perf-activation.yml must fail when benchmark result files are missing instead of uploading an empty or ignored artifact"
+    echo "FAIL: perf-activation.yml must fail when benchmark result files are missing and retry transient artifact upload failures"
     exit 1
   fi
 
-  echo "PASS: activation benchmark artifacts are required"
+  echo "PASS: activation benchmark artifacts are required and upload retries are explicit"
 }
 
 check_release_build_signal() {

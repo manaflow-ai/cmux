@@ -285,12 +285,23 @@ jobs:
           PY
 
       - name: Upload benchmark results
+        id: upload-benchmark-results
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: activation-session-performance
           path: perf-results/
           if-no-files-found: error
+
+      - name: Retry benchmark results upload
+        if: always() && steps.upload-benchmark-results.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: activation-session-performance
+          path: perf-results/
+          if-no-files-found: error
+          overwrite: true
 
       - name: Cleanup tagged app
         if: always()
