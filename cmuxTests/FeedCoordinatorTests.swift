@@ -8,7 +8,7 @@ import CMUXWorkstream
 @testable import cmux
 #endif
 
-@Suite("Feed coordinator")
+@Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
