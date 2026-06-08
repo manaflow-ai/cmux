@@ -4233,6 +4233,69 @@ class TabManager: ObservableObject {
         return group.id
     }
 
+    /// Turn an existing workspace into a group by promoting it to be the
+    /// anchor (the sidebar header) of a brand-new single-member group.
+    ///
+    /// Unlike `createWorkspaceGroup`, this does NOT synthesize a fresh anchor
+    /// workspace: the passed workspace becomes the group header in place, so
+    /// no extra workspace is created and the row keeps its position. The exact
+    /// inverse is `ungroupWorkspaceGroup`, which dissolves the group and
+    /// returns the (former) anchor to a regular ungrouped workspace at the
+    /// same sidebar spot — so workspace → group → ungroup round-trips back to
+    /// the original single workspace.
+    ///
+    /// No-op (returns nil) when the workspace doesn't exist or is already in a
+    /// group; grouped workspaces use `addWorkspaceToGroup` /
+    /// `removeWorkspaceFromGroup` instead.
+    @discardableResult
+    func makeWorkspaceGroupFromWorkspace(
+        anchorWorkspaceId: UUID,
+        name: String = ""
+    ) -> UUID? {
+        guard let anchorTab = tabs.first(where: { $0.id == anchorWorkspaceId }),
+              anchorTab.groupId == nil else { return nil }
+
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Inherit the workspace's own display name so "turn THIS workspace
+        // into a group" keeps its identity in the header instead of an
+        // anonymous "Group N". Mirrors the workspace display-name precedence
+        // (customTitle → title). Reads only — never mutates the workspace's
+        // title, so Ungroup restores the original row name. Falls back to the
+        // auto group name only when the workspace has no title at all.
+        let resolvedName: String
+        if !trimmedName.isEmpty {
+            resolvedName = trimmedName
+        } else {
+            let custom = anchorTab.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let title = anchorTab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let inherited = custom.isEmpty ? title : custom
+            resolvedName = inherited.isEmpty ? nextAutoWorkspaceGroupName() : inherited
+        }
+
+        // Inherit the workspace's pinned state so a pinned workspace stays in
+        // the pinned sidebar tier (group tier is read from `group.isPinned`,
+        // not the anchor's `Workspace.isPinned`) and Ungroup restores it as a
+        // pinned row.
+        let group = WorkspaceGroup(
+            id: UUID(),
+            name: resolvedName,
+            isCollapsed: false,
+            isPinned: anchorTab.isPinned,
+            anchorWorkspaceId: anchorWorkspaceId,
+            customColor: nil,
+            iconSymbol: nil
+        )
+        workspaceGroups.append(group)
+        assignGroup(workspaceId: anchorWorkspaceId, groupId: group.id)
+        // The anchor is already at its sidebar position; normalize keeps it
+        // there (`sidebarTopLevelWorkspaceIds` maps the now-grouped workspace
+        // back to its anchor's slot) while syncing the workspaceGroups order
+        // to the tabs order.
+        normalizeWorkspaceGroupContiguity()
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [anchorWorkspaceId])
+        return group.id
+    }
+
     /// Create a brand-new workspace inheriting the anchor's cwd, attach it
     /// to the group, and position it within the group's tabs[] range per
     /// `placement`. Returns the new workspace.
