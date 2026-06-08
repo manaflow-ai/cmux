@@ -15234,9 +15234,7 @@ class TerminalController {
 
             defaults.synchronize()
             NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
-#if DEBUG
             AppDelegate.shared?.writeUITestDiagnosticsForDebug(stage: "debug.settings.set.\(key)")
-#endif
             result = .ok(payload)
         }
         return result
@@ -15265,6 +15263,9 @@ class TerminalController {
         }
         return result
     }
+#else
+    private func v2DebugSettingsSet(params: [String: Any]) -> V2CallResult { .err(code: "method_not_found", message: "Debug settings are unavailable in release builds", data: nil) }
+    private func v2DebugSettingsGet(params: [String: Any]) -> V2CallResult { .err(code: "method_not_found", message: "Debug settings are unavailable in release builds", data: nil) }
 #endif
 
     private func v2DebugSidebarHelpPerform(params: [String: Any]) -> V2CallResult {
