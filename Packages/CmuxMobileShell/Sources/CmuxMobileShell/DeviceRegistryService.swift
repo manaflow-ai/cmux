@@ -128,13 +128,17 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         guard let device = decoded.devices.first(where: { $0.deviceId.lowercased() == target }) else {
             return nil
         }
-        // Instances are returned most-recently-seen first; the first instance
-        // with at least one decodable route is the freshest reachable one.
-        for instance in device.instances {
-            let routes = instance.routes.compactMap(\.value)
-            if !routes.isEmpty { return routes }
-        }
-        return nil
+        // A Mac may run multiple tagged app instances (stable + a debug build).
+        // The phone's stored routes have no tag to match against in P1, so only
+        // substitute routes when exactly one instance is advertising any (the
+        // single-build common case). With zero or 2+ candidate instances, return
+        // nil and let reconnect fall back to the locally persisted routes, rather
+        // than risk connecting a stable phone to a different tagged build's
+        // workspaces. Tag-aware matching is a follow-up (see key-pinning phase).
+        let nonEmpty = device.instances
+            .map { $0.routes.compactMap(\.value) }
+            .filter { !$0.isEmpty }
+        return nonEmpty.count == 1 ? nonEmpty[0] : nil
     }
 
     // MARK: - Request building

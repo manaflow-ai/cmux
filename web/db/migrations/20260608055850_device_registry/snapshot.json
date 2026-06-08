@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "c255c7e9-bc36-4114-bd84-68f86dfcbf69",
+  "id": "ba8f09f6-d710-41c7-b9c0-153faea51c65",
   "prevIds": [
     "82769d22-cd97-490a-af75-97c410198ccc"
   ],
@@ -935,7 +935,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": null,
+      "default": "gen_random_uuid()",
       "generated": null,
       "identity": null,
       "name": "id",
@@ -952,6 +952,19 @@
       "generated": null,
       "identity": null,
       "name": "team_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "devices"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "device_uuid",
       "entityType": "columns",
       "schema": "public",
       "table": "devices"
@@ -1595,6 +1608,34 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "device_tokens"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "team_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "device_uuid",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "devices_team_device_uuid_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "devices"
     },
     {
       "nameExplicit": true,

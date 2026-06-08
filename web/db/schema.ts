@@ -190,14 +190,19 @@ export const cloudVmBillingGrants = pgTable(
 export const devices = pgTable(
   "devices",
   {
-    // The cmux-generated persisted UUID supplied by the device, used directly
-    // as the primary key. NOTE (key-pinning phase): this column will later
-    // anchor a pinned per-device public key for revoke; P1 stores identity
-    // only and never trusts it for authorization beyond the team scope below.
-    id: uuid("id").primaryKey(),
+    // Surrogate primary key for the team-scoped device row.
+    id: uuid("id").defaultRandom().primaryKey(),
     // Stack team that owns this device row. All registry reads/writes are
     // scoped to a team the caller is a verified member of (`X-Cmux-Team-Id`).
     teamId: text("team_id").notNull(),
+    // The cmux-generated persisted UUID supplied by the device. It is the
+    // device's stable, global identity (mirrors Mac `MobileHostIdentity` / iOS
+    // `MobileDeviceIdentity`), but identity is modeled per team: one row per
+    // (team, device), so a Mac in two teams registers a row in each and a phone
+    // scoped to either team can find it. NOTE (key-pinning phase): a pinned
+    // per-device key for revoke attaches per team-device row, which is the
+    // correct revoke granularity. P1 stores identity only.
+    deviceUuid: uuid("device_uuid").notNull(),
     // Stack user that registered the device (audit / future per-user views).
     userId: text("user_id").notNull(),
     // "mac" | "ios" | "linux" | ... (free-form so new host platforms need no
@@ -213,6 +218,7 @@ export const devices = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    uniqueIndex("devices_team_device_uuid_unique").on(table.teamId, table.deviceUuid),
     index("devices_team_last_seen_idx").on(table.teamId, table.lastSeenAt),
     index("devices_team_user_idx").on(table.teamId, table.userId),
   ],

@@ -6,13 +6,14 @@ import { closeCloudDbForTests } from "../db/client";
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
 
-// Stack user with a single team ("team-a") so requests can scope to that team.
+// Stack user in two teams ("team-a" default-selected, plus "team-b"), so the
+// multi-team registration path can be exercised.
 const getUser = mock(async () => ({
   id: "registry-user-1",
   displayName: null,
   primaryEmail: "registry@example.com",
   selectedTeam: { id: "team-a" },
-  listTeams: async () => [{ id: "team-a" }],
+  listTeams: async () => [{ id: "team-a" }, { id: "team-b" }],
 }));
 
 mock.module("../app/lib/stack", () => ({
@@ -124,7 +125,7 @@ describe("device registry route", () => {
     );
 
     const [{ total }] = await sql<{ total: number }[]>`
-      select count(*)::int as total from device_app_instances where device_id = ${DEVICE_A}
+      select count(*)::int as total from device_app_instances where device_id in (select id from devices where device_uuid = ${DEVICE_A})
     `;
     expect(total).toBe(1);
 
@@ -155,7 +156,7 @@ describe("device registry route", () => {
     expect(statuses[25]).toBe(429);
 
     const [{ total }] = await sql<{ total: number }[]>`
-      select count(*)::int as total from device_app_instances where device_id = ${DEVICE_A}
+      select count(*)::int as total from device_app_instances where device_id in (select id from devices where device_uuid = ${DEVICE_A})
     `;
     expect(total).toBe(25);
 
@@ -188,11 +189,38 @@ describe("device registry route", () => {
     );
 
     const [{ routes }] = await sql<{ routes: unknown[] }[]>`
-      select routes from device_app_instances where device_id = ${DEVICE_A} and tag = 'stable'
+      select routes from device_app_instances where device_id in (select id from devices where device_uuid = ${DEVICE_A}) and tag = 'stable'
     `;
     // Only the two object entries are stored; scalars/arrays are dropped.
     expect(Array.isArray(routes)).toBe(true);
     expect(routes).toHaveLength(2);
+  });
+
+  dbTest("registers the same device UUID in two teams the user belongs to", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    // Same physical Mac (same cmux UUID), registered under team-a then team-b.
+    const inA = await POST(
+      registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "stable", routes: [] }, "team-a"),
+    );
+    const inB = await POST(
+      registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "stable", routes: [] }, "team-b"),
+    );
+    expect(inA.status).toBe(200);
+    expect(inB.status).toBe(200);
+
+    // Two distinct per-team rows for the one device UUID.
+    const [{ total }] = await sql<{ total: number }[]>`
+      select count(*)::int as total from devices where device_uuid = ${DEVICE_A}
+    `;
+    expect(total).toBe(2);
+
+    // Each team only sees its own row for the device.
+    const listA = (await (
+      await GET(new Request("https://cmux.test/api/devices", { method: "GET", headers: authHeaders("team-a") }))
+    ).json()) as { teamId: string; devices: Array<{ deviceId: string }> };
+    expect(listA.teamId).toBe("team-a");
+    expect(listA.devices.map((d) => d.deviceId)).toEqual([DEVICE_A]);
   });
 
   dbTest("rejects a team the caller is not a member of", async () => {
@@ -230,7 +258,7 @@ describe("device registry route", () => {
     `;
     expect(devicesTotal).toBe(1);
     const [{ instancesTotal }] = await sql<{ instancesTotal: number }[]>`
-      select count(*)::int as "instancesTotal" from device_app_instances where device_id = ${DEVICE_A}
+      select count(*)::int as "instancesTotal" from device_app_instances where device_id in (select id from devices where device_uuid = ${DEVICE_A})
     `;
     expect(instancesTotal).toBe(0);
   });

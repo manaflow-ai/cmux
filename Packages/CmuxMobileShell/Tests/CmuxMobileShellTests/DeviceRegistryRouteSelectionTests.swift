@@ -90,6 +90,67 @@ import Testing
         #expect(DeviceRegistryService.routes(forMacDeviceID: "missing", in: json) == nil)
     }
 
+    @Test func multipleNonEmptyInstancesReturnNilToAvoidWrongTag() {
+        // A Mac running two tagged builds (stable + debug), both advertising
+        // routes. Without a tag to match, substituting either could connect the
+        // phone to the wrong app, so fall back to local routes (nil).
+        let json = """
+        {
+          "teamId": "team-a",
+          "devices": [
+            {
+              "deviceId": "BBBB2222-2222-4222-8222-222222222222",
+              "platform": "mac",
+              "instances": [
+                { "tag": "stable", "routes": [
+                  { "id": "r1", "kind": "tailscale", "priority": 0,
+                    "endpoint": { "type": "host_port", "host": "100.1.1.1", "port": 51001 } }
+                ] },
+                { "tag": "debug", "routes": [
+                  { "id": "r2", "kind": "tailscale", "priority": 0,
+                    "endpoint": { "type": "host_port", "host": "100.2.2.2", "port": 51002 } }
+                ] }
+              ]
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        #expect(DeviceRegistryService.routes(
+            forMacDeviceID: "bbbb2222-2222-4222-8222-222222222222",
+            in: json
+        ) == nil)
+    }
+
+    @Test func singleNonEmptyInstanceAmongEmptyOnesIsUsed() throws {
+        // Multiple instances but only one advertising routes (e.g. stable on,
+        // a debug build that turned pairing off): use the single non-empty one.
+        let json = """
+        {
+          "teamId": "team-a",
+          "devices": [
+            {
+              "deviceId": "BBBB2222-2222-4222-8222-222222222222",
+              "platform": "mac",
+              "instances": [
+                { "tag": "debug", "routes": [] },
+                { "tag": "stable", "routes": [
+                  { "id": "r1", "kind": "tailscale", "priority": 0,
+                    "endpoint": { "type": "host_port", "host": "100.1.1.1", "port": 51001 } }
+                ] }
+              ]
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let routes = DeviceRegistryService.routes(
+            forMacDeviceID: "bbbb2222-2222-4222-8222-222222222222",
+            in: json
+        )
+        #expect(routes?.count == 1)
+    }
+
     @Test func malformedSiblingRouteDoesNotPoisonTheList() throws {
         // One instance has a malformed/unknown route; the target Mac's own valid
         // route must still parse (a bad sibling must not nil the whole response).

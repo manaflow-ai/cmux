@@ -132,7 +132,7 @@ export async function POST(request: Request): Promise<Response> {
   const body = await readBoundedJson(request);
   if (!body.ok) return jsonResponse({ error: "invalid_request" }, body.status);
 
-  const deviceId = trimmedString(body.value.deviceId).toLowerCase();
+  const deviceUuid = trimmedString(body.value.deviceId).toLowerCase();
   const platform = trimmedString(body.value.platform).toLowerCase();
   const displayName = trimmedString(body.value.displayName) || null;
   const labels = recordOrEmpty(body.value.labels);
@@ -140,7 +140,7 @@ export async function POST(request: Request): Promise<Response> {
   const routes = routesArray(body.value.routes);
   const instanceLabels = recordOrEmpty(body.value.instanceLabels);
 
-  if (!UUID_RE.test(deviceId)) {
+  if (!UUID_RE.test(deviceUuid)) {
     return jsonResponse({ error: "invalid_device_id" }, 400);
   }
   if (!ALLOWED_PLATFORMS.has(platform)) {
@@ -158,19 +158,17 @@ export async function POST(request: Request): Promise<Response> {
     // is enforced without a race (mirrors the device-tokens advisory lock).
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${team.teamId}, 7))`);
 
-    const [existing] = await tx
-      .select({ id: devices.id, teamId: devices.teamId })
+    // Device identity is per team: a row keyed by (teamId, deviceUuid). The
+    // same cmux device UUID registering under a different team is a separate,
+    // legitimate row (a Mac in two teams), so there is no cross-team conflict to
+    // guard against. Team B creating its own row cannot read or mutate team A's.
+    const [existingDevice] = await tx
+      .select({ id: devices.id })
       .from(devices)
-      .where(eq(devices.id, deviceId))
+      .where(and(eq(devices.teamId, team.teamId), eq(devices.deviceUuid, deviceUuid)))
       .limit(1);
 
-    // A device id is global (cmux-generated UUID). If it already exists under a
-    // different team, the caller cannot claim it (prevents cross-team takeover).
-    if (existing && existing.teamId !== team.teamId) {
-      return { error: "device_team_conflict" as const };
-    }
-
-    if (!existing) {
+    if (!existingDevice) {
       const [{ total }] = await tx
         .select({ total: sql<number>`count(*)::int` })
         .from(devices)
@@ -180,11 +178,11 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
-    await tx
+    const [deviceRow] = await tx
       .insert(devices)
       .values({
-        id: deviceId,
         teamId: team.teamId,
+        deviceUuid,
         userId: user.id,
         platform,
         displayName,
@@ -193,9 +191,8 @@ export async function POST(request: Request): Promise<Response> {
         updatedAt: now,
       })
       .onConflictDoUpdate({
-        target: devices.id,
+        target: [devices.teamId, devices.deviceUuid],
         set: {
-          teamId: team.teamId,
           userId: user.id,
           platform,
           displayName,
@@ -203,22 +200,24 @@ export async function POST(request: Request): Promise<Response> {
           lastSeenAt: now,
           updatedAt: now,
         },
-      });
+      })
+      .returning({ id: devices.id });
+    const deviceRowId = deviceRow.id;
 
-    // Cap instances per device. `tag` is client-supplied and the instance key is
-    // `(deviceId, tag)`, so without this a single device could create unbounded
-    // rows by varying the tag. Re-registering an existing tag is an update (the
-    // onConflict below), so only a genuinely new tag counts against the cap.
+    // Cap instances per device row. `tag` is client-supplied and the instance
+    // key is `(deviceId, tag)`, so without this a single device could create
+    // unbounded rows by varying the tag. Re-registering an existing tag is an
+    // update (the onConflict below), so only a genuinely new tag counts.
     const [existingInstance] = await tx
       .select({ id: deviceAppInstances.id })
       .from(deviceAppInstances)
-      .where(and(eq(deviceAppInstances.deviceId, deviceId), eq(deviceAppInstances.tag, tag)))
+      .where(and(eq(deviceAppInstances.deviceId, deviceRowId), eq(deviceAppInstances.tag, tag)))
       .limit(1);
     if (!existingInstance) {
       const [{ total }] = await tx
         .select({ total: sql<number>`count(*)::int` })
         .from(deviceAppInstances)
-        .where(eq(deviceAppInstances.deviceId, deviceId));
+        .where(eq(deviceAppInstances.deviceId, deviceRowId));
       if (Number(total) >= MAX_INSTANCES_PER_DEVICE) {
         return { error: "too_many_instances" as const };
       }
@@ -227,7 +226,7 @@ export async function POST(request: Request): Promise<Response> {
     await tx
       .insert(deviceAppInstances)
       .values({
-        deviceId,
+        deviceId: deviceRowId,
         teamId: team.teamId,
         tag,
         routes,
@@ -249,9 +248,6 @@ export async function POST(request: Request): Promise<Response> {
     return { error: null };
   });
 
-  if (registered.error === "device_team_conflict") {
-    return jsonResponse({ error: "device_team_conflict" }, 409);
-  }
   if (registered.error === "too_many_devices") {
     return jsonResponse({ error: "too_many_devices" }, 429);
   }
@@ -259,11 +255,12 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: "too_many_instances" }, 429);
   }
 
-  return jsonResponse({ ok: true, deviceId, teamId: team.teamId, tag });
+  return jsonResponse({ ok: true, deviceId: deviceUuid, teamId: team.teamId, tag });
 }
 
 type DeviceListRow = {
   id: string;
+  deviceUuid: string;
   platform: string;
   displayName: string | null;
   labels: Record<string, unknown>;
@@ -289,6 +286,7 @@ export async function GET(request: Request): Promise<Response> {
   const deviceRows = (await db
     .select({
       id: devices.id,
+      deviceUuid: devices.deviceUuid,
       platform: devices.platform,
       displayName: devices.displayName,
       labels: devices.labels,
@@ -318,7 +316,9 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const devicesPayload = deviceRows.map((device) => ({
-    deviceId: device.id,
+    // The phone matches its stored `macDeviceID` (the cmux device UUID) against
+    // this, so expose `deviceUuid`, not the internal surrogate row id.
+    deviceId: device.deviceUuid,
     platform: device.platform,
     displayName: device.displayName,
     labels: device.labels,
@@ -352,15 +352,17 @@ export async function DELETE(request: Request): Promise<Response> {
   const body = await readBoundedJson(request);
   if (!body.ok) return jsonResponse({ error: "invalid_request" }, body.status);
 
-  const deviceId = trimmedString(body.value.deviceId).toLowerCase();
-  if (!UUID_RE.test(deviceId)) {
+  const deviceUuid = trimmedString(body.value.deviceId).toLowerCase();
+  if (!UUID_RE.test(deviceUuid)) {
     return jsonResponse({ error: "invalid_device_id" }, 400);
   }
 
+  // Delete only this team's row for the device (the (teamId, deviceUuid) row),
+  // never another team's row for the same physical Mac.
   const db = cloudDb();
   await db
     .delete(devices)
-    .where(and(eq(devices.id, deviceId), eq(devices.teamId, team.teamId)));
+    .where(and(eq(devices.deviceUuid, deviceUuid), eq(devices.teamId, team.teamId)));
 
   return jsonResponse({ ok: true });
 }
