@@ -110,15 +110,20 @@ final class RemoteTmuxWindowMirror {
     /// from the content pixel area and a live pane's cell size; sends
     /// `refresh-client -C` only when the grid actually changes (no feedback loop:
     /// the cmux area doesn't change when tmux reflows).
-    func updateClientSize(contentSizePoints: CGSize) {
+    /// Returns `true` once the pane surface is live and the size was applied (sent, or
+    /// already current via the `lastClientSize` dedup); `false` when no pane has
+    /// reported its cell size yet, so the caller should retry. Idempotent.
+    @discardableResult
+    func updateClientSize(contentSizePoints: CGSize) -> Bool {
         guard contentSizePoints.width > 1, contentSizePoints.height > 1,
               let cell = panelsByPaneId.values.lazy.compactMap({ $0.surface.cellSizePoints() }).first,
-              cell.width > 1, cell.height > 1 else { return }
+              cell.width > 1, cell.height > 1 else { return false }
         let cols = max(20, Int(contentSizePoints.width / cell.width))
         let rows = max(5, Int(contentSizePoints.height / cell.height))
-        guard lastClientSize?.cols != cols || lastClientSize?.rows != rows else { return }
+        guard lastClientSize?.cols != cols || lastClientSize?.rows != rows else { return true }
         lastClientSize = (cols, rows)
         connection?.setClientSize(columns: cols, rows: rows)
+        return true
     }
 
     /// Records the user-focused pane and asks tmux to make it active.
@@ -143,6 +148,12 @@ final class RemoteTmuxWindowMirror {
 
     /// Tears down every pane panel (called when the window-tab is removed).
     func teardown() {
+        // Unsubscribe each pane's cwd subscription first — matching reconcile(layout:),
+        // which unsubscribes per removed pane. Without this, a control connection that
+        // outlives the tab keeps streaming pane_current_path updates into a dead mirror.
+        for paneId in panelsByPaneId.keys {
+            connection?.unsubscribePanePath(paneId: paneId)
+        }
         for panel in panelsByPaneId.values { panel.close() }
         panelsByPaneId.removeAll()
         syntheticPaneIds.removeAll()

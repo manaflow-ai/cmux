@@ -32,7 +32,11 @@ struct RemoteTmuxControlMessageDecoding {
         // non-numeric values are treated as absent.
         let num: (String) -> Int? = { fields[$0].flatMap { Int($0) }.flatMap { (0...65535).contains($0) ? $0 : nil } }
 
-        var seq = ""
+        // Reset SGR attributes first so the cursor's style pen starts from a known
+        // baseline on a surface REUSED across reconnect — a prior alt-screen exit's
+        // restoreCursor can otherwise leave a stale style. The captured rows below
+        // carry their own SGR; this only affects the pen for subsequent writes.
+        var seq = "\u{1b}[m"
         // Scroll region (DECSTBM) — tmux reports 0-based, DECSTBM is 1-based. Only
         // seed a RESTRICTED region: a full-window region (upper 0, lower height-1)
         // is the surface's default already, and pinning it to the capture-time row
@@ -64,6 +68,12 @@ struct RemoteTmuxControlMessageDecoding {
         // used: it is tmux's aggregate "any mouse mode on" OR-flag, not a concrete
         // level. (NOTE: ghostty's vendored tmux viewer uses a different, one-slot-
         // shifted mapping — do not "align" to it; the above matches real tmux.)
+        // Reset all mouse tracking + encoding modes FIRST, then conditionally enable
+        // the active one below. Unlike wrap/cursor/insert/origin above (which emit both
+        // on/off forms), the mouse enables are one-directional, so on a surface REUSED
+        // across reconnect a stale mouse mode would otherwise persist when the pane now
+        // has mouse off — leaving clicks/scroll forwarded to an app that no longer wants them.
+        seq += "\u{1b}[?1000l\u{1b}[?1002l\u{1b}[?1003l\u{1b}[?1005l\u{1b}[?1006l"
         if on("mouse_all_flag") { seq += "\u{1b}[?1003h" }
         else if on("mouse_button_flag") { seq += "\u{1b}[?1002h" }
         else if on("mouse_standard_flag") { seq += "\u{1b}[?1000h" }

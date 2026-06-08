@@ -133,6 +133,7 @@ final class RemoteTmuxControlConnection {
     /// `ESC[?1049h` — enter the alternate screen, emitted to a mirror surface when
     /// the remote pane is on the alternate screen (see ``capturePane(paneId:)``).
     private static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
+    private static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
 
     /// How many lines of pane history `capture-pane` seeds onto a freshly mounted
     /// (or reconnected) mirror surface. Capturing scrollback — not just the visible
@@ -814,13 +815,16 @@ final class RemoteTmuxControlConnection {
                 observers.emitPaneCwd(paneId, path)
             }
         case let .paneAltScreen(paneId):
-            // Enter the alternate screen on the mirror surface so it matches the
-            // remote pane (alt = no reflow on resize). Emitted before the capture
-            // paint that follows in the FIFO, so the seeded rows land on the alt
-            // screen. A pane on the primary screen needs no toggle (the surface
-            // defaults to primary, and a later live `%output` 1049l would leave alt).
+            // Match the mirror surface to the remote pane's screen (alt = no reflow on
+            // resize). Emitted before the capture paint that follows in the FIFO, so the
+            // seeded rows land on the right screen. The else branch is load-bearing on a
+            // surface REUSED across reconnect: if it was on the alt screen before and the
+            // remote pane is now on primary, force it back (1049l) so the capture doesn't
+            // paint onto a stale alt screen.
             if lines.first?.trimmingCharacters(in: .whitespaces) == "1" {
                 observers.emitPaneOutput(paneId, Self.altScreenEnterSequence)
+            } else {
+                observers.emitPaneOutput(paneId, Self.altScreenExitSequence)
             }
         case .other:
             break
