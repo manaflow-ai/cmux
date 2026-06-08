@@ -429,16 +429,30 @@ struct WorkspaceGroupTests {
             forDraggedWorkspaceId: draggedUnpinnedId,
             targetWorkspaceId: pinnedChild.id
         )
+        let legalInsertionRange = manager.sidebarReorderLegalInsertionRange(
+            forDraggedWorkspaceId: draggedUnpinnedId,
+            targetWorkspaceId: pinnedChild.id
+        )
 
         #expect(manager.tabs.first { $0.id == draggedUnpinnedId }?.groupId == groupId)
-        #expect(SidebarDropPlanner.indicator(
+        let indicator = SidebarDropPlanner.indicator(
             draggedTabId: draggedUnpinnedId,
             targetTabId: pinnedChild.id,
             tabIds: tabIds,
             pinnedTabIds: pinnedIds,
+            legalInsertionRange: legalInsertionRange,
             pointerY: 2,
             targetHeight: 40
-        ) == nil)
+        )
+        #expect(indicator == nil)
+        #expect(SidebarDropPlanner.targetIndex(
+            draggedTabId: draggedUnpinnedId,
+            targetTabId: pinnedChild.id,
+            indicator: SidebarDropIndicator(tabId: pinnedChild.id, edge: .top),
+            tabIds: tabIds,
+            pinnedTabIds: pinnedIds,
+            legalInsertionRange: legalInsertionRange
+        ) == tabIds.firstIndex(of: draggedUnpinnedId))
     }
 
     @Test func movingGroupMemberToTopKeepsScriptableGroupOrderInVisibleOrder() throws {

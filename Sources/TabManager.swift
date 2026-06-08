@@ -3712,6 +3712,44 @@ class TabManager: ObservableObject {
         return sidebarTopLevelPinnedWorkspaceIds()
     }
 
+    func sidebarReorderLegalInsertionRange(
+        forDraggedWorkspaceId draggedWorkspaceId: UUID?,
+        targetWorkspaceId: UUID? = nil,
+        usesTopLevelRows: Bool = false
+    ) -> ClosedRange<Int>? {
+        guard !usesTopLevelRows,
+              !sidebarReorderUsesTopLevelRows(
+                  forDraggedWorkspaceId: draggedWorkspaceId,
+                  targetWorkspaceId: targetWorkspaceId
+              ),
+              let draggedWorkspaceId,
+              let draggedWorkspace = tabs.first(where: { $0.id == draggedWorkspaceId }),
+              let groupId = draggedWorkspace.groupId,
+              let group = workspaceGroups.first(where: { $0.id == groupId }),
+              draggedWorkspace.id != group.anchorWorkspaceId else {
+            return nil
+        }
+        let memberIndices = tabs.indices.filter { tabs[$0].groupId == groupId }
+        guard let firstIndex = memberIndices.first,
+              let lastIndex = memberIndices.last else {
+            return nil
+        }
+        let pinnedMemberCount = memberIndices.reduce(into: 0) { count, index in
+            let member = tabs[index]
+            if member.id != group.anchorWorkspaceId, member.isPinned {
+                count += 1
+            }
+        }
+        if draggedWorkspace.isPinned {
+            let lower = min(firstIndex + 1, tabs.count)
+            let upper = min(firstIndex + 1 + pinnedMemberCount, tabs.count)
+            return lower...max(lower, upper)
+        }
+        let lower = min(firstIndex + 1 + pinnedMemberCount, tabs.count)
+        let upper = min(lastIndex + 1, tabs.count)
+        return min(lower, upper)...max(lower, upper)
+    }
+
     @discardableResult
     func reorderSidebarWorkspace(
         tabId: UUID,
