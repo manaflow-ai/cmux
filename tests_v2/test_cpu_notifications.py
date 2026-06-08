@@ -41,6 +41,28 @@ MONITOR_DURATION = 3.0
 
 def get_cmux_pid() -> Optional[int]:
     """Get the PID of the running cmux process."""
+    socket_path = os.environ.get("CMUX_SOCKET_PATH")
+    if socket_path and os.path.exists(socket_path):
+        result = subprocess.run(
+            ["lsof", "-t", socket_path],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    pid = int(line)
+                except ValueError:
+                    continue
+                if pid != os.getpid():
+                    return pid
+
+    if os.environ.get("CMUX_SOCKET_PATH"):
+        return None
+
     result = subprocess.run(
         ["pgrep", "-f", r"cmux\.app/Contents/MacOS/cmux$"],
         capture_output=True,
@@ -222,16 +244,22 @@ def main():
     pid = get_cmux_pid()
     if pid is None:
         print("\n❌ SKIP: cmux is not running")
+        if os.environ.get("CMUX_SOCKET_PATH"):
+            print("CMUX_SOCKET_PATH is set, so runner-managed notification CPU coverage cannot skip.")
+            return 1
         return 0
 
     print(f"\nFound cmux process: PID {pid}")
 
     # Try to connect to the socket
-    socket_paths = [
+    socket_paths = []
+    if os.environ.get("CMUX_SOCKET_PATH"):
+        socket_paths.append(os.environ["CMUX_SOCKET_PATH"])
+    socket_paths.extend([
         os.path.expanduser("~/Library/Application Support/cmux/cmux.sock"),
         "/tmp/cmux.sock",
         "/tmp/cmux-debug.sock",
-    ]
+    ])
     client = None
     for socket_path in socket_paths:
         if os.path.exists(socket_path):
@@ -245,6 +273,9 @@ def main():
 
     if client is None:
         print(f"\n❌ SKIP: Could not connect to cmux socket")
+        if os.environ.get("CMUX_SOCKET_PATH"):
+            print("CMUX_SOCKET_PATH is set, so runner-managed notification CPU coverage cannot skip.")
+            return 1
         return 0
 
     results = []

@@ -881,6 +881,34 @@ check_vm_socket_runners_fail_closed_without_test_retries() {
   echo "PASS: VM socket runners fail closed without broad per-test retries"
 }
 
+check_vm_socket_cpu_tests_fail_closed_under_runner_socket() {
+  for file in \
+    "$ROOT_DIR/tests/test_cpu_usage.py" \
+    "$ROOT_DIR/tests_v2/test_cpu_usage.py" \
+    "$ROOT_DIR/tests/test_cpu_notifications.py" \
+    "$ROOT_DIR/tests_v2/test_cpu_notifications.py" \
+    "$ROOT_DIR/tests/test_omnibar_focus_cpu.py"
+  do
+    local output
+    output="$(mktemp)"
+    if env CMUX_SOCKET_PATH="/tmp/cmux-missing-runner-socket-$$" python3 "$file" >"$output" 2>&1; then
+      echo "FAIL: $(basename "$file") must fail closed when the VM socket runner exports an unavailable CMUX_SOCKET_PATH"
+      cat "$output"
+      rm -f "$output"
+      exit 1
+    fi
+    if ! grep -Fq 'runner-managed' "$output"; then
+      echo "FAIL: $(basename "$file") must explain that runner-managed CPU coverage cannot skip"
+      cat "$output"
+      rm -f "$output"
+      exit 1
+    fi
+    rm -f "$output"
+  done
+
+  echo "PASS: VM socket CPU tests fail closed under runner-managed sockets"
+}
+
 check_retryable_submodule_checkout() {
   if ! grep -Fq 'attempts="${CMUX_SUBMODULE_RETRY_ATTEMPTS:-5}"' "$ROOT_DIR/scripts/ci/init-submodules-with-retry.sh"; then
     echo "FAIL: submodule retry wrapper must default to at least 5 attempts for transient GitHub connectivity outages"
@@ -1834,6 +1862,7 @@ check_swift_file_length_budget_active
 check_vm_socket_tests_do_not_skip_ctrl_interactive
 check_vm_socket_tests_do_not_self_skip
 check_vm_socket_runners_fail_closed_without_test_retries
+check_vm_socket_cpu_tests_fail_closed_under_runner_socket
 check_tmux_corpus_pr_jobs_do_not_report_skipped_terminal_tests
 check_tmux_corpus_keeps_nightly_fuzz_coverage
 check_activation_artifacts_are_required

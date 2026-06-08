@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 import re
+import os
 import statistics
 from pathlib import Path
 from typing import List, Optional
@@ -50,6 +51,28 @@ SUSPICIOUS_PATTERNS = [
 
 def get_cmux_pid() -> Optional[int]:
     """Get the PID of the running cmux process."""
+    socket_path = os.environ.get("CMUX_SOCKET_PATH")
+    if socket_path and os.path.exists(socket_path):
+        result = subprocess.run(
+            ["lsof", "-t", socket_path],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    pid = int(line)
+                except ValueError:
+                    continue
+                if pid != os.getpid():
+                    return pid
+
+    if os.environ.get("CMUX_SOCKET_PATH"):
+        return None
+
     result = subprocess.run(
         ["pgrep", "-f", r"cmux\.app/Contents/MacOS/cmux$"],
         capture_output=True,
@@ -138,6 +161,9 @@ def main():
     pid = get_cmux_pid()
     if pid is None:
         print("\n❌ SKIP: cmux is not running")
+        if os.environ.get("CMUX_SOCKET_PATH"):
+            print("CMUX_SOCKET_PATH is set, so runner-managed CPU coverage cannot skip.")
+            return 1
         print("Start cmux and run this test again.")
         return 0  # Not a failure, just skip
 
