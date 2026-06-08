@@ -6,6 +6,11 @@ final class TerminalInputTextView: UITextView {
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
     var onEscapeSequence: ((Data) -> Void)?
+    /// Invoked when the Paste accessory button reads an image off the system
+    /// clipboard. The host forwards the bytes (+ a lowercase format hint) to the
+    /// Mac, which injects the resulting file path into the terminal. Clipboard
+    /// *text* does not use this path; it rides ``onText``.
+    var onPasteImage: ((Data, String) -> Void)?
     var onZoom: ((TerminalFontZoomDirection) -> Void)?
     var onHideKeyboard: (() -> Void)?
     /// Fired by the trailing "customize" button so the SwiftUI host can present
@@ -51,7 +56,7 @@ final class TerminalInputTextView: UITextView {
     private static let accessoryHorizontalInset: CGFloat = 16
     private static let accessoryButtonFont = UIFont.systemFont(ofSize: 14, weight: .medium)
     private static let accessoryButtonSymbolConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-    private static let accessoryButtonInsets = UIEdgeInsets(top: 5, left: 10, bottom: 5, right: 10)
+    private static let accessoryButtonContentInsets = NSDirectionalEdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)
     private static let accessoryButtonCornerRadius: CGFloat = 6
     private static let accessoryButtonHeight: CGFloat = 28
     private static let accessoryButtonMinWidth: CGFloat = 44
@@ -170,9 +175,6 @@ final class TerminalInputTextView: UITextView {
     var toolbarView: UIView { terminalAccessoryToolbar }
 
     private weak var accessoryStackView: UIStackView?
-    // Strong reference — command button is not always in the stack's arrangedSubviews,
-    // so nothing else retains it.
-    private var commandAccessoryButton: UIButton?
     private var isMacRemote = false
 
     func updateAccessoryLayoutInsets() {
@@ -191,60 +193,66 @@ final class TerminalInputTextView: UITextView {
         }
     }
 
-    /// The structural buttons pinned to the front of the bar, ahead of the
-    /// user-configurable shortcuts. Command is created but kept out of the
-    /// stack until ``applyModifierPresentation()`` inserts it for a Mac remote.
-    private static let pinnedLeadingActions: [TerminalInputAccessoryAction] = [
-        .control, .alternate, .command,
-    ]
-
-    /// The structural buttons pinned to the end of the bar, after the
-    /// user-configurable shortcuts. The zoom controls live here so the
-    /// high-traffic shortcuts sit directly after the modifier keys.
-    private static let pinnedTrailingActions: [TerminalInputAccessoryAction] = [
-        .zoomOut, .zoomIn,
-    ]
-
-    /// Build (or rebuild) the bar's buttons: the pinned modifier controls, the
-    /// user-configurable shortcuts in their saved order, then the pinned zoom
-    /// controls. Safe to call repeatedly; it clears the stack first.
+    /// Build (or rebuild) the bar's buttons in the user's configured order
+    /// (modifiers, zoom, paste, shortcuts, and custom actions all reorderable
+    /// together), followed by the fixed trailing "customize" control. The ⌘ item
+    /// is rendered only when driving a Mac remote. Safe to call repeatedly; it
+    /// clears the stack first.
     private func populateAccessoryActions() {
         guard let stack = accessoryStackView else { return }
         for view in stack.arrangedSubviews {
             stack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        commandAccessoryButton?.removeFromSuperview()
-        commandAccessoryButton = nil
 
-        // Pinned leading modifier controls, in fixed order.
-        for action in Self.pinnedLeadingActions {
-            let button = makeAccessoryButton(for: action)
-            // Command is Mac-only; kept out of the stack and inserted by
-            // applyModifierPresentation() when driving a Mac remote.
-            if action == .command {
-                commandAccessoryButton = button
-            } else {
-                stack.addArrangedSubview(button)
-            }
-        }
-        // The user-configurable region: built-in shortcuts and custom actions in
-        // the user's saved order.
+        // The user-configurable region: built-in shortcuts/modifiers/zoom/paste
+        // and custom actions, all in the user's saved order.
         for item in TerminalAccessoryConfiguration.shared.enabledItems {
             switch item {
             case let .builtin(action):
+                // ⌘ only makes sense against a Mac remote; skip it otherwise
+                // (it stays in the saved order, just unrendered, so flipping the
+                // remote re-shows it in place).
+                if action == .command && !isMacRemote { continue }
                 stack.addArrangedSubview(makeAccessoryButton(for: action))
             case let .custom(custom):
                 stack.addArrangedSubview(makeCustomAccessoryButton(for: custom))
             }
         }
-        // Pinned trailing zoom controls, after the configurable shortcuts (the
-        // redesigned bar moved zoom here from the leading region).
-        for action in Self.pinnedTrailingActions {
-            stack.addArrangedSubview(makeAccessoryButton(for: action))
-        }
         // The "customize" button pinned at the very end of the bar.
         stack.addArrangedSubview(makeToolbarSettingsButton())
+
+        // A modifier the user just hid (or ⌘ on a non-Mac remote) is no longer
+        // rendered, so it would otherwise stay armed/sticky with no visible
+        // button to turn it off and silently modify every keystroke. Clear any
+        // armed modifier whose button is not on the bar.
+        reconcileArmedModifierVisibility()
+    }
+
+    /// Disarm the active modifier if its bar button is no longer rendered, so a
+    /// hidden (or non-Mac-remote ⌘) modifier can never stay invisibly armed.
+    private func reconcileArmedModifierVisibility() {
+        guard let armed = modifierState.armedModifier,
+              let action = Self.accessoryAction(for: armed) else { return }
+        let renderedActions = (accessoryStackView?.arrangedSubviews ?? []).compactMap { view -> TerminalInputAccessoryAction? in
+            guard let button = view as? AccessoryActionButton,
+                  case let .builtin(builtinAction) = button.item else { return nil }
+            return builtinAction
+        }
+        guard !renderedActions.contains(action) else { return }
+        modifierState.disarmAll()
+        refreshAccessoryButtonStyles()
+    }
+
+    /// Maps a modifier-state modifier to its accessory-bar action, so the
+    /// rebuild can check whether its button is currently on the bar.
+    private static func accessoryAction(for modifier: TerminalInputModifier) -> TerminalInputAccessoryAction? {
+        switch modifier {
+        case .control: return .control
+        case .alternate: return .alternate
+        case .command: return .command
+        case .shift: return .shift
+        }
     }
 
     @objc private func handleAccessoryConfigurationChanged() {
@@ -260,41 +268,32 @@ final class TerminalInputTextView: UITextView {
     func updateModifierLabels(isMacRemote: Bool) {
         guard self.isMacRemote != isMacRemote else { return }
         self.isMacRemote = isMacRemote
+        // The ⌘ item is rendered only for a Mac remote and modifier titles depend
+        // on `isMacRemote`, so a full repopulate (rather than an in-place relabel)
+        // keeps the bar correct now that ⌘ can sit anywhere in the user's order.
+        populateAccessoryActions()
         applyModifierPresentation()
     }
 
-    /// Retitle the modifier buttons for the current remote and insert/remove the
-    /// command button. Split out of ``updateModifierLabels(isMacRemote:)`` so a
-    /// configuration-driven rebuild can re-apply it without toggling the flag.
+    /// Retitle the modifier buttons for the current remote and re-apply each
+    /// button's armed/sticky style. Split out of ``updateModifierLabels(isMacRemote:)``
+    /// so a configuration-driven rebuild can re-apply it without toggling the flag.
     private func applyModifierPresentation() {
         guard let stack = accessoryStackView else { return }
+        // Restyle every visible button for the current remote (built-in titles
+        // depend on `isMacRemote`) and its armed/sticky state. Custom actions
+        // never arm.
         for case let button as AccessoryActionButton in stack.arrangedSubviews {
-            guard case let .builtin(action) = button.item else { continue }
-            button.setTitle(action.title(isMacRemote: isMacRemote), for: .normal)
-        }
-        // Insert/remove the command button based on whether this is a Mac terminal.
-        // We manage it outside the normal loop because it's not always in arrangedSubviews.
-        if let cmdButton = commandAccessoryButton {
-            if isMacRemote {
-                if cmdButton.superview == nil {
-                    // Insert after alternate (index 2 in original enum order: ctrl, alt, cmd)
-                    // Find the alt button's index in the current arrangedSubviews
-                    var insertIndex = stack.arrangedSubviews.count
-                    for (idx, view) in stack.arrangedSubviews.enumerated() {
-                        if let button = view as? AccessoryActionButton,
-                           case .builtin(.alternate) = button.item {
-                            insertIndex = idx + 1
-                            break
-                        }
-                    }
-                    stack.insertArrangedSubview(cmdButton, at: insertIndex)
-                }
+            let armed: Bool
+            let sticky: Bool
+            if case let .builtin(action) = button.item {
+                armed = isAccessoryActionArmed(action)
+                sticky = isAccessoryActionSticky(action)
             } else {
-                if cmdButton.superview != nil {
-                    stack.removeArrangedSubview(cmdButton)
-                    cmdButton.removeFromSuperview()
-                }
+                armed = false
+                sticky = false
             }
+            applyAccessoryButtonStyle(button, item: button.item, armed: armed, sticky: sticky)
         }
         // Disarm command state if switching away from Mac remote (clears a
         // sticky lock too, matching the legacy unconditional setter).
@@ -474,16 +473,17 @@ final class TerminalInputTextView: UITextView {
         button.addTarget(self, action: #selector(handleAccessoryButton(_:)), for: .touchUpInside)
         button.accessibilityIdentifier = action.accessibilityIdentifier
         button.accessibilityLabel = action.accessibilityLabel
-        button.titleLabel?.font = Self.accessoryButtonFont
-
-        if let symbolName = action.symbolName {
-            button.setImage(UIImage(systemName: symbolName), for: .normal)
-            button.setPreferredSymbolConfiguration(Self.accessoryButtonSymbolConfig, forImageIn: .normal)
+        applyAccessoryButtonStyle(button, item: .builtin(action), armed: false, sticky: false)
+        button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
+        if action.isModifier || action.symbolName != nil {
+            // Single-glyph modifiers (⌃⌥⌘⇧) and icon buttons (zoom) get a fixed
+            // width so they stay uniform — their glyph metrics differ, and a
+            // greater-than-or-equal min-width let some (e.g. the glass capsule)
+            // grow wider than others. Variable-text buttons keep growing.
+            button.widthAnchor.constraint(equalToConstant: Self.accessoryButtonMinWidth).isActive = true
         } else {
-            button.setTitle(action.title, for: .normal)
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.accessoryButtonMinWidth).isActive = true
         }
-
-        applyAccessoryButtonBaseStyle(button)
         return button
     }
 
@@ -493,26 +493,25 @@ final class TerminalInputTextView: UITextView {
         button.addTarget(self, action: #selector(handleAccessoryButton(_:)), for: .touchUpInside)
         button.accessibilityIdentifier = "terminal.inputAccessory.custom.\(custom.id.uuidString)"
         button.accessibilityLabel = custom.title
-        button.titleLabel?.font = Self.accessoryButtonFont
-
+        // Custom actions never arm; they always render in the resting style.
+        applyAccessoryButtonStyle(button, item: .custom(custom), armed: false, sticky: false)
+        button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
         if let symbolName = custom.symbolName,
            !symbolName.isEmpty,
            UIImage(systemName: symbolName) != nil {
-            button.setImage(UIImage(systemName: symbolName), for: .normal)
-            button.setPreferredSymbolConfiguration(Self.accessoryButtonSymbolConfig, forImageIn: .normal)
-            button.accessibilityLabel = custom.title
+            // Icon-only custom actions match the fixed-width modifier/zoom keys.
+            button.widthAnchor.constraint(equalToConstant: Self.accessoryButtonMinWidth).isActive = true
         } else {
-            button.setTitle(custom.title, for: .normal)
+            // Text custom actions (e.g. "Claude") grow with their title.
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.accessoryButtonMinWidth).isActive = true
         }
-
-        applyAccessoryButtonBaseStyle(button)
         return button
     }
 
     /// The trailing button that opens the toolbar shortcuts editor. A plain
     /// `UIButton` (not an ``AccessoryActionButton``) so the armed-modifier
-    /// styling/relabel loops skip it, and styled to read as a control rather
-    /// than an insertable key.
+    /// styling/relabel loops skip it, and styled to read as a de-emphasized
+    /// control rather than an insertable key.
     private func makeToolbarSettingsButton() -> UIButton {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -522,25 +521,98 @@ final class TerminalInputTextView: UITextView {
             localized: "terminal.input_accessory.customize",
             defaultValue: "Customize Toolbar"
         )
-        button.setImage(UIImage(systemName: "slider.horizontal.3"), for: .normal)
-        button.setPreferredSymbolConfiguration(Self.accessoryButtonSymbolConfig, forImageIn: .normal)
-        applyAccessoryButtonBaseStyle(button)
-        button.backgroundColor = .clear
+        // Read as a control, not a glass key: no glass/fill background, a muted
+        // gray tint, and a flat content layout matching the other buttons.
+        var config = UIButton.Configuration.plain()
+        config.image = UIImage(systemName: "slider.horizontal.3")
+        config.preferredSymbolConfigurationForImage = Self.accessoryButtonSymbolConfig
+        config.baseForegroundColor = UIColor(white: 0.7, alpha: 1)
+        config.contentInsets = Self.accessoryButtonContentInsets
+        button.configuration = config
         button.tintColor = UIColor(white: 0.7, alpha: 1)
+        button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
+        button.widthAnchor.constraint(equalToConstant: Self.accessoryButtonMinWidth).isActive = true
         return button
     }
 
-    private func applyAccessoryButtonBaseStyle(_ button: UIButton) {
-        button.contentEdgeInsets = Self.accessoryButtonInsets
-        button.backgroundColor = Self.accessoryButtonNormalBackground
-        button.setTitleColor(.white, for: .normal)
-        button.tintColor = .white
-        button.layer.cornerRadius = Self.accessoryButtonCornerRadius
-        button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
-        button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.accessoryButtonMinWidth).isActive = true
+    /// Build (or rebuild) a button's configuration for `item` and its current
+    /// armed/sticky state. On iOS 26 the bar uses real Liquid Glass
+    /// (`.glass()` resting, `.prominentGlass()` armed/sticky); earlier OSes keep
+    /// the flat gray/blue fill the bar shipped with. Built-in modifier titles
+    /// follow `isMacRemote`; custom actions render their saved title/icon and
+    /// never arm.
+    private func applyAccessoryButtonStyle(
+        _ button: UIButton,
+        item: ResolvedToolbarItem,
+        armed: Bool,
+        sticky: Bool
+    ) {
+        var config = Self.accessoryButtonConfiguration(armed: armed, sticky: sticky)
+        let symbolName: String?
+        let title: String
+        switch item {
+        case let .builtin(action):
+            symbolName = action.symbolName
+            title = action.title(isMacRemote: isMacRemote)
+        case let .custom(custom):
+            // Only honor a custom symbol when it resolves to a real SF Symbol.
+            if let name = custom.symbolName, !name.isEmpty, UIImage(systemName: name) != nil {
+                symbolName = name
+            } else {
+                symbolName = nil
+            }
+            title = custom.title
+        }
+        if let symbolName {
+            config.image = UIImage(systemName: symbolName)
+            config.preferredSymbolConfigurationForImage = Self.accessoryButtonSymbolConfig
+            config.attributedTitle = nil
+        } else {
+            var attributed = AttributedString(title)
+            attributed.font = Self.accessoryButtonFont
+            config.attributedTitle = attributed
+            config.image = nil
+        }
+        config.contentInsets = Self.accessoryButtonContentInsets
+        button.configuration = config
+    }
+
+    private static func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
+        if #available(iOS 26.0, *) {
+            var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
+            config.baseForegroundColor = .white
+            if armed || sticky {
+                config.baseBackgroundColor = .systemBlue
+            }
+            return config
+        }
+        var config = UIButton.Configuration.plain()
+        var background = UIBackgroundConfiguration.clear()
+        if sticky {
+            background.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.85)
+            background.strokeColor = .white
+            background.strokeWidth = 2
+        } else if armed {
+            background.backgroundColor = .systemBlue
+        } else {
+            background.backgroundColor = accessoryButtonNormalBackground
+        }
+        background.cornerRadius = accessoryButtonCornerRadius
+        config.background = background
+        config.baseForegroundColor = .white
+        return config
     }
 
     private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
+        if action == .paste {
+            // Paste is a clipboard read, not a key sequence: ignore any armed
+            // modifier and route clipboard content to the host directly.
+            disarmAllModifiers()
+            refreshAccessoryButtonStyles()
+            handlePasteAction()
+            return
+        }
+
         if let zoomDirection = action.zoomDirection {
             disarmAllModifiers()
             refreshAccessoryButtonStyles()
@@ -597,6 +669,35 @@ final class TerminalInputTextView: UITextView {
         }
     }
 
+    /// Read the system clipboard for the Paste button. An image is forwarded via
+    /// ``onPasteImage`` (the host uploads it to the Mac as `terminal.paste_image`
+    /// and the Mac injects the resulting file path); plain text rides the normal
+    /// ``onText`` input path. Images win when both are present. A large image
+    /// falls back to JPEG so it stays under the Mac's 10 MB cap. Accessing the
+    /// pasteboard contents here is what shows iOS's one-shot paste banner, which
+    /// is the expected confirmation for an explicit Paste tap.
+    private func handlePasteAction() {
+        let pasteboard = UIPasteboard.general
+        if pasteboard.hasImages, let image = pasteboard.image {
+            let maxImageBytes = 8 * 1024 * 1024
+            if let png = image.pngData(), png.count <= maxImageBytes {
+                onPasteImage?(png, "png")
+                return
+            }
+            if let jpeg = image.jpegData(compressionQuality: 0.8) {
+                onPasteImage?(jpeg, "jpg")
+                return
+            }
+            if let png = image.pngData() {
+                onPasteImage?(png, "png")
+                return
+            }
+        }
+        if pasteboard.hasStrings, let string = pasteboard.string, !string.isEmpty {
+            onText?(string)
+        }
+    }
+
     private func disarmAllModifiers() {
         modifierState.disarmAll()
     }
@@ -634,23 +735,7 @@ final class TerminalInputTextView: UITextView {
                 armed = false
                 sticky = false
             }
-            if sticky {
-                button.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.85)
-                button.setTitleColor(.white, for: .normal)
-                button.tintColor = .white
-                button.layer.borderWidth = 2
-                button.layer.borderColor = UIColor.white.cgColor
-            } else if armed {
-                button.backgroundColor = .systemBlue
-                button.setTitleColor(.white, for: .normal)
-                button.tintColor = .white
-                button.layer.borderWidth = 0
-            } else {
-                button.backgroundColor = Self.accessoryButtonNormalBackground
-                button.setTitleColor(.white, for: .normal)
-                button.tintColor = .white
-                button.layer.borderWidth = 0
-            }
+            applyAccessoryButtonStyle(button, item: button.item, armed: armed, sticky: sticky)
         }
     }
 

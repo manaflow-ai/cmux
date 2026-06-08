@@ -55,12 +55,18 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// The user tapped the "customize" button at the end of the input-accessory
     /// bar; the host should present the toolbar shortcuts editor. Optional.
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView)
+    /// Forward an image the user pasted from the system clipboard. The host
+    /// uploads `data` to the Mac, which materializes a temp file and injects its
+    /// path into the terminal so a running TUI (e.g. Claude Code) attaches it.
+    /// `format` is a lowercase file-extension hint (e.g. `"png"`). Optional.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String)
 }
 
 public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
 }
 
 @MainActor
@@ -257,6 +263,11 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     case end
     case pageUp
     case pageDown
+    /// Paste the system clipboard into the terminal: an image is forwarded to
+    /// the Mac as `terminal.paste_image`, plain text rides the normal input
+    /// path. Unlike the other actions it carries no fixed byte ``output``; the
+    /// host reads the pasteboard when it is tapped.
+    case paste
     var title: String {
         title(isMacRemote: false)
     }
@@ -317,6 +328,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return "@"
         case .pageDown:
             return String(localized: "terminal.input_accessory.title.pageDown", defaultValue: "PgDn")
+        case .paste:
+            return ""
         }
     }
 
@@ -349,6 +362,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .end: return "terminal.inputAccessory.end"
         case .pageUp: return "terminal.inputAccessory.pageUp"
         case .pageDown: return "terminal.inputAccessory.pageDown"
+        case .paste: return "terminal.inputAccessory.paste"
         }
     }
 
@@ -358,6 +372,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
         case .zoomIn:
             return String(localized: "terminal.input_accessory.zoom_in", defaultValue: "Zoom In")
+        case .paste:
+            return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
         default:
             return nil
         }
@@ -369,6 +385,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return "minus.magnifyingglass"
         case .zoomIn:
             return "plus.magnifyingglass"
+        case .paste:
+            return "doc.on.clipboard"
         default:
             return nil
         }
@@ -395,7 +413,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
 
     var output: Data? {
         switch self {
-        case .control, .alternate, .command, .shift, .zoomOut, .zoomIn:
+        case .control, .alternate, .command, .shift, .zoomOut, .zoomIn, .paste:
             return nil
         case .escape:
             return Data([0x1B])
@@ -442,11 +460,20 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         }
     }
 
-    /// Whether the user can show/hide/reorder this action. The modifier keys
-    /// (⌃ ⌥ ⌘ ⇧) and zoom controls are structural and stay pinned, so only the
-    /// insertable shortcuts (those with an `output`) are configurable.
+    /// Whether the user can show/hide/reorder this action.
+    ///
+    /// Every button on the bar is configurable except ``shift``, which has armed
+    /// machinery but is intentionally not surfaced as a bar button. The leading
+    /// modifier keys (⌃ ⌥ ⌘), zoom controls, and paste used to be structurally
+    /// pinned; they are now part of the user-configurable region too, so their
+    /// position can be moved alongside the insertable shortcuts.
     public var isUserConfigurable: Bool {
-        output != nil && !isModifier
+        switch self {
+        case .shift:
+            return false
+        default:
+            return true
+        }
     }
 
     /// Every user-configurable action in canonical (enum) order. This is the full
@@ -456,28 +483,46 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         allCases.filter { $0.isUserConfigurable }
     }
 
-    /// The default on-bar arrangement of the configurable shortcuts: the
-    /// high-traffic agent and control keys first (Tab, ^C/^D, the Claude/Codex
-    /// launchers, the arrow keys, Clear), then the punctuation and navigation
-    /// keys. Curated independently of the enum's `rawValue` order so the default
-    /// bar can be arranged without perturbing the persisted identifiers, which are
-    /// the `rawValue`s.
+    /// The configurable actions that previously sat in the bar's fixed leading
+    /// region, in their shipped left-to-right order. They lead ``defaultConfigurableOrder``
+    /// on a fresh install, and the v1/v2→v3 migration force-enables and inserts
+    /// them at the front so an upgrading user's bar looks unchanged.
+    public static var defaultLeadingActions: [TerminalInputAccessoryAction] {
+        [.control, .alternate, .command, .paste]
+    }
+
+    /// The configurable actions that previously sat in the bar's fixed trailing
+    /// region (the zoom controls). They tail ``defaultConfigurableOrder`` on a
+    /// fresh install, and the migration force-enables and appends them so an
+    /// upgrading user's bar looks unchanged.
+    public static var defaultTrailingActions: [TerminalInputAccessoryAction] {
+        [.zoomOut, .zoomIn]
+    }
+
+    /// The default on-bar arrangement of the configurable shortcuts: the leading
+    /// modifier/paste controls, then the high-traffic agent and control keys (Tab,
+    /// Esc, ^C/^D, the Claude/Codex launchers, the arrow keys, Clear), then the
+    /// punctuation and navigation keys, then the trailing zoom controls. Esc sits
+    /// immediately to the right of Tab so the two most common terminal keys are
+    /// adjacent. Curated independently of the enum's `rawValue` order so the
+    /// default bar can be arranged without perturbing the persisted identifiers,
+    /// which are the `rawValue`s.
     ///
     /// Must stay a permutation of ``configurableActions``;
     /// ``TerminalAccessoryLayoutReducer`` defensively appends any omission, so a
     /// gap here can never drop an action from the bar.
     public static var defaultConfigurableOrder: [TerminalInputAccessoryAction] {
-        [
+        defaultLeadingActions + [
             .tab,
+            .escape,
             .ctrlC, .ctrlD,
             .claude, .codex,
             .upArrow, .downArrow, .leftArrow, .rightArrow,
             .ctrlL,
-            .escape,
             .tilde, .dollar, .slash, .atSign, .pipe,
             .ctrlZ,
             .home, .end, .pageUp, .pageDown,
-        ]
+        ] + defaultTrailingActions
     }
 
     /// Human-readable name for the shortcuts settings editor (the bar itself
@@ -505,7 +550,13 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .end: return String(localized: "terminal.shortcut.name.end", defaultValue: "End")
         case .pageUp: return String(localized: "terminal.shortcut.name.pageUp", defaultValue: "Page Up")
         case .pageDown: return String(localized: "terminal.shortcut.name.pageDown", defaultValue: "Page Down")
-        case .control, .alternate, .command, .shift, .zoomIn, .zoomOut:
+        case .paste: return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
+        case .control: return String(localized: "terminal.shortcut.name.control", defaultValue: "Control")
+        case .alternate: return String(localized: "terminal.shortcut.name.alternate", defaultValue: "Option")
+        case .command: return String(localized: "terminal.shortcut.name.command", defaultValue: "Command")
+        case .zoomIn: return String(localized: "terminal.input_accessory.zoom_in", defaultValue: "Zoom In")
+        case .zoomOut: return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
+        case .shift:
             return title
         }
     }
@@ -785,6 +836,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self.resetCursorBlink()
             TerminalInputDebugLog.log("surface.onEscape data=\(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
+        }
+        inputProxy.onPasteImage = { [weak self] data, format in
+            guard let self else { return }
+            TerminalInputDebugLog.log("surface.onPasteImage bytes=\(data.count) format=\(format)")
+            self.delegate?.ghosttySurfaceView(self, didPasteImage: data, format: format)
         }
         inputProxy.onZoom = { [weak self] direction in
             self?.performFontZoom(direction)

@@ -1045,6 +1045,13 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     -u XDG_DATA_DIRS
   )
 
+  # DEBUG dogfood auto-sign-in needs no env injection here: the in-app resolver
+  # reads ~/.secrets/cmuxterm-dev.env (then ~/.secrets/cmux.env) directly on
+  # launch, which fires for every launch method including Finder / the CMUX Tag
+  # Opener that this script's TAG_LAUNCH_ENV never reaches. Exporting the Stack
+  # password into the long-lived GUI process environment would leak it to every
+  # child terminal/CLI it spawns, for zero added coverage, so we deliberately do
+  # not set CMUX_UITEST_STACK_* here.
   TAG_LAUNCH_ENV=(
     CMUX_TAG="${TAG_SLUG:-}"
     CMUX_BUNDLE_ID="$BUNDLE_ID"
