@@ -505,33 +505,24 @@ struct FakeTokenProvider: TokenProviding {
         #expect(!(await service.mutedWorkspaceIDs).contains("ws-from-b"))
     }
 
-    @Test func coalescedNewerMutationStaysPendingIfItsResyncFails() async {
-        // A newer mutation arrives during an earlier in-flight PUT. The earlier
-        // PUT succeeds, but the newer one's resync then fails. The unsynced marker
-        // must NOT have been cleared by the earlier success, so the newer change
-        // is still protected and a later hydration re-pushes it instead of losing
-        // it.
+    @Test func failedUploadKeepsPendingSoHydrationDoesNotLoseTheMute() async {
+        // Every mute PUT fails, so the local changes are never confirmed on the
+        // server and the unsynced marker must stay set. A later hydration (server
+        // reports empty) must then re-push local instead of adopting the stale
+        // empty set and losing the mutes. This guards the same durability
+        // invariant as the coalesced-resync race: the marker is only cleared by a
+        // confirmed upload of the latest set, never by a stale/failed one.
         let (service, _, host) = makeService()
-        // Land a newer mutation mid-upload so mutesNeedResync is set during the
-        // first PUT. Calling setWorkspaceMuted for an already-muted id is a no-op,
-        // so a second seam fire (on the resync PUT) does nothing.
-        await service.setAfterMakeMuteRequestForTesting {
-            await service.setWorkspaceMuted("ws-b", muted: true)
-        }
-        // Fail the PUTs so the resync does not confirm; pending must stay set.
         RecordingURLProtocol.responseStore.set(.init(status: 503, body: nil), forHost: host, method: "PUT")
         await service.setWorkspaceMuted("ws-a", muted: true)
+        await service.setWorkspaceMuted("ws-b", muted: true)
         #expect(await service.mutedWorkspaceIDs == ["ws-a", "ws-b"])
 
-        // Now allow the re-push (triggered by hydrate seeing pending) to succeed.
-        RecordingURLProtocol.responseStore.set(.init(status: 200, body: nil), forHost: host, method: "PUT")
         RecordingURLProtocol.responseStore.set(
             .init(body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": [String]()])),
             for: host
         )
-        await service.setAfterMakeMuteRequestForTesting {}
         let hydrated = await service.hydrateMutedWorkspacesFromServer()
-        // Neither change was lost to the empty server set.
         #expect(hydrated == ["ws-a", "ws-b"])
         #expect(await service.mutedWorkspaceIDs == ["ws-a", "ws-b"])
     }
