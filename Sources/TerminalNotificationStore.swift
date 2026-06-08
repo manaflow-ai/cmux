@@ -304,12 +304,24 @@ enum NotificationSoundSettings {
     static func isSuppressedByActiveFocus(
         assertionsFileURL: URL = defaultAssertionsFileURL
     ) -> Bool {
-        // Not yet implemented; the fix commit reads the assertion store.
-        _ = assertionsFileURL
-        return false
+        guard
+            let data = try? Data(contentsOf: assertionsFileURL),
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let entries = root["data"] as? [[String: Any]]
+        else {
+            return false
+        }
+        return entries.contains { entry in
+            if let records = entry["storeAssertionRecords"] as? [Any] {
+                return !records.isEmpty
+            }
+            return false
+        }
     }
 
     static func playSelectedSound(defaults: UserDefaults = .standard) {
+        // Honor macOS Focus / Do Not Disturb for the out-of-band fallback sound.
+        if isSuppressedByActiveFocus() { return }
         let value = defaults.string(forKey: key) ?? defaultValue
         playSound(value: value, defaults: defaults)
     }
