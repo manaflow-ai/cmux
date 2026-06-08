@@ -18262,6 +18262,8 @@ struct CMUXCLI {
         private var subscribedThreadIds = Set<String>()
         private var approvalItemById: [String: [String: Any]] = [:]
         private var approvalItemOrder: [String] = []
+        private var suppressedApprovalKeys = Set<String>()
+        private var suppressedApprovalOrder: [String] = []
 
         init(
             appServerURL: String,
@@ -18348,10 +18350,15 @@ struct CMUXCLI {
                try handleApprovalRequest(message, method: method, requestId: requestId, connection: connection) {
                 return
             }
-            if message["id"] != nil {
-                // This watcher is not the owning interactive client. Leave
-                // unsupported requests for the Codex UI instead of rejecting
-                // them or reconnecting into the same replayed request.
+            if let requestId = message["id"] {
+                // This watcher is not the owning interactive client, but
+                // app-server JSON-RPC requests still require a response on
+                // this connection so the turn is never left pending behind us.
+                try connection.respondError(
+                    requestId: requestId,
+                    code: -32601,
+                    message: "cmux Codex Teams watcher does not handle \(method)"
+                )
                 return
             }
             guard method.hasPrefix("thread/"),
@@ -18472,6 +18479,16 @@ struct CMUXCLI {
             }
             let relatedItem = CMUXCLI.stringValue(in: params, keys: ["itemId", "item_id"])
                 .flatMap { cachedApprovalItem(itemId: $0) }
+            let suppressionKey = approvalSuppressionKey(method: method, requestId: requestId, params: params)
+            if approvalIsSuppressed(suppressionKey) {
+                fputs("cmux codex-teams watcher ignoring previously unresolved approval \(suppressionKey)\n", stderr)
+                try respondWithApprovalError(
+                    requestId: requestId,
+                    connection: connection,
+                    reason: "Feed approval was previously unresolved"
+                )
+                return true
+            }
             let feedEvent = CMUXCLI.codexTeamsFeedEvent(
                 method: method,
                 requestId: requestId,
@@ -18480,11 +18497,28 @@ struct CMUXCLI {
                 relatedItem: relatedItem
             )
             fputs("cmux codex-teams watcher forwarding approval \(method) request \(CMUXCLI.requestIdString(requestId)) to Feed\n", stderr)
-            let response = try pushCodexApprovalToFeed(event: feedEvent)
+            let response: [String: Any]
+            do {
+                response = try pushCodexApprovalToFeed(event: feedEvent)
+            } catch {
+                suppressApproval(suppressionKey)
+                fputs("cmux codex-teams watcher returning no-decision error for approval \(suppressionKey) after Feed push failed: \(error)\n", stderr)
+                try respondWithApprovalError(
+                    requestId: requestId,
+                    connection: connection,
+                    reason: "Feed push failed"
+                )
+                return true
+            }
             guard let decision = CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: response) else {
-                // Close this auxiliary app-server connection instead of
-                // silently consuming an approval request Codex still needs.
-                throw CLIError(message: "Codex Feed did not resolve approval request \(CMUXCLI.requestIdString(requestId))")
+                suppressApproval(suppressionKey)
+                fputs("cmux codex-teams watcher returning no-decision error for approval \(suppressionKey) because Feed did not resolve it\n", stderr)
+                try respondWithApprovalError(
+                    requestId: requestId,
+                    connection: connection,
+                    reason: "Feed did not resolve approval"
+                )
+                return true
             }
             guard let result = CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: method,
@@ -18495,6 +18529,43 @@ struct CMUXCLI {
             }
             try connection.respond(requestId: requestId, result: result)
             return true
+        }
+
+        private func respondWithApprovalError(
+            requestId: Any,
+            connection: CodexTeamsAppServerConnection,
+            reason: String
+        ) throws {
+            try connection.respondError(
+                requestId: requestId,
+                code: -32800,
+                message: reason
+            )
+        }
+
+        private func approvalSuppressionKey(method: String, requestId: Any, params: [String: Any]) -> String {
+            let stableId = CMUXCLI.stringValue(
+                in: params,
+                keys: ["approvalId", "approval_id", "itemId", "item_id"]
+            ) ?? CMUXCLI.requestIdString(requestId)
+            return "\(method):\(stableId)"
+        }
+
+        private func approvalIsSuppressed(_ key: String) -> Bool {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return suppressedApprovalKeys.contains(key)
+        }
+
+        private func suppressApproval(_ key: String) {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            if suppressedApprovalKeys.insert(key).inserted {
+                suppressedApprovalOrder.append(key)
+            }
+            while suppressedApprovalOrder.count > 256 {
+                suppressedApprovalKeys.remove(suppressedApprovalOrder.removeFirst())
+            }
         }
 
         private func pushCodexApprovalToFeed(event: [String: Any]) throws -> [String: Any] {
@@ -19169,8 +19240,8 @@ struct CMUXCLI {
                 commandArgs: commandArgs,
                 baseDirectory: baseDirectory
             )
-        } catch let error as CodexTeamsApprovalBridgeError {
-            throw CLIError(message: error.description)
+        } catch {
+            throw CLIError(message: error.localizedDescription)
         }
     }
 
