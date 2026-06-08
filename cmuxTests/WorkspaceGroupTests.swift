@@ -906,6 +906,34 @@ struct WorkspaceGroupTests {
         #expect(manager.tabs.first { $0.id == memberId }?.groupId == groupId)
     }
 
+    // A pinned workspace turned into a group must stay in the pinned sidebar
+    // tier (group tier reads `group.isPinned`, not the anchor's own pin), so
+    // it does not get demoted below other pinned rows. Guards the
+    // `isPinned: anchorTab.isPinned` inheritance.
+    @Test func makeWorkspaceGroupFromWorkspaceKeepsPinnedWorkspaceInPinnedTier() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let ids = manager.tabs.map(\.id)
+        #expect(ids.count == 4)
+        // Pin the first two so they form the pinned tier, in order. Promoting
+        // the FIRST pinned workspace without inheriting its pin would demote
+        // it below the second pinned workspace (pinned-first reordering).
+        manager.tabs[0].isPinned = true
+        manager.tabs[1].isPinned = true
+
+        let groupId = try #require(manager.makeWorkspaceGroupFromWorkspace(anchorWorkspaceId: ids[0]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        #expect(group.isPinned)
+        #expect(manager.tabs.map(\.id) == ids)
+
+        // Ungroup restores the anchor as a still-pinned row in the same spot.
+        manager.ungroupWorkspaceGroup(groupId: groupId)
+        #expect(manager.tabs.first { $0.id == ids[0] }?.isPinned == true)
+        #expect(manager.tabs.map(\.id) == ids)
+    }
+
     // A promoted single-workspace group has its anchor as the only member, so
     // it renders as a header with no child rows. Sanity-check that the anchor
     // is excluded from the rendered workspace rows (it is the header).
