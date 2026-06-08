@@ -53,6 +53,14 @@ enum NotificationSoundSettings {
     private static let activePlaybackSoundsLock = NSLock()
     private static var activePlaybackSounds: [ObjectIdentifier: NSSound] = [:]
     private static let activePlaybackSoundDelegate = ActivePlaybackSoundDelegate()
+    private static let dndAssertionQueue = DispatchQueue(
+        label: "com.cmuxterm.notification-dnd-assertion",
+        qos: .utility
+    )
+    private static let dndSuppressionLock = NSLock()
+    // nil until the first background read completes. Fail-open treats nil as "not suppressed".
+    private static var cachedDndSuppression: Bool?
+    private static var dndRefreshInFlight = false
     private static let notificationSoundSupportedExtensions: Set<String> = [
         "aif",
         "aiff",
@@ -319,9 +327,35 @@ enum NotificationSoundSettings {
         }
     }
 
+    /// Cheap, main-actor-safe snapshot of the live Focus/DND state.
+    ///
+    /// Reads a process-local cached `Bool` (no disk I/O) and schedules a
+    /// background refresh for the next call. The first call returns `false`
+    /// (fail-open) and warms the cache off-main, so the `@MainActor` playback
+    /// path never reads `Assertions.json` synchronously. Slightly stale by
+    /// design, which is acceptable for an out-of-band fallback sound.
+    static func isActiveFocusSuppressionCached() -> Bool {
+        dndSuppressionLock.lock()
+        let snapshot = cachedDndSuppression ?? false
+        let needsRefresh = !dndRefreshInFlight
+        if needsRefresh { dndRefreshInFlight = true }
+        dndSuppressionLock.unlock()
+
+        if needsRefresh {
+            dndAssertionQueue.async {
+                let suppressed = isSuppressedByActiveFocus()
+                dndSuppressionLock.lock()
+                cachedDndSuppression = suppressed
+                dndRefreshInFlight = false
+                dndSuppressionLock.unlock()
+            }
+        }
+        return snapshot
+    }
+
     static func playSelectedSound(defaults: UserDefaults = .standard) {
         // Honor macOS Focus / Do Not Disturb for the out-of-band fallback sound.
-        if isSuppressedByActiveFocus() { return }
+        if isActiveFocusSuppressionCached() { return }
         let value = defaults.string(forKey: key) ?? defaultValue
         playSound(value: value, defaults: defaults)
     }
