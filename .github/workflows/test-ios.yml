@@ -192,6 +192,11 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: ./scripts/ci/init-submodules-with-retry.sh
 
+      - name: Capture Ghostty revision
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        id: ghostty-revision
+        run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Select Xcode
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
@@ -210,15 +215,25 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Cache GhosttyKit.xcframework
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: GhosttyKit.xcframework
+          key: ghosttykit-ios-${{ steps.ghostty-revision.outputs.sha }}
+
       - name: Provision GhosttyKit
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
           # Downloads the prebuilt GhosttyKit.xcframework pinned in
-          # scripts/ghosttykit-checksums.txt for the current ghostty SHA, or
-          # falls back to a from-source build. The iOS app links GhosttyKit via
-          # a local-path binaryTarget, so it must exist before package resolve.
-          ./scripts/install-zig-ci.sh
-          ./scripts/ensure-ghosttykit.sh
+          # scripts/ghosttykit-checksums.txt for the current ghostty SHA. The
+          # iOS app links GhosttyKit via a local-path binaryTarget, so it must
+          # exist before package resolve. Do not fall back to a local Zig build
+          # here: the iOS lane runs on macOS 26, where the Ghostty Zig helper
+          # source build is intentionally not supported.
+          if [ ! -d GhosttyKit.xcframework ]; then
+            ./scripts/download-prebuilt-ghosttykit.sh
+          fi
 
       - name: Pick simulator
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}

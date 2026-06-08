@@ -11,6 +11,7 @@ WORKFLOWS=(
   "$ROOT_DIR/.github/workflows/ci.yml"
   "$ROOT_DIR/.github/workflows/nightly.yml"
   "$ROOT_DIR/.github/workflows/release.yml"
+  "$ROOT_DIR/.github/workflows/test-ios.yml"
 )
 
 FIXTURE_SHA="7dd589824d4c9bda8265355718800cccaf7189a0"
