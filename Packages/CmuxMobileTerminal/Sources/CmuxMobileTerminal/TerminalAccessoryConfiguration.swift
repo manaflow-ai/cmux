@@ -2,16 +2,15 @@ import CmuxMobileTerminalKit
 import Foundation
 import Observation
 
-/// User-editable configuration of the terminal input-accessory bar's
-/// configurable region: which shortcut buttons appear, in what order, and any
-/// user-defined ``CustomToolbarAction``s.
+/// User-editable configuration of the terminal input-accessory bar: which
+/// buttons appear, in what order, and any user-defined ``CustomToolbarAction``s.
 ///
-/// The bar has two regions. The leading region (the ⌃ ⌥ ⌘ ⇧ modifier keys and
-/// the zoom controls) is structural and always pinned at the front, so
-/// reconfiguring never disturbs the armed-modifier machinery and is not modeled
-/// here. The trailing region is configurable: the shipped built-in shortcuts
-/// (Esc, Tab, arrows, the agent launchers, …) plus any custom actions, ordered
-/// and toggled together and keyed by ``ToolbarItemID``.
+/// Every button on the bar is configurable: the modifier keys (⌃ ⌥ ⌘), the zoom
+/// controls, paste, the shipped insertable shortcuts (Esc, Tab, arrows, the agent
+/// launchers, …), and any custom actions, all ordered and toggled together and
+/// keyed by ``ToolbarItemID``. (The ⇧ key and the trailing "customize" control
+/// are the only structural exceptions; ⇧ is never surfaced as a bar button and
+/// the customize control is a fixed affordance, not an action.)
 ///
 /// This is the single source of truth for that region. It persists to
 /// `UserDefaults`, is `@Observable` for the SwiftUI editor, and posts
@@ -31,14 +30,23 @@ public final class TerminalAccessoryConfiguration {
     /// UIKit input-accessory bar can rebuild its configurable buttons.
     public static let didChangeNotification = Notification.Name("cmux.terminal.accessoryConfigurationDidChange")
 
-    // v2 schema, keyed by ``ToolbarItemID`` storage keys + JSON custom actions.
-    private static let orderDefaultsKey = "cmux.terminal.toolbar.order.v2"
-    private static let enabledDefaultsKey = "cmux.terminal.toolbar.enabled.v2"
+    // v3 schema, keyed by ``ToolbarItemID`` storage keys + JSON custom actions.
+    // v3 widened the configurable region to include the modifier/zoom/paste
+    // built-ins that v1/v2 pinned, so its enabled set is authoritative (it knows
+    // those built-ins are hideable); presence of these keys means "skip the
+    // force-enable widening migration".
+    private static let orderDefaultsKey = "cmux.terminal.toolbar.order.v3"
+    private static let enabledDefaultsKey = "cmux.terminal.toolbar.enabled.v3"
+    // Custom actions are schema-stable across v2 and v3, so the v2 key is reused.
     private static let customDefaultsKey = "cmux.terminal.toolbar.custom.v2"
+    // v2 schema (ToolbarItemID storage keys, configurable region = trailing
+    // shortcuts only), read once to forward-migrate an upgrading user.
+    private static let legacyV2OrderDefaultsKey = "cmux.terminal.toolbar.order.v2"
+    private static let legacyV2EnabledDefaultsKey = "cmux.terminal.toolbar.enabled.v2"
     // v1 schema (parallel [Int] arrays of built-in rawValues), read once to
     // forward-migrate an upgrading user's existing arrangement.
-    private static let legacyOrderDefaultsKey = "cmux.terminal.accessory.displayOrder.v1"
-    private static let legacyEnabledDefaultsKey = "cmux.terminal.accessory.enabled.v1"
+    private static let legacyV1OrderDefaultsKey = "cmux.terminal.accessory.displayOrder.v1"
+    private static let legacyV1EnabledDefaultsKey = "cmux.terminal.accessory.enabled.v1"
 
     /// The configurable items in the order the user has arranged them, as unified
     /// identifiers (built-ins and custom actions together).
@@ -58,26 +66,53 @@ public final class TerminalAccessoryConfiguration {
     @ObservationIgnored private var reducer: TerminalAccessoryLayoutReducer<ToolbarItemID>
     @ObservationIgnored private let migration = ToolbarLayoutMigration()
 
-    init(defaults: UserDefaults = .standard) {
+    /// Creates a configuration backed by `defaults`.
+    ///
+    /// - Parameter defaults: The `UserDefaults` store to read and persist the
+    ///   layout from. Defaults to `.standard` for the live ``shared`` instance;
+    ///   tests inject a suite-scoped store so they exercise migration and
+    ///   reorder/hide behavior without touching the user's real settings.
+    public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
         let loadedCustoms = Self.loadCustomActions(from: defaults)
         self.customActions = loadedCustoms
         self.reducer = Self.makeReducer(customActions: loadedCustoms)
 
-        // Prefer the v2 layout; fall back to migrating a v1 arrangement; else a
-        // first-launch default (everything shown in canonical order).
+        // Resolve the persisted layout across schema generations:
+        //   v3 present  → authoritative; load as-is (modifiers can stay hidden).
+        //   else v2 present → widen to v3 (force-enable the now-configurable
+        //                     modifier/zoom/paste built-ins at their old spots).
+        //   else v1 present → relabel v1→ids, then widen to v3 the same way.
+        //   else fresh install → empty saved + nil enabled ⇒ default layout,
+        //                        which already includes modifiers/zoom/paste.
         let savedOrder: [ToolbarItemID]
         let savedEnabled: [ToolbarItemID]?
-        if let v2Order = defaults.array(forKey: Self.orderDefaultsKey) as? [String] {
-            savedOrder = v2Order.compactMap(ToolbarItemID.init(storageKey:))
+        if let v3Order = defaults.array(forKey: Self.orderDefaultsKey) as? [String] {
+            savedOrder = v3Order.compactMap(ToolbarItemID.init(storageKey:))
             savedEnabled = (defaults.array(forKey: Self.enabledDefaultsKey) as? [String])?
                 .compactMap(ToolbarItemID.init(storageKey:))
-        } else if let v1Order = defaults.array(forKey: Self.legacyOrderDefaultsKey) as? [Int] {
-            savedOrder = migration.migratedOrder(legacy: v1Order)
-            savedEnabled = migration.migratedEnabled(
-                legacy: defaults.array(forKey: Self.legacyEnabledDefaultsKey) as? [Int]
+        } else if let v2Order = defaults.array(forKey: Self.legacyV2OrderDefaultsKey) as? [String] {
+            let widened = migration.widenedToV3(
+                order: v2Order.compactMap(ToolbarItemID.init(storageKey:)),
+                enabled: (defaults.array(forKey: Self.legacyV2EnabledDefaultsKey) as? [String])?
+                    .compactMap(ToolbarItemID.init(storageKey:)),
+                forcedLeading: Self.forcedLeadingRawValues,
+                forcedTrailing: Self.forcedTrailingRawValues
             )
+            savedOrder = widened.order
+            savedEnabled = widened.enabled
+        } else if let v1Order = defaults.array(forKey: Self.legacyV1OrderDefaultsKey) as? [Int] {
+            let widened = migration.widenedToV3(
+                order: migration.migratedOrder(legacy: v1Order),
+                enabled: migration.migratedEnabled(
+                    legacy: defaults.array(forKey: Self.legacyV1EnabledDefaultsKey) as? [Int]
+                ),
+                forcedLeading: Self.forcedLeadingRawValues,
+                forcedTrailing: Self.forcedTrailingRawValues
+            )
+            savedOrder = widened.order
+            savedEnabled = widened.enabled
         } else {
             savedOrder = []
             savedEnabled = nil
@@ -86,10 +121,17 @@ public final class TerminalAccessoryConfiguration {
         let layout = reducer.load(savedOrder: savedOrder, savedEnabled: savedEnabled)
         self.displayOrder = layout.order
         self.enabledSet = layout.enabled
-        // Persist the normalized (and possibly migrated) layout so the migration
-        // path runs at most once.
+        // Persist the normalized (and possibly migrated) layout under the v3 keys
+        // so the migration path runs at most once.
         persist()
     }
+
+    /// `rawValue`s of the built-ins that v1/v2 pinned at the front of the bar,
+    /// passed to the v3 widening migration so they are force-enabled and inserted
+    /// at the front for an upgrading user.
+    private static let forcedLeadingRawValues = TerminalInputAccessoryAction.defaultLeadingActions.map(\.rawValue)
+    /// `rawValue`s of the built-ins that v1/v2 pinned at the end of the bar (zoom).
+    private static let forcedTrailingRawValues = TerminalInputAccessoryAction.defaultTrailingActions.map(\.rawValue)
 
     // MARK: - Resolved items for the UI
 
@@ -100,8 +142,9 @@ public final class TerminalAccessoryConfiguration {
         displayOrder.compactMap(resolve)
     }
 
-    /// The shown items in display order — exactly what the toolbar's configurable
-    /// region renders, after the pinned modifier/zoom buttons.
+    /// The shown items in display order — exactly what the toolbar renders, ahead
+    /// of the fixed trailing "customize" control. ``TerminalInputTextView`` skips
+    /// the ⌘ item when the session is not driving a Mac remote.
     public var enabledItems: [ResolvedToolbarItem] {
         displayOrder.filter { enabledSet.contains($0) }.compactMap(resolve)
     }
