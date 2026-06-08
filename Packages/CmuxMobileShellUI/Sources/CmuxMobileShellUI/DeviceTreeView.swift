@@ -37,9 +37,10 @@ struct DeviceTreeView: View {
 
     /// Devices the phone can attach to (mac/linux/windows hosts). The phone never
     /// controls itself, so an `ios` row is filtered out rather than shown as a
-    /// tappable, dead host.
+    /// tappable, dead host. Sourced from ``CMUXMobileShellStore/deviceTreeDevices``
+    /// so it falls back to locally paired Macs when the registry is unavailable.
     private var controllableDevices: [RegistryDevice] {
-        store.registryDevices.filter(\.isControllableHost)
+        store.deviceTreeDevices.filter(\.isControllableHost)
     }
 
     var body: some View {
@@ -65,9 +66,13 @@ struct DeviceTreeView: View {
                 }
             }
             .refreshable {
+                await store.loadPairedMacs()
                 await store.loadRegistryDevices()
             }
             .task {
+                // Load the local paired Macs first so the tree has a fallback
+                // source the instant it appears, then refresh from the registry.
+                await store.loadPairedMacs()
                 await store.loadRegistryDevices()
             }
         }

@@ -1134,6 +1134,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// The device-tree data source, honoring the registry's best-effort/fallback
+    /// contract: the registry list when it loaded, otherwise the locally paired
+    /// Macs synthesized into the same two-level shape.
+    ///
+    /// When `/api/devices` is unreachable, unauthorized, or malformed,
+    /// ``registryDevices`` stays empty; the tree must not collapse to "no devices"
+    /// while the phone still has usable paired Macs. Each paired Mac becomes a
+    /// device with a single `default` instance carrying its routes, so the tree
+    /// (and its connect-on-tap) keeps working with the cloud down. The connected
+    /// device sorts first, then most-recently-seen.
+    public var deviceTreeDevices: [RegistryDevice] {
+        if !registryDevices.isEmpty { return registryDevices }
+        let connectedID = connectedMacDeviceID
+        return pairedMacs
+            .map { mac in
+                RegistryDevice(
+                    deviceId: mac.macDeviceID,
+                    platform: "mac",
+                    displayName: mac.displayName,
+                    lastSeenAt: mac.lastSeenAt,
+                    instances: [
+                        RegistryAppInstance(
+                            tag: "default",
+                            routes: mac.routes,
+                            lastSeenAt: mac.lastSeenAt
+                        )
+                    ]
+                )
+            }
+            .sorted { lhs, rhs in
+                let lhsConnected = lhs.deviceId == connectedID
+                let rhsConnected = rhs.deviceId == connectedID
+                if lhsConnected != rhsConnected { return lhsConnected }
+                return lhs.lastSeenAt > rhs.lastSeenAt
+            }
+    }
+
     /// Connect the live session to a specific registry app instance (a tag on a
     /// device) using that instance's advertised routes.
     ///
@@ -1143,6 +1180,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// paired Mac on success (so a later relaunch reconnects to it) and refreshes
     /// the paired-Mac list. A no-op when the instance advertises no reachable
     /// route. Failure surfaces through ``connectionError`` like any other connect.
+    ///
+    /// Like ``switchToMac(macDeviceID:)``, the connect is destructive (it replaces
+    /// the live client), so tapping a stale/offline tag while connected would drop
+    /// a healthy session. To avoid stranding the user, on a failed connect the
+    /// previously-active Mac is reconnected, so a bad target leaves the user where
+    /// they were rather than disconnected.
     /// - Parameters:
     ///   - device: The registry device the instance belongs to.
     ///   - instance: The tag/app-instance to connect to.
@@ -1167,6 +1210,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            liveHost == normalizedHost, livePort == port {
             return
         }
+        // The currently-active Mac to fall back to if the connect fails, so the
+        // destructive connect below can be rolled back (mirrors switchToMac).
+        let previousActive = pairedMacs.first { $0.isActive && $0.macDeviceID != device.deviceId }
         await connectManualHost(name: device.displayName ?? host, host: host, port: port)
         // Persist as the active paired Mac only when the live connection is to
         // THIS route (a switch tapped while this connect was in flight could win
@@ -1175,6 +1221,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard connectionState == .connected,
               case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
               liveHost == normalizedHost, livePort == port else {
+            // The connect did not land on this route. If the destructive path
+            // dropped a previously-active session, reconnect it so a failed tap on
+            // a stale/offline tag does not strand the user disconnected.
+            if previousActive != nil, connectionState != .connected {
+                _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+            }
             return
         }
         if let pairedMacStore, !device.deviceId.hasPrefix("manual-") {
