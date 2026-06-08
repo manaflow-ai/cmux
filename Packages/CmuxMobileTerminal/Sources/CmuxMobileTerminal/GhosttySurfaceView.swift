@@ -60,6 +60,13 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// path into the terminal so a running TUI (e.g. Claude Code) attaches it.
     /// `format` is a lowercase file-extension hint (e.g. `"png"`). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String)
+    /// Stage 1 smooth scroll: the user scrolled to (or past) the top of the
+    /// history the phone holds locally while in the **primary** screen, so the
+    /// host should issue a single deeper-scrollback replay fetch (one RPC, not
+    /// per-frame) to grow local history. `currentScrollbackRows` is how many
+    /// scrollback rows the phone believes it currently holds, so the host can
+    /// request a larger window. Optional.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didReachLocalHistoryTopWithHeldScrollbackRows currentScrollbackRows: Int)
 }
 
 public extension GhosttySurfaceViewDelegate {
@@ -67,6 +74,7 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didReachLocalHistoryTopWithHeldScrollbackRows currentScrollbackRows: Int) {}
 }
 
 @MainActor
@@ -1135,15 +1143,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
         if gesture.state == .began || gesture.state == .changed || gesture.state == .ended {
-            MobileDebugLog.anchormux("scroll.pan state=\(gesture.state.rawValue) ty=\(Int(gesture.translation(in: self).y))")
+            MobileDebugLog.anchormux("scroll.pan state=\(gesture.state.rawValue) ty=\(Int(gesture.translation(in: self).y)) alt=\(isAlternateScreen)")
         }
-        // Forward scroll to the MAC's real surface instead of scrolling this
-        // display-only mirror. The Mac owns scrollback (normal screen) and the
-        // program owns alt-screen scroll (mouse-wheel to the PTY); a single
-        // `ghostty_surface_mouse_scroll` on the real surface does the
-        // mode-correct thing, and the render-grid (which exports the live
-        // viewport, `vp_top`) mirrors the result back. Scrolling the local
-        // mirror could never do either: it has no scrollback and no program.
+        // Two scroll modes, gated on the active screen (Stage 1 smooth scroll):
+        //
+        //  - ALTERNATE screen: forward to the MAC's real surface exactly as
+        //    before. The program owns alt-screen scroll (mouse-wheel to the PTY)
+        //    and a single `ghostty_surface_mouse_scroll` on the real surface does
+        //    the mode-correct thing; the render-grid mirrors the result back.
+        //    TUIs (vim/less --mouse/htop/lazygit) must keep this path untouched.
+        //
+        //  - PRIMARY screen: scroll THIS phone's own libghostty surface over the
+        //    scrollback it holds locally, with NO per-frame RPC to the Mac. The
+        //    Mac stays the single source of truth for content; the phone only
+        //    owns a read-only scroll position into already-received history and
+        //    snaps back to live when new output arrives (see `processOutput`).
         switch gesture.state {
         case .changed:
             let translation = gesture.translation(in: self)
@@ -1168,6 +1182,58 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var pendingScrollLines: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
 
+    // MARK: - Stage 1 local (primary-screen) scroll state
+
+    /// Whether the mirrored surface's active screen is the alternate screen.
+    /// Updated from each applied render-grid frame's `activeScreen`
+    /// (`setActiveScreen(isAlternate:)`). Primary → scroll locally; alternate →
+    /// forward to the Mac. Defaults to primary (a freshly-attached shell).
+    private var isAlternateScreen: Bool = false
+
+    /// How many scrollback rows above the live viewport the phone believes it
+    /// currently holds in its local libghostty surface. Set from each full
+    /// primary snapshot's `scrollbackRows` (`setHeldScrollbackRows(_:)`). Used to
+    /// decide when a local scroll has reached the top of held history and a
+    /// single deeper-scrollback fetch should be requested.
+    private var heldScrollbackRows: Int = 0
+
+    /// How many rows the phone is currently scrolled up from the live bottom in
+    /// local (primary-screen) scroll mode, accumulated as a Double so sub-row
+    /// per-frame residuals are not truncated away (the wheel delta fed to
+    /// libghostty is fractional and coalesced once per display-link frame, so
+    /// rounding each flush would drift this far below the surface's real offset).
+    /// 0 means "at live bottom". Read-only view position into Mac-authored
+    /// history; never a second source of content. The snap-to-live path uses the
+    /// `scroll_to_bottom` binding action (exact), so this value only needs to be
+    /// accurate enough to gate `isLocalScrollActive` and the deeper-fetch trigger.
+    private var localScrollUpRowsExact: Double = 0
+
+    /// True while the user is reading local history (scrolled up) in primary
+    /// mode. While set, an incoming live frame snaps to the bottom before
+    /// applying (see `consumeLocalScrollSnapRequest`).
+    private var isLocalScrollActive: Bool { localScrollUpRowsExact >= 0.5 }
+
+    /// Set the active screen from the latest applied frame. Flipping into the
+    /// alternate screen mid-scroll immediately drops any local offset and reverts
+    /// to forwarding (alt scroll must reach the program).
+    public func setActiveScreen(isAlternate: Bool) {
+        guard isAlternate != isAlternateScreen else { return }
+        isAlternateScreen = isAlternate
+        if isAlternate {
+            // Entering alt: abandon local history scroll. The alternate screen has
+            // no scrollback to read and its scroll belongs to the program.
+            localScrollUpRowsExact = 0
+        }
+    }
+
+    /// Record how much scrollback the local surface now holds, from a full
+    /// primary snapshot. Resets the local offset because the snapshot rebuilt the
+    /// surface at the live bottom.
+    public func setHeldScrollbackRows(_ rows: Int) {
+        heldScrollbackRows = max(0, rows)
+        localScrollUpRowsExact = 0
+    }
+
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
     /// alt-screen mouse-wheel reports at the cell under the finger.
     private func scrollCell(at point: CGPoint) -> (col: Int, row: Int) {
@@ -1184,8 +1250,77 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let lines = pendingScrollLines
         let cell = pendingScrollCell
         pendingScrollLines = 0
-        MobileDebugLog.anchormux("scroll.forward lines=\(String(format: "%.2f", lines)) cell=\(cell.col)x\(cell.row)")
-        delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
+
+        if isAlternateScreen {
+            // Alt screen: forward to the Mac's real surface (unchanged behavior).
+            MobileDebugLog.anchormux("scroll.forward lines=\(String(format: "%.2f", lines)) cell=\(cell.col)x\(cell.row)")
+            delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
+            return
+        }
+
+        // Primary screen: scroll the phone's own surface locally, no RPC.
+        scrollLocalSurface(lines: lines, atCell: cell)
+    }
+
+    /// Scroll the phone's own libghostty surface over its locally-held history.
+    /// `lines` is signed (positive = scroll up into history, matching the wheel
+    /// delta convention `ghostty_surface_mouse_scroll` uses on the Mac). Runs the
+    /// surface mutation on `outputQueue` so it serializes with `process_output`
+    /// (same internal surface lock; firing it from the main-thread gesture would
+    /// race the off-main renderer/IO and can wedge on libghostty's futex).
+    private func scrollLocalSurface(lines: Double, atCell cell: (col: Int, row: Int)) {
+        guard let surface, !isDismantled else { return }
+
+        // Track the read-only view position as a Double (no per-flush rounding),
+        // clamped at 0 (live bottom). libghostty clamps at the top of the history
+        // it actually holds, so over-scrolling never shows blank rows; it just
+        // stops at the oldest held line until a deeper fetch lands. `lines` is
+        // signed: positive scrolls up into history (matching the wheel-delta
+        // convention `ghostty_surface_mouse_scroll` applies on the Mac surface).
+        let priorUpRows = localScrollUpRowsExact
+        let nextUpRows = max(0, priorUpRows + lines)
+        localScrollUpRowsExact = nextUpRows
+        MobileDebugLog.anchormux("scroll.local lines=\(String(format: "%.2f", lines)) up=\(String(format: "%.1f", nextUpRows)) held=\(heldScrollbackRows)")
+
+        let scale = max(Double(preferredScreenScale), 1)
+        let cellW = Double(cellPixelSize.width) / scale
+        let cellH = Double(cellPixelSize.height) / scale
+        let posX = (Double(cell.col) + 0.5) * cellW
+        let posY = (Double(cell.row) + 0.5) * cellH
+        // Capture the surface pointer on the main actor; the off-main block only
+        // touches the C pointer (serialized with `process_output` on `outputQueue`)
+        // and hops back to main for the redraw flag.
+        Self.outputQueue.async {
+            ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
+            ghostty_surface_mouse_scroll(surface, 0, lines, 0)
+            DispatchQueue.main.async { [weak self] in
+                self?.needsDraw = true
+            }
+        }
+
+        // Reached (or passed) the top of locally-held history while scrolling up:
+        // ask the host for ONE deeper-scrollback fetch (not per-frame). The fetch
+        // re-flows a deeper snapshot into the local surface, growing history.
+        if lines > 0, nextUpRows >= Double(heldScrollbackRows), nextUpRows > priorUpRows {
+            delegate?.ghosttySurfaceView(self, didReachLocalHistoryTopWithHeldScrollbackRows: heldScrollbackRows)
+        }
+    }
+
+    /// If the user is scrolled up in local primary-screen history, request a snap
+    /// back to the live bottom and clear the local offset. Called on the main
+    /// actor just before a live frame is dispatched to `outputQueue`; the caller
+    /// applies the `scroll_to_bottom` binding action off-main on that queue (in
+    /// `process_output` order) so a live delta's absolute-CUP paint lands in the
+    /// viewport rather than into scrolled-up history. The binding action is exact
+    /// (independent of the tracked offset), so a residual in `localScrollUpRowsExact`
+    /// can never leave the surface partway up. Returns `false` when no snap is
+    /// needed (at bottom, or alternate screen). Keeps the Mac as the single source
+    /// of truth; the phone only owns the scroll position.
+    private func consumeLocalScrollSnapRequest() -> Bool {
+        guard !isAlternateScreen, isLocalScrollActive else { return false }
+        MobileDebugLog.anchormux("scroll.snapLive from=\(String(format: "%.1f", localScrollUpRowsExact))")
+        localScrollUpRowsExact = 0
+        return true
     }
 
     /// A tap both raises the software keyboard (so the user can type) and
@@ -1463,6 +1598,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // previous visibility stands.
         let cursorVisibilityDelta = Self.lastCursorVisibility(in: forwarded)
 
+        // If the user is reading local (primary-screen) history, snap the surface
+        // to the live bottom just before this frame so its absolute-CUP paint
+        // lands in the viewport, not into scrolled-up history. Decided here on the
+        // main actor (where the gesture mutated the offset); applied off-main in
+        // `process_output` order below via the exact `scroll_to_bottom` action.
+        let snapLocalScrollToLive = consumeLocalScrollSnapRequest()
+
         // `ghostty_surface_process_output` BLOCKS on libghostty's internal
         // renderer/IO synchronization (a futex). Device crash logs show it
         // hanging the main thread (`Thread.Futex.Deadline.wait`) until the
@@ -1470,6 +1612,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // the main thread. Feed it on a serial background queue (order
         // preserved) and hop back to main only for the Swift-side UI state.
         Self.outputQueue.async { [weak self] in
+            if snapLocalScrollToLive {
+                // Serialized with `process_output` on this queue, so the snap and
+                // the frame apply cannot interleave. Exact, regardless of the
+                // tracked offset.
+                let action = "scroll_to_bottom"
+                action.withCString { pointer in
+                    _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+                }
+            }
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)

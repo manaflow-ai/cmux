@@ -9202,6 +9202,13 @@ class TerminalController {
     /// Tune up to trade replay payload size for more attach-time history.
     nonisolated static let mobileReplayScrollbackLineBudget = 1
 
+    /// Upper bound on the scrollback a single `mobile.terminal.replay` may carry
+    /// when the phone requests a deeper-history fetch for local scrolling (Stage 1
+    /// smooth scroll). Bounds the replay payload so a hostile or runaway
+    /// `scrollback_lines` request can't bloat one frame; the phone pages in
+    /// chunks rather than asking for unbounded history.
+    nonisolated static let mobileReplayScrollbackLineBudgetMax = 2000
+
     private func mobileTerminalRenderGridFrame(
         terminalPanel: TerminalPanel,
         surfaceID: UUID,
@@ -21538,13 +21545,25 @@ class TerminalController {
         }
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0
+        // Optional deeper-history fetch for mobile local-scroll (Stage 1 smooth
+        // scroll): the phone re-requests its render-grid with a larger scrollback
+        // budget when it scrolls to the top of locally-held history, so the
+        // primary-screen full-snapshot reflow lands deep scrollback in the phone's
+        // own libghostty surface and it can scroll offline. Absent or invalid →
+        // the minimal attach-time budget. Clamped so a bad value can't bloat the
+        // payload.
+        let requestedScrollback = v2Int(params, "scrollback_lines")
+        let scrollbackLines = requestedScrollback.map {
+            max(TerminalController.mobileReplayScrollbackLineBudget, min($0, TerminalController.mobileReplayScrollbackLineBudgetMax))
+        } ?? TerminalController.mobileReplayScrollbackLineBudget
         let renderGrid = mobileTerminalRenderGridFrame(
             terminalPanel: terminalPanel,
             surfaceID: surfaceId,
-            seq: seq
+            seq: seq,
+            scrollbackLines: scrollbackLines
         )
         #if DEBUG
-        cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=\(renderGrid != nil) seq=\(seq) hasState=\(state != nil)")
+        cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=\(renderGrid != nil) seq=\(seq) hasState=\(state != nil) scrollback=\(scrollbackLines)")
         #endif
         var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,

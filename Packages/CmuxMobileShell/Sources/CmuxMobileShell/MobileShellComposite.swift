@@ -2625,9 +2625,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Mac hosts.
     private var terminalByteContinuationsBySurfaceID: [String: AsyncStream<Data>.Continuation] = [:]
 
+    /// Per-frame metadata the byte stream cannot carry (it is opaque VT bytes),
+    /// surfaced to the terminal view for Stage 1 local (primary-screen) scroll:
+    /// the active screen (gate: primary scrolls locally, alternate forwards) and,
+    /// for a full snapshot, how many scrollback rows it just flowed into the
+    /// local surface (so the view knows when a local scroll reached the top of
+    /// held history and a deeper fetch is due).
+    private var terminalFrameMetaContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalFrameMeta>.Continuation] = [:]
+
     /// Yield a chunk of output bytes to the surface's stream, if one is attached.
     private func deliverTerminalBytes(_ bytes: Data, surfaceID: String) {
         terminalByteContinuationsBySurfaceID[surfaceID]?.yield(bytes)
+    }
+
+    /// Yield per-frame metadata to the surface's metadata stream, if one is
+    /// attached. Decoupled from `deliverTerminalBytes` so the byte stream stays a
+    /// pure opaque VT channel.
+    private func deliverTerminalFrameMeta(_ meta: MobileTerminalFrameMeta, surfaceID: String) {
+        terminalFrameMetaContinuationsBySurfaceID[surfaceID]?.yield(meta)
     }
 
     /// Whether a surface currently has an attached output stream consumer.
@@ -2655,6 +2670,46 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Tell the Mac this device is no longer viewing the surface so it stops
         // pinning the shared grid to our viewport and clears the macOS border.
         clearTerminalViewport(surfaceID: surfaceID)
+    }
+
+    /// Per-frame metadata for the terminal view (Stage 1 local scroll). Carries
+    /// only the active screen and, for a full snapshot, the scrollback rows it
+    /// flowed into the local surface. Never content; the byte stream owns content.
+    public struct MobileTerminalFrameMeta: Sendable {
+        /// Whether the active screen is the alternate screen (TUI). Primary
+        /// scrolls locally; alternate forwards to the Mac.
+        public let isAlternateScreen: Bool
+        /// Whether this was a full snapshot (it rebuilt the local surface at the
+        /// live bottom and flowed `scrollbackRows` of history).
+        public let isFullSnapshot: Bool
+        /// Scrollback rows flowed into the local surface by a full snapshot.
+        /// Zero for a delta (a delta grows no local history).
+        public let scrollbackRows: Int
+    }
+
+    private func deliverTerminalFrameMeta(from frame: MobileTerminalRenderGridFrame) {
+        let meta = MobileTerminalFrameMeta(
+            isAlternateScreen: frame.activeScreen == .alternate,
+            isFullSnapshot: frame.full,
+            scrollbackRows: frame.full ? frame.scrollbackRows : 0
+        )
+        deliverTerminalFrameMeta(meta, surfaceID: frame.surfaceID)
+    }
+
+    /// The per-frame metadata stream for a terminal surface (active screen +
+    /// full-snapshot scrollback depth), consumed alongside
+    /// ``terminalOutputStream(surfaceID:)`` by the terminal view for local scroll.
+    /// - Parameter surfaceID: The terminal surface identifier.
+    /// - Returns: An `AsyncStream` of frame metadata.
+    public func terminalFrameMetaStream(surfaceID: String) -> AsyncStream<MobileTerminalFrameMeta> {
+        AsyncStream { continuation in
+            terminalFrameMetaContinuationsBySurfaceID[surfaceID] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in
+                    self?.terminalFrameMetaContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+                }
+            }
+        }
     }
 
     /// The output byte stream for a terminal surface.
@@ -2737,12 +2792,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Request a single deeper-scrollback replay for local (primary-screen)
+    /// scroll: when the phone scrolls to the top of locally-held history, this
+    /// re-requests the render-grid with a larger `scrollback_lines` budget so the
+    /// full-snapshot reflow grows the local surface's history. One RPC, not
+    /// per-frame; shares the in-flight guard with the cold-attach replay so it
+    /// can't pile up. The Mac clamps the budget to its own maximum.
+    /// - Parameters:
+    ///   - surfaceID: The terminal surface identifier.
+    ///   - scrollbackLines: How many scrollback rows to request.
+    public func requestDeeperScrollback(surfaceID: String, scrollbackLines: Int) {
+        requestTerminalReplay(surfaceID: surfaceID, scrollbackLines: max(0, scrollbackLines))
+    }
+
     /// Cold-attach/self-heal replay. Prefer the Mac's bounded render-grid
     /// snapshot, replacing the local iOS terminal state before live bytes
     /// resume. The VT snapshot and raw byte ring remain fallbacks, but neither
     /// is the target architecture: a byte tail is not a complete screen state
     /// for TUIs, and a VT export is still a replay stream rather than state.
-    private func requestTerminalReplay(surfaceID: String) {
+    /// `scrollbackLines` (when set) requests a deeper-history snapshot for local
+    /// scroll; nil uses the Mac's default attach-time budget.
+    private func requestTerminalReplay(surfaceID: String, scrollbackLines: Int? = nil) {
         guard let client = remoteClient else {
             #if DEBUG
             mobileShellLog.error("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=no_remote_client")
@@ -2766,12 +2836,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self else { return }
             defer { self.terminalReplaySurfaceIDsInFlight.remove(surfaceID) }
             do {
+                var replayParams: [String: Any] = [
+                    "workspace_id": workspaceID.rawValue,
+                    "surface_id": surfaceID,
+                ]
+                if let scrollbackLines {
+                    replayParams["scrollback_lines"] = scrollbackLines
+                }
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
-                    params: [
-                        "workspace_id": workspaceID.rawValue,
-                        "surface_id": surfaceID,
-                    ]
+                    params: replayParams
                 )
                 let data = try await client.sendRequest(request)
                 guard self.remoteClient === client else { return }
@@ -2806,6 +2880,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 if let replaySeq {
                     self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
+                }
+                // A render-grid replay (cold attach OR deeper-scrollback fetch) is
+                // a full snapshot that re-flows scrollback into the local surface;
+                // surface its scrollback depth + active screen so the view resets
+                // its local-scroll offset and knows how much history it now holds.
+                if let renderGrid {
+                    self.deliverTerminalFrameMeta(from: renderGrid)
                 }
                 guard let deliverBytes, !deliverBytes.isEmpty else {
                     return
@@ -2855,6 +2936,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif
+        // Surface the active screen so the view gates local scroll; deliver before
+        // the bytes so the view can snap to live before the delta applies.
+        deliverTerminalFrameMeta(from: renderGrid)
         guard !bytes.isEmpty else { return }
         deliverTerminalBytes(bytes, surfaceID: renderGrid.surfaceID)
     }

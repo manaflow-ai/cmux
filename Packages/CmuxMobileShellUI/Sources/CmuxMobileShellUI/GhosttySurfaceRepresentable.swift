@@ -62,6 +62,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
         private var outputTask: Task<Void, Never>?
+        private var frameMetaTask: Task<Void, Never>?
 
         init(surfaceID: String, store: CMUXMobileShellStore) {
             self.surfaceID = surfaceID
@@ -82,11 +83,26 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     surfaceView?.processOutput(data)
                 }
             }
+            // Carry per-frame metadata (active screen + full-snapshot scrollback
+            // depth) the opaque byte stream cannot: the view gates Stage 1 local
+            // scroll on the active screen and tracks how much history it holds. A
+            // separate stream so the byte channel stays pure content.
+            frameMetaTask = Task { @MainActor [weak surfaceView] in
+                for await meta in store.terminalFrameMetaStream(surfaceID: surfaceID) {
+                    guard !Task.isCancelled else { return }
+                    surfaceView?.setActiveScreen(isAlternate: meta.isAlternateScreen)
+                    if meta.isFullSnapshot {
+                        surfaceView?.setHeldScrollbackRows(meta.scrollbackRows)
+                    }
+                }
+            }
         }
 
         func detach() {
             outputTask?.cancel()
             outputTask = nil
+            frameMetaTask?.cancel()
+            frameMetaTask = nil
         }
 
         // MARK: - GhosttySurfaceViewDelegate
@@ -142,11 +158,28 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {
             // Forward to the Mac's real surface; libghostty scrolls scrollback
             // (normal screen) or sends mouse-wheel to the program (alt screen).
+            // The view only calls this for the ALTERNATE screen now; primary
+            // scrolls locally and never reaches here (Stage 1 smooth scroll).
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 await self.store?.scrollTerminal(surfaceID: self.surfaceID, lines: lines, col: col, row: row)
             }
         }
+
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didReachLocalHistoryTopWithHeldScrollbackRows currentScrollbackRows: Int) {
+            // Stage 1 smooth scroll: the local (primary-screen) scroll reached the
+            // top of held history. Request ONE deeper-scrollback replay (not
+            // per-frame) to grow the local surface's history. Request a chunky
+            // window beyond what is held so boundary crossings are rare; the Mac
+            // clamps to its own max.
+            let nextWindow = max(currentScrollbackRows * 2, currentScrollbackRows + Self.scrollbackPageRows)
+            MobileDebugLog.anchormux("scroll.fetchDeeper held=\(currentScrollbackRows) request=\(nextWindow)")
+            store?.requestDeeperScrollback(surfaceID: surfaceID, scrollbackLines: nextWindow)
+        }
+
+        /// How many extra scrollback rows to request per deeper-history fetch, so
+        /// the phone pages in chunks rather than one boundary fetch per row.
+        private static let scrollbackPageRows = 200
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {
             // Forward to the Mac's real surface as a left click; libghostty
