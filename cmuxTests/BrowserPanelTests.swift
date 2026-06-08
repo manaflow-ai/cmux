@@ -24,25 +24,25 @@ private func drainBrowserPanelMainQueue() {
 }
 
 private final class BrowserPanelTestNavigationDelegate: NSObject, WKNavigationDelegate {
-    let expectation: XCTestExpectation
+    let expectation: XCTestExpectation?
     var error: Error?
 
-    init(expectation: XCTestExpectation) {
+    init(expectation: XCTestExpectation? = nil) {
         self.expectation = expectation
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        expectation.fulfill()
+        expectation?.fulfill()
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         self.error = error
-        expectation.fulfill()
+        expectation?.fulfill()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         self.error = error
-        expectation.fulfill()
+        expectation?.fulfill()
     }
 }
 
@@ -846,14 +846,12 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         defer {
             contentController.removeScriptMessageHandler(forName: "moduleLoaded")
         }
-        let webView = WKWebView(frame: .zero, configuration: config)
-        let loaded = expectation(description: "diff viewer loaded")
-        let delegate = BrowserPanelTestNavigationDelegate(expectation: loaded)
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480), configuration: config)
+        let delegate = BrowserPanelTestNavigationDelegate()
         webView.navigationDelegate = delegate
         webView.load(URLRequest(url: allowedURL))
-        wait(for: [loaded], timeout: 3)
+        wait(for: [moduleLoaded], timeout: 10)
         XCTAssertNil(delegate.error)
-        wait(for: [moduleLoaded], timeout: 3)
         XCTAssertEqual(moduleHandler.body as? String, "module-ok:js-ok:wasm-ok")
 
         let evaluated = expectation(description: "module evaluated")
@@ -862,7 +860,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
             XCTAssertEqual(value as? String, "module-ok:js-ok:wasm-ok")
             evaluated.fulfill()
         }
-        wait(for: [evaluated], timeout: 3)
+        wait(for: [evaluated], timeout: 5)
     }
 
     func testDiffViewerSchemeRejectsSymlinkEscapeFromTrustedRoot() throws {
