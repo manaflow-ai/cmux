@@ -1399,15 +1399,55 @@ class TabManager: ObservableObject {
     private func startAgentPIDSweepTimer() {
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
         timer.schedule(deadline: .now() + 30, repeating: 30)
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
+        timer.setEventHandler {
+            // Capture the process snapshot off-main; it enumerates all processes and is too
+            // heavy to run on the main thread. Agents that report no PID through the agent hook
+            // (Augment, Codex, Grok, Antigravity) have their panes detected here by process scan.
+            let scanStatusKeys = TabManager.agentScanStatusKeysBySurfaceID(
+                from: CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+            )
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.sweepStaleAgentPIDs()
+                self.applyAgentTabIconScan(statusKeysBySurfaceID: scanStatusKeys)
             }
         }
         timer.resume()
         agentPIDSweepTimer = timer
+    }
+
+    /// Maps each cmux surface ID (which equals the pane's panel ID) to the brand status keys of any
+    /// scan-detected agents running in it, derived from an off-main process snapshot. Covers agents
+    /// without a `set_agent_pid` hook (Augment, Codex, Grok, Antigravity).
+    nonisolated static func agentScanStatusKeysBySurfaceID(
+        from snapshot: CmuxTopProcessSnapshot
+    ) -> [UUID: Set<String>] {
+        let resolver = AgentTabIconResolver()
+        var statusKeysBySurfaceID: [UUID: Set<String>] = [:]
+        for process in snapshot.cmuxScopedProcesses() {
+            guard let surfaceID = process.cmuxSurfaceID, statusKeysBySurfaceID[surfaceID] == nil else {
+                continue
+            }
+            // Match on the cheap process name/path first; only read argv (the expensive call) when
+            // those miss, which covers script launches such as `node …/auggie`.
+            if let key = resolver.scanStatusKey(name: process.name, path: process.path, arguments: []) {
+                statusKeysBySurfaceID[surfaceID] = [key]
+                continue
+            }
+            let arguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid)?.arguments ?? []
+            if let key = resolver.scanStatusKey(name: process.name, path: process.path, arguments: arguments) {
+                statusKeysBySurfaceID[surfaceID] = [key]
+            }
+        }
+        return statusKeysBySurfaceID
+    }
+
+    /// Pushes the latest agent process-scan result into every workspace so panes update their
+    /// brand tab icons.
+    private func applyAgentTabIconScan(statusKeysBySurfaceID: [UUID: Set<String>]) {
+        for tab in tabs {
+            tab.applyAgentTabIconScan(statusKeysBySurfaceID: statusKeysBySurfaceID)
+        }
     }
 
     private func updateWorkspacePullRequestPollTimer() {

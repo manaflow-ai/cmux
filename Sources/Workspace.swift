@@ -10596,6 +10596,13 @@ final class Workspace: Identifiable, ObservableObject {
     var agentPIDs: [String: pid_t] = [:]
     var agentPIDPanelIdsByKey: [String: UUID] = [:]
     var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
+    /// Process-scan-detected tab-icon status keys per panel (e.g. `["augment"]`). Used for agents
+    /// such as `auggie` that have no agent hook; maintained by the periodic agent PID sweep.
+    var agentTabIconScanStatusKeysByPanelId: [UUID: Set<String>] = [:]
+    /// Cache of rasterized brand-logo PNGs keyed by asset name, to avoid re-rasterizing on refresh.
+    var agentTabIconPNGCacheByAssetName: [String: Data] = [:]
+    /// Last applied tab-icon asset name per panel (`""` = default terminal icon) to skip redundant updates.
+    var appliedAgentTabIconAssetNameByPanelId: [UUID: String] = [:]
     var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
