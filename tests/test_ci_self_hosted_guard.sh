@@ -271,14 +271,18 @@ check_virtual_display_step_waits_for_readiness() {
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
     in_step && /--ready-path "\$VDISPLAY_READY"/ { saw_ready_arg=1 }
     in_step && /--display-id-path "\$VDISPLAY_ID_PATH"/ { saw_id_arg=1 }
+    in_step && /VDISPLAY_COMMAND=\(\/tmp\/create-virtual-display\)/ { saw_command_array=1 }
+    in_step && /stat -f %Su \/dev\/console/ { saw_console_user=1 }
+    in_step && /launchctl asuser "\$GUI_UID"/ { saw_gui_bootstrap=1 }
+    in_step && /"\$\{VDISPLAY_COMMAND\[@\]\}"/ { saw_command_launch=1 }
     in_step && /\[ -s "\$VDISPLAY_READY" \] && \[ -s "\$VDISPLAY_ID_PATH" \]/ { saw_ready_poll=1 }
     in_step && /Virtual display helper exited before readiness/ { saw_exit_message=1 }
     in_step && /Timed out waiting for virtual display readiness/ { saw_timeout_message=1 }
     in_step && /seq 1 900/ { saw_long_poll=1 }
     in_step && /^[[:space:]]*sleep 3$/ { saw_fixed_sleep=1 }
-    END { exit(saw_step && saw_ready_arg && saw_id_arg && saw_ready_poll && saw_exit_message && saw_timeout_message && saw_long_poll && !saw_fixed_sleep ? 0 : 1) }
+    END { exit(saw_step && saw_ready_arg && saw_id_arg && saw_command_array && saw_console_user && saw_gui_bootstrap && saw_command_launch && saw_ready_poll && saw_exit_message && saw_timeout_message && saw_long_poll && !saw_fixed_sleep ? 0 : 1) }
   ' "$file"; then
-    echo "FAIL: $job in $(basename "$file") must wait for virtual display readiness files instead of using a fixed sleep"
+    echo "FAIL: $job in $(basename "$file") must launch the virtual display helper in the console GUI bootstrap and wait for readiness files instead of using a fixed sleep"
     exit 1
   fi
 

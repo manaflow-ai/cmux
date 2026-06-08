@@ -962,13 +962,26 @@ jobs:
           clang -framework Foundation -framework CoreGraphics \
             -framework AppKit \
             -o /tmp/create-virtual-display scripts/create-virtual-display.m
+          VDISPLAY_COMMAND=(/tmp/create-virtual-display)
+          CURRENT_USER="$(id -un)"
+          GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+          if [ -n "$GUI_USER" ] &&
+             [ "$GUI_USER" != "root" ] &&
+             GUI_UID="$(id -u "$GUI_USER" 2>/dev/null)" &&
+             command -v sudo >/dev/null 2>&1 &&
+             sudo -n true 2>/dev/null; then
+            echo "Launching virtual display helper in console GUI bootstrap for $GUI_USER ($GUI_UID); current user: $CURRENT_USER"
+            VDISPLAY_COMMAND=(sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" /usr/bin/env /tmp/create-virtual-display)
+          else
+            echo "Launching virtual display helper in current bootstrap"
+          fi
           VDISPLAY_READY="${RUNNER_TEMP:-/tmp}/cmux-build-lag-virtual-display.ready"
           VDISPLAY_ID_PATH="${RUNNER_TEMP:-/tmp}/cmux-build-lag-virtual-display.id"
           VDISPLAY_LOG="${RUNNER_TEMP:-/tmp}/cmux-build-lag-virtual-display.log"
           for attempt in $(seq 1 3); do
             rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
 
-            /tmp/create-virtual-display \
+            "${VDISPLAY_COMMAND[@]}" \
               --ready-path "$VDISPLAY_READY" \
               --display-id-path "$VDISPLAY_ID_PATH" \
               >"$VDISPLAY_LOG" 2>&1 &
@@ -1073,6 +1086,7 @@ jobs:
           if [ -n "${VDISPLAY_PID:-}" ]; then
             kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
           fi
+          pkill -f "/tmp/create-virtual-display" >/dev/null 2>&1 || true
           rm -f /tmp/create-virtual-display
 
   release-ghostty-cli-helper:
