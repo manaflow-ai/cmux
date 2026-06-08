@@ -17033,8 +17033,7 @@ private extension NSWindow {
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
-        if AppDelegate.shared?.shouldBypassPrintableOptionTextForShortcutRouting(event: event)
-            ?? shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+        if AppDelegate.shared?.shouldBypassPrintableOptionTextForShortcutRouting(event: event) == true {
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
                 ?? self.firstResponder
