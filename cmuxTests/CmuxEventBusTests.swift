@@ -277,7 +277,6 @@ final class CmuxEventBusTests: XCTestCase {
         }
 
         XCTAssertEqual(didFinishLoop.wait(timeout: .now() + 15), .success)
-        Thread.sleep(forTimeInterval: 0.2)
         let after = try Self.currentResidentBytes()
         releaseThread.signal()
 
