@@ -1,8 +1,12 @@
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
-// All basic-language Monarch highlighters (no ts/json/css/html language
-// services, so no language-service workers): main-thread syntax highlighting
-// for v1.
+// Monarch grammars for every common language (Go, Rust, Python, Java, C/C++,
+// C#, PHP, Ruby, Swift, Kotlin, SQL, YAML, XML, HTML, CSS/SCSS/LESS, shell,
+// Dockerfile, Markdown, TypeScript/JavaScript, and ~50 more) — main thread, no
+// workers.
 import "monaco-editor/esm/vs/basic-languages/_.contribution.js";
+// JSON has no Monarch grammar; its language service provides `.json`
+// highlighting (its worker is wired in `monacoEnvironment`).
+import "monaco-editor/esm/vs/language/json/monaco.contribution.js";
 import { useCallback } from "react";
 
 /** Props for a single read/edit Monaco surface, fixed for the lifetime of the mount. */
