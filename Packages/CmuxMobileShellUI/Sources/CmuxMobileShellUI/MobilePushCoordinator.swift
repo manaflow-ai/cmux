@@ -237,7 +237,7 @@ public final class MobilePushCoordinator {
         // the server can fail open on a mute-lookup error, so a muted workspace
         // must never surface a foreground banner/sound. Mirrors the server's
         // `shouldDeliverToWorkspace`.
-        guard PushMutePolicy.shouldDeliver(workspaceId: workspaceId, muted: mutedWorkspaceIDs) else {
+        guard pushShouldDeliver(workspaceId: workspaceId, muted: mutedWorkspaceIDs) else {
             return false
         }
         guard let store, let workspaceId,

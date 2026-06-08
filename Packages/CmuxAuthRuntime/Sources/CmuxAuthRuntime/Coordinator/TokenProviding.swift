@@ -34,5 +34,7 @@ public protocol TokenProviding: Sendable {
 }
 
 extension AuthCoordinator: TokenProviding {
+    /// The signed-in Stack user's stable id, or `nil` when signed out. Returns
+    /// the cached ``currentUser`` id; used to namespace per-user push state.
     public func currentUserID() async -> String? { currentUser?.id }
 }

@@ -3,19 +3,19 @@ import Testing
 
 @Suite struct PushMutePolicyTests {
     @Test func deliversWhenNotMuted() {
-        #expect(PushMutePolicy.shouldDeliver(workspaceId: "ws-a", muted: ["ws-b"]))
+        #expect(pushShouldDeliver(workspaceId: "ws-a", muted: ["ws-b"]))
     }
 
     @Test func suppressesWhenMuted() {
-        #expect(!PushMutePolicy.shouldDeliver(workspaceId: "ws-a", muted: ["ws-a", "ws-b"]))
+        #expect(!pushShouldDeliver(workspaceId: "ws-a", muted: ["ws-a", "ws-b"]))
     }
 
     @Test func deliversWhenWorkspaceIdMissing() {
-        #expect(PushMutePolicy.shouldDeliver(workspaceId: nil, muted: ["ws-a"]))
-        #expect(PushMutePolicy.shouldDeliver(workspaceId: "", muted: ["ws-a"]))
+        #expect(pushShouldDeliver(workspaceId: nil, muted: ["ws-a"]))
+        #expect(pushShouldDeliver(workspaceId: "", muted: ["ws-a"]))
     }
 
     @Test func deliversWhenNothingMuted() {
-        #expect(PushMutePolicy.shouldDeliver(workspaceId: "ws-a", muted: []))
+        #expect(pushShouldDeliver(workspaceId: "ws-a", muted: []))
     }
 }
