@@ -68,6 +68,39 @@ import Testing
         #expect(outFrame?.lineNumber == 1325)
     }
 
+    @Test func scrubsExceptionMechanismDataButKeepsType() {
+        let event = Event()
+        let exception = Exception(value: "x", type: "NSError")
+        let mechanism = Mechanism(type: "NSError")
+        mechanism.desc = "failed reading /Users/lawrence/secret.txt"
+        mechanism.data = [
+            "NSFilePathErrorKey": "/Users/buildbot/app/data.db",
+            "url": "https://x.com/?token=abcdef0123456789secret",
+        ]
+        exception.mechanism = mechanism
+        event.exceptions = [exception]
+
+        let outMechanism = scrubber.scrub(event).exceptions?.first?.mechanism
+        #expect(outMechanism?.desc == "failed reading /Users/<redacted>/secret.txt")
+        #expect(outMechanism?.data?["NSFilePathErrorKey"] as? String == "/Users/<redacted>/app/data.db")
+        #expect(outMechanism?.data?["url"] as? String == "https://x.com/?token=<redacted-secret>")
+        // Mechanism type is grouping-relevant and preserved.
+        #expect(outMechanism?.type == "NSError")
+    }
+
+    @Test func scrubsDebugMetaCodeFilePaths() {
+        let event = Event()
+        let image = DebugMeta()
+        image.codeFile = "/Users/lawrence/Library/Developer/Xcode/DerivedData/cmux/cmux.app/cmux"
+        image.imageAddress = "0x10c000000"
+        event.debugMeta = [image]
+
+        let outImage = scrubber.scrub(event).debugMeta?.first
+        #expect(outImage?.codeFile?.hasPrefix("/Users/<redacted>/") == true)
+        // Non-path image metadata is untouched.
+        #expect(outImage?.imageAddress == "0x10c000000")
+    }
+
     @Test func scrubsThreadStackFrames() {
         let event = Event()
         let frame = Frame()

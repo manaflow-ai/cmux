@@ -10,13 +10,15 @@ import Sentry
 /// so no isolation is required.
 ///
 /// The scrubber walks every field that can carry user content — event message,
-/// exception values, thread/exception/event stack-frame paths, request URL /
-/// query / headers, transaction name, server name, `tags`, `extra`, `context`,
-/// and breadcrumb `message` / `data` — while leaving grouping-relevant fields
-/// (exception `type`, fingerprint, frame `function` / `module` / `lineNumber`)
-/// untouched so Sentry issue grouping is unaffected. Request `cookies` and the
-/// `user` identity fields are dropped wholesale rather than pattern-scrubbed,
-/// because cookie/identity values rarely match a secret pattern.
+/// exception values, exception mechanism (`desc` / `helpLink` / `data`),
+/// thread/exception/event stack-frame paths, debug-image `codeFile` paths,
+/// request URL / query / headers, transaction name, server name, `tags`,
+/// `extra`, `context`, and breadcrumb `message` / `data` — while leaving
+/// grouping-relevant fields (exception `type`, mechanism `type`, fingerprint,
+/// frame `function` / `module` / `lineNumber`) untouched so Sentry issue
+/// grouping is unaffected. Request `cookies` and the `user` identity fields are
+/// dropped wholesale rather than pattern-scrubbed, because cookie/identity
+/// values rarely match a secret pattern.
 struct SentryEventScrubber {
     /// The pure value scrubber that does the actual redaction.
     private let scrubber: SentryScrubber
@@ -47,6 +49,7 @@ struct SentryEventScrubber {
                 // Redact the human-readable value; keep `type` for grouping.
                 exception.value = scrubber.scrub(optional: exception.value)
                 scrubFrames(in: exception.stacktrace)
+                scrubMechanism(exception.mechanism)
             }
         }
 
@@ -56,6 +59,14 @@ struct SentryEventScrubber {
             }
         }
         scrubFrames(in: event.stacktrace)
+
+        if let debugMeta = event.debugMeta {
+            for image in debugMeta {
+                // `codeFile` is the on-disk path to the loaded binary, which for
+                // dev/home-launched builds can carry `/Users/<name>/…`.
+                image.codeFile = scrubber.scrub(optional: image.codeFile)
+            }
+        }
 
         scrubRequest(event.request)
         scrubUser(event.user)
@@ -111,6 +122,20 @@ struct SentryEventScrubber {
         rebuilt.message = scrubber.scrub(optional: message.message)
         rebuilt.params = message.params?.map { scrubber.scrub($0) }
         return rebuilt
+    }
+
+    /// Redacts the description, help link, and data payload of an exception mechanism.
+    ///
+    /// `capture(error:)` copies `NSError.userInfo` (which can hold
+    /// `NSFilePathErrorKey`, URLs, and other fields) into `mechanism.data`. The
+    /// `type` is left untouched so grouping is unaffected.
+    private func scrubMechanism(_ mechanism: Mechanism?) {
+        guard let mechanism else { return }
+        mechanism.desc = scrubber.scrub(optional: mechanism.desc)
+        mechanism.helpLink = scrubber.scrub(optional: mechanism.helpLink)
+        if let data = mechanism.data {
+            mechanism.data = scrubber.scrub(dictionary: data)
+        }
     }
 
     /// Redacts file paths in every frame of a stack trace, preserving symbol metadata.
