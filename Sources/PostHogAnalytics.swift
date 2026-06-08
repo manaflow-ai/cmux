@@ -80,6 +80,65 @@ final class PostHogAnalytics {
         }
     }
 
+    /// Associates subsequent events with the signed-in Stack user id so the
+    /// desktop app keys on the same distinct id as the iOS proxy (which stamps
+    /// the authenticated Stack `user.id`). PostHog back-merges the pre-login
+    /// anonymous events into the identified user, so the desktop install's
+    /// pre-sign-in funnel attaches to the same person across iOS and macOS.
+    ///
+    /// - Parameter stackUserID: The signed-in Stack user id. Empty values are
+    ///   ignored so a partially-resolved identity can't identify as "".
+    func identify(stackUserID: String) {
+        let trimmed = stackUserID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            // Identify must run after `setup()` or the SDK drops it; the
+            // `startIfNeededOnWorkQueue()` guard above mirrors the active-event path.
+            PostHogSDK.shared.identify(trimmed)
+        }
+    }
+
+    /// Resets analytics identity back to a fresh anonymous distinct id when
+    /// PostHog currently holds an *identified* (signed-in) distinct id, so a
+    /// subsequent different sign-in does not merge into the prior user. Mirrors
+    /// the iOS `identify(userId: nil)` reset.
+    ///
+    /// The SDK's own persisted distinct id is the single source of truth (no
+    /// parallel flag): the reset fires only when the current distinct id differs
+    /// from the anonymous id (`reset()` regenerates the anonymous id, so calling
+    /// it on an already-anonymous user would fragment a perpetually-signed-out
+    /// user's retention into a new id per launch). Starts the SDK first (like
+    /// ``identify(stackUserID:)``) so the persisted distinct id from a prior
+    /// identified session is reset *before* the first active/retention event
+    /// starts it with the stale id. When telemetry is disabled
+    /// `startIfNeededOnWorkQueue()` leaves `didStart` false, so this is a no-op
+    /// (and no analytics are emitted at all); the SDK's persisted identity is
+    /// untouched, so a later launch with telemetry on still resets it on the
+    /// same signed-out edge.
+    func reset() {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            guard Self.shouldResetIdentity(
+                distinctID: PostHogSDK.shared.getDistinctId(),
+                anonymousID: PostHogSDK.shared.getAnonymousId()
+            ) else { return }
+            PostHogSDK.shared.reset()
+        }
+    }
+
+    /// Whether a `reset()` is needed: true only when PostHog currently holds an
+    /// identified distinct id (one that differs from the anonymous id). Pure and
+    /// `nonisolated` so the signed-out / perpetually-anonymous / re-login
+    /// invariants are unit-testable without the SDK.
+    nonisolated static func shouldResetIdentity(distinctID: String, anonymousID: String) -> Bool {
+        !distinctID.isEmpty && distinctID != anonymousID
+    }
+
     private func startIfNeededOnWorkQueue() {
         guard !didStart else { return }
         guard isEnabled else { return }

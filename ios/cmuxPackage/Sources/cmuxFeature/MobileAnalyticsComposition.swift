@@ -31,6 +31,14 @@ public struct MobileAnalyticsComposition {
     public let sessionStore: AnalyticsSessionStore
     /// The 30-minute-window sessionizer used with ``sessionStore``.
     public let sessionizer = AnalyticsSessionizer()
+    /// Once-per-period dedup for the daily + hourly active retention pings,
+    /// mirroring macOS `cmux_daily_active` / `cmux_hourly_active`.
+    public let activePeriodStore: AnalyticsActivePeriodStore
+    /// The telemetry opt-out gate, so the active-period claim is only consumed
+    /// when an event would actually be enqueued (the emitter drops captures when
+    /// telemetry is off; claiming the period anyway would suppress the ping for
+    /// the rest of the period if telemetry is re-enabled within it).
+    public let consent: any AnalyticsConsentProviding
 
     /// Builds the analytics graph.
     ///
@@ -56,6 +64,7 @@ public struct MobileAnalyticsComposition {
             session: session ?? Self.analyticsSession()
         )
         let consent = UserDefaultsAnalyticsConsentProvider(defaults: defaults)
+        self.consent = consent
         // Resolve the per-install id once, here, at the single point that owns
         // analytics. This composition is built before the app shell, so reading
         // the id is also what *mints* it on a fresh install — which is exactly why
@@ -74,6 +83,7 @@ public struct MobileAnalyticsComposition {
         }
         self.emitter = emitter
         self.sessionStore = AnalyticsSessionStore(defaults: defaults)
+        self.activePeriodStore = AnalyticsActivePeriodStore(defaults: defaults)
     }
 
     /// A short-timeout `URLSession` for analytics uploads.

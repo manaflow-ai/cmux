@@ -98,6 +98,7 @@ final class AppCompositionRoot {
                 foregroundProps["seconds_since_backgrounded"] = .int(Int(gap))
             }
             emitter.capture("ios_app_foregrounded", foregroundProps)
+            emitActiveRetentionPings(emitter: emitter, now: now)
             hasForegrounded = true
         case .background:
             let now = Date()
@@ -119,6 +120,35 @@ final class AppCompositionRoot {
             break
         @unknown default:
             break
+        }
+    }
+
+    /// Emits the iOS daily + hourly active retention pings, deduped once per UTC
+    /// day/hour by ``CmuxMobileAnalytics/AnalyticsActivePeriodStore``.
+    ///
+    /// Mirrors the macOS `cmux_daily_active` / `cmux_hourly_active` events so iOS
+    /// DAU + hourly retention line up symmetrically with desktop (the shared
+    /// Stack-user-id distinct id makes them the same person across platforms).
+    /// Unlike macOS there is no long-running midnight-rollover timer: iOS
+    /// suspends in the background, so the `.active` foreground transition is the
+    /// only reliable trigger, and a user who stays foregrounded across a period
+    /// boundary is re-counted on their next foreground.
+    private func emitActiveRetentionPings(emitter: any AnalyticsEmitting, now: Date) {
+        // Don't consume the period when telemetry is off: the emitter drops the
+        // capture, so claiming the day/hour anyway would suppress the ping for
+        // the rest of the period if the user re-enables telemetry within it.
+        guard analytics.consent.isTelemetryEnabled else { return }
+        if let dayUTC = analytics.activePeriodStore.claimDaily(now: now) {
+            emitter.capture("ios_daily_active", [
+                "day_utc": .string(dayUTC),
+                "reason": .string("foreground"),
+            ])
+        }
+        if let hourUTC = analytics.activePeriodStore.claimHourly(now: now) {
+            emitter.capture("ios_hourly_active", [
+                "hour_utc": .string(hourUTC),
+                "reason": .string("foreground"),
+            ])
         }
     }
 }

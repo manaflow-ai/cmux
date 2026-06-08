@@ -58,7 +58,7 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
     @Test func consentDisabledDropsEverything() async {
         let uploader = RecordingAnalyticsUploader()
         let emitter = makeEmitter(uploader: uploader, consentEnabled: false)
-        emitter.capture("ios_terminal_input_submitted", ["byte_count": .int(12)])
+        emitter.capture("ios_terminal_input_dropped", ["byte_count": .int(12)])
         await emitter.flush()
         let events = await uploader.uploadedEvents
         #expect(events.isEmpty)
@@ -117,7 +117,7 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         let uploader = RecordingAnalyticsUploader()
         let emitter = makeEmitter(uploader: uploader, anonymousID: "anon-9")
         emitter.identify(userId: "user-3", alias: nil, properties: [:])
-        emitter.capture("ios_terminal_input_submitted", ["byte_count": .int(4)])
+        emitter.capture("ios_terminal_input_dropped", ["byte_count": .int(4)])
         await emitter.flush()
         let event = await uploader.uploadedEvents.first
         #expect(event?.distinctID == "user-3")
@@ -144,7 +144,7 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         let consent = MutableConsent(enabled: true)
         let uploader = RecordingAnalyticsUploader(result: .retry)
         let emitter = makeEmitter(uploader: uploader, consent: consent)
-        emitter.capture("ios_terminal_input_submitted", ["byte_count": .int(7)])
+        emitter.capture("ios_terminal_input_dropped", ["byte_count": .int(7)])
         await emitter.flush() // .retry leaves the event buffered
         let batchesBeforeWithdrawal = await uploader.uploadedBatches.count
         // Withdraw consent, then let uploads succeed: the next flush must clear the
@@ -169,7 +169,7 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
             maxPendingEvents: 4
         )
         for index in 0..<20 {
-            emitter.capture("ios_event", ["seq": .int(index)])
+            emitter.capture("ios_app_foregrounded", ["seq": .int(index)])
         }
         // Let the outage clear; the bounded backlog ships on the next flush. The
         // final accepted batch is the only one whose events were actually retired,
