@@ -12,6 +12,10 @@ const shortcutChordExample = `{
     "bindings": {
       "newSurface": ["ctrl+b", "c"],
       "showNotifications": ["ctrl+b", "i"],
+      "scrollbackPageUp": "shift+pageup",
+      "scrollbackPageDown": "shift+pagedown",
+      "scrollbackLineUp": "shift+up",
+      "scrollbackLineDown": "shift+down",
       "toggleSidebar": "cmd+b",
       "toggleFileExplorer": "cmd+opt+b",
       "splitRight": "",
