@@ -75,7 +75,7 @@
 1144	Sources/VaultAgentProcessScanner.swift
 1140	cmuxTests/PiVaultAgentPersistenceTests.swift
 1115	Sources/AppDelegate+CmuxSSHURL.swift
-1085	cmuxTests/FileExplorerStoreTests.swift
+1103	cmuxTests/FileExplorerStoreTests.swift
 1084	cmuxTests/AgentHibernationTests.swift
 1048	Sources/GhosttyConfig.swift
 1020	cmuxUITests/BonsplitTabDragUITests.swift

@@ -9,35 +9,53 @@ import XCTest
 // MARK: - Mock Provider
 
 private final class MockFileExplorerProvider: FileExplorerProvider {
-    var homePath: String
-    var isAvailable: Bool
-    var listings: [String: Result<[FileExplorerEntry], Error>] = [:]
-    var listCallCount = 0
-    var listCallPaths: [String] = []
-    /// Optional delay (seconds) before returning results
-    var delay: TimeInterval = 0
+    var homePath: String { get { locked { _homePath } } set { locked { _homePath = newValue } } }
+    var isAvailable: Bool { get { locked { _isAvailable } } set { locked { _isAvailable = newValue } } }
+    var listings: [String: Result<[FileExplorerEntry], Error>] {
+        get { locked { _listings } }
+        set { locked { _listings = newValue } }
+    }
+    var listCallCount: Int { locked { _listCallCount } }
+    var listCallPaths: [String] { locked { _listCallPaths } }
+    var delay: TimeInterval { get { locked { _delay } } set { locked { _delay = newValue } } }
+    private let lock = NSLock()
+    private var _homePath: String
+    private var _isAvailable: Bool
+    private var _listings: [String: Result<[FileExplorerEntry], Error>] = [:]
+    private var _listCallCount = 0
+    private var _listCallPaths: [String] = []
+    private var _delay: TimeInterval = 0
 
     init(homePath: String = "/home/user", isAvailable: Bool = true) {
-        self.homePath = homePath
-        self.isAvailable = isAvailable
+        _homePath = homePath
+        _isAvailable = isAvailable
     }
 
     func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
-        listCallCount += 1
-        listCallPaths.append(path)
-
-        if delay > 0 {
-            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        let snapshot = locked {
+            _listCallCount += 1
+            _listCallPaths.append(path)
+            return (delay: _delay, isAvailable: _isAvailable, result: _listings[path])
         }
 
-        guard isAvailable else {
+        if snapshot.delay > 0 {
+            try await Task.sleep(nanoseconds: UInt64(snapshot.delay * 1_000_000_000))
+        }
+
+        guard snapshot.isAvailable else {
             throw FileExplorerError.providerUnavailable
         }
 
-        if let result = listings[path] {
+        if let result = snapshot.result {
             return try result.get()
         }
         return []
+    }
+
+    private func locked<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
     }
 }
 
