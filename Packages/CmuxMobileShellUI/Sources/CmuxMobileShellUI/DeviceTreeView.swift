@@ -96,10 +96,11 @@ struct DeviceTreeView: View {
         let isConnectedDevice = device.deviceId == connectedID
         // Live status only exists for the connected device; others are described
         // by their registry "last seen" (best-effort liveness, no active ping).
-        // TODO(device-tree): no per-host reachability ping yet for non-connected
-        // devices, and the attach ticket carries no tag, so we cannot mark which
-        // tag on a multi-tag device is live — only the connected device overall.
-        // Surface a real ping + per-tag liveness once the host advertises it.
+        // The live *tag* on a multi-tag device is identified by route match (see
+        // instanceMatchesActiveRoute), so per-instance liveness is correct.
+        // TODO(device-tree): there is still no active per-host reachability ping
+        // for non-connected devices, so their dot is last-seen-only. Surface a
+        // real ping once the host advertises one.
         let liveStatus: MobileMacConnectionStatus? = isConnectedDevice ? store.macConnectionStatus : nil
 
         Section {
@@ -132,17 +133,24 @@ struct DeviceTreeView: View {
         isConnectedDevice: Bool
     ) -> some View {
         let expansionID = instanceExpansionID(device: device, instance: instance)
-        // The connected device's live workspaces belong to whatever tag is
-        // actually running there; since the ticket has no tag, attribute the live
-        // workspace list to the connected device's instances. With a single
-        // instance this is exact; the multi-tag case is the TODO above.
-        let workspaces = isConnectedDevice ? store.workspaces : []
+        // Attribute the live workspace list to the ONE instance whose route
+        // matches the live connection, not to every tag on the connected device.
+        // The attach ticket carries no tag, so we identify the active build by
+        // route identity (`activeRoute` endpoint ⊂ this instance's routes). A
+        // multi-tag Mac therefore shows workspaces only under the build that is
+        // actually connected; the other tags offer a Connect affordance instead
+        // of (wrongly) mirroring another build's workspaces.
+        let isActiveInstance = isConnectedDevice && instanceMatchesActiveRoute(instance)
+        let workspaces = isActiveInstance ? store.workspaces : []
         let captured = DeviceTreeInstanceCapture(
             deviceId: device.deviceId,
             displayName: device.displayName,
             tag: instance.tag,
             routes: instance.routes
         )
+        // No Connect affordance for the build that is already live; every other
+        // route-bearing tag gets one.
+        let connect = isActiveInstance ? nil : connectClosure(for: captured)
 
         DeviceTreeInstanceRow(
             instance: DeviceTreeInstanceSnapshot(
@@ -150,19 +158,19 @@ struct DeviceTreeView: View {
                 lastSeenAt: instance.lastSeenAt,
                 hasRoutes: instance.hasRoutes,
                 workspaceCount: workspaces.count,
-                isConnectedDevice: isConnectedDevice
+                isActiveInstance: isActiveInstance
             ),
             isExpanded: expansion.isExpanded(expansionID),
             setExpanded: { expanded in setExpanded(expansionID, expanded) },
-            connect: connectClosure(for: captured)
+            connect: connect
         )
 
         if expansion.isExpanded(expansionID) {
             if workspaces.isEmpty {
                 DeviceTreeWorkspacePlaceholderRow(
-                    isConnectedDevice: isConnectedDevice,
+                    isActiveInstance: isActiveInstance,
                     hasRoutes: instance.hasRoutes,
-                    connect: connectClosure(for: captured)
+                    connect: connect
                 )
             } else {
                 ForEach(workspaces) { workspace in
@@ -208,6 +216,24 @@ struct DeviceTreeView: View {
                     )
                 )
             }
+        }
+    }
+
+    /// Whether this instance is the build the live connection currently targets,
+    /// matched by route identity (the live `activeRoute` endpoint appears in this
+    /// instance's routes). Used to attribute the live workspace list to exactly
+    /// one tag on a multi-tag device. Returns `false` when not connected or the
+    /// live route is not a host/port endpoint.
+    private func instanceMatchesActiveRoute(_ instance: RegistryAppInstance) -> Bool {
+        guard store.connectionState == .connected,
+              case let .hostPort(liveHost, livePort)? = store.activeRoute?.endpoint else {
+            return false
+        }
+        let normalizedLiveHost = MobileShellRouteAuthPolicy.normalizedManualHost(liveHost) ?? liveHost
+        return instance.routes.contains { route in
+            guard case let .hostPort(host, port) = route.endpoint else { return false }
+            let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) ?? host
+            return normalizedHost == normalizedLiveHost && port == livePort
         }
     }
 

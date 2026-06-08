@@ -1108,15 +1108,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             registryDevices = []
             return
         }
+        // Capture the requesting user so a result that lands after a sign-out +
+        // different-user sign-in is discarded, not assigned into the new user's
+        // tree. `isSignedIn` alone is true again after the switch, so it cannot
+        // catch this account-switch race (mirrors loadPairedMacs's user guard).
+        let requestingUserID = identityProvider?.currentUserID
         guard let loaded = await deviceRegistry.listDevices() else {
             // nil == registry unavailable/unauthorized/malformed: keep what we
             // have rather than blanking a populated tree on a transient failure.
             return
         }
-        // The await above suspended the main actor; discard the result if the
-        // user signed out meanwhile, so a slow load never repopulates after
-        // sign-out (mirrors the loadPairedMacs user-switch guard).
-        guard isSignedIn else {
+        // The await above suspended the main actor; discard the result unless we
+        // are still the same signed-in user, so a slow load can never repopulate
+        // another user's team devices after sign-out or an account switch.
+        guard isSignedIn, identityProvider?.currentUserID == requestingUserID else {
             registryDevices = []
             return
         }

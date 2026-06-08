@@ -29,10 +29,13 @@ struct DeviceTreeInstanceSnapshot: Equatable {
     let lastSeenAt: Date
     /// Whether this instance advertises at least one reachable route.
     let hasRoutes: Bool
-    /// Workspaces visible under this instance (only non-zero for the connected
-    /// device's instances, since the registry carries routes, not workspaces).
+    /// Workspaces visible under this instance (non-zero only for the active
+    /// instance, since the registry carries routes, not workspaces).
     let workspaceCount: Int
-    let isConnectedDevice: Bool
+    /// Whether this instance is the build the live connection currently targets
+    /// (matched by route). Only the active instance shows live workspaces; other
+    /// tags on the same device offer a Connect affordance.
+    let isActiveInstance: Bool
 }
 
 /// A device (Mac/host) row: name, platform icon, and live-or-last-seen state,
@@ -157,7 +160,7 @@ struct DeviceTreeInstanceRow: View {
     }
 
     private var subtitle: String {
-        if instance.isConnectedDevice {
+        if instance.isActiveInstance {
             return L10n.terminalCountWorkspaces(instance.workspaceCount)
         }
         if !instance.hasRoutes {
@@ -175,7 +178,7 @@ struct DeviceTreeInstanceRow: View {
 /// either it is not the connected build (offer Connect) or it is connected but
 /// has no workspaces yet.
 struct DeviceTreeWorkspacePlaceholderRow: View {
-    let isConnectedDevice: Bool
+    let isActiveInstance: Bool
     let hasRoutes: Bool
     let connect: (() -> Void)?
 
@@ -185,7 +188,7 @@ struct DeviceTreeWorkspacePlaceholderRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 8)
-            if let connect, !isConnectedDevice {
+            if let connect, !isActiveInstance {
                 Button {
                     connect()
                 } label: {
@@ -201,7 +204,7 @@ struct DeviceTreeWorkspacePlaceholderRow: View {
     }
 
     private var message: String {
-        if isConnectedDevice {
+        if isActiveInstance {
             return L10n.string("mobile.deviceTree.noWorkspaces", defaultValue: "No workspaces yet")
         }
         if !hasRoutes {
