@@ -219,7 +219,7 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
 
 
 final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
-    func testLaunchConfigurationPrefersCachedCodeServerWithWebSocketCompressionDisabled() {
+    func testLaunchConfigurationPrefersCachedCodeServerOverCodeTunnelWrapper() {
         let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
         let productURL = appURL.appendingPathComponent("Contents/Resources/app/product.json", isDirectory: false)
         let cacheURL = URL(fileURLWithPath: "/Users/tester/.vscode/cli/serve-web", isDirectory: true)
@@ -251,7 +251,7 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
         )
 
         XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
-        XCTAssertEqual(configuration?.argumentsPrefix, ["--disable-websocket-compression"])
+        XCTAssertEqual(configuration?.argumentsPrefix, [])
         XCTAssertNil(configuration?.environment["ELECTRON_RUN_AS_NODE"])
     }
 
