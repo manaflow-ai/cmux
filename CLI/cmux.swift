@@ -18461,15 +18461,13 @@ struct CMUXCLI {
             guard CMUXCLI.codexTeamsApprovalMethods.contains(method) else { return false }
             guard let params = message["params"] as? [String: Any] else {
                 fputs("cmux codex-teams watcher ignoring malformed approval \(method) request \(CMUXCLI.requestIdString(requestId))\n", stderr)
-                try respondWithNoDecisionApproval(method: method, params: [:], requestId: requestId, connection: connection)
                 return true
             }
             let relatedItem = CMUXCLI.stringValue(in: params, keys: ["itemId", "item_id"])
                 .flatMap { cachedApprovalItem(itemId: $0) }
             let suppressionKey = approvalSuppressionKey(method: method, requestId: requestId, params: params)
             if approvalIsSuppressed(suppressionKey) {
-                fputs("cmux codex-teams watcher sending no-decision fallback for previously unresolved approval \(suppressionKey)\n", stderr)
-                try respondWithNoDecisionApproval(method: method, params: params, requestId: requestId, connection: connection)
+                fputs("cmux codex-teams watcher leaving previously unresolved approval \(suppressionKey) to native Codex\n", stderr)
                 return true
             }
             let feedEvent = CMUXCLI.codexTeamsFeedEvent(
@@ -18485,14 +18483,12 @@ struct CMUXCLI {
                 response = try pushCodexApprovalToFeed(event: feedEvent)
             } catch {
                 suppressApproval(suppressionKey)
-                fputs("cmux codex-teams watcher sending no-decision fallback for approval \(suppressionKey) after Feed push failed: \(error)\n", stderr)
-                try respondWithNoDecisionApproval(method: method, params: params, requestId: requestId, connection: connection)
+                fputs("cmux codex-teams watcher leaving approval \(suppressionKey) to native Codex after Feed push failed: \(error)\n", stderr)
                 return true
             }
             guard let decision = CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: response) else {
                 suppressApproval(suppressionKey)
-                fputs("cmux codex-teams watcher sending no-decision fallback for approval \(suppressionKey) because Feed did not resolve it\n", stderr)
-                try respondWithNoDecisionApproval(method: method, params: params, requestId: requestId, connection: connection)
+                fputs("cmux codex-teams watcher leaving approval \(suppressionKey) to native Codex because Feed did not resolve it\n", stderr)
                 return true
             }
             guard let result = CMUXCLI.codexTeamsAppServerApprovalResponse(
@@ -18500,31 +18496,11 @@ struct CMUXCLI {
                 params: params,
                 mode: decision
             ) else {
-                try respondWithNoDecisionApproval(method: method, params: params, requestId: requestId, connection: connection)
+                fputs("cmux codex-teams watcher cannot map Feed decision for \(suppressionKey); leaving it to native Codex\n", stderr)
                 return true
             }
             try connection.respond(requestId: requestId, result: result)
             return true
-        }
-
-        private func respondWithNoDecisionApproval(
-            method: String,
-            params: [String: Any],
-            requestId: Any,
-            connection: CodexTeamsAppServerConnection
-        ) throws {
-            guard let result = CMUXCLI.codexTeamsAppServerNoDecisionApprovalResponse(
-                method: method,
-                params: params
-            ) else {
-                try connection.respondError(
-                    requestId: requestId,
-                    code: -32601,
-                    message: "cmux Codex Teams watcher cannot respond to \(method)"
-                )
-                return
-            }
-            try connection.respond(requestId: requestId, result: result)
         }
 
         private func approvalSuppressionKey(method: String, requestId: Any, params: [String: Any]) -> String {
@@ -18799,16 +18775,6 @@ struct CMUXCLI {
             method: method,
             params: params,
             mode: mode
-        )
-    }
-
-    static func codexTeamsAppServerNoDecisionApprovalResponse(
-        method: String,
-        params: [String: Any]
-    ) -> [String: Any]? {
-        CodexTeamsApprovalBridge.appServerNoDecisionApprovalResponse(
-            method: method,
-            params: params
         )
     }
 

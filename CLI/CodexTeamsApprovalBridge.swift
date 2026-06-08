@@ -113,20 +113,6 @@ enum CodexTeamsApprovalBridge {
         }
     }
 
-    static func appServerNoDecisionApprovalResponse(
-        method: String,
-        params: [String: Any]
-    ) -> [String: Any]? {
-        switch method {
-        case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
-            return ["decision": noDecisionApprovalDecision(params: params)]
-        case "item/permissions/requestApproval":
-            return permissionsApprovalResponse(params: params, mode: "deny")
-        default:
-            return nil
-        }
-    }
-
     static func approvalItemSnapshot(_ item: [String: Any]) -> [String: Any] {
         var snapshot: [String: Any] = [:]
         for key in ["id", "type", "threadId", "thread_id", "turnId", "turn_id", "command", "cwd", "path", "status"] {
@@ -476,17 +462,6 @@ enum CodexTeamsApprovalBridge {
             return "cancel"
         }
         return "decline"
-    }
-
-    private static func noDecisionApprovalDecision(params: [String: Any]) -> String {
-        let available = availableDecisions(params)
-        if available.contains("cancel") || available.isEmpty {
-            return "cancel"
-        }
-        if available.contains("decline") {
-            return "decline"
-        }
-        return "cancel"
     }
 
     private static func decisionNames(_ raw: Any) -> [String] {
