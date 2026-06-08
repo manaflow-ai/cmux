@@ -15,6 +15,9 @@ struct WorkspaceNavigationRow: View {
     /// Pin or unpin the workspace on the Mac. When `nil` the pin affordance is
     /// hidden.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    /// Delete the workspace on the Mac. When `nil` the destructive swipe
+    /// affordance is hidden.
+    var deleteWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
 
     @State private var isRenaming = false
 
@@ -48,6 +51,17 @@ struct WorkspaceNavigationRow: View {
             }
         }
         .contextMenu { contextMenu }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if let deleteWorkspace {
+                Button(role: .destructive) {
+                    deleteWorkspace(workspace.id)
+                } label: {
+                    Label(L10n.string("mobile.common.delete", defaultValue: "Delete"), systemImage: "trash")
+                }
+                .tint(.red)
+                .accessibilityIdentifier("MobileWorkspaceDeleteButton-\(workspace.id.rawValue)")
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")

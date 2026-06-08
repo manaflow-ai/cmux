@@ -18,6 +18,7 @@ struct WorkspaceDetailView: View {
     @Bindable var store: CMUXMobileShellStore
     let createWorkspace: () -> Void
     let createTerminal: () -> Void
+    let deleteTerminal: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID) -> Void
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
@@ -159,22 +160,7 @@ struct WorkspaceDetailView: View {
                 .padding(.top, 14)
                 .padding(.bottom, 8)
 
-            ForEach(workspace.terminals) { terminal in
-                Button {
-                    selectTerminalFromPicker(terminal.id)
-                } label: {
-                    Label(
-                        terminal.name,
-                        systemImage: terminal.id == selectedTerminal?.id ? "checkmark.circle.fill" : "terminal"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
-            }
+            terminalPickerList
 
             Divider()
                 .padding(.vertical, 4)
@@ -225,6 +211,48 @@ struct WorkspaceDetailView: View {
         }
         .frame(minWidth: 240, maxWidth: 320, alignment: .leading)
         .presentationCompactAdaptation(.popover)
+    }
+
+    private var terminalPickerList: some View {
+        let canDeleteTerminals = store.supportsDeleteActions
+        let selectedTerminalID = selectedTerminal?.id
+        return List {
+            ForEach(workspace.terminals) { terminal in
+                Button {
+                    selectTerminalFromPicker(terminal.id)
+                } label: {
+                    Label(
+                        terminal.name,
+                        systemImage: terminal.id == selectedTerminalID ? "checkmark.circle.fill" : "terminal"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .padding(.vertical, 10)
+                }
+                .buttonStyle(.plain)
+                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                .listRowSeparator(.hidden)
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    if canDeleteTerminals {
+                        Button(role: .destructive) {
+                            deleteTerminal(workspace.id, terminal.id)
+                        } label: {
+                            Label(L10n.string("mobile.common.delete", defaultValue: "Delete"), systemImage: "trash")
+                        }
+                        .tint(.red)
+                        .accessibilityIdentifier("MobileTerminalDeleteButton-\(terminal.id.rawValue)")
+                    }
+                }
+                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .frame(height: terminalPickerListHeight)
+    }
+
+    private var terminalPickerListHeight: CGFloat {
+        min(max(CGFloat(workspace.terminals.count) * 44, 44), 280)
     }
 
     #if DEBUG && canImport(UIKit)

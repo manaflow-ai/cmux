@@ -68,7 +68,8 @@ struct WorkspaceShellView: View {
                 signOut: signOut,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure
+                setPinned: setWorkspacePinnedClosure,
+                deleteWorkspace: deleteWorkspaceClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -122,7 +123,8 @@ struct WorkspaceShellView: View {
                 signOut: signOut,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure
+                setPinned: setWorkspacePinnedClosure,
+                deleteWorkspace: deleteWorkspaceClosure
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
@@ -161,6 +163,14 @@ struct WorkspaceShellView: View {
         guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
+    }
+
+    /// Delete is advertised separately from rename/pin because older Mac builds
+    /// may support workspace actions without exposing the mobile close wrappers.
+    private var deleteWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
+        guard store.supportsDeleteActions else { return nil }
+        let store = store
+        return { id in store.deleteWorkspace(id: id) }
     }
 
     private func createWorkspaceInCompactStack() {
