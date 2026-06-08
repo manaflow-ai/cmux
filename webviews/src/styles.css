@@ -24,14 +24,23 @@
   --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
   --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
   --cmux-diff-text-subtle: color-mix(in lab, var(--cmux-diff-fg) 84%, var(--cmux-diff-bg));
+  /* Page fill for the diff surface. Opaque themes (background-opacity 1) paint
+     the terminal color so loading/empty regions match the theme; transparent
+     themes leave it clear so the blurred window backdrop shows. The actual
+     opaque-vs-transparent choice is set per opacity by applyDiffViewerAppearance;
+     these defaults cover the no-appearance case. */
+  --cmux-diff-surface-fill-light: var(--cmux-diff-bg-light);
+  --cmux-diff-surface-fill-dark: var(--cmux-diff-bg-dark);
+  --cmux-diff-surface-fill: var(--cmux-diff-surface-fill-light);
 
-  background: transparent;
+  background: var(--cmux-diff-surface-fill);
   color: var(--cmux-diff-fg);
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --cmux-diff-bg: var(--cmux-diff-bg-dark);
     --cmux-diff-fg: var(--cmux-diff-fg-dark);
+    --cmux-diff-surface-fill: var(--cmux-diff-surface-fill-dark);
   }
 }
 * {
@@ -40,17 +49,20 @@
 html,
 body {
   height: 100%;
-  background: transparent;
+  background: var(--cmux-diff-surface-fill);
   overflow: hidden;
 }
 body {
   margin: 0;
   height: 100vh;
   min-height: 0;
-  /* Transparent so the cmux window backdrop (faded terminal color for
-     transparent themes, solid otherwise) shows through, matching the markdown
-     and terminal panels. `--cmux-diff-bg` is still used opaque for blends. */
-  background: transparent;
+  /* Opaque themes paint the terminal color here so loading and empty regions
+     match the theme: the browser pane behind a transparent diff page is a plain
+     gray window backdrop, not the terminal color (only transparent themes get a
+     terminal-colored window-root backdrop behind every pane). Transparent themes
+     keep this clear so the blurred backdrop shows, matching the markdown and
+     terminal panels. `--cmux-diff-bg` is still used opaque for blends. */
+  background: var(--cmux-diff-surface-fill);
   color: var(--cmux-diff-fg);
   display: flex;
   flex-direction: column;
