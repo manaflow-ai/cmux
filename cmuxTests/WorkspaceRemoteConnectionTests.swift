@@ -2039,7 +2039,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             if command.contains("serve --stdio") {
                 return (
                     status: 0,
-                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.session.persistent_daemon"]}}"# + "\n",
+                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.write.notification","pty.session.persistent_daemon"]}}"# + "\n",
                     stderr: ""
                 )
             }
@@ -2155,7 +2155,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             if command.contains("serve --stdio") {
                 return (
                     status: 0,
-                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.session.persistent_daemon"]}}"# + "\n",
+                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.write.notification","pty.session.persistent_daemon"]}}"# + "\n",
                     stderr: ""
                 )
             }
