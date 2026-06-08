@@ -6002,15 +6002,37 @@ extension CMUXCLI {
 
     private func copyDiffViewerAsset(relativePath: String, from sourceDirectory: URL, to targetDirectory: URL) throws {
         let fileManager = FileManager.default
-        let sourceURL = sourceDirectory.appendingPathComponent(relativePath, isDirectory: false)
+        let rawSourceURL = sourceDirectory.appendingPathComponent(relativePath, isDirectory: false)
+        let deflateSourceURL = sourceDirectory.appendingPathComponent(relativePath + ".deflate", isDirectory: false)
         let targetURL = targetDirectory.appendingPathComponent(relativePath, isDirectory: false)
-        guard fileManager.fileExists(atPath: sourceURL.path) else {
-            throw CLIError(message: "Bundled diff viewer asset not found: \(relativePath)")
-        }
 
-        let sourceValues = try sourceURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-        if isCurrentDiffViewerAsset(targetURL: targetURL, sourceValues: sourceValues) {
-            return
+        // A raw asset is copied verbatim; a `.deflate` asset is inflated to its
+        // logical name (raw DEFLATE, matching `NSData.decompressed(using:.zlib)`).
+        let inflatedData: Data?
+        let rawSourceValues: URLResourceValues?
+        let deflateModificationDate: Date?
+        if fileManager.fileExists(atPath: rawSourceURL.path) {
+            let values = try rawSourceURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            if isCurrentDiffViewerAsset(targetURL: targetURL, sourceValues: values) {
+                return
+            }
+            inflatedData = nil
+            rawSourceValues = values
+            deflateModificationDate = nil
+        } else if fileManager.fileExists(atPath: deflateSourceURL.path) {
+            let modDate = (try? deflateSourceURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if isCurrentInflatedDiffViewerAsset(targetURL: targetURL, sourceModificationDate: modDate) {
+                return
+            }
+            let compressed = try Data(contentsOf: deflateSourceURL)
+            guard let data = try? (compressed as NSData).decompressed(using: .zlib) as Data else {
+                throw CLIError(message: "Failed to inflate bundled diff viewer asset: \(relativePath)")
+            }
+            inflatedData = data
+            rawSourceValues = nil
+            deflateModificationDate = modDate
+        } else {
+            throw CLIError(message: "Bundled diff viewer asset not found: \(relativePath)")
         }
 
         try fileManager.createDirectory(
@@ -6022,14 +6044,22 @@ extension CMUXCLI {
             isDirectory: false
         )
         do {
-            try fileManager.copyItem(at: sourceURL, to: temporaryURL)
+            if let inflatedData {
+                try inflatedData.write(to: temporaryURL)
+            } else {
+                try fileManager.copyItem(at: rawSourceURL, to: temporaryURL)
+            }
             if rename(temporaryURL.path, targetURL.path) != 0 {
                 let code = Int(errno)
                 throw NSError(domain: NSPOSIXErrorDomain, code: code)
             }
         } catch {
             try? fileManager.removeItem(at: temporaryURL)
-            if isCurrentDiffViewerAsset(targetURL: targetURL, sourceValues: sourceValues) {
+            // Another concurrent `cmux diff`/`edit` may have written the target.
+            if let rawSourceValues, isCurrentDiffViewerAsset(targetURL: targetURL, sourceValues: rawSourceValues) {
+                return
+            }
+            if inflatedData != nil, isCurrentInflatedDiffViewerAsset(targetURL: targetURL, sourceModificationDate: deflateModificationDate) {
                 return
             }
             throw error
@@ -6050,8 +6080,12 @@ extension CMUXCLI {
         for case let fileURL as URL in enumerator {
             // `css` is included so the Monaco editor surface can serve its
             // stylesheet; the codicon `ttf` is intentionally omitted (skipped
-            // for v1 to avoid relaxing the served-page font CSP).
-            guard ["js", "mjs", "css"].contains(fileURL.pathExtension),
+            // for v1 to avoid relaxing the served-page font CSP). Large vendor
+            // chunks are stored `.deflate` and reported under their logical
+            // name (e.g. `chunks/monaco-vendor.mjs`); the copy step inflates.
+            let isDeflate = fileURL.pathExtension == "deflate"
+            let logicalExtension = isDeflate ? fileURL.deletingPathExtension().pathExtension : fileURL.pathExtension
+            guard ["js", "mjs", "css"].contains(logicalExtension),
                   let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
                   values.isRegularFile == true else {
                 continue
@@ -6060,9 +6094,26 @@ extension CMUXCLI {
             guard standardized.path.hasPrefix(rootURL.path + "/") else {
                 continue
             }
-            relativePaths.append(String(standardized.path.dropFirst(rootURL.path.count + 1)))
+            var relative = String(standardized.path.dropFirst(rootURL.path.count + 1))
+            if isDeflate {
+                relative = String(relative.dropLast(".deflate".count))
+            }
+            relativePaths.append(relative)
         }
         return relativePaths.sorted()
+    }
+
+    /// Whether an inflated asset target is current relative to its `.deflate`
+    /// source (mtime only, since the inflated target size differs from the
+    /// compressed source).
+    private func isCurrentInflatedDiffViewerAsset(targetURL: URL, sourceModificationDate: Date?) -> Bool {
+        guard FileManager.default.fileExists(atPath: targetURL.path),
+              let targetValues = try? targetURL.resourceValues(forKeys: [.contentModificationDateKey]),
+              let sourceDate = sourceModificationDate,
+              let targetDate = targetValues.contentModificationDate else {
+            return false
+        }
+        return targetDate >= sourceDate
     }
 
     private func isCurrentDiffViewerAsset(targetURL: URL, sourceValues: URLResourceValues) -> Bool {
