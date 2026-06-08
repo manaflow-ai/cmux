@@ -126,7 +126,7 @@ final class WindowTerminalHostView: NSView {
         let eventType = routingContext.eventType
 
         if routingContext.allowsPortalPointerHitTesting {
-            if shouldPassThroughToTitlebar(at: point) {
+            if shouldPassThroughToTitlebar(at: point), hostedTerminalHitView(at: point) == nil {
                 clearActiveDividerCursor(restoreArrow: false)
                 return nil
             }
