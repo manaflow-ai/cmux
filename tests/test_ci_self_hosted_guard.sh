@@ -546,6 +546,30 @@ check_cjk_font_resolution_regressions_fail_closed_on_ci() {
   echo "PASS: CJK font resolution regressions fail closed on hosted CI"
 }
 
+check_macos26_window_feature_regressions_fail_closed_on_compat_ci() {
+  local file="$ROOT_DIR/cmuxTests/WindowAndDragTests.swift"
+  if grep -Fq 'throw XCTSkip("NSGlassEffectView is unavailable on this macOS version")' "$file" ||
+     grep -Fq 'throw XCTSkip("Requires macOS 26 drag configuration APIs")' "$file"; then
+    echo "FAIL: macOS 26 window feature regressions must fail closed in the compatibility lane"
+    exit 1
+  fi
+  if ! grep -Fq "CMUX_REQUIRE_MACOS26_WINDOW_TESTS" "$file"; then
+    echo "FAIL: macOS 26 window feature regressions must have a compatibility-lane fail-closed gate"
+    exit 1
+  fi
+  if ! grep -Fq "CMUX_REQUIRE_MACOS26_WINDOW_TESTS: \${{ matrix.require_macos26_window_tests && '1' || '0' }}" "$COMPAT_FILE"; then
+    echo "FAIL: macOS compatibility workflow must pass the macOS 26 window feature requirement into unit tests"
+    exit 1
+  fi
+  if ! grep -Fq "require_macos26_window_tests: true" "$COMPAT_FILE" ||
+     ! grep -Fq "require_macos26_window_tests: false" "$COMPAT_FILE"; then
+    echo "FAIL: macOS compatibility matrix must mark macOS 26 shards as required and older macOS shards as local-skip eligible"
+    exit 1
+  fi
+
+  echo "PASS: macOS 26 window feature regressions fail closed in compatibility CI"
+}
+
 check_ssh_fish_shell_regression_fails_closed_on_ci() {
   local file="$ROOT_DIR/cmuxTests/WorkspaceSSHFishShellTests.swift"
   if ! grep -Fq "hosted CI must exercise SSH bootstrap fish shell coverage" "$file"; then
@@ -1583,6 +1607,7 @@ check_ui_expected_failures_are_activation_scoped
 check_port_scanner_fd_regression_fails_closed_on_ci
 check_cmux_config_icon_fixture_fails_closed
 check_cjk_font_resolution_regressions_fail_closed_on_ci
+check_macos26_window_feature_regressions_fail_closed_on_compat_ci
 check_ssh_fish_shell_regression_fails_closed_on_ci
 check_ssh_fish_shell_socket_fixture_fails_closed
 check_settings_frame_clamping_fails_closed_on_ci

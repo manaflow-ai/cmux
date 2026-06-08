@@ -17,6 +17,18 @@ import UserNotifications
 @testable import cmux
 #endif
 
+private func macOS26WindowFeatureUnavailableError(
+    _ message: String,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) -> Error {
+    if ProcessInfo.processInfo.environment["CMUX_REQUIRE_MACOS26_WINDOW_TESTS"] == "1" {
+        XCTFail(message, file: file, line: line)
+        return NSError(domain: "cmux.tests", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+    return XCTSkip(message)
+}
+
 private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitRegionProviding {
     nonisolated(unsafe) var tabFrames: [CGRect] = []
 
@@ -70,7 +82,7 @@ final class WindowGlassEffectTests: XCTestCase {
 
     func testNativeGlassTintFollowsWindowKeyNotifications() throws {
         guard WindowGlassEffect.isAvailable else {
-            throw XCTSkip("NSGlassEffectView is unavailable on this macOS version")
+            throw macOS26WindowFeatureUnavailableError("NSGlassEffectView is unavailable on this macOS version")
         }
         _ = NSApplication.shared
 
@@ -633,7 +645,7 @@ private func dragConfigurationOperationsSnapshot<T>(from operations: T) throws -
 final class InternalTabDragConfigurationTests: XCTestCase {
     func testDisablesExternalOperationsForInternalTabDrags() throws {
         guard #available(macOS 26.0, *) else {
-            throw XCTSkip("Requires macOS 26 drag configuration APIs")
+            throw macOS26WindowFeatureUnavailableError("Requires macOS 26 drag configuration APIs")
         }
 
         let configuration = InternalTabDragConfigurationProvider.value
