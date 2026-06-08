@@ -190,6 +190,7 @@ extension Workspace {
                     panelId: panelId,
                     includeScrollback: includeScrollback,
                     restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId),
+                    liveRestorableAgentProcess: restorableAgentIndex?.hasLiveProcess(workspaceId: id, panelId: panelId) ?? false,
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
@@ -469,6 +470,7 @@ extension Workspace {
         panelId: UUID,
         includeScrollback: Bool,
         restorableAgent: SessionRestorableAgentSnapshot?,
+        liveRestorableAgentProcess: Bool,
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
@@ -517,12 +519,17 @@ extension Workspace {
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
         let panelNotificationSnapshots = notificationSnapshots(surfaceId: panelId)
         let panelHasUnreadNotification = hasUnreadNotification(panelId: panelId)
+        let liveRestorableAgentNeedsUnreadIndicator = liveRestorableAgentProcess && effectiveRestorableAgent != nil
         let hasUnreadIndicator =
             restoredUnreadPanelIds.contains(panelId) ||
-            hasVisibleNotificationIndicator(panelId: panelId)
+            hasVisibleNotificationIndicator(panelId: panelId) ||
+            liveRestorableAgentNeedsUnreadIndicator
         let restoredUnreadContributesToWorkspace: Bool? = {
             if let restoredIndicator = restoredUnreadPanelIndicators[panelId] {
                 return restoredIndicator.contributesToWorkspaceUnread
+            }
+            if liveRestorableAgentNeedsUnreadIndicator && !panelHasUnreadNotification {
+                return true
             }
             if hasUnreadIndicator && !panelHasUnreadNotification {
                 return false
@@ -766,6 +773,7 @@ extension Workspace {
             panelId: panelId,
             includeScrollback: true,
             restorableAgent: restorableAgentIndex.snapshot(workspaceId: id, panelId: panelId),
+            liveRestorableAgentProcess: restorableAgentIndex.hasLiveProcess(workspaceId: id, panelId: panelId),
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
