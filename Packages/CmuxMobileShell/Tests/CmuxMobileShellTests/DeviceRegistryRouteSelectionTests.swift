@@ -20,24 +20,24 @@ import Testing
     @Test func registryUnavailableFallsBackToLocal() throws {
         let local = [try route(host: "100.0.0.1", port: 51000)]
         // nil == registry unreachable / unauthorized / Mac not registered.
-        #expect(DeviceRegistryRouteSelection.selectReconnectRoutes(local: local, registry: nil) == nil)
+        #expect(DeviceRegistryService.selectReconnectRoutes(local: local, registry: nil) == nil)
     }
 
     @Test func registryEmptyFallsBackToLocal() throws {
         let local = [try route(host: "100.0.0.1", port: 51000)]
-        #expect(DeviceRegistryRouteSelection.selectReconnectRoutes(local: local, registry: []) == nil)
+        #expect(DeviceRegistryService.selectReconnectRoutes(local: local, registry: []) == nil)
     }
 
     @Test func identicalRegistryRoutesAreANoOp() throws {
         let routes = [try route(host: "100.0.0.1", port: 51000)]
-        #expect(DeviceRegistryRouteSelection.selectReconnectRoutes(local: routes, registry: routes) == nil)
+        #expect(DeviceRegistryService.selectReconnectRoutes(local: routes, registry: routes) == nil)
     }
 
     @Test func differentRegistryRoutesWin() throws {
         // The Mac moved networks / changed port: registry has the current route.
         let local = [try route(host: "100.0.0.1", port: 51000)]
         let registry = [try route(host: "100.9.9.9", port: 51999)]
-        let selected = DeviceRegistryRouteSelection.selectReconnectRoutes(local: local, registry: registry)
+        let selected = DeviceRegistryService.selectReconnectRoutes(local: local, registry: registry)
         #expect(selected == registry)
     }
 
@@ -219,7 +219,7 @@ import Testing
     }
 
     @Test func appliesRefreshWhenStillSignedInSameUserSameActiveMac() {
-        #expect(DeviceRegistryRouteSelection.shouldApplyRegistryRefresh(
+        #expect(DeviceRegistryService.shouldApplyRegistryRefresh(
             isSignedIn: true,
             capturedUserID: "user-1",
             currentUserID: "user-1",
@@ -230,7 +230,7 @@ import Testing
 
     @Test func rejectsRefreshAfterSignOut() {
         // User signed out while freshRoutes was in flight: never resurrect.
-        #expect(DeviceRegistryRouteSelection.shouldApplyRegistryRefresh(
+        #expect(DeviceRegistryService.shouldApplyRegistryRefresh(
             isSignedIn: false,
             capturedUserID: "user-1",
             currentUserID: nil,
@@ -240,7 +240,7 @@ import Testing
     }
 
     @Test func rejectsRefreshAfterUserSwitch() {
-        #expect(DeviceRegistryRouteSelection.shouldApplyRegistryRefresh(
+        #expect(DeviceRegistryService.shouldApplyRegistryRefresh(
             isSignedIn: true,
             capturedUserID: "user-1",
             currentUserID: "user-2",
@@ -251,7 +251,7 @@ import Testing
 
     @Test func rejectsRefreshAfterMacForgotten() {
         // The Mac was forgotten (no active Mac now): do not recreate it.
-        #expect(DeviceRegistryRouteSelection.shouldApplyRegistryRefresh(
+        #expect(DeviceRegistryService.shouldApplyRegistryRefresh(
             isSignedIn: true,
             capturedUserID: "user-1",
             currentUserID: "user-1",
@@ -263,7 +263,7 @@ import Testing
     @Test func rejectsRefreshAfterActiveMacSwitched() {
         // The user switched to a different active Mac (e.g. rescanned a QR):
         // do not reactivate the old one.
-        #expect(DeviceRegistryRouteSelection.shouldApplyRegistryRefresh(
+        #expect(DeviceRegistryService.shouldApplyRegistryRefresh(
             isSignedIn: true,
             capturedUserID: "user-1",
             currentUserID: "user-1",
@@ -277,8 +277,8 @@ import Testing
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        let first = MobileDeviceIdentity.deviceID(defaults: defaults)
-        let second = MobileDeviceIdentity.deviceID(defaults: defaults)
+        let first = DeviceRegistryService.deviceID(defaults: defaults)
+        let second = DeviceRegistryService.deviceID(defaults: defaults)
         #expect(first == second)
         #expect(!first.isEmpty)
         // Stable across a fresh accessor reading the same store (relaunch proxy).

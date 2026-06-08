@@ -120,7 +120,7 @@ public struct CMUXMobileRootScene: View {
         let coordinator = auth.coordinator
         return DeviceRegistryService(
             apiBaseURL: baseURL,
-            deviceID: MobileDeviceIdentity.deviceID(),
+            deviceID: DeviceRegistryService.deviceID(),
             tokenSource: DeviceRegistryService.TokenSource(
                 accessToken: { try? await coordinator.accessToken() },
                 refreshToken: { await coordinator.refreshToken() }

@@ -1009,7 +1009,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let displayName = mac.displayName
         Task { [weak self] in
             let registryRoutes = await deviceRegistry.freshRoutes(forMacDeviceID: macDeviceID)
-            guard let updated = DeviceRegistryRouteSelection.selectReconnectRoutes(
+            guard let updated = DeviceRegistryService.selectReconnectRoutes(
                 local: localRoutes,
                 registry: registryRoutes
             ) else { return }
@@ -1027,7 +1027,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 mobileShellLog.debug("registry refresh active-mac recheck failed: \(String(describing: error), privacy: .public)")
                 return
             }
-            guard DeviceRegistryRouteSelection.shouldApplyRegistryRefresh(
+            guard DeviceRegistryService.shouldApplyRegistryRefresh(
                 isSignedIn: self.isSignedIn,
                 capturedUserID: stackUserID,
                 currentUserID: self.identityProvider?.currentUserID,

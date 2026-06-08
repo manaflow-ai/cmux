@@ -46,7 +46,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
 
     /// - Parameters:
     ///   - apiBaseURL: The cmux web API base URL (no trailing slash).
-    ///   - deviceID: This iOS device's registry id (``MobileDeviceIdentity``).
+    ///   - deviceID: This iOS device's registry id (``deviceID(defaults:)``).
     ///   - tokenSource: Supplies the Stack access/refresh tokens.
     ///   - teamIDProvider: Supplies the team id to scope to, or `nil` to let the
     ///     server use the Stack-selected team.
@@ -67,6 +67,71 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         self.teamIDProvider = teamIDProvider
         self.session = session
         self.requestTimeout = requestTimeout
+    }
+
+    // MARK: - Device identity
+
+    private static let deviceIDKey = "cmux.deviceRegistry.iosDeviceID"
+
+    /// This iOS device's stable cmux identity for the device registry.
+    ///
+    /// A cmux-GENERATED persisted UUID (NOT `identifierForVendor`, which resets
+    /// when the last cmux app is removed, and NOT a hardware fingerprint).
+    /// Persisted in `UserDefaults` so it survives relaunch and reinstall, is
+    /// cross-platform, and is user-renamable via its display name. Mirrors the
+    /// Mac side's `MobileHostIdentity.deviceID()`. The phone sends this id when
+    /// it registers itself as a device; the key-pinning phase will anchor a
+    /// pinned key to it for revoke.
+    /// - Parameter defaults: Persistence store (injected for tests).
+    public static func deviceID(defaults: UserDefaults = .standard) -> String {
+        if let existing = defaults.string(forKey: deviceIDKey),
+           !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return existing
+        }
+        let generated = UUID().uuidString.lowercased()
+        defaults.set(generated, forKey: deviceIDKey)
+        return generated
+    }
+
+    // MARK: - Reconnect route policy (pure, testable)
+
+    /// Choose the routes to persist for the next reconnect.
+    ///
+    /// The reconnect path connects on `local` routes immediately (no added
+    /// latency on the common case) and only *replaces* the persisted routes when
+    /// the registry returns a usable, different set, so a stale-route Mac gets
+    /// rescued on the next reconnect trigger. Returns `nil` to signal "no change
+    /// needed" (registry unavailable, empty, or identical), letting callers skip
+    /// a redundant store write and fall back to the locally persisted routes.
+    public static func selectReconnectRoutes(
+        local: [CmxAttachRoute],
+        registry: [CmxAttachRoute]?
+    ) -> [CmxAttachRoute]? {
+        guard let registry, !registry.isEmpty else { return nil }
+        guard registry != local else { return nil }
+        return registry
+    }
+
+    /// Whether a background registry refresh may write back into the paired-Mac
+    /// store, re-evaluated *after* the network call.
+    ///
+    /// The refresh upserts with `markActive: true`, so it must not resurrect a
+    /// pairing the user removed or deactivated while the network call was in
+    /// flight. It is safe to apply only when the same user is still signed in and
+    /// the Mac it refreshed is still the active paired Mac. If the user signed
+    /// out, switched accounts, forgot the Mac, or switched to a different active
+    /// Mac, the captured user no longer matches, or the active Mac id is now
+    /// `nil`/different, so the write is rejected.
+    public static func shouldApplyRegistryRefresh(
+        isSignedIn: Bool,
+        capturedUserID: String?,
+        currentUserID: String?,
+        activeMacID: String?,
+        targetMacID: String
+    ) -> Bool {
+        guard isSignedIn else { return false }
+        guard capturedUserID == currentUserID else { return false }
+        return activeMacID == targetMacID
     }
 
     // MARK: - DeviceRegistryRefreshing
