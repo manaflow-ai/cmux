@@ -16,11 +16,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let surfaceID: String
     let store: CMUXMobileShellStore
     /// The shared persisted terminal font-size base, injected from the scene
-    /// root. The surface launches at `effectiveFontSize` and the overlay's
-    /// save/reset actions write this same instance, so Settings and the overlay
-    /// stay in sync. Reading it here also makes `updateUIView` re-run when a
-    /// Settings change flips the size (the @Observable invalidates the body).
+    /// root. The surface launches at `baseFontSize` and the overlay's save/reset
+    /// actions write this same instance, so Settings and the overlay stay in
+    /// sync.
     let zoomPreference: MobileTerminalZoomPreference
+    /// The current persisted base size (`zoomPreference.effectiveFontSize`),
+    /// passed as a value the host (`WorkspaceDetailView`) read in its body. That
+    /// read is what registers the Observation dependency, so a Settings change
+    /// re-renders the host and re-runs `updateUIView` even on an idle terminal
+    /// (passing only the object reference would not, since `body` reads no
+    /// property of it). `applyBaseFontSize` then no-ops unless it actually
+    /// changed.
+    let baseFontSize: Float32
     /// Whether the mounted surface should grab the keyboard when it attaches to
     /// a window. Driven by the host's autofocus-suppression state so chrome
     /// actions (create workspace/terminal, switch terminal) do not pop the
@@ -46,7 +53,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let view = GhosttySurfaceView(
             runtime: runtime,
             delegate: context.coordinator,
-            fontSize: zoomPreference.effectiveFontSize,
+            fontSize: baseFontSize,
             zoomPreference: zoomPreference
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
@@ -57,11 +64,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     func updateUIView(_ uiView: UIView, context: Context) {
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
-        // A Settings stepper / reset change flips the @Observable preference,
-        // which re-runs the host body and this update. `applyBaseFontSize`
-        // no-ops unless the base actually changed, so an unrelated re-render
-        // never snaps a transient pinch back to the persisted base.
-        surfaceView.applyBaseFontSize(zoomPreference.effectiveFontSize)
+        // `baseFontSize` reflects a Settings stepper / reset change because the
+        // host read it in its body (registering the Observation dependency), so
+        // this runs even on an idle terminal. `applyBaseFontSize` no-ops unless
+        // the base actually changed, so an unrelated re-render never snaps a
+        // transient pinch back to the persisted base.
+        surfaceView.applyBaseFontSize(baseFontSize)
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {

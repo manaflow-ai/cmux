@@ -54,6 +54,14 @@ struct WorkspaceDetailView: View {
                     surfaceID: terminalID,
                     store: store,
                     zoomPreference: terminalZoomPreference,
+                    // Read `effectiveFontSize` here (in the host body) so a
+                    // Settings stepper / reset change invalidates THIS view and
+                    // re-runs the representable's updateUIView, applying the new
+                    // size live even when the terminal is idle. Observation is
+                    // property-granular: passing only the object would not
+                    // re-render this view, so the change would not reach the
+                    // surface until an unrelated re-render.
+                    baseFontSize: terminalZoomPreference.effectiveFontSize,
                     autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
                 )
                 // Identity must track the selected terminal. The representable's
