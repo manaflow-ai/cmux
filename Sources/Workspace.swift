@@ -10702,7 +10702,12 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($listeningPorts),
         ]
 
-        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
+        return Publishers.MergeMany(publishers)
+            // Rows cache an immutable sidebar snapshot. Emit once per subscription
+            // so rows mounted after metadata already changed still rebuild from
+            // the workspace's current state instead of waiting for another change.
+            .prepend(())
+            .eraseToAnyPublisher()
     }()
 
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {

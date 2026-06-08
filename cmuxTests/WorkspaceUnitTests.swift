@@ -6449,6 +6449,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             publishCount += 1
         }
         defer { cancellable.cancel() }
+        publishCount = 0
 
         workspace.remoteHeartbeatCount = 1
         workspace.remoteLastHeartbeatAt = Date()
