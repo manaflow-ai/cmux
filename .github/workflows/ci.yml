@@ -16,6 +16,145 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Path gate for the expensive macOS desktop jobs (tests, tests-build-and-lag,
+  # release-ghostty-cli-helper, release-build, ui-regressions). It does NOT gate
+  # the four required checks (workflow-guard-tests, remote-daemon-tests,
+  # web-typecheck, web-db-migrations) — those stay always-on so a PR that
+  # legitimately skips desktop CI is still mergeable (no "Expected — waiting for
+  # status" deadlock against ruleset "main: require PR + checks").
+  #
+  # Logic is negation/fail-safe: desktop CI RUNS unless EVERY changed file is in
+  # a known safe-to-skip set (pure-iOS app/packages/scripts, web/**, or
+  # docs/markdown). Anything unrecognized — including shared Swift in Sources/**,
+  # shared Packages/** (CMUXMobileCore, CMUXAuthCore, CmuxAuthRuntime are linked
+  # by the desktop app), GhosttyKit/ghostty, cmux.xcodeproj, or shared scripts —
+  # forces desktop CI to run. This is intentionally asymmetric with
+  # test-ios.yml's broad iOS trigger: iOS CI errs toward running, desktop CI errs
+  # toward running, and only a strictly pure-iOS (or web/docs-only) PR skips the
+  # macOS build.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      desktop: ${{ steps.detect.outputs.desktop }}
+      react: ${{ steps.detect.outputs.react }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+
+      - name: Detect desktop-affecting changes
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          emit() {
+            # $1 = desktop, $2 = react
+            echo "desktop=$1" >> "$GITHUB_OUTPUT"
+            echo "react=$2" >> "$GITHUB_OUTPUT"
+            echo "==> desktop=$1 react=$2"
+          }
+
+          # Fail safe: anything that is not a pull_request (push to main,
+          # workflow_dispatch) always runs the full suite.
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "Non-PR event (${{ github.event_name }}); running everything."
+            emit true true
+            exit 0
+          fi
+
+          # Fail safe: if we cannot compute a clean diff, run everything.
+          if [ -z "${BASE_SHA:-}" ] || [ -z "${HEAD_SHA:-}" ]; then
+            echo "Missing base/head SHA; running everything."
+            emit true true
+            exit 0
+          fi
+          if ! BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"; then
+            echo "Could not compute merge-base; running everything."
+            emit true true
+            exit 0
+          fi
+          git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
+          echo "Changed files:"
+          cat /tmp/changed-files.txt
+
+          # Empty diff (e.g. rebase/no-op) is safe to skip the optional jobs.
+          if [ ! -s /tmp/changed-files.txt ]; then
+            echo "No changed files; skipping optional jobs."
+            emit false false
+            exit 0
+          fi
+
+          # --- desktop gate ----------------------------------------------------
+          # Safe-to-skip set. A PR whose changed files are ALL covered by these
+          # patterns does not need the macOS desktop build. Keep this list narrow
+          # and pure: only files that provably cannot affect the macOS app build.
+          #   - ios/**                       iOS app target
+          #   - ios scripts                  iOS-only build/dev scripts
+          #   - Packages/Cmux Mobile* UI/shell/transport packages NOT linked by
+          #     the desktop pbxproj (verified 0 references). CMUXMobileCore,
+          #     CMUXAuthCore, CmuxAuthRuntime are deliberately EXCLUDED here
+          #     because the desktop app links them (Sources/Mobile/**, etc.).
+          #   - web/**                       Next.js docs/site + Cloud VM web API
+          #   - **/*.md, docs/**             documentation
+          #   - .github/workflows/{test-ios,ios-testflight}.yml  iOS-only CI
+          SKIP_RE='^(ios/'
+          SKIP_RE+='|scripts/(lint-ios-package-conventions\.sh|mobile-attach-qr-server\.sh|mobile-attach-qr\.sh|mobile-dev-launch\.sh|mobile-snapshot-diff\.py|mobile-stability-soak(\.sh)?|mobile-terminal-cursor-snapshot-check\.sh)$'
+          SKIP_RE+='|Packages/CmuxMobileAnalytics/'
+          SKIP_RE+='|Packages/CmuxMobileCamera/'
+          SKIP_RE+='|Packages/CmuxMobileDiagnostics/'
+          SKIP_RE+='|Packages/CmuxMobilePairedMac/'
+          SKIP_RE+='|Packages/CmuxMobileRPC/'
+          SKIP_RE+='|Packages/CmuxMobileShell/'
+          SKIP_RE+='|Packages/CmuxMobileShellModel/'
+          SKIP_RE+='|Packages/CmuxMobileShellUI/'
+          SKIP_RE+='|Packages/CmuxMobileSupport/'
+          SKIP_RE+='|Packages/CmuxMobileTerminal/'
+          SKIP_RE+='|Packages/CmuxMobileTerminalKit/'
+          SKIP_RE+='|Packages/CmuxMobileTransport/'
+          SKIP_RE+='|Packages/CmuxMobileWorkspace/'
+          SKIP_RE+='|web/'
+          SKIP_RE+='|docs/'
+          SKIP_RE+='|.github/workflows/(test-ios|ios-testflight)\.yml$'
+          SKIP_RE+='|[^/]*\.md$'
+          SKIP_RE+='|.*/[^/]*\.md$'
+          SKIP_RE+=')'
+
+          DESKTOP=false
+          # Any changed file that does NOT match the skip set forces desktop CI.
+          if grep -Ev "$SKIP_RE" /tmp/changed-files.txt > /tmp/desktop-files.txt; then
+            echo "Desktop-affecting files changed; running desktop CI:"
+            cat /tmp/desktop-files.txt
+            DESKTOP=true
+          else
+            echo "Only iOS-only / web / docs files changed; skipping desktop CI."
+          fi
+
+          # --- react webviews gate --------------------------------------------
+          # react-apps-check verifies webviews/ source against the committed
+          # generated assets under Resources/markdown-viewer/, so it must run when
+          # either side or its build scripts change.
+          REACT_RE='^(webviews/'
+          REACT_RE+='|Resources/markdown-viewer/'
+          REACT_RE+='|scripts/(build-webviews-app\.sh|check-webviews-react-compiler\.mjs)$'
+          REACT_RE+=')'
+
+          REACT=false
+          if grep -Eq "$REACT_RE" /tmp/changed-files.txt; then
+            echo "webviews-affecting files changed; running react-apps-check."
+            REACT=true
+          else
+            echo "No webviews files changed; skipping react-apps-check."
+          fi
+
+          emit "$DESKTOP" "$REACT"
+
   workflow-guard-tests:
     runs-on: ubuntu-latest
     steps:
@@ -126,8 +265,11 @@ jobs:
         run: bun test
 
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
-  # surfaces will live alongside it).
+  # surfaces will live alongside it). Not a required check, so it is safe to gate
+  # on webviews-affecting changes.
   react-apps-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.react == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -210,6 +352,8 @@ jobs:
           bun test tests/vm-db-read-model.test.ts
 
   tests:
+    needs: changes
+    if: ${{ needs.changes.outputs.desktop == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 75
     env:
@@ -492,6 +636,8 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
 
   tests-build-and-lag:
+    needs: changes
+    if: ${{ needs.changes.outputs.desktop == 'true' }}
     # Build the full cmux scheme and run the lag regression on macOS CI.
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
@@ -701,6 +847,8 @@ jobs:
           rm -f /tmp/create-virtual-display
 
   release-ghostty-cli-helper:
+    needs: changes
+    if: ${{ needs.changes.outputs.desktop == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 20
     steps:
@@ -734,7 +882,8 @@ jobs:
           if-no-files-found: error
 
   release-build:
-    needs: release-ghostty-cli-helper
+    needs: [changes, release-ghostty-cli-helper]
+    if: ${{ needs.changes.outputs.desktop == 'true' }}
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
@@ -849,6 +998,8 @@ jobs:
           [[ "$SDK_VERSION" == 26.* ]]
 
   ui-regressions:
+    needs: changes
+    if: ${{ needs.changes.outputs.desktop == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     # Cold builds after project/package changes can spend more than 25 minutes
     # in build-for-testing before the UI regression script starts.
