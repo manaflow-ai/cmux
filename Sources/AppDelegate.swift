@@ -1070,7 +1070,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
-    private var cachedRestorableAgentIndexForCheapSessionSnapshot = RestorableAgentSessionIndex.empty
+    private var cachedRestorableAgentIndexForCheapSessionSnapshot: RestorableAgentSessionIndex?
     private var lastTypingActivityAt: TimeInterval = 0
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
@@ -4090,12 +4090,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> Bool {
-        saveSessionSnapshot(
+        let restorableAgentIndex = restorableAgentIndexForCheapSessionSnapshot(
+            explicitIndex: restorableAgentIndex
+        )
+        return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
-            restorableAgentIndex: restorableAgentIndex ?? cachedRestorableAgentIndexForCheapSessionSnapshot,
+            restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: nil
         )
+    }
+
+    private func restorableAgentIndexForCheapSessionSnapshot(
+        explicitIndex: RestorableAgentSessionIndex?
+    ) -> RestorableAgentSessionIndex {
+        if let explicitIndex {
+            cachedRestorableAgentIndexForCheapSessionSnapshot = explicitIndex
+            return explicitIndex
+        }
+        if let cachedIndex = cachedRestorableAgentIndexForCheapSessionSnapshot {
+            return cachedIndex
+        }
+        // Seed from persisted hook metadata before the first cheap lifecycle save.
+        // This avoids an expensive live process scan while preventing an uninitialized
+        // empty index from overwriting valid resume metadata.
+        let staleTolerantIndex = RestorableAgentSessionIndex.loadStaleTolerant()
+        cachedRestorableAgentIndexForCheapSessionSnapshot = staleTolerantIndex
+        return staleTolerantIndex
     }
 
     private func loadStaleTolerantRestorableAgentIndexForAutosave() async -> RestorableAgentSessionIndex {
