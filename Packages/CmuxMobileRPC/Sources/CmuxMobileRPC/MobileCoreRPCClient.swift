@@ -242,6 +242,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return false
         case "mobile.terminal.create", "terminal.create":
             return false
+        case "workspace.close":
+            return !ticketCoversWorkspaceRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value
+            )
+        case "surface.close":
+            return !ticketCoversTerminalRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value,
+                terminalSelection: terminalSelection.value
+            )
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
@@ -264,6 +275,23 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         // attach token yet (it mints the ticket), so requiring auth routes it through
         // the Stack Auth account token: a ticket can only be created by a signed-in user.
         return method != "mobile.host.status"
+    }
+
+    private static func ticketCoversWorkspaceRequest(
+        ticket: CmxAttachTicket,
+        workspaceSelection: String?
+    ) -> Bool {
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Empty workspaceID means the ticket is Mac-wide (general pairing).
+        // It covers any explicitly targeted workspace on the paired Mac.
+        if ticketWorkspaceID.isEmpty {
+            return workspaceSelection != nil
+        }
+        if let ticketTerminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !ticketTerminalID.isEmpty {
+            return false
+        }
+        return workspaceSelection == ticketWorkspaceID
     }
 
     private static func ticketCoversTerminalRequest(

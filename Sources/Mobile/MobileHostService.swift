@@ -296,7 +296,7 @@ final class MobileHostService {
     /// clients via `mobile.host.status`. Every status path (the public-status
     /// cache, the live `publicHostStatusResult`, and `TerminalController`'s
     /// full status) reads this so the lists cannot drift; iOS gates features
-    /// like rename/pin on the entries present here.
+    /// like rename/pin/delete on the entries present here.
     ///
     /// In DEBUG builds this also advertises `dogfood.v1`, the DEV dogfood
     /// feedback round-trip (`dogfood.feedback.submit`). It is absent from
@@ -309,6 +309,7 @@ final class MobileHostService {
             "terminal.replay.v1",
             "terminal.viewport.v1",
             "workspace.actions.v1",
+            "mobile.delete.v1",
         ]
         #if DEBUG
         capabilities.append("dogfood.v1")
@@ -1273,6 +1274,17 @@ final class MobileHostService {
             return nil
         case "mobile.terminal.create", "terminal.create":
             return nil
+        case "workspace.close":
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
+        case "surface.close":
+            return ticketTerminalAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value,
+                terminalSelection: terminalSelection.value
+            )
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
@@ -1290,6 +1302,34 @@ final class MobileHostService {
         default:
             return scopedTicketError
         }
+    }
+
+    private static func ticketWorkspaceAuthorizationError(
+        authorization: MobileAttachTicketAuthorization,
+        workspaceSelection: String?
+    ) -> MobileHostRPCError? {
+        guard let workspaceSelection else {
+            return scopedTicketError
+        }
+        if authorization.createdWorkspaceIDs.contains(workspaceSelection) {
+            return nil
+        }
+
+        let ticket = authorization.ticket
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Empty workspaceID means the ticket is Mac-wide (general pairing).
+        // Allow any explicitly named workspace under it.
+        if ticketWorkspaceID.isEmpty {
+            return nil
+        }
+        if let terminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !terminalID.isEmpty {
+            return scopedTicketError
+        }
+        guard workspaceSelection == ticketWorkspaceID else {
+            return scopedTicketError
+        }
+        return nil
     }
 
     private static func ticketTerminalAuthorizationError(

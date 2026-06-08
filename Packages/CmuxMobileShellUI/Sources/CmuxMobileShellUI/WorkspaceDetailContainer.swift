@@ -31,6 +31,9 @@ struct WorkspaceDetailContainer: View {
                 store: store,
                 createWorkspace: createWorkspace,
                 createTerminal: { store.createTerminal(in: workspace.id) },
+                deleteTerminal: { workspaceID, terminalID in
+                    store.deleteTerminal(id: terminalID, in: workspaceID)
+                },
                 reportTerminalViewport: store.reportTerminalViewport,
                 sendTerminalInput: store.sendTerminalRawInput,
                 safeAreaContext: safeAreaContext
