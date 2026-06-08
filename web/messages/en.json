@@ -680,7 +680,7 @@
       "methodState": "Report the control client's observed state (diagnostics).",
       "socketSafetyDesc": "A dash-prefixed host or identity file is rejected at the trust boundary as a defense against SSH option injection.",
       "limitationsTitle": "Limitations",
-      "limitReconnect": "No live reconnect: if the SSH connection drops mid-session — or you close the mirror window or quit cmux — the mirror closes and you re-attach with cmux ssh-tmux. Mirrors aren't restored on relaunch, and a mid-session drop isn't retried with backoff the way cmux ssh is.",
+      "limitReconnect": "Transient SSH drops reconnect automatically: if the connection blips mid-session the mirror freezes and cmux retries with capped exponential backoff, re-seeding the panes when it resumes. The mirror only closes for good when the remote session itself ends, or when you close the mirror window or quit cmux — and it isn't restored on relaunch (re-attach with cmux ssh-tmux).",
       "limitPaste": "Only single-line paste/drop (such as a file or image path) is delivered as a real bracketed paste via paste-buffer -p; multi-line text is sent as plain keystrokes, so a remote app won't treat it as one paste.",
       "limitCwd": "Live working-directory updates use control-mode subscriptions (tmux 3.2+); on older tmux the tab shows the initial folder but doesn't update on cd.",
       "limitReflow": "Primary-screen scrollback isn't re-wrapped on resize — cmux leaves reflow to tmux, so older lines can stay at the previous width until the app repaints. Full-screen TUIs, which redraw on resize, are unaffected."
