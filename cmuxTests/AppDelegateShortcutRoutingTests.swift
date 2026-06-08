@@ -4714,6 +4714,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
+              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
@@ -4723,26 +4724,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        let driftedResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        contentView.addSubview(driftedResponder)
+        defer { driftedResponder.removeFromSuperview() }
+
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         terminalPanel.hostedView.setVisibleInUI(true)
         terminalPanel.hostedView.setActive(true)
         terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitFor(timeout: 1.0, until: { terminalPanel.hostedView.isSurfaceViewFirstResponder() })
 
         XCTAssertTrue(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
             "Expected terminal surface to own first responder before repair test"
         )
 
-        XCTAssertTrue(window.makeFirstResponder(nil), "Expected test to clear the window first responder")
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(window.makeFirstResponder(driftedResponder), "Expected test responder to accept first responder")
+        waitFor(timeout: 1.0, until: { window.firstResponder === driftedResponder })
 
         XCTAssertFalse(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
             "Expected terminal surface to lose first responder before repaired typing"
         )
-        XCTAssertTrue(window.firstResponder == nil || window.firstResponder is NSWindow, "Expected a broken key-routing responder")
+        XCTAssertTrue(window.firstResponder === driftedResponder, "Expected a drifted key-routing responder")
 
         guard let keyDown = makeKeyDownEvent(
             key: "a",
@@ -4755,7 +4760,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         window.sendEvent(keyDown)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitFor(timeout: 1.0, until: { terminalPanel.hostedView.isSurfaceViewFirstResponder() })
 
         XCTAssertTrue(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
