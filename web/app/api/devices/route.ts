@@ -1,0 +1,325 @@
+// Device registry — register a Mac/host (and its running cmux app instance) and
+// list the team's registered devices so a phone can auto-pair on reload.
+//
+// Auth: Stack Bearer + X-Stack-Refresh-Token from the native client (same as
+// /api/device-tokens). Team scope: the caller picks a team via `X-Cmux-Team-Id`
+// (or `?teamId=`); the route rejects a team the caller is not a member of and
+// otherwise defaults to the caller's selected/billing team.
+//
+// The registry is a best-effort rendezvous layer. It is NOT authoritative on
+// pairing — a phone keeps its own local paired-Mac store and falls back to it
+// when the registry is unreachable, so pairing survives the cloud being down.
+
+import { and, desc, eq, sql } from "drizzle-orm";
+import { cloudDb } from "../../../db/client";
+import { deviceAppInstances, devices } from "../../../db/schema";
+import { jsonResponse } from "../../../services/vms/routeHelpers";
+import {
+  unauthorized,
+  verifyRequest,
+  type AuthedUser,
+} from "../../../services/vms/auth";
+import { requestedVmTeamIdFromRequest } from "../../../services/vms/routeHelpers";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const MAX_REQUEST_BYTES = 16 * 1024;
+const MAX_DEVICES_PER_TEAM = 200;
+const MAX_ROUTES = 16;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const ALLOWED_PLATFORMS = new Set(["mac", "ios", "linux", "windows"]);
+
+type TeamResolution =
+  | { ok: true; teamId: string }
+  | { ok: false; response: Response };
+
+/**
+ * Resolve the team this request operates on and reject teams the caller is not a
+ * member of. A requested team (`X-Cmux-Team-Id` / `?teamId=`) must appear in the
+ * caller's verified team list; with no request team we default to the caller's
+ * selected team, then the billing team (which is the user id for a solo account
+ * with no team), so single-team callers need no header.
+ */
+function resolveTeam(request: Request, user: AuthedUser): TeamResolution {
+  const requested = requestedVmTeamIdFromRequest(request);
+  if (requested) {
+    const isMember = user.teamIds.includes(requested) || requested === user.id;
+    if (!isMember) {
+      return {
+        ok: false,
+        response: jsonResponse({ error: "team_not_found" }, 403),
+      };
+    }
+    return { ok: true, teamId: requested };
+  }
+  return { ok: true, teamId: user.selectedTeamId ?? user.billingTeamId };
+}
+
+async function readBoundedJson(
+  request: Request,
+): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; status: number }> {
+  const lengthHeader = request.headers.get("content-length");
+  if (lengthHeader && Number(lengthHeader) > MAX_REQUEST_BYTES) {
+    return { ok: false, status: 413 };
+  }
+  let raw: string;
+  try {
+    raw = await request.text();
+  } catch {
+    return { ok: false, status: 400 };
+  }
+  if (raw.length > MAX_REQUEST_BYTES) return { ok: false, status: 413 };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, status: 400 };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, status: 400 };
+  }
+  return { ok: true, value: parsed as Record<string, unknown> };
+}
+
+function trimmedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function recordOrEmpty(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function routesArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value.slice(0, MAX_ROUTES) : [];
+}
+
+/**
+ * Register (or refresh) a device and its running cmux app instance. Idempotent
+ * per `(deviceId)` for the machine row and per `(deviceId, tag)` for the
+ * instance row, so a relaunch updates routes in place rather than duplicating.
+ */
+export async function POST(request: Request): Promise<Response> {
+  const user = await verifyRequest(request, {
+    requestedTeamId: requestedVmTeamIdFromRequest(request),
+    allowCookie: false,
+  });
+  if (!user) return unauthorized();
+
+  const team = resolveTeam(request, user);
+  if (!team.ok) return team.response;
+
+  const body = await readBoundedJson(request);
+  if (!body.ok) return jsonResponse({ error: "invalid_request" }, body.status);
+
+  const deviceId = trimmedString(body.value.deviceId).toLowerCase();
+  const platform = trimmedString(body.value.platform).toLowerCase();
+  const displayName = trimmedString(body.value.displayName) || null;
+  const labels = recordOrEmpty(body.value.labels);
+  const tag = trimmedString(body.value.tag) || "default";
+  const routes = routesArray(body.value.routes);
+  const instanceLabels = recordOrEmpty(body.value.instanceLabels);
+
+  if (!UUID_RE.test(deviceId)) {
+    return jsonResponse({ error: "invalid_device_id" }, 400);
+  }
+  if (!ALLOWED_PLATFORMS.has(platform)) {
+    return jsonResponse({ error: "invalid_platform" }, 400);
+  }
+
+  const db = cloudDb();
+  const now = new Date();
+
+  const registered = await db.transaction(async (tx) => {
+    // Serialize concurrent registrations for the same team so the per-team cap
+    // is enforced without a race (mirrors the device-tokens advisory lock).
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${team.teamId}, 7))`);
+
+    const [existing] = await tx
+      .select({ id: devices.id, teamId: devices.teamId })
+      .from(devices)
+      .where(eq(devices.id, deviceId))
+      .limit(1);
+
+    // A device id is global (cmux-generated UUID). If it already exists under a
+    // different team, the caller cannot claim it (prevents cross-team takeover).
+    if (existing && existing.teamId !== team.teamId) {
+      return { error: "device_team_conflict" as const };
+    }
+
+    if (!existing) {
+      const [{ total }] = await tx
+        .select({ total: sql<number>`count(*)::int` })
+        .from(devices)
+        .where(eq(devices.teamId, team.teamId));
+      if (Number(total) >= MAX_DEVICES_PER_TEAM) {
+        return { error: "too_many_devices" as const };
+      }
+    }
+
+    await tx
+      .insert(devices)
+      .values({
+        id: deviceId,
+        teamId: team.teamId,
+        userId: user.id,
+        platform,
+        displayName,
+        labels,
+        lastSeenAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: devices.id,
+        set: {
+          teamId: team.teamId,
+          userId: user.id,
+          platform,
+          displayName,
+          labels,
+          lastSeenAt: now,
+          updatedAt: now,
+        },
+      });
+
+    await tx
+      .insert(deviceAppInstances)
+      .values({
+        deviceId,
+        teamId: team.teamId,
+        tag,
+        routes,
+        labels: instanceLabels,
+        lastSeenAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [deviceAppInstances.deviceId, deviceAppInstances.tag],
+        set: {
+          teamId: team.teamId,
+          routes,
+          labels: instanceLabels,
+          lastSeenAt: now,
+          updatedAt: now,
+        },
+      });
+
+    return { error: null };
+  });
+
+  if (registered.error === "device_team_conflict") {
+    return jsonResponse({ error: "device_team_conflict" }, 409);
+  }
+  if (registered.error === "too_many_devices") {
+    return jsonResponse({ error: "too_many_devices" }, 429);
+  }
+
+  return jsonResponse({ ok: true, deviceId, teamId: team.teamId, tag });
+}
+
+type DeviceListRow = {
+  id: string;
+  platform: string;
+  displayName: string | null;
+  labels: Record<string, unknown>;
+  lastSeenAt: Date;
+};
+
+/**
+ * List the team's registered devices and their app instances, so a phone can
+ * find the Mac it last paired with and refresh routes on reload.
+ */
+export async function GET(request: Request): Promise<Response> {
+  const user = await verifyRequest(request, {
+    requestedTeamId: requestedVmTeamIdFromRequest(request),
+    allowCookie: false,
+  });
+  if (!user) return unauthorized();
+
+  const team = resolveTeam(request, user);
+  if (!team.ok) return team.response;
+
+  const db = cloudDb();
+
+  const deviceRows = (await db
+    .select({
+      id: devices.id,
+      platform: devices.platform,
+      displayName: devices.displayName,
+      labels: devices.labels,
+      lastSeenAt: devices.lastSeenAt,
+    })
+    .from(devices)
+    .where(eq(devices.teamId, team.teamId))
+    .orderBy(desc(devices.lastSeenAt))) as DeviceListRow[];
+
+  const instanceRows = await db
+    .select({
+      deviceId: deviceAppInstances.deviceId,
+      tag: deviceAppInstances.tag,
+      routes: deviceAppInstances.routes,
+      labels: deviceAppInstances.labels,
+      lastSeenAt: deviceAppInstances.lastSeenAt,
+    })
+    .from(deviceAppInstances)
+    .where(eq(deviceAppInstances.teamId, team.teamId))
+    .orderBy(desc(deviceAppInstances.lastSeenAt));
+
+  const instancesByDevice = new Map<string, typeof instanceRows>();
+  for (const row of instanceRows) {
+    const list = instancesByDevice.get(row.deviceId) ?? [];
+    list.push(row);
+    instancesByDevice.set(row.deviceId, list);
+  }
+
+  const devicesPayload = deviceRows.map((device) => ({
+    deviceId: device.id,
+    platform: device.platform,
+    displayName: device.displayName,
+    labels: device.labels,
+    lastSeenAt: device.lastSeenAt.toISOString(),
+    instances: (instancesByDevice.get(device.id) ?? []).map((instance) => ({
+      tag: instance.tag,
+      routes: instance.routes,
+      labels: instance.labels,
+      lastSeenAt: instance.lastSeenAt.toISOString(),
+    })),
+  }));
+
+  return jsonResponse({ teamId: team.teamId, devices: devicesPayload });
+}
+
+/**
+ * Unregister a device (e.g. when the user forgets/decommissions a Mac). Removes
+ * the machine row and cascades its app instances. Team-scoped so a caller can
+ * only delete devices in a team they belong to.
+ */
+export async function DELETE(request: Request): Promise<Response> {
+  const user = await verifyRequest(request, {
+    requestedTeamId: requestedVmTeamIdFromRequest(request),
+    allowCookie: false,
+  });
+  if (!user) return unauthorized();
+
+  const team = resolveTeam(request, user);
+  if (!team.ok) return team.response;
+
+  const body = await readBoundedJson(request);
+  if (!body.ok) return jsonResponse({ error: "invalid_request" }, body.status);
+
+  const deviceId = trimmedString(body.value.deviceId).toLowerCase();
+  if (!UUID_RE.test(deviceId)) {
+    return jsonResponse({ error: "invalid_device_id" }, 400);
+  }
+
+  const db = cloudDb();
+  await db
+    .delete(devices)
+    .where(and(eq(devices.id, deviceId), eq(devices.teamId, team.teamId)));
+
+  return jsonResponse({ ok: true });
+}
