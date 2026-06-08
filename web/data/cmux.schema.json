@@ -1137,6 +1137,8 @@
               "toggleTerminalCopyMode",
               "scrollbackPageUp",
               "scrollbackPageDown",
+              "scrollbackLineUp",
+              "scrollbackLineDown",
               "focusTextBoxInput",
               "attachTextBoxFile",
               "focusLeft",

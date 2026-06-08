@@ -76,7 +76,7 @@ extension KeyboardShortcutSettings.Action {
             return .browserPanel
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .rightSidebarFocus
-        case .renameTab, .renameWorkspace, .scrollbackPageUp, .scrollbackPageDown, .sendCtrlFToTerminal:
+        case .renameTab, .renameWorkspace, .scrollbackPageUp, .scrollbackPageDown, .scrollbackLineUp, .scrollbackLineDown, .sendCtrlFToTerminal:
             return .nonBrowserPanel
         case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
              .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode:

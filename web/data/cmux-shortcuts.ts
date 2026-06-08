@@ -135,6 +135,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "toggleTerminalCopyMode", combos: [["⌘", "⇧", "M"]], description: { en: "Toggle terminal copy mode", ja: "ターミナルコピーモードを切り替え" } },
       { id: "scrollbackPageUp", combos: [["⇧", "Page Up"]], description: { en: "Scroll terminal page up", ja: "ターミナルを1ページ上へスクロール" } },
       { id: "scrollbackPageDown", combos: [["⇧", "Page Down"]], description: { en: "Scroll terminal page down", ja: "ターミナルを1ページ下へスクロール" } },
+      { id: "scrollbackLineUp", combos: [["⇧", "↑"]], description: { en: "Scroll terminal line up", ja: "ターミナルを1行上へスクロール" } },
+      { id: "scrollbackLineDown", combos: [["⇧", "↓"]], description: { en: "Scroll terminal line down", ja: "ターミナルを1行下へスクロール" } },
       { id: "focusTextBoxInput", combos: [["⌘", "⇧", "A"]], description: { en: "Switch focus between terminal and TextBox input", ja: "ターミナルとTextBox入力のフォーカスを切り替え" } },
       { id: "attachTextBoxFile", combos: [["⌥", "⌘", "⇧", "A"]], description: { en: "Attach file to TextBox input", ja: "TextBox入力にファイルを添付" } },
       {
