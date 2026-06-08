@@ -64,8 +64,13 @@ public struct SentryScrubber: Sendable {
         // longer identifier (e.g. AWS_SECRET_ACCESS_KEY, MY_API_KEY), so optional
         // identifier characters are allowed around it.
         SentryRegexPattern(
-            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*["']?)[^\s"'&,}]+"#
+            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*["']?)[^\s"'&,}]+"#
         ),
+        // The bare `sid` session alias (`?sid=…`, `&sid=…`, `sid:…`) carries a
+        // session credential but is too short to embed in the marker set above
+        // without matching innocuous substrings (`inside=`, `aside=`). A `\b`
+        // word boundary anchors it so only a standalone `sid` key is redacted.
+        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*["']?)[^\s"'&,}]+"#),
         // Provider-style keys: sk-..., pk-..., ghp_..., xoxb-..., and similar prefixes.
         SentryRegexPattern(#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|xox[baprs])[_\-][A-Za-z0-9_\-]{16,}"#),
         // JSON Web Tokens: three base64url segments separated by dots.
@@ -189,6 +194,9 @@ public struct SentryScrubber: Sendable {
         let normalized = key.lowercased().replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: "_", with: "")
             .replacingOccurrences(of: " ", with: "")
+        if sensitiveKeyExactMarkers.contains(normalized) {
+            return true
+        }
         for marker in sensitiveKeyMarkers where normalized.contains(marker) {
             return true
         }
@@ -208,9 +216,15 @@ public struct SentryScrubber: Sendable {
         "cookie",
         "credential",
         "bearer",
-        "sessionid",
+        "session",
         "privatekey",
     ]
+
+    /// Short credential key aliases matched WHOLE (not as substrings), so they
+    /// don't redact innocuous keys that merely contain them (e.g. `sid` must not
+    /// match `inside`/`aside`). The free-text scrubber covers their `key=value`
+    /// form via a `\b`-anchored pattern.
+    static let sensitiveKeyExactMarkers: Set<String> = ["sid"]
 
     // MARK: - Paths
 

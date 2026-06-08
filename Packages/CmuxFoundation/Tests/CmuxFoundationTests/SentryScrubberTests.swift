@@ -136,6 +136,45 @@ import Testing
         )
     }
 
+    @Test func redactsBareSessionAndSidAliasesButNotSubstrings() {
+        // `session=…` and the short `sid=…` alias carry session credentials and
+        // are common in request query strings; both must be redacted as raw text.
+        #expect(
+            scrubber.scrub("GET /x?session=abcdef1234567890&page=2")
+                == "GET /x?session=<redacted-secret>&page=2"
+        )
+        #expect(
+            scrubber.scrub("redirect ?sid=abcdef0123456789 done")
+                == "redirect ?sid=<redacted-secret> done"
+        )
+        #expect(
+            scrubber.scrub("usersession=plainvalue123")
+                == "usersession=<redacted-secret>"
+        )
+        // `sid` is anchored to a word boundary, so it must NOT redact values in
+        // keys that merely contain the letters (inside/aside).
+        #expect(scrubber.scrub("inside=hallway") == "inside=hallway")
+        #expect(scrubber.scrub("aside=note") == "aside=note")
+    }
+
+    @Test func sessionAndSidDictionaryKeysAreSensitiveWithoutOvermatching() {
+        let input: [String: Any] = [
+            "session": "abc",
+            "sid": "def",
+            "inside": "hallway",
+            "presidency": "term",
+            "count": 3,
+        ]
+        let output = scrubber.scrub(dictionary: input)
+        #expect(output["session"] as? String == "<redacted-secret>")
+        #expect(output["sid"] as? String == "<redacted-secret>")
+        // `sid` is matched as a whole key only: keys that merely contain those
+        // letters pass through and are content-scrubbed.
+        #expect(output["inside"] as? String == "hallway")
+        #expect(output["presidency"] as? String == "term")
+        #expect(output["count"] as? Int == 3)
+    }
+
     // MARK: - Grouping fields preserved
 
     @Test func preservesNormalErrorText() {
