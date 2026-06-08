@@ -9,16 +9,25 @@ import Sentry
 /// dispatch queue that produced the event; the scrub is pure and synchronous,
 /// so no isolation is required.
 ///
-/// The scrubber walks every field that can carry user content — event message,
-/// exception values, exception mechanism (`desc` / `helpLink` / `data`),
-/// thread/exception/event stack-frame paths, debug-image `codeFile` paths,
-/// request URL / query / headers, transaction name, server name, `tags`,
-/// `extra`, `context`, and breadcrumb `message` / `data` — while leaving
-/// grouping-relevant fields (exception `type`, mechanism `type`, fingerprint,
-/// frame `function` / `module` / `lineNumber`) untouched so Sentry issue
-/// grouping is unaffected. Request `cookies` and the `user` identity fields are
-/// dropped wholesale rather than pattern-scrubbed, because cookie/identity
-/// values rarely match a secret pattern.
+/// The contract is **scrub every free-text field; preserve only an explicit
+/// grouping allowlist**, so a new free-text field is covered by default rather
+/// than leaking until someone notices it.
+///
+/// Scrubbed free-text fields: event `message`, `transaction`, `serverName`,
+/// `logger`; exception `value`; exception mechanism `desc` / `helpLink` /
+/// `data`; every stack frame's `fileName` / `package` / `contextLine` /
+/// `preContext` / `postContext` / `vars` (across exception, thread, and event
+/// stack traces); thread `name`; debug-image `codeFile`; request `url` /
+/// `queryString` / `fragment` / `headers`; `tags`; `extra`; `context`; and
+/// breadcrumb `message` / `data`. Request `cookies` and the `user` identity
+/// fields are dropped wholesale because their values rarely match a secret
+/// pattern.
+///
+/// Preserved for grouping (the allowlist): exception `type`, mechanism `type`,
+/// `fingerprint`, frame `function` / `module` / `lineNumber` and address
+/// fields, `level`, `environment`, `releaseName`, `dist`, `modules`. The
+/// `event.error` reference is not serialized by the SDK (it is converted into
+/// `exceptions` / `mechanism.data` first), so it needs no handling here.
 struct SentryEventScrubber {
     /// The pure value scrubber that does the actual redaction.
     private let scrubber: SentryScrubber
@@ -43,6 +52,7 @@ struct SentryEventScrubber {
 
         event.serverName = scrubber.scrub(optional: event.serverName)
         event.transaction = scrubber.scrub(optional: event.transaction)
+        event.logger = scrubber.scrub(optional: event.logger)
 
         if let exceptions = event.exceptions {
             for exception in exceptions {
@@ -55,6 +65,7 @@ struct SentryEventScrubber {
 
         if let threads = event.threads {
             for thread in threads {
+                thread.name = scrubber.scrub(optional: thread.name)
                 scrubFrames(in: thread.stacktrace)
             }
         }
@@ -138,14 +149,24 @@ struct SentryEventScrubber {
         }
     }
 
-    /// Redacts file paths in every frame of a stack trace, preserving symbol metadata.
+    /// Redacts the free-text fields of every frame in a stack trace.
+    ///
+    /// Scrubs the path fields (`fileName`, `package`), the captured source lines
+    /// (`contextLine`, `preContext`, `postContext`), and local variable values
+    /// (`vars`), all of which can carry paths, emails, tokens, or passwords. The
+    /// grouping/symbol fields (`function`, `module`, `lineNumber`, the address
+    /// fields) are preserved so Sentry issue grouping is unaffected.
     private func scrubFrames(in stacktrace: SentryStacktrace?) {
         guard let frames = stacktrace?.frames else { return }
         for frame in frames {
             frame.fileName = scrubber.scrub(optional: frame.fileName)
             frame.package = scrubber.scrub(optional: frame.package)
-            // `function`, `module`, and `lineNumber` are grouping-relevant and
-            // are left untouched.
+            frame.contextLine = scrubber.scrub(optional: frame.contextLine)
+            frame.preContext = frame.preContext?.map { scrubber.scrub($0) }
+            frame.postContext = frame.postContext?.map { scrubber.scrub($0) }
+            if let vars = frame.vars {
+                frame.vars = scrubber.scrub(dictionary: vars)
+            }
         }
     }
 

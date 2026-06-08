@@ -139,16 +139,18 @@ public struct SentryScrubber: Sendable {
     ///
     /// Values keyed by a sensitive name (``isSensitiveKey(_:)`` — token,
     /// password, secret, api key, authorization, cookie, …) are redacted
-    /// wholesale, because such values (a session id, a base64 credential) often
-    /// do not match any standalone secret value pattern. All other values are
-    /// scrubbed by content, recursing into nested dictionaries and arrays.
+    /// wholesale **regardless of shape** (string, array, or nested dictionary),
+    /// because the key is the trust boundary and such values (a session id, a
+    /// base64 credential, a list of cookies) often do not match any standalone
+    /// secret value pattern. All other values are scrubbed by content, recursing
+    /// into nested dictionaries and arrays.
     ///
     /// - Parameter dictionary: The dictionary whose values are scrubbed.
     /// - Returns: A new dictionary with the same keys and scrubbed values.
     public func scrub(dictionary: [String: Any]) -> [String: Any] {
         var output = [String: Any](minimumCapacity: dictionary.count)
         for (key, value) in dictionary {
-            if Self.isSensitiveKey(key), value is String {
+            if Self.isSensitiveKey(key) {
                 output[key] = Self.redactedSecret
             } else {
                 output[key] = scrub(value: value)

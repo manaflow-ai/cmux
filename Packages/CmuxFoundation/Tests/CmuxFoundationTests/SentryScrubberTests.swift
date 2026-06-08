@@ -167,6 +167,20 @@ import Testing
         #expect(output["count"] as? Int == 5)
     }
 
+    @Test func redactsStructuredValuesUnderSensitiveKeys() {
+        // The key is the trust boundary: an array or nested dict under a
+        // sensitive key is dropped wholesale, not recursed into.
+        let input: [String: Any] = [
+            "cookie": ["session=abc", "csrf=def"],
+            "credentials": ["user": "alice", "pass": "secret"] as [String: Any],
+            "note": "plain",
+        ]
+        let output = scrubber.scrub(dictionary: input)
+        #expect(output["cookie"] as? String == "<redacted-secret>")
+        #expect(output["credentials"] as? String == "<redacted-secret>")
+        #expect(output["note"] as? String == "plain")
+    }
+
     @Test func sensitiveKeyMatchingIgnoresCaseAndSeparators() {
         #expect(SentryScrubber.isSensitiveKey("Access-Token"))
         #expect(SentryScrubber.isSensitiveKey("X_API_KEY"))

@@ -47,13 +47,17 @@ import Testing
         #expect(scrubbed.context?["auth"]?["token"] as? String == "<redacted-secret>")
     }
 
-    @Test func scrubsStackFramePathsButKeepsSymbols() {
+    @Test func scrubsStackFramePathsContextAndVarsButKeepsSymbols() {
         let event = Event()
         let frame = Frame()
         frame.fileName = "/Users/buildbot/work/cmux/Sources/AppDelegate.swift"
         frame.function = "applicationDidFinishLaunching(_:)"
         frame.package = "/Users/buildbot/Library/Developer/Xcode/DerivedData/cmux/Build/cmux.app"
         frame.lineNumber = 1325
+        frame.contextLine = "let home = \"/Users/lawrence/secret\""
+        frame.preContext = ["// open lawrence@cmux.com"]
+        frame.postContext = ["token=abcdef0123456789zz"]
+        frame.vars = ["cwd": "/Users/lawrence/dev", "token": "plainsecretvalue"]
 
         let stack = SentryStacktrace(frames: [frame], registers: [:])
         let exception = Exception(value: "x", type: "T")
@@ -63,6 +67,12 @@ import Testing
         let outFrame = scrubber.scrub(event).exceptions?.first?.stacktrace?.frames.first
         #expect(outFrame?.fileName == "/Users/<redacted>/work/cmux/Sources/AppDelegate.swift")
         #expect(outFrame?.package?.hasPrefix("/Users/<redacted>/") == true)
+        #expect(outFrame?.contextLine == "let home = \"/Users/<redacted>/secret\"")
+        #expect(outFrame?.preContext == ["// open <redacted-email>"])
+        #expect(outFrame?.postContext == ["token=<redacted-secret>"])
+        #expect(outFrame?.vars?["cwd"] as? String == "/Users/<redacted>/dev")
+        // `token` is a sensitive key, so its value is dropped wholesale.
+        #expect(outFrame?.vars?["token"] as? String == "<redacted-secret>")
         // Grouping-relevant symbol metadata is untouched.
         #expect(outFrame?.function == "applicationDidFinishLaunching(_:)")
         #expect(outFrame?.lineNumber == 1325)
