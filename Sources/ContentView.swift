@@ -15804,7 +15804,6 @@ struct TabItemView: View, Equatable {
                     }
                 }
         )
-        .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .overlay(alignment: .topTrailing) {
             if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
                 ShortcutHintPill(
@@ -15822,6 +15821,7 @@ struct TabItemView: View, Equatable {
                 .shortcutHintTransition()
             }
         }
+        .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .contentShape(Rectangle())
