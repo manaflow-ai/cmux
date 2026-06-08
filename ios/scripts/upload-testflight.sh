@@ -14,6 +14,17 @@ TestFlight. The default lane is beta:
   bundle id: dev.cmux.app.beta
   profile:   cmux Beta Distribution
 
+On the manual signing path the exported app is RE-SIGNED with the full
+entitlements before upload. The archive is built unsigned (to avoid
+distribution-cert churn), so -exportArchive re-adds only the profile baseline
+and silently DROPS app-capability entitlements like aps-environment. That is
+the https://github.com/manaflow-ai/cmux/pull/5496 regression that killed
+beta/prod push. A config-level entitlements file alone does not prove the
+entitlement reaches the signed binary; only codesign -d --entitlements on the
+exported app does. So the re-sign merges Config/cmux-release.entitlements into
+the export baseline and signs with the local distribution cert, gated on
+codesign showing aps-environment and a strict signature verify.
+
 Authentication uses one of:
 
   ASC_API_KEY_ID
@@ -359,6 +370,119 @@ IPA_PATH="$EXPORT_PATH/cmux.ipa"
 if [[ ! -f "$IPA_PATH" ]]; then
   echo "error: IPA was not exported at $IPA_PATH" >&2
   exit 1
+fi
+
+# Re-sign the exported app with the FULL entitlements (production aps-environment
+# et al.), then point $IPA_PATH at the re-signed IPA so the upload below ships it.
+#
+# Why this is necessary: the archive is built UNSIGNED (CODE_SIGNING_ALLOWED=NO,
+# see above) to avoid distribution-cert churn on ephemeral runners. An unsigned
+# archive carries NO entitlements, so `-exportArchive` re-adds only the profile
+# baseline (application-identifier, com.apple.developer.team-identifier,
+# get-task-allow, beta-reports-active) and SILENTLY DROPS app-capability
+# entitlements such as aps-environment. This regressed in
+# https://github.com/manaflow-ai/cmux/pull/5496 (June 2026): the signed beta IPA
+# had aps-environment absent entirely, so the device registered no push token and
+# beta/prod push was dead. The per-config entitlements file fix
+# (Config/cmux-release.entitlements) is necessary but NOT sufficient on its own:
+# a config-level entitlement only ships if it survives into the signed binary,
+# and only `codesign -d --entitlements` on the EXPORTED app proves that. So we
+# re-sign here with the export baseline MERGED with the Release entitlements file.
+#
+# This runs on the MANUAL signing path only: it re-signs with the named
+# distribution cert from the local keychain ("Apple Distribution: Manaflow,
+# Inc."), which is present for local/fleet-archive beta cuts. The cmux iOS app is
+# a single self-contained bundle (no Frameworks/, no PlugIns/, GhosttyKit is
+# static), so only the top-level .app is signed; there is no nested code to
+# re-sign. Two alternatives were ruled out: an ad-hoc archive (CODE_SIGN_IDENTITY
+# "-") is rejected by the iOS SDK for an entitled app, and signing on the shared
+# fleet would put distribution material on shared Macs.
+if [[ "$SIGNING" == "manual" ]]; then
+  # Resolve the Release entitlements file. Release.xcconfig statically sets
+  # CODE_SIGN_ENTITLEMENTS = Config/cmux-release.entitlements, so default to that
+  # path rather than parsing xcodebuild -showBuildSettings (slower, more brittle).
+  RELEASE_ENTITLEMENTS="${IOS_RELEASE_ENTITLEMENTS:-$IOS_DIR/Config/cmux-release.entitlements}"
+  RESIGN_IDENTITY="${IOS_DISTRIBUTION_IDENTITY:-Apple Distribution: Manaflow, Inc. (7WLXT3NR37)}"
+
+  if [[ ! -f "$RELEASE_ENTITLEMENTS" ]]; then
+    echo "error: re-sign needs the Release entitlements file but it is missing: $RELEASE_ENTITLEMENTS (set IOS_RELEASE_ENTITLEMENTS to override)" >&2
+    exit 1
+  fi
+  if ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$RESIGN_IDENTITY"; then
+    echo "error: re-sign needs the distribution identity '$RESIGN_IDENTITY' in the keychain, but it was not found (security find-identity -v -p codesigning). Set IOS_DISTRIBUTION_IDENTITY, or run on a Mac with the Apple Distribution cert." >&2
+    exit 1
+  fi
+
+  RESIGN_DIR="$OUT_DIR/resign"
+  rm -rf "$RESIGN_DIR"
+  mkdir -p "$RESIGN_DIR"
+  ( cd "$RESIGN_DIR" && unzip -q "$IPA_PATH" )
+  RESIGN_APP="$(find "$RESIGN_DIR/Payload" -maxdepth 1 -name '*.app' -type d | head -n 1)"
+  if [[ -z "$RESIGN_APP" || ! -d "$RESIGN_APP" ]]; then
+    echo "error: could not find Payload/*.app inside the exported IPA to re-sign" >&2
+    exit 1
+  fi
+
+  # Start from the exported app's current (profile-baseline) entitlements, then
+  # MERGE every key from the Release entitlements file. The merge is GENERIC:
+  # PlistBuddy Merge copies all keys from the Release file and skips any that
+  # already exist in the baseline, so future entitlements survive automatically
+  # and existing baseline values (e.g. get-task-allow=false) are preserved.
+  MERGED_ENTITLEMENTS="$RESIGN_DIR/entitlements.plist"
+  codesign -d --entitlements :- --xml "$RESIGN_APP" > "$MERGED_ENTITLEMENTS" 2>/dev/null || {
+    echo "error: could not read current entitlements from the exported app: $RESIGN_APP" >&2
+    exit 1
+  }
+  /usr/libexec/PlistBuddy -c "Merge $RELEASE_ENTITLEMENTS" "$MERGED_ENTITLEMENTS" >/dev/null
+  plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
+
+  codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"
+
+  # HARD GATES on the signed .app: the entitlement we are fixing must be present,
+  # and the signature must be strictly valid. A config-level check cannot prove
+  # either; only codesign on the actual binary does.
+  if ! codesign -d --entitlements :- --xml "$RESIGN_APP" 2>/dev/null | plutil -p - | grep -q '"aps-environment"'; then
+    echo "error: re-signed app is still missing aps-environment; refusing to upload a push-broken build" >&2
+    codesign -d --entitlements :- --xml "$RESIGN_APP" 2>/dev/null | plutil -p - >&2 || true
+    exit 1
+  fi
+  codesign --verify --strict --verbose=2 "$RESIGN_APP"
+
+  # Re-zip with the exact IPA layout (Payload/ at archive root) and repoint
+  # $IPA_PATH so the existing upload step ships the re-signed IPA.
+  RESIGNED_IPA="$EXPORT_PATH/cmux-resigned.ipa"
+  rm -f "$RESIGNED_IPA"
+  ( cd "$RESIGN_DIR" && zip -qrX "$RESIGNED_IPA" Payload )
+
+  # Post-zip gate: a wrong Payload root or stripped attributes corrupts the bundle
+  # silently. Unzip the produced IPA and re-verify the extracted .app so altool is
+  # not the first thing to notice.
+  VERIFY_DIR="$RESIGN_DIR/verify"
+  rm -rf "$VERIFY_DIR"
+  mkdir -p "$VERIFY_DIR"
+  ( cd "$VERIFY_DIR" && unzip -q "$RESIGNED_IPA" )
+  VERIFY_APP="$(find "$VERIFY_DIR/Payload" -maxdepth 1 -name '*.app' -type d | head -n 1)"
+  if [[ -z "$VERIFY_APP" || ! -d "$VERIFY_APP" ]]; then
+    echo "error: re-signed IPA has no Payload/*.app after re-zip; bundle layout is wrong" >&2
+    exit 1
+  fi
+  codesign --verify --strict --verbose=2 "$VERIFY_APP"
+  if ! codesign -d --entitlements :- --xml "$VERIFY_APP" 2>/dev/null | plutil -p - | grep -q '"aps-environment"'; then
+    echo "error: re-zipped IPA lost aps-environment; refusing to upload" >&2
+    exit 1
+  fi
+
+  IPA_PATH="$RESIGNED_IPA"
+  echo "re-signed IPA with full entitlements (aps-environment=production): $IPA_PATH"
+else
+  # Automatic (cloud-managed) signing: there is no named distribution cert in the
+  # keychain to re-sign with, so we cannot re-add the dropped entitlements here.
+  # An unsigned-archive + automatic-export IPA may therefore be MISSING
+  # aps-environment and silently fail push (the #5496 regression). Betas are cut
+  # manually (where the re-sign above runs), so warn loudly rather than hide it.
+  # TODO: make CI cut betas via the manual path, or have the archive carry
+  # entitlements, so the automatic path is not push-broken.
+  echo "warning: --signing automatic skips the entitlements re-sign; the exported IPA may be MISSING aps-environment and silently fail push delivery. Verify with: codesign -d --entitlements :- <app>. Cut betas via the manual signing path (default) to get the re-sign." >&2
 fi
 
 echo "IPA_PATH=$IPA_PATH"
