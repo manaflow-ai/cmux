@@ -1113,9 +1113,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // tree. `isSignedIn` alone is true again after the switch, so it cannot
         // catch this account-switch race (mirrors loadPairedMacs's user guard).
         let requestingUserID = identityProvider?.currentUserID
-        guard let loaded = await deviceRegistry.listDevices() else {
-            // nil == registry unavailable/unauthorized/malformed: keep what we
-            // have rather than blanking a populated tree on a transient failure.
+        let outcome = await deviceRegistry.listDevices()
+        let loaded: [RegistryDevice]
+        switch outcome {
+        case .ok(let devices):
+            loaded = devices
+        case .authRejected:
+            // The registry is team-scoped and rejected the call on auth/scope
+            // grounds (401/403): the cached list may be another scope's data, so
+            // clear it. The tree falls back to local paired Macs via
+            // `deviceTreeDevices`, so the sheet stays usable.
+            registryDevices = []
+            return
+        case .transientFailure:
+            // Network blip / 5xx / malformed body: keep what we have rather than
+            // blanking a populated tree on a transient failure.
             return
         }
         // The await above suspended the main actor; discard the result unless we

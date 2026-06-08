@@ -28,9 +28,26 @@ public protocol DeviceRegistryRefreshing: Sendable {
     ///
     /// The same team-scoped `GET /api/devices` response that backs
     /// ``freshRoutes(forMacDeviceID:)``, decoded into the full two-level model
-    /// rather than narrowed to one Mac's routes. Best-effort like the rest of the
-    /// registry: returns `nil` when the registry is unreachable, the call is
-    /// unauthorized, or the response is malformed, so the tree falls back to the
-    /// locally known paired Macs and the app keeps working with the cloud down.
-    func listDevices() async -> [RegistryDevice]?
+    /// rather than narrowed to one Mac's routes. Returns a three-way outcome so
+    /// the caller can tell a transient failure (keep the current tree) from an
+    /// auth/scope rejection (clear it). The registry is team-scoped, so a 401/403
+    /// after the token/scope changed must NOT keep the previous scope's
+    /// team-device data visible.
+    func listDevices() async -> DeviceRegistryListOutcome
+}
+
+/// The outcome of a device-list registry read, distinguishing the cases that
+/// must clear the cached team-device data from those that must keep it.
+public enum DeviceRegistryListOutcome: Sendable {
+    /// A successful read; the decoded device list (possibly empty).
+    case ok([RegistryDevice])
+    /// The registry rejected the call on authorization/scope grounds (a non-2xx
+    /// 401/403). The cached, possibly other-scope, device data must be cleared so
+    /// it cannot leak into the new auth context; the UI falls back to local
+    /// paired Macs.
+    case authRejected
+    /// A transient failure (network error, timeout, malformed body, or any other
+    /// non-auth non-2xx). The current device list should be kept so a blip never
+    /// blanks a populated tree.
+    case transientFailure
 }

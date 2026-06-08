@@ -155,22 +155,39 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         return Self.routes(forMacDeviceID: macDeviceID, in: data)
     }
 
-    public func listDevices() async -> [RegistryDevice]? {
+    public func listDevices() async -> DeviceRegistryListOutcome {
+        // No request could be built (no valid session/tokens): treat as a
+        // transient failure rather than an auth rejection, since this is the
+        // signed-out / not-yet-bootstrapped case, not the registry actively
+        // rejecting the caller's scope.
         guard let request = await makeRequest(method: "GET", path: "/api/devices", body: nil) else {
-            return nil
+            return .transientFailure
         }
         let data: Data
         do {
             let (responseData, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                return nil
+            guard let http = response as? HTTPURLResponse else {
+                return .transientFailure
+            }
+            // An auth/scope rejection (401/403) must clear the cached team-scoped
+            // data; any other non-2xx (5xx, etc.) is transient and keeps it.
+            if http.statusCode == 401 || http.statusCode == 403 {
+                return .authRejected
+            }
+            guard (200...299).contains(http.statusCode) else {
+                return .transientFailure
             }
             data = responseData
         } catch {
             deviceRegistryLog.debug("listDevices request failed: \(String(describing: error), privacy: .public)")
-            return nil
+            return .transientFailure
         }
-        return Self.parseDeviceList(in: data)
+        // A 2xx with an undecodable body is a server/contract glitch, not an auth
+        // rejection: keep the current tree rather than blanking it.
+        guard let devices = Self.parseDeviceList(in: data) else {
+            return .transientFailure
+        }
+        return .ok(devices)
     }
 
     // MARK: - Parsing (pure, testable)
