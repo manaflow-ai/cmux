@@ -31,11 +31,19 @@ export function EditorApp({ filePath, content, themeName, options }: EditorAppPr
       const editor = monaco.editor.create(node, {
         model,
         theme: themeName,
-        automaticLayout: true,
         ...options,
       });
+      // Drive layout from a ResizeObserver instead of Monaco's
+      // `automaticLayout`. The cmux WKWebView pane can report 0 height when the
+      // editor is created (before the pane lays out), and Monaco's internal
+      // observer occasionally misses that first sizing, leaving the editor
+      // rendering zero lines. Observing the node ourselves fires immediately and
+      // on every resize, so the editor lays out as soon as the pane has a size.
+      const resizeObserver = new ResizeObserver(() => editor.layout());
+      resizeObserver.observe(node);
       node.dataset.cmuxEditorReady = "true";
       return () => {
+        resizeObserver.disconnect();
         editor.dispose();
         model.dispose();
       };
