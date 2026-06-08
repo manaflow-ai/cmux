@@ -1,4 +1,6 @@
+import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileShell
 @_exported import CmuxMobileShellUI
@@ -28,10 +30,17 @@ public struct CMUXMobileRootScene: View {
     private let runtime: CMUXMobileRuntime
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
+    private let analytics: any AnalyticsEmitting
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     #endif
     private let pairedMacStore: (any MobilePairedMacStoring)?
+    #if DEBUG
+    /// The structured diagnostic log injected into the shell store so the DEV
+    /// dogfood feedback round-trip can export it. DEBUG-only; `nil` when the app
+    /// composition root did not build one.
+    private let diagnosticLog: DiagnosticLog?
+    #endif
 
     #if os(iOS)
     /// Creates the root scene.
@@ -40,31 +49,45 @@ public struct CMUXMobileRootScene: View {
     ///   - auth: The constructed auth graph (coordinator + push registration).
     ///   - reachability: The process-wide reachability monitor, injected into
     ///     the shell store (already used to build `auth`).
+    ///   - analytics: The app-root analytics emitter, injected into the store.
     ///   - pushCoordinator: The app-root push coordinator (shared with the app
     ///     delegate) injected into the environment.
+    ///   - diagnosticLog: The structured diagnostic log (DEBUG builds only),
+    ///     injected into the shell store for the DEV feedback round-trip.
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
-        pushCoordinator: MobilePushCoordinator
+        analytics: any AnalyticsEmitting,
+        pushCoordinator: MobilePushCoordinator,
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
+        self.analytics = analytics
         self.pushCoordinator = pushCoordinator
         self.pairedMacStore = Self.openPairedMacStore()
+        #if DEBUG
+        self.diagnosticLog = diagnosticLog
+        #endif
     }
     #else
     /// Creates the root scene (non-iOS: no push).
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
-        reachability: any ReachabilityProviding
+        reachability: any ReachabilityProviding,
+        analytics: any AnalyticsEmitting
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
+        self.analytics = analytics
         self.pairedMacStore = Self.openPairedMacStore()
+        #if DEBUG
+        self.diagnosticLog = nil
+        #endif
     }
     #endif
 
@@ -82,6 +105,7 @@ public struct CMUXMobileRootScene: View {
     public var body: some View {
         content
             .environment(auth.coordinator)
+            .analytics(analytics)
             #if os(iOS)
             .environment(pushCoordinator)
             #endif
@@ -103,11 +127,23 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     private func makeStore() -> CMUXMobileShellStore {
         let identityProvider = AuthCoordinatorIdentityProvider(coordinator: auth.coordinator)
+        #if DEBUG
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: pairedMacStore,
             identityProvider: identityProvider,
-            reachability: reachability
+            reachability: reachability,
+            analytics: analytics,
+            diagnosticLog: diagnosticLog
         )
+        #else
+        return CMUXMobileShellStore(
+            runtime: runtime,
+            pairedMacStore: pairedMacStore,
+            identityProvider: identityProvider,
+            reachability: reachability,
+            analytics: analytics
+        )
+        #endif
     }
 }

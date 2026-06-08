@@ -29,6 +29,9 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var id: ID
     /// The workspace's user-facing display name.
     public var name: String
+    /// Whether the workspace is pinned on the Mac. Pinned workspaces sort to the
+    /// top of the mobile list.
+    public var isPinned: Bool
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
 
@@ -36,10 +39,12 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// - Parameters:
     ///   - id: The workspace's stable identifier.
     ///   - name: The workspace's user-facing display name.
+    ///   - isPinned: Whether the workspace is pinned on the Mac. Defaults to `false`.
     ///   - terminals: The terminals contained in the workspace, in display order.
-    public init(id: ID, name: String, terminals: [MobileTerminalPreview]) {
+    public init(id: ID, name: String, isPinned: Bool = false, terminals: [MobileTerminalPreview]) {
         self.id = id
         self.name = name
+        self.isPinned = isPinned
         self.terminals = terminals
     }
 }

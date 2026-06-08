@@ -167,13 +167,7 @@ private enum MobileHostPublicStatusCache {
         return .ok([
             "routes": cachedRoutes.map(\.mobileHostJSONObject),
             "terminal_fidelity": "render_grid",
-            "capabilities": [
-                "events.v1",
-                "terminal.bytes.v1",
-                "terminal.render_grid.v1",
-                "terminal.replay.v1",
-                "terminal.viewport.v1",
-            ],
+            "capabilities": MobileHostService.mobileHostCapabilities,
         ])
     }
 }
@@ -299,6 +293,30 @@ final class MobileHostService {
     nonisolated private static let maximumActiveConnectionCount = 10
     nonisolated private static let maximumStickyViewportClientIDsPerConnection = 16
     nonisolated private static let maximumViewportClientIDLength = 128
+
+    /// The single source of truth for the capabilities advertised to mobile
+    /// clients via `mobile.host.status`. Every status path (the public-status
+    /// cache, the live `publicHostStatusResult`, and `TerminalController`'s
+    /// full status) reads this so the lists cannot drift; iOS gates features
+    /// like rename/pin on the entries present here.
+    ///
+    /// In DEBUG builds this also advertises `dogfood.v1`, the DEV dogfood
+    /// feedback round-trip (`dogfood.feedback.submit`). It is absent from
+    /// release builds, so a release client never sees the verb advertised.
+    nonisolated static var mobileHostCapabilities: [String] {
+        var capabilities = [
+            "events.v1",
+            "terminal.bytes.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "terminal.viewport.v1",
+            "workspace.actions.v1",
+        ]
+        #if DEBUG
+        capabilities.append("dogfood.v1")
+        #endif
+        return capabilities
+    }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
     private let routeResolver = MobileRouteResolver()
@@ -747,6 +765,45 @@ final class MobileHostService {
         return makeStatus(routes: routes)
     }
 
+    /// Emits the current ``MobileHostServiceStatus`` immediately, then a fresh
+    /// snapshot every time the listener or active-connection set changes (driven by
+    /// `.mobileHostStatusDidChange`). The in-app pairing window consumes this to flip
+    /// from "waiting" to "connected" the instant a phone attaches; it is the same
+    /// signal that backs the Mobile settings connection count. The stream ends when
+    /// the consumer cancels its task.
+    func statusUpdates() -> AsyncStream<MobileHostServiceStatus> {
+        AsyncStream { continuation in
+            // Bridge the notification through a Sendable `Void` signal so the
+            // non-Sendable `Notification` never crosses into the MainActor drain.
+            // Mirrors `HostSettingsActions.mobilePairingStatusUpdates()`.
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = MobileHostStatusObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: .mobileHostStatusDidChange,
+                    object: nil,
+                    queue: nil
+                ) { _ in
+                    signalContinuation.yield(())
+                }
+            )
+            let drainTask = Task { @MainActor in
+                continuation.yield(MobileHostService.shared.statusSnapshot())
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    continuation.yield(MobileHostService.shared.statusSnapshot())
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
+    }
+
     /// Starts the pairing listener (if enabled and not already bound) and
     /// resolves once it can mint attach tickets, so the in-app pairing window
     /// can render a QR code without polling the listener state machine.
@@ -859,13 +916,7 @@ final class MobileHostService {
         return .ok([
             "routes": status.routes.map(\.mobileHostJSONObject),
             "terminal_fidelity": "render_grid",
-            "capabilities": [
-                "events.v1",
-                "terminal.bytes.v1",
-                "terminal.render_grid.v1",
-                "terminal.replay.v1",
-                "terminal.viewport.v1",
-            ],
+            "capabilities": MobileHostService.mobileHostCapabilities,
         ])
     }
 
@@ -1231,6 +1282,7 @@ final class MobileHostService {
         case "mobile.terminal.create", "terminal.create":
             return nil
         case "mobile.terminal.input", "terminal.input",
+             "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",
              "mobile.terminal.scroll", "terminal.scroll":
