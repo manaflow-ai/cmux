@@ -117,6 +117,12 @@ jobs:
         run: |
           ./scripts/install-zig-ci.sh
 
+      - name: Cache Zig packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
@@ -157,10 +163,28 @@ jobs:
             "/tmp/cmux-debug-${PERF_TAG}.log" \
             "/tmp/cmux-dev-${PERF_TAG}-last-socket-path" \
             "/tmp/cmux-launch-${PERF_TAG}.out" || true
-          CMUX_SKIP_ZIG_BUILD=1 \
-            CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
-            CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=1 \
-            ./scripts/reload.sh --tag "$PERF_TAG"
+          for attempt in 1 2 3 4; do
+            set +e
+            CMUX_SKIP_ZIG_BUILD=1 \
+              CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+              CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=1 \
+              ./scripts/reload.sh --tag "$PERF_TAG" 2>&1 | tee /tmp/cmux-perf-reload-output.txt
+            exit_code=${PIPESTATUS[0]}
+            set -e
+            if [ "$exit_code" -eq 0 ]; then
+              exit 0
+            fi
+            if ! grep -Eq "(bad HTTP response code: '5[0-9][0-9]|curl: \\([0-9]+\\) The requested URL returned error: 5[0-9][0-9])" /tmp/cmux-perf-reload-output.txt; then
+              exit "$exit_code"
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo "Tagged app build failed after 4 attempts" >&2
+              exit "$exit_code"
+            fi
+            delay=$((attempt * 20))
+            echo "Tagged app build hit a transient Zig package download failure on attempt $attempt, retrying in ${delay}s..."
+            sleep "$delay"
+          done
 
       - name: Run activation session benchmark
         run: |
