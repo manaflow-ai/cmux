@@ -24,6 +24,15 @@ public protocol TokenProviding: Sendable {
     ///   only when the session is genuinely gone.
     /// - Returns: A freshly minted access token.
     func forceRefreshAccessToken() async throws -> String
+
+    /// The stable id of the currently signed-in user, or `nil` when signed out.
+    ///
+    /// Used to namespace per-user client state (e.g. the push muted-workspace
+    /// set) so a different account signing in on the same device can never read
+    /// or write the previous account's state, independent of task ordering.
+    func currentUserID() async -> String?
 }
 
-extension AuthCoordinator: TokenProviding {}
+extension AuthCoordinator: TokenProviding {
+    public func currentUserID() async -> String? { currentUser?.id }
+}

@@ -39,7 +39,23 @@ public actor PushRegistrationService: PushRegistering {
 
     private static let enabledKey = "cmux.notifications.pushEnabled"
     private static let cachedTokenKey = "cmux.notifications.deviceTokenHex"
-    private static let mutedWorkspacesKey = "cmux.notifications.mutedWorkspaceIDs"
+    /// Prefix for the per-user muted-workspace cache key. The set is persisted
+    /// under a key NAMESPACED BY THE STACK USER ID (`<prefix>.<userId>`), so a
+    /// different account signing in on the same device reads/writes its own key
+    /// and can never see or overwrite the previous account's mutes. This makes
+    /// cross-account leakage impossible by construction, independent of how the
+    /// refresh/mutation/sign-out tasks interleave — a task started under user A
+    /// always targets A's key. A signed-out service (no user id) uses a single
+    /// anonymous key so an opt-in-before-sign-in still persists until hydration.
+    private static let mutedWorkspacesKeyPrefix = "cmux.notifications.mutedWorkspaceIDs"
+    /// Prefix for the per-user "muted set has local changes not yet confirmed on
+    /// the server" flag. Set when a toggle is persisted, cleared only on a
+    /// successful PUT. Hydration consults it: if the user has an unsynced local
+    /// change (e.g. a mute made during a transient network failure), hydration
+    /// re-pushes local instead of overwriting it with the stale server set, so a
+    /// failed upload never silently loses the user's mute on the next launch.
+    private static let mutesPendingKeyPrefix = "cmux.notifications.mutedWorkspaceIDs.pending"
+    private static let signedOutUserKey = "__signedOut"
     /// Defensive upper bound on the muted set, mirroring the web route's
     /// per-request limit so a corrupted/oversized local set never tries to
     /// upload an unbounded body.
@@ -106,22 +122,30 @@ public actor PushRegistrationService: PushRegistering {
         await sendDelete(tokenHex: hex)
     }
 
-    public var mutedWorkspaceIDs: Set<String> { cachedMutedWorkspaceIDs }
+    public var mutedWorkspaceIDs: Set<String> {
+        get async { cachedMutedWorkspaceIDs(forUserKey: await currentUserKey()) }
+    }
 
     public func setWorkspaceMuted(_ workspaceId: String, muted: Bool) async {
         let trimmed = workspaceId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        var set = cachedMutedWorkspaceIDs
+        // Resolve the per-user key BEFORE mutating, so this write lands in the
+        // signed-in user's namespace even if the task runs after another account
+        // has signed in — it simply targets the original user's key, never the
+        // new account's. This is what makes cross-account leakage impossible.
+        let userKey = await currentUserKey()
+        var set = cachedMutedWorkspaceIDs(forUserKey: userKey)
         if muted {
             guard set.count < Self.maxMutedWorkspaces || set.contains(trimmed) else { return }
             set.insert(trimmed)
         } else {
             set.remove(trimmed)
         }
-        // Persist first (synchronously, before any await) so the choice survives
-        // even if the upload fails or the app dies mid-flight. Bump the
+        // Persist so the choice survives even if the upload fails or the app dies
+        // mid-flight. Mark it unsynced until a PUT confirms it, and bump the
         // generation so an in-flight hydration knows a newer local change landed.
-        defaults.set(Array(set).sorted(), forKey: Self.mutedWorkspacesKey)
+        defaults.set(Array(set).sorted(), forKey: Self.mutedKey(forUserKey: userKey))
+        defaults.set(true, forKey: Self.pendingKey(forUserKey: userKey))
         localMutationGeneration &+= 1
         await syncMutedWorkspaces()
     }
@@ -141,27 +165,32 @@ public actor PushRegistrationService: PushRegistering {
 
     @discardableResult
     public func hydrateMutedWorkspacesFromServer() async -> Set<String> {
+        let userKey = await currentUserKey()
+        // The user has a local change that never confirmed on the server (e.g. a
+        // mute made during a transient network failure). The server set is stale,
+        // so re-push local instead of overwriting it — otherwise a failed upload
+        // would silently lose the mute on the next launch and the workspace would
+        // start pushing again.
+        if defaults.bool(forKey: Self.pendingKey(forUserKey: userKey)) {
+            await syncMutedWorkspaces()
+            return cachedMutedWorkspaceIDs(forUserKey: userKey)
+        }
         let generationAtStart = localMutationGeneration
         guard let serverSet = await fetchMutedWorkspaces() else {
             // Signed out or network failure: keep the local set so an offline
             // sign-in never wipes valid local state.
-            return cachedMutedWorkspaceIDs
+            return cachedMutedWorkspaceIDs(forUserKey: userKey)
         }
         await afterHydrationFetchForTesting?()
-        // A local mute/unmute happened during the GET: that change is newer and
-        // is already syncing to the server, so the GET response is stale. Keep
-        // local instead of clobbering the just-tapped change.
+        // A local mute/unmute for THIS user happened during the GET: that change
+        // is newer and is already syncing to the server, so the GET response is
+        // stale. Keep local instead of clobbering the just-tapped change.
         guard localMutationGeneration == generationAtStart else {
-            return cachedMutedWorkspaceIDs
+            return cachedMutedWorkspaceIDs(forUserKey: userKey)
         }
         let bounded = Array(serverSet).sorted().prefix(Self.maxMutedWorkspaces)
-        defaults.set(Array(bounded), forKey: Self.mutedWorkspacesKey)
+        defaults.set(Array(bounded), forKey: Self.mutedKey(forUserKey: userKey))
         return Set(bounded)
-    }
-
-    public func clearLocalMutedWorkspaces() async {
-        defaults.removeObject(forKey: Self.mutedWorkspacesKey)
-        localMutationGeneration &+= 1
     }
 
     private var cachedTokenHex: String? {
@@ -169,8 +198,23 @@ public actor PushRegistrationService: PushRegistering {
         return (hex?.isEmpty == false) ? hex : nil
     }
 
-    private var cachedMutedWorkspaceIDs: Set<String> {
-        let raw = defaults.array(forKey: Self.mutedWorkspacesKey) as? [String] ?? []
+    /// The current user's muted-set key component: the Stack user id when signed
+    /// in, else the signed-out sentinel. Resolving this per access is what scopes
+    /// the cache per account.
+    private func currentUserKey() async -> String {
+        await tokenProvider.currentUserID() ?? Self.signedOutUserKey
+    }
+
+    private static func mutedKey(forUserKey userKey: String) -> String {
+        "\(mutedWorkspacesKeyPrefix).\(userKey)"
+    }
+
+    private static func pendingKey(forUserKey userKey: String) -> String {
+        "\(mutesPendingKeyPrefix).\(userKey)"
+    }
+
+    private func cachedMutedWorkspaceIDs(forUserKey userKey: String) -> Set<String> {
+        let raw = defaults.array(forKey: Self.mutedKey(forUserKey: userKey)) as? [String] ?? []
         return Set(raw.filter { !$0.isEmpty })
     }
 
@@ -186,13 +230,22 @@ public actor PushRegistrationService: PushRegistering {
         defer { isUploadingMutes = false }
         repeat {
             mutesNeedResync = false
-            await uploadMutedWorkspaces(cachedMutedWorkspaceIDs)
+            // Upload the signed-in user's current persisted set. The server route
+            // keys by the bearer's user id, so this matches the key we read.
+            let userKey = await currentUserKey()
+            let uploaded = await uploadMutedWorkspaces(cachedMutedWorkspaceIDs(forUserKey: userKey))
+            if uploaded {
+                // The server now matches local: clear the unsynced marker so the
+                // next hydration is free to adopt the server set.
+                defaults.removeObject(forKey: Self.pendingKey(forUserKey: userKey))
+            }
             // A mutation that arrived during the upload set the flag; drain it
             // with the now-current persisted set so the server converges.
         } while mutesNeedResync
     }
 
-    private func uploadMutedWorkspaces(_ set: Set<String>) async {
+    @discardableResult
+    private func uploadMutedWorkspaces(_ set: Set<String>) async -> Bool {
         // Idempotent full-set replace so the server always reflects the phone's
         // authoritative local state. Bounded to mirror the route's limit.
         let workspaceIds = Array(set).sorted().prefix(Self.maxMutedWorkspaces)
@@ -200,8 +253,8 @@ public actor PushRegistrationService: PushRegistering {
             method: "PUT",
             path: "/api/notifications/mutes",
             jsonBody: ["workspaceIds": Array(workspaceIds)]
-        ) else { return }
-        await perform(request, label: "mute-sync")
+        ) else { return false }
+        return await perform(request, label: "mute-sync")
     }
 
     /// GET the server's muted set, or `nil` when signed out / on any failure (so
@@ -276,14 +329,18 @@ public actor PushRegistrationService: PushRegistering {
         return request
     }
 
-    private func perform(_ request: URLRequest, label: String) async {
+    @discardableResult
+    private func perform(_ request: URLRequest, label: String) async -> Bool {
         do {
             let (_, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 pushLog.error("\(label, privacy: .public) failed status=\(http.statusCode, privacy: .public)")
+                return false
             }
+            return true
         } catch {
             pushLog.error("\(label, privacy: .public) error=\(error.localizedDescription, privacy: .private)")
+            return false
         }
     }
 }

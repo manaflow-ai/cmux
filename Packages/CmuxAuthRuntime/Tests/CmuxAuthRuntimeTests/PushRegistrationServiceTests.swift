@@ -23,11 +23,12 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
             path: request.url?.path ?? "",
             body: bodyData
         )
-        // Snapshot the canned GET response synchronously so the response is ready
+        // Snapshot the canned response synchronously so the response is ready
         // before this loader finishes (the recorder actor read is deferred).
-        let cannedResponse = Self.responseStore.response(for: host)
+        // Keyed by host+method so a test can fail a specific verb (e.g. PUT).
+        let cannedResponse = Self.responseStore.response(forHost: host, method: method)
         Task { await RecordingURLProtocol.recorder.record(captured) }
-        let status = (method == "GET") ? (cannedResponse?.status ?? 200) : 200
+        let status = cannedResponse?.status ?? 200
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: status,
@@ -43,7 +44,7 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
         client?.urlProtocolDidFinishLoading(self)
     }
 
-    /// Per-host canned GET responses, keyed by the test's unique API host.
+    /// Per-(host, method) canned responses, keyed by the test's unique API host.
     /// `startLoading()` is synchronous and cannot await the recorder actor, so a
     /// lock-guarded store provides real synchronization for parallel test writes
     /// + protocol reads (distinct keys alone do NOT make a `Dictionary` thread
@@ -74,21 +75,29 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
     }
 }
 
-/// Thread-safe canned-response store for ``RecordingURLProtocol``.
+/// Thread-safe canned-response store for ``RecordingURLProtocol``, keyed by
+/// host+method so a test can script a specific verb (e.g. a failing PUT).
 final class CannedResponseStore: @unchecked Sendable {
     private let lock = NSLock()
     private var responses: [String: RecordingURLProtocol.CannedResponse] = [:]
 
+    private func key(host: String, method: String) -> String { "\(method) \(host)" }
+
+    /// Script the GET response for `host` (the common case: a hydration body).
     func set(_ response: RecordingURLProtocol.CannedResponse, for host: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        responses[host] = response
+        set(response, forHost: host, method: "GET")
     }
 
-    func response(for host: String) -> RecordingURLProtocol.CannedResponse? {
+    func set(_ response: RecordingURLProtocol.CannedResponse, forHost host: String, method: String) {
         lock.lock()
         defer { lock.unlock() }
-        return responses[host]
+        responses[key(host: host, method: method)] = response
+    }
+
+    func response(forHost host: String, method: String) -> RecordingURLProtocol.CannedResponse? {
+        lock.lock()
+        defer { lock.unlock() }
+        return responses[key(host: host, method: method)]
     }
 }
 
@@ -139,6 +148,7 @@ actor RequestRecorder {
 struct FakeTokenProvider: TokenProviding {
     var access: String? = "access"
     var refresh: String? = "refresh"
+    var userID: String? = "user-default"
     func accessToken() async throws -> String {
         guard let access else { throw AuthError.unauthorized }
         return access
@@ -148,6 +158,7 @@ struct FakeTokenProvider: TokenProviding {
         guard let access else { throw AuthError.unauthorized }
         return access
     }
+    func currentUserID() async -> String? { userID }
 }
 
 @Suite struct PushRegistrationServiceTests {
@@ -345,14 +356,95 @@ struct FakeTokenProvider: TokenProviding {
         #expect(await service.mutedWorkspaceIDs.isEmpty)
     }
 
-    @Test func clearLocalRemovesCachedSetWithoutServerCall() async {
+    // MARK: - Per-user namespaced persistence (cross-account isolation)
+
+    @Test func mutedSetIsNamespacedPerUser() async {
+        // Two users over the SAME UserDefaults suite (same device): each must see
+        // only their own muted set, so a different account on the same device can
+        // never read or write the previous account's mutes.
+        let suite = "push-multiuser-\(UUID().uuidString)"
+        let host = "t-\(UUID().uuidString).example.test"
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecordingURLProtocol.self]
+        func service(forUser userID: String?) -> PushRegistrationService {
+            PushRegistrationService(
+                tokenProvider: FakeTokenProvider(userID: userID),
+                apiBaseURL: "https://\(host)",
+                bundleID: "dev.cmux.ios",
+                apnsEnvironment: "sandbox",
+                suiteName: suite,
+                session: URLSession(configuration: configuration)
+            )
+        }
+        await service(forUser: "user-a").setWorkspaceMuted("ws-a", muted: true)
+        // User B on the same device sees an empty set, not user A's "ws-a".
+        #expect(await service(forUser: "user-b").mutedWorkspaceIDs.isEmpty)
+        await service(forUser: "user-b").setWorkspaceMuted("ws-b", muted: true)
+        // Each account's set is independent and intact.
+        #expect(await service(forUser: "user-a").mutedWorkspaceIDs == ["ws-a"])
+        #expect(await service(forUser: "user-b").mutedWorkspaceIDs == ["ws-b"])
+    }
+
+    @Test func mutationStartedUnderOneUserDoesNotLeakToAnother() async {
+        // A write resolved under user A's key cannot land in user B's namespace
+        // even when the same suite is shared (the leak the per-user key prevents).
+        let suite = "push-leak-\(UUID().uuidString)"
+        let host = "t-\(UUID().uuidString).example.test"
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecordingURLProtocol.self]
+        func service(forUser userID: String?) -> PushRegistrationService {
+            PushRegistrationService(
+                tokenProvider: FakeTokenProvider(userID: userID),
+                apiBaseURL: "https://\(host)",
+                bundleID: "dev.cmux.ios",
+                apnsEnvironment: "sandbox",
+                suiteName: suite,
+                session: URLSession(configuration: configuration)
+            )
+        }
+        await service(forUser: "user-a").setWorkspaceMuted("ws-secret", muted: true)
+        // User B never sees user A's id even after A persisted it.
+        #expect(!(await service(forUser: "user-b").mutedWorkspaceIDs).contains("ws-secret"))
+    }
+
+    // MARK: - Unsynced-local durability (failed PUT not lost by later hydrate)
+
+    @Test func hydrateRePushesUnsyncedLocalChangeInsteadOfLosingIt() async {
         let (service, _, host) = makeService()
+        // The mute PUT fails (transient server/network error), so the change is
+        // persisted locally but never confirmed on the server.
+        RecordingURLProtocol.responseStore.set(.init(status: 503, body: nil), forHost: host, method: "PUT")
         await service.setWorkspaceMuted("ws-a", muted: true)
-        let beforeClear = await RecordingURLProtocol.recorder.count(host: host)
-        await service.clearLocalMutedWorkspaces()
-        #expect(await service.mutedWorkspaceIDs.isEmpty)
-        // Sign-out clear is local-only: it must issue no new PUT/DELETE for the
-        // server set (request count for this host is unchanged by the clear).
-        #expect(await RecordingURLProtocol.recorder.count(host: host) == beforeClear)
+        #expect(await service.mutedWorkspaceIDs == ["ws-a"])
+
+        // The server still reports an empty set. A naive hydrate would overwrite
+        // local and lose the mute; instead it must keep local and re-push it.
+        RecordingURLProtocol.responseStore.set(
+            .init(body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": [String]()])),
+            for: host
+        )
+        // Let the retried PUT succeed this time so the marker can clear.
+        RecordingURLProtocol.responseStore.set(.init(status: 200, body: nil), forHost: host, method: "PUT")
+        let hydrated = await service.hydrateMutedWorkspacesFromServer()
+        // The locally-made mute survives the hydrate.
+        #expect(hydrated == ["ws-a"])
+        #expect(await service.mutedWorkspaceIDs == ["ws-a"])
+        // It re-uploaded local rather than adopting the empty server set.
+        #expect(await RecordingURLProtocol.recorder.lastMutedWorkspaceIDs(host: host) == ["ws-a"])
+    }
+
+    @Test func hydrateAdoptsServerSetOnceLocalChangeIsConfirmed() async {
+        let (service, _, host) = makeService()
+        // First mute succeeds, clearing the pending marker.
+        await service.setWorkspaceMuted("ws-a", muted: true)
+        // Now the server is the source of truth: it reports a different set.
+        RecordingURLProtocol.responseStore.set(
+            .init(body: try? JSONSerialization.data(withJSONObject: ["workspaceIds": ["ws-server"]])),
+            for: host
+        )
+        let hydrated = await service.hydrateMutedWorkspacesFromServer()
+        // With no unsynced change, hydration adopts the server set.
+        #expect(hydrated == ["ws-server"])
+        #expect(await service.mutedWorkspaceIDs == ["ws-server"])
     }
 }

@@ -106,6 +106,11 @@ public final class MobilePushCoordinator {
     /// result back, so a refresh begun under a previous account can't repopulate
     /// the cache after sign-out.
     public func refreshMutedWorkspacesFromServer() {
+        // Persistence is namespaced per user in the service, so a stale fetch can
+        // never leak across accounts. This task guards only the shared OBSERVABLE
+        // (the live UI value): a new refresh or a sign-out cancels the prior one
+        // so a fetch begun under a previous account can't publish its set into the
+        // current session's list.
         mutedRefreshTask?.cancel()
         mutedRefreshTask = Task { [weak self] in
             guard let self else { return }
@@ -188,22 +193,17 @@ public final class MobilePushCoordinator {
         await registration.unregisterFromServer()
     }
 
-    /// Sign-out cleanup: clear the locally cached muted set + observable FIRST,
-    /// then remove the token server-side. The local clear must run before the
-    /// network unregister because this hook runs inside `AuthCoordinator.signOut`'s
-    /// bounded, cancellable teardown task: if the DELETE is slow the task can be
-    /// cancelled at its deadline, and we still must not leak this account's mutes
-    /// to the next signed-in user. Does not touch the signed-out user's server
-    /// mute rows (those are theirs to keep).
+    /// Sign-out cleanup: reset the observable to empty and remove the device
+    /// token server-side. The persisted muted set does NOT need clearing: it is
+    /// namespaced by user id in the service, so the signed-out account's mutes
+    /// stay under their own key (restored on their next sign-in) and the next
+    /// account reads its own empty/namespaced key. Cancelling the refresh task
+    /// stops a stale fetch from re-publishing the prior account's set into the
+    /// now-empty observable.
     public func handleSignedOut() async {
-        // Cancel any in-flight server hydration FIRST so a stale refresh (still
-        // using the prior account's briefly-valid tokens) cannot write the prior
-        // user's mutes back after this clear. A cancelled task returns without
-        // touching the cache.
         mutedRefreshTask?.cancel()
         mutedRefreshTask = nil
         mutedWorkspaceIDs = []
-        await registration.clearLocalMutedWorkspaces()
         await registration.unregisterFromServer()
     }
 
