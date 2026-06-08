@@ -399,6 +399,25 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.control)
     }
 
+    func testScrollbackShortcutDefaultsUsePageAndArrowKeys() {
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.scrollbackPageUp.defaultShortcut,
+            StoredShortcut(key: "pageup", command: false, shift: true, option: false, control: false)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.scrollbackPageDown.defaultShortcut,
+            StoredShortcut(key: "pagedown", command: false, shift: true, option: false, control: false)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.scrollbackLineUp.defaultShortcut,
+            StoredShortcut(key: "↑", command: false, shift: true, option: false, control: false)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.scrollbackLineDown.defaultShortcut,
+            StoredShortcut(key: "↓", command: false, shift: true, option: false, control: false)
+        )
+    }
+
     func testSaveFilePreviewShortcutDefaultsAndMetadata() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.saveFilePreview.label, "Save File Preview")
         XCTAssertEqual(
@@ -858,6 +877,41 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "1")
         )
         XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
+    }
+
+    func testSettingsFileStoreParsesScrollbackPageShortcutAliases() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "bindings": {
+                  "scrollbackPageUp": "shift+pgup",
+                  "scrollbackPageDown": "shift+pgdn"
+                }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .scrollbackPageUp),
+            StoredShortcut(key: "pageup", command: false, shift: true, option: false, control: false)
+        )
+        XCTAssertEqual(
+            store.override(for: .scrollbackPageDown),
+            StoredShortcut(key: "pagedown", command: false, shift: true, option: false, control: false)
+        )
     }
 
     func testSettingsFileStoreAppliesSubagentNotificationSuppression() throws {
@@ -2322,6 +2376,50 @@ final class StoredShortcutMatchingTests: XCTestCase {
                 layoutCharacterProvider: { _, _ in nil }
             )
         )
+    }
+
+    func testPageKeyShortcutConfigAliasesCanonicalizeAndMatchByKeyCode() throws {
+        for rawShortcut in ["shift+pageup", "shift+page-up", "shift+pgup"] {
+            let shortcut = try XCTUnwrap(StoredShortcut.parseConfig(rawShortcut))
+
+            XCTAssertEqual(shortcut.key, "pageup")
+            XCTAssertEqual(shortcut.configIdentifier, "shift+pageup")
+            XCTAssertTrue(
+                shortcut.matches(
+                    keyCode: 116,
+                    modifierFlags: [.shift],
+                    eventCharacter: ""
+                )
+            )
+            XCTAssertTrue(
+                shortcut.matches(
+                    keyCode: 116,
+                    modifierFlags: [.shift],
+                    eventCharacter: "x"
+                )
+            )
+        }
+
+        for rawShortcut in ["shift+pagedown", "shift+page-down", "shift+pgdn"] {
+            let shortcut = try XCTUnwrap(StoredShortcut.parseConfig(rawShortcut))
+
+            XCTAssertEqual(shortcut.key, "pagedown")
+            XCTAssertEqual(shortcut.configIdentifier, "shift+pagedown")
+            XCTAssertTrue(
+                shortcut.matches(
+                    keyCode: 121,
+                    modifierFlags: [.shift],
+                    eventCharacter: ""
+                )
+            )
+            XCTAssertTrue(
+                shortcut.matches(
+                    keyCode: 121,
+                    modifierFlags: [.shift],
+                    eventCharacter: "x"
+                )
+            )
+        }
     }
 
     func testMatchingUsesRecordedCharacterForRemappedCommandLetter() {
