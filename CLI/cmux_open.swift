@@ -924,42 +924,71 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
+        let usage = "Usage: cmux edit <file> [--window <w>] [--workspace <ws>] [--surface <s>] [--focus]"
         var filePathArg: String?
         var windowArg: String?
         var workspaceArg: String?
         var surfaceArg: String?
         var focus = false
         var index = 0
+        var optionsEnded = false
+        func takeValue(for flag: String) throws -> String {
+            index += 1
+            guard index < commandArgs.count else {
+                throw CLIError(message: "Missing value for \(flag). \(usage)")
+            }
+            return commandArgs[index]
+        }
+        func acceptPositional(_ value: String) throws {
+            guard filePathArg == nil else {
+                throw CLIError(message: "cmux edit accepts a single file; unexpected argument: \(value). \(usage)")
+            }
+            filePathArg = value
+        }
         while index < commandArgs.count {
             let arg = commandArgs[index]
-            switch arg {
-            case "--window":
-                index += 1
-                windowArg = index < commandArgs.count ? commandArgs[index] : nil
-            case "--workspace":
-                index += 1
-                workspaceArg = index < commandArgs.count ? commandArgs[index] : nil
-            case "--surface":
-                index += 1
-                surfaceArg = index < commandArgs.count ? commandArgs[index] : nil
-            case "--focus":
-                focus = true
-            default:
-                if !arg.hasPrefix("-"), filePathArg == nil {
-                    filePathArg = arg
+            if optionsEnded {
+                try acceptPositional(arg)
+            } else {
+                switch arg {
+                case "--":
+                    optionsEnded = true
+                case "--window":
+                    windowArg = try takeValue(for: arg)
+                case "--workspace":
+                    workspaceArg = try takeValue(for: arg)
+                case "--surface":
+                    surfaceArg = try takeValue(for: arg)
+                case "--focus":
+                    focus = true
+                default:
+                    if arg.hasPrefix("-") {
+                        throw CLIError(message: "Unknown option: \(arg). \(usage)")
+                    }
+                    try acceptPositional(arg)
                 }
             }
             index += 1
         }
         guard let filePathArg else {
-            throw CLIError(message: "Usage: cmux edit <file> [--window <w>] [--workspace <ws>] [--surface <s>] [--focus]")
+            throw CLIError(message: usage)
         }
 
         let fileURL = URL(fileURLWithPath: resolvePath(filePathArg)).standardizedFileURL
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory) else {
             throw CLIError(message: "File not found: \(fileURL.path)")
         }
-        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
+        guard !isDirectory.boolValue else {
+            throw CLIError(message: "Cannot edit a directory: \(fileURL.path)")
+        }
+        let fileData: Data
+        do {
+            fileData = try Data(contentsOf: fileURL)
+        } catch {
+            throw CLIError(message: "Cannot read file \(fileURL.path): \(error.localizedDescription)")
+        }
+        guard let content = String(data: fileData, encoding: .utf8) else {
             throw CLIError(message: "Cannot open as text (not UTF-8): \(fileURL.path)")
         }
 
@@ -1003,7 +1032,10 @@ extension CMUXCLI {
         let payload = try client.sendV2(method: "browser.open_split", params: params)
         if jsonOutput {
             var response = payload
-            response["path"] = editor.fileURL.path
+            // Report the source file (consistent with the human-readable line);
+            // expose the generated viewer page separately.
+            response["path"] = fileURL.path
+            response["viewer_path"] = editor.fileURL.path
             response["url"] = editor.url.absoluteString
             response["title"] = editor.title
             print(jsonString(formatIDs(response, mode: idFormat)))

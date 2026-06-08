@@ -16,14 +16,13 @@ function readConfig(): DiffViewerConfig {
   if (!element?.textContent) {
     throw new Error("Missing cmux editor config");
   }
-  return JSON.parse(element.textContent);
+  try {
+    return JSON.parse(element.textContent);
+  } catch (error) {
+    throw new Error(`Invalid cmux editor config JSON: ${String(error)}`);
+  }
 }
 
-/**
- * Boots the Monaco editor surface: reads its injected config, registers
- * cmux-derived themes, then renders `EditorApp` through the shared router.
- * Loaded as its own lazy chunk so other surfaces never pay for Monaco.
- */
 /**
  * Installs Monaco's stylesheet. The webviews build has no HTML entry, so Vite
  * does not inject `monaco-vendor.css` automatically. We fetch it and inject it
@@ -42,6 +41,9 @@ async function injectMonacoStylesheet(): Promise<void> {
   const href = new URL(/* @vite-ignore */ "../assets/monaco-vendor.css", import.meta.url).href;
   try {
     const response = await fetch(href);
+    if (!response.ok) {
+      return;
+    }
     const css = await response.text();
     const style = document.createElement("style");
     style.dataset.cmuxMonacoCss = "true";
@@ -53,6 +55,11 @@ async function injectMonacoStylesheet(): Promise<void> {
   }
 }
 
+/**
+ * Boots the Monaco editor surface: reads its injected config, registers
+ * cmux-derived themes, then renders `EditorApp` through the shared router.
+ * Loaded as its own lazy chunk so other surfaces never pay for Monaco.
+ */
 export async function mountEditorSurface(rootElement: HTMLElement): Promise<void> {
   const config = readConfig();
   installWebviewStyles("editor", editorStyles);

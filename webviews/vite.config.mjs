@@ -38,14 +38,16 @@ export default defineConfig({
     // load grants read access to the whole output directory.
     modulePreload: false,
     // Monaco's `?worker` import builds a worker bundle. Emit it as an ES module
-    // worker with a stable name (no hash) so `new Worker(url, {type:"module"})`
-    // works and the file overwrites in place in the diff viewer asset cache,
-    // matching the main bundle's stable-name policy above.
+    // worker so `new Worker(url, {type:"module"})` works. Vite still
+    // content-hashes the emitted worker filename (the `?worker` output is not
+    // covered by the chunk-name policy above); it is referenced by that hash via
+    // `import.meta.url`, so it resolves correctly. The hash means an old worker
+    // copy can linger in the diff viewer `/tmp` asset cache across rebuilds — a
+    // minor follow-up next to the big stable-named vendor chunks.
     worker: {
       format: "es",
       rollupOptions: {
         output: {
-          entryFileNames: "chunks/[name].mjs",
           chunkFileNames: "chunks/[name].mjs",
           assetFileNames: "assets/[name][extname]",
         },
