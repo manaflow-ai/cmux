@@ -122,6 +122,21 @@ This creates an isolated app with its own name, bundle ID, socket, and derived d
 
 Before launching a new tagged run, clean up any older tags you started in this session (quit old tagged app + remove its `/tmp` socket/derived data).
 
+## Regression test commit policy
+
+When adding a regression test for a bug fix, use a two-commit structure so CI proves the test catches the bug:
+
+1. **Commit 1:** Add the failing test only (no fix). CI should go red.
+2. **Commit 2:** Add the fix. CI should go green.
+
+This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the test genuinely fails without the fix.
+
+## Shared behavior policy
+
+- When a behavior is exposed through multiple entrypoints (keyboard shortcut, command palette, context menu, CLI, settings, debug menu), implement one shared action/model path and verify every entrypoint that should invoke it. Do not patch one surface while leaving the others with duplicated logic.
+- For optimistic UI or CLI updates, keep one mutation path, record pending state with a request id or previous snapshot, reconcile from the authoritative result, and handle failure with an explicit rollback or error state. Do not let each entrypoint maintain its own optimistic copy.
+- When a user says tests missed a bug, add or adjust behavior-level coverage around the exact repro path before claiming the fix is complete.
+
 ## Skills
 
 Detailed cmux contributor rules live in repo skills under `skills/`; use the task-specific skill before changing that area.
