@@ -1376,6 +1376,8 @@ func (s *rpcServer) handleRequestAndWriteResponse(req rpcRequest) error {
 }
 
 func rpcRequestExpectsResponse(req rpcRequest) bool {
+	// Only pty.write currently uses JSON-RPC notification semantics; all
+	// other id-less requests still get a response for compatibility.
 	return !rpcRequestIsPTYWriteNotification(req)
 }
 
@@ -1384,7 +1386,21 @@ func rpcRequestIsPTYWriteNotification(req rpcRequest) bool {
 }
 
 func (s *rpcServer) handleNotificationResponse(req rpcRequest, resp rpcResponse) error {
-	if !rpcRequestIsPTYWriteNotification(req) || resp.OK || s.frameWriter == nil {
+	if !rpcRequestIsPTYWriteNotification(req) || resp.OK {
+		return nil
+	}
+	if s.frameWriter == nil {
+		detail := "unknown error"
+		if resp.Error != nil {
+			detail = strings.TrimSpace(resp.Error.Code)
+			if message := strings.TrimSpace(resp.Error.Message); message != "" {
+				if detail != "" {
+					detail += ": "
+				}
+				detail += message
+			}
+		}
+		_, _ = fmt.Fprintf(os.Stderr, "cmuxd-remote: pty.write notification failed without response writer: %s\n", detail)
 		return nil
 	}
 	sessionID, attachmentID, attachmentToken, badResp := parsePTYAttachmentIdentity(req, "pty.write")
