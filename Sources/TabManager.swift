@@ -3811,8 +3811,21 @@ class TabManager: ObservableObject {
         targetWorkspaceId: UUID?
     ) -> Bool {
         guard let draggedWorkspaceId else { return false }
-        return isWorkspaceGroupAnchor(draggedWorkspaceId)
-            || targetWorkspaceId.map(isWorkspaceGroupAnchor) == true
+        if isWorkspaceGroupAnchor(draggedWorkspaceId) ||
+            targetWorkspaceId.map(isWorkspaceGroupAnchor) == true {
+            return true
+        }
+        guard let draggedWorkspace = tabs.first(where: { $0.id == draggedWorkspaceId }),
+              draggedWorkspace.groupId != nil else {
+            return false
+        }
+        // A grouped child dragged over top-level space is leaving the group;
+        // plan in top-level rows so the promotion is explicit and ordered.
+        guard let targetWorkspaceId else { return true }
+        guard let targetWorkspace = tabs.first(where: { $0.id == targetWorkspaceId }) else {
+            return false
+        }
+        return targetWorkspace.groupId == nil
     }
 
     /// After a drag-driven reorder, infer the dragged workspace's group
