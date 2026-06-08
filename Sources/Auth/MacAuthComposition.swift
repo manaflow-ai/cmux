@@ -111,7 +111,8 @@ struct MacAuthComposition {
             ),
             anchor: anchor,
             config: config,
-            launch: launch
+            launch: launch,
+            errorReporter: SentryAuthErrorReporter()
         )
         self.coordinator = coordinator
         let callbackRouter = AuthCallbackRouter(

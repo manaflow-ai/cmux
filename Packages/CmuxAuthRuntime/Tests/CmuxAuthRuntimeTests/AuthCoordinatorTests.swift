@@ -8,7 +8,8 @@ import Testing
     private func makeCoordinator(
         client: FakeAuthClient,
         launch: AuthLaunchOptions = .plain(),
-        isOnline: @escaping @Sendable () async -> Bool = { true }
+        isOnline: @escaping @Sendable () async -> Bool = { true },
+        errorReporter: any AuthErrorReporting = NoopAuthErrorReporting()
     ) -> (AuthCoordinator, FakeKeyValueStore) {
         let store = FakeKeyValueStore()
         let coordinator = AuthCoordinator(
@@ -19,7 +20,8 @@ import Testing
             anchor: FakeAnchor(),
             config: .test,
             launch: launch,
-            isOnline: isOnline
+            isOnline: isOnline,
+            errorReporter: errorReporter
         )
         return (coordinator, store)
     }
@@ -81,6 +83,34 @@ import Testing
 
         let providers = await client.oauthProviders
         #expect(providers == ["apple", "google"])
+    }
+
+    @Test func oauthFailureReportsUnderlyingErrorWithProvider() async {
+        let client = FakeAuthClient()
+        await client.setThrowOnOAuth(AuthError.serverError(400, "INVALID_APPLE_CREDENTIALS"))
+        let reporter = FakeAuthErrorReporter()
+        let (coordinator, _) = makeCoordinator(client: client, errorReporter: reporter)
+
+        await #expect(throws: (any Error).self) {
+            try await coordinator.signInWithApple()
+        }
+
+        #expect(reporter.reports.count == 1)
+        #expect(reporter.reports.first?.context.flow == "oauth")
+        #expect(reporter.reports.first?.context.provider == "apple")
+    }
+
+    @Test func oauthCancellationIsNotReported() async {
+        let client = FakeAuthClient()
+        await client.setThrowOnOAuth(AuthError.cancelled)
+        let reporter = FakeAuthErrorReporter()
+        let (coordinator, _) = makeCoordinator(client: client, errorReporter: reporter)
+
+        await #expect(throws: AuthError.cancelled) {
+            try await coordinator.signInWithApple()
+        }
+
+        #expect(reporter.reports.isEmpty)
     }
 
     @Test func signOutClearsStateAndRunsHook() async throws {
@@ -322,5 +352,22 @@ import Testing
         }
         #expect(coordinator.isAuthenticated == false)
         #expect(coordinator.isLoading == false)
+    }
+
+    @Test func browserFlowCompletionFailureIsReported() async {
+        // The macOS hosted-browser sign-in (Apple/Google via the web app)
+        // completes through completeExternalSignIn(); a validation failure
+        // there must reach the reporter so the primary macOS path is visible.
+        let client = FakeAuthClient()
+        await client.setThrowOnCurrentUser(AuthError.serverError(500, "auth_failed"))
+        let reporter = FakeAuthErrorReporter()
+        let (coordinator, _) = makeCoordinator(client: client, errorReporter: reporter)
+
+        await #expect(throws: (any Error).self) {
+            try await coordinator.completeExternalSignIn()
+        }
+
+        #expect(reporter.reports.count == 1)
+        #expect(reporter.reports.first?.context.flow == "browser_oauth")
     }
 }

@@ -329,6 +329,10 @@ struct SignInView: View {
 
     /// Maps a sign-in error to the `ios_sign_in_failed` `failure_reason` enum
     /// (enums only — never the error text or the user's email).
+    ///
+    /// Apple/OAuth backend codes get distinct reasons so a structural break
+    /// like an unregistered Apple bundle id (`INVALID_APPLE_CREDENTIALS`) is
+    /// visible in analytics instead of collapsing into a generic `oauth_error`.
     private static func signInFailureReason(_ error: Error) -> String {
         if let stackError = error as? StackAuthErrorProtocol {
             switch stackError.code {
@@ -338,6 +342,12 @@ struct SignInView: View {
                 return "code_expired"
             case "RATE_LIMIT":
                 return "rate_limit"
+            case "INVALID_APPLE_CREDENTIALS":
+                return "apple_credentials_invalid"
+            case "REDIRECT_URL_NOT_WHITELISTED":
+                return "redirect_not_whitelisted"
+            case "OAUTH_PROVIDER_ACCOUNT_ID_ALREADY_USED_FOR_SIGN_IN":
+                return "oauth_account_linked"
             default:
                 return "oauth_error"
             }
