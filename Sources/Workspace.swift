@@ -2496,7 +2496,13 @@ protocol WorkspaceRemotePTYBridgeRPCClient: AnyObject {
         onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
     ) throws -> WorkspaceRemotePTYBridgeAttachment
 
-    func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws
+    func writePTY(
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String,
+        data: Data,
+        completion: @escaping (Error?) -> Void
+    )
     func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String)
 }
 
@@ -2504,7 +2510,8 @@ nonisolated func remoteDaemonMissingRequiredCapabilitiesMessage(_ missingCapabil
     let missing = Set(missingCapabilities)
     if missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability) ||
         missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability) ||
-        missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability) {
+        missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability) ||
+        missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYWriteNotificationCapability) {
         return String(
             localized: "remoteDaemon.error.missingPersistentPTYCapability",
             defaultValue: "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
@@ -2524,6 +2531,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
     static let requiredPTYSessionCapability = "pty.session"
     static let requiredPTYSessionTokenCapability = "pty.session.token"
     static let requiredPTYPersistentDaemonCapability = "pty.session.persistent_daemon"
+    static let requiredPTYWriteNotificationCapability = "pty.write.notification"
 
     enum StreamEvent {
         case data(Data)
@@ -2664,6 +2672,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
         if configuration.preserveAfterTerminalExit {
             capabilities.append(requiredPTYSessionCapability)
             capabilities.append(requiredPTYSessionTokenCapability)
+            capabilities.append(requiredPTYWriteNotificationCapability)
         }
         if configuration.persistentDaemonSlot != nil {
             capabilities.append(requiredPTYPersistentDaemonCapability)
@@ -3075,17 +3084,27 @@ private final class WorkspaceRemoteDaemonRPCClient {
         }
     }
 
-    func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {
-        _ = try call(
-            method: "pty.write",
-            params: [
-                "session_id": sessionID,
-                "attachment_id": attachmentID,
-                "client_attachment_token": attachmentToken,
-                "data_base64": data.base64EncodedString(),
-            ],
-            timeout: 8.0
-        )
+    func writePTY(
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String,
+        data: Data,
+        completion: @escaping (Error?) -> Void
+    ) {
+        do {
+            try notify(
+                method: "pty.write",
+                params: [
+                    "session_id": sessionID,
+                    "attachment_id": attachmentID,
+                    "client_attachment_token": attachmentToken,
+                    "data_base64": data.base64EncodedString(),
+                ]
+            )
+            completion(nil)
+        } catch {
+            completion(error)
+        }
     }
 
     func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
@@ -3204,6 +3223,24 @@ private final class WorkspaceRemoteDaemonRPCClient {
         throw NSError(domain: "cmux.remote.daemon.rpc", code: 14, userInfo: [
             NSLocalizedDescriptionKey: "\(method) failed (\(code)): \(message)",
         ])
+    }
+
+    private func notify(method: String, params: [String: Any]) throws {
+        let payload: Data
+        do {
+            payload = try Self.encodeJSON([
+                "method": method,
+                "params": params,
+            ])
+        } catch {
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 10, userInfo: [
+                NSLocalizedDescriptionKey: "failed to encode daemon RPC notification \(method): \(error.localizedDescription)",
+            ])
+        }
+
+        try writeQueue.sync {
+            try writePayload(payload)
+        }
     }
 
     private func writePayload(_ payload: Data) throws {
@@ -5813,19 +5850,15 @@ final class WorkspaceRemotePTYBridgeServer {
                     }
                     return
                 }
-                var writeError: Error?
-                do {
-                    try self.rpcClient.writePTY(
-                        sessionID: currentSessionID,
-                        attachmentID: remoteAttachment.attachmentID,
-                        attachmentToken: remoteAttachment.token,
-                        data: data
-                    )
-                } catch {
-                    writeError = error
-                }
-                self.queue.async {
-                    self.handleInputWriteFinished(bytes: data.count, error: writeError)
+                self.rpcClient.writePTY(
+                    sessionID: currentSessionID,
+                    attachmentID: remoteAttachment.attachmentID,
+                    attachmentToken: remoteAttachment.token,
+                    data: data
+                ) { [weak self] writeError in
+                    self?.queue.async {
+                        self?.handleInputWriteFinished(bytes: data.count, error: writeError)
+                    }
                 }
             }
         }
@@ -6043,7 +6076,9 @@ final class WorkspaceRemotePTYBridgeServer {
         private static func userFacingBridgeErrorMessage(_ error: Error) -> String {
             let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
             let lowered = message.lowercased()
-            if lowered.contains("missing required capability") || lowered.contains("pty.session") {
+            if lowered.contains("missing required capability") ||
+                lowered.contains("pty.session") ||
+                lowered.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYWriteNotificationCapability) {
                 return String(
                     localized: "remoteDaemon.error.missingPersistentPTYCapability",
                     defaultValue: "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
@@ -7560,7 +7595,8 @@ final class WorkspaceRemoteSessionController {
     private var bakedDaemonPreflightRequiredCapabilities: [String] {
         requiredDaemonCapabilities.filter {
             $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability &&
-                $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability
+                $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability &&
+                $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYWriteNotificationCapability
         }
     }
 
@@ -7573,7 +7609,8 @@ final class WorkspaceRemoteSessionController {
         let lowered = message.lowercased()
         if lowered.contains("missing required capability") ||
             lowered.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability) ||
-            lowered.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability) {
+            lowered.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability) ||
+            lowered.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYWriteNotificationCapability) {
             return remoteDaemonMissingRequiredCapabilitiesMessage([
                 WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability,
             ])

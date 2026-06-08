@@ -936,12 +936,19 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
         XCTAssertFalse(message.contains("pty.session"))
 
+        let notificationMessage = remoteDaemonMissingRequiredCapabilitiesMessage([
+            "pty.write.notification",
+        ])
+        XCTAssertEqual(notificationMessage, message)
+        XCTAssertFalse(notificationMessage.contains("pty.write.notification"))
+
         let rawError = NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
-            NSLocalizedDescriptionKey: "remote daemon missing required capability pty.session,pty.session.token",
+            NSLocalizedDescriptionKey: "remote daemon missing required capability pty.write.notification",
         ])
         let bootstrapMessage = WorkspaceRemoteSessionController.userFacingRemoteDaemonBootstrapErrorMessage(rawError)
         XCTAssertEqual(bootstrapMessage, message)
         XCTAssertFalse(bootstrapMessage.contains("pty.session"))
+        XCTAssertFalse(bootstrapMessage.contains("pty.write.notification"))
     }
 
     @MainActor
@@ -3331,7 +3338,15 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "immediate-token")
         }
 
-        func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {}
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
+            completion(nil)
+        }
         func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
     }
 
@@ -3353,7 +3368,15 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "immediate-output-token")
         }
 
-        func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {}
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
+            completion(nil)
+        }
         func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
     }
 
@@ -3379,7 +3402,15 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "flood-token")
         }
 
-        func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {}
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
+            completion(nil)
+        }
 
         func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {
             detachSemaphore.signal()
@@ -3422,8 +3453,15 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "delayed-token")
         }
 
-        func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
             guard String(data: data, encoding: .utf8)?.contains("after-half-close-input") == true else {
+                completion(nil)
                 return
             }
 
@@ -3444,10 +3482,66 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 emitEvent?(.data(Data("after-half-close-output\n".utf8)))
                 emitEvent?(.exit)
             }
+            completion(nil)
         }
 
         func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {
             detachSemaphore.signal()
+        }
+    }
+
+    private final class DeferredWriteCompletionPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+        private let lock = NSLock()
+        private var completions: [(Error?) -> Void] = []
+
+        let firstWrite = DispatchSemaphore(value: 0)
+        let secondWrite = DispatchSemaphore(value: 0)
+
+        func attachBridgePTY(
+            sessionID: String,
+            attachmentID: String,
+            cols: Int,
+            rows: Int,
+            command: String?,
+            requireExisting: Bool,
+            queue: DispatchQueue,
+            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
+        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "deferred-token")
+        }
+
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
+            let writeCount: Int
+            lock.lock()
+            completions.append(completion)
+            writeCount = completions.count
+            lock.unlock()
+
+            if writeCount == 1 {
+                firstWrite.signal()
+            } else if writeCount == 2 {
+                secondWrite.signal()
+            }
+        }
+
+        func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
+
+        func completeWrites() {
+            let pending: [(Error?) -> Void]
+            lock.lock()
+            pending = completions
+            completions.removeAll()
+            lock.unlock()
+
+            for completion in pending {
+                completion(nil)
+            }
         }
     }
 
@@ -5425,6 +5519,47 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
         XCTAssertEqual(firstJSON["type"] as? String, "ready", responseText)
         XCTAssertTrue(responseText.contains("early-output"), responseText)
+    }
+
+    func testPTYBridgeForwardsInputWithoutWaitingForWriteCompletion() throws {
+        let rpcClient = DeferredWriteCompletionPTYBridgeRPC()
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-input-completion",
+            attachmentID: "attachment-input-completion",
+            command: nil,
+            requireExisting: false
+        ) {}
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            rpcClient.completeWrites()
+            Darwin.close(fd)
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\n", to: fd))
+
+        let readyLine = try readLine(from: fd, timeout: 2)
+        XCTAssertTrue(readyLine.contains("\"ready\""), readyLine)
+
+        XCTAssertTrue(writeAll("a", to: fd))
+        XCTAssertEqual(rpcClient.firstWrite.wait(timeout: .now() + 2), .success)
+        XCTAssertTrue(writeAll("b", to: fd))
+        XCTAssertEqual(
+            rpcClient.secondWrite.wait(timeout: .now() + 1.0),
+            .success,
+            "Bridge input forwarding should not wait for the prior pty.write response"
+        )
+        rpcClient.completeWrites()
     }
 
     func testPTYBridgeStopRetainsServerUntilCleanupRuns() throws {

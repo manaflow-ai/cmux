@@ -10505,6 +10505,7 @@ struct CMUXCLI {
         let lowered = trimmed.lowercased()
         if lowered.contains("missing required capability") ||
             lowered.contains("pty.session") ||
+            lowered.contains("pty.write.notification") ||
             lowered.contains("method_not_found") {
             return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
         }
