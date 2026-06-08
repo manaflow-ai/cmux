@@ -38,3 +38,9 @@ To author a NEW sample extension that is tag-ready:
 - `PRODUCT_BUNDLE_IDENTIFIER` = `<appBase>$(CMUX_BUNDLE_ID_SUFFIX)` for the app target and `<appBase>$(CMUX_BUNDLE_ID_SUFFIX).<leaf>` for the appex (suffix before the appex leaf so the appex id stays prefixed by the app id).
 - appex `INFOPLIST_KEY_CFBundleDisplayName` (or the `CFBundleDisplayName` Info.plist value) = `<Name>$(CMUX_DISPLAY_NAME_SUFFIX)`.
 - it must be ad-hoc signed by xcodebuild (Info.plist bound, entitlements intact) for pkd to ingest the tagged copy; do not re-sign post-build.
+
+## Detailed references
+
+- Read [references/tagged-builds.md](references/tagged-builds.md) for detailed tagged reload, app link, socket, and cleanup behavior.
+- Read [references/xcode-project-normalization.md](references/xcode-project-normalization.md) before touching `.xcode-version` or `cmux.xcodeproj/project.pbxproj`.
+- Read [references/sidebar-extension-tagging.md](references/sidebar-extension-tagging.md) when changing ExtensionKit sidebar extension identifiers, tagged sample extensions, or `pluginkit` verification.
