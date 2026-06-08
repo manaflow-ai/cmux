@@ -18350,17 +18350,7 @@ struct CMUXCLI {
                try handleApprovalRequest(message, method: method, requestId: requestId, connection: connection) {
                 return
             }
-            if let requestId = message["id"] {
-                // This watcher is not the owning interactive client, but
-                // app-server JSON-RPC requests still require a response on
-                // this connection so the turn is never left pending behind us.
-                try connection.respondError(
-                    requestId: requestId,
-                    code: -32601,
-                    message: "cmux Codex Teams watcher does not handle \(method)"
-                )
-                return
-            }
+            if message["id"] != nil { return }
             guard method.hasPrefix("thread/"),
                   let params = message["params"] as? [String: Any],
                   let threadObject = params["thread"] as? [String: Any],
@@ -18470,11 +18460,7 @@ struct CMUXCLI {
         ) throws -> Bool {
             guard CMUXCLI.codexTeamsApprovalMethods.contains(method) else { return false }
             guard let params = message["params"] as? [String: Any] else {
-                try connection.respondError(
-                    requestId: requestId,
-                    code: -32602,
-                    message: "\(method) is missing params"
-                )
+                fputs("cmux codex-teams watcher ignoring malformed approval \(method) request \(CMUXCLI.requestIdString(requestId))\n", stderr)
                 return true
             }
             let relatedItem = CMUXCLI.stringValue(in: params, keys: ["itemId", "item_id"])
@@ -18482,11 +18468,6 @@ struct CMUXCLI {
             let suppressionKey = approvalSuppressionKey(method: method, requestId: requestId, params: params)
             if approvalIsSuppressed(suppressionKey) {
                 fputs("cmux codex-teams watcher ignoring previously unresolved approval \(suppressionKey)\n", stderr)
-                try respondWithApprovalError(
-                    requestId: requestId,
-                    connection: connection,
-                    reason: "Feed approval was previously unresolved"
-                )
                 return true
             }
             let feedEvent = CMUXCLI.codexTeamsFeedEvent(
@@ -18502,22 +18483,12 @@ struct CMUXCLI {
                 response = try pushCodexApprovalToFeed(event: feedEvent)
             } catch {
                 suppressApproval(suppressionKey)
-                fputs("cmux codex-teams watcher returning no-decision error for approval \(suppressionKey) after Feed push failed: \(error)\n", stderr)
-                try respondWithApprovalError(
-                    requestId: requestId,
-                    connection: connection,
-                    reason: "Feed push failed"
-                )
+                fputs("cmux codex-teams watcher leaving approval \(suppressionKey) to Codex after Feed push failed: \(error)\n", stderr)
                 return true
             }
             guard let decision = CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: response) else {
                 suppressApproval(suppressionKey)
-                fputs("cmux codex-teams watcher returning no-decision error for approval \(suppressionKey) because Feed did not resolve it\n", stderr)
-                try respondWithApprovalError(
-                    requestId: requestId,
-                    connection: connection,
-                    reason: "Feed did not resolve approval"
-                )
+                fputs("cmux codex-teams watcher leaving approval \(suppressionKey) to Codex because Feed did not resolve it\n", stderr)
                 return true
             }
             guard let result = CMUXCLI.codexTeamsAppServerApprovalResponse(
@@ -18529,18 +18500,6 @@ struct CMUXCLI {
             }
             try connection.respond(requestId: requestId, result: result)
             return true
-        }
-
-        private func respondWithApprovalError(
-            requestId: Any,
-            connection: CodexTeamsAppServerConnection,
-            reason: String
-        ) throws {
-            try connection.respondError(
-                requestId: requestId,
-                code: -32800,
-                message: reason
-            )
         }
 
         private func approvalSuppressionKey(method: String, requestId: Any, params: [String: Any]) -> String {
