@@ -61,10 +61,14 @@ def main() -> int:
         shutil.rmtree(base, ignore_errors=True)
         base.mkdir(parents=True)
 
+        ran = []
         for name, shell_command, script, prompt_function in cases:
             if shutil.which(shell_command[0]) is None:
-                print(f"FAIL: {shell_command[0]} is required for {name} coverage")
-                return 1
+                if name == "bash":
+                    print("FAIL: bash is required for disabled git-watch coverage")
+                    return 1
+                print(f"SKIP: {name} coverage requires {shell_command[0]}")
+                continue
 
             send_log = base / f"{name}-send.log"
             hint_file = base / f"{name}-pr-action-hint"
@@ -116,8 +120,9 @@ def main() -> int:
             if hint_file.exists():
                 print(f"FAIL: {name} disabled git-watch path did not remove the PR command hint file")
                 return 1
+            ran.append(name)
 
-        print("PASS: shell disabled git-watch paths clear stale PR state once")
+        print(f"PASS: shell disabled git-watch paths clear stale PR state once ({', '.join(ran)})")
         return 0
     finally:
         shutil.rmtree(base, ignore_errors=True)
