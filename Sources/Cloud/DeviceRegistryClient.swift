@@ -24,9 +24,18 @@ final class DeviceRegistryClient {
     private let session: URLSession = .shared
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
-    /// The route set most recently registered, used to skip redundant POSTs when
-    /// `statusUpdates()` fires for a connection change rather than a route change.
-    private var lastRegisteredRoutes: [CmxAttachRoute]?
+    /// The scope (team + tag + routes) most recently registered, used to skip
+    /// redundant POSTs. Keyed on the full scope rather than routes alone so an
+    /// account/team switch with unchanged routes still re-registers in the newly
+    /// selected team instead of being deduped away.
+    private var lastRegistration: Registration?
+
+    /// The identity of a registration POST, for deduplication.
+    struct Registration: Equatable {
+        var teamID: String?
+        var tag: String
+        var routes: [CmxAttachRoute]
+    }
 
     private init() {}
 
@@ -37,25 +46,28 @@ final class DeviceRegistryClient {
         startObserving()
     }
 
-    /// Whether the current advertised routes differ from what was last registered.
+    /// Whether a registration with `current` scope differs from what was last
+    /// registered, and therefore should be POSTed.
     ///
     /// Pure so it is unit-testable without any network or host service.
     ///
-    /// Fires (returns `true`) only when the advertised routes differ from the
-    /// last registration. That includes the nonempty -> empty transition (the
-    /// user turned mobile pairing off): publishing the now-empty route set once
-    /// clears the stale routes from the registry, and the phone already skips
-    /// empty-route instances. It does NOT fire for an unchanged set (a
-    /// connection-only `statusUpdates()` tick) or for the empty -> still-empty
-    /// case (`nil`/`[]` start with pairing off), so the off-state is published
+    /// Fires (returns `true`) when the team, tag, or routes differ from the last
+    /// registration. The team is part of the key so an account/team switch with
+    /// unchanged routes still registers in the new team. The routes-empty
+    /// transition (the user turned mobile pairing off) also fires once, so the
+    /// registry stops advertising stale routes; the phone already skips
+    /// empty-route instances. An unchanged scope (a connection-only
+    /// `statusUpdates()` tick) and the never-registered empty start (`nil`
+    /// previous with empty routes) are both no-ops, so the off-state is published
     /// exactly once rather than on every empty tick.
     static func shouldReRegister(
-        previous: [CmxAttachRoute]?,
-        current: [CmxAttachRoute]
+        previous: Registration?,
+        current: Registration
     ) -> Bool {
-        // Treat "never registered" as an empty baseline so an initial empty set
-        // (pairing off at launch) is a no-op, but a later clear still fires once.
-        let baseline = previous ?? []
+        // Treat "never registered" as an empty-routes baseline in the same scope
+        // so an initial empty set (pairing off at launch) is a no-op, but a later
+        // clear, or any team/tag change, still fires.
+        let baseline = previous ?? Registration(teamID: current.teamID, tag: current.tag, routes: [])
         return baseline != current
     }
 
@@ -70,15 +82,19 @@ final class DeviceRegistryClient {
     }
 
     private func registerIfRoutesChanged(routes: [CmxAttachRoute]) async {
-        guard Self.shouldReRegister(previous: lastRegisteredRoutes, current: routes) else { return }
         guard let auth else { return }
+        // Resolve the auth scope BEFORE the dedup decision so a team switch with
+        // unchanged routes is detected (and not skipped).
+        let teamID = auth.resolvedTeamID
+        let tag = Self.buildTag()
+        let registration = Registration(teamID: teamID, tag: tag, routes: routes)
+        guard Self.shouldReRegister(previous: lastRegistration, current: registration) else { return }
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
         } catch {
             return // not signed in → nothing to do
         }
-        let teamID = auth.resolvedTeamID
 
         guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
             return
@@ -89,7 +105,7 @@ final class DeviceRegistryClient {
         var bodyDict: [String: Any] = [
             "deviceId": MobileHostIdentity.deviceID(),
             "platform": "mac",
-            "tag": Self.buildTag(),
+            "tag": tag,
             "routes": routes.map(\.mobileHostJSONObject),
         ]
         if let displayName = MobileHostIdentity.displayName(), !displayName.isEmpty {
@@ -111,9 +127,9 @@ final class DeviceRegistryClient {
             let (_, response) = try await session.data(for: req)
             if let http = response as? HTTPURLResponse {
                 if (200...299).contains(http.statusCode) {
-                    // Only remember the routes once the server accepted them, so a
+                    // Only remember the scope once the server accepted it, so a
                     // transient failure retries on the next status tick.
-                    lastRegisteredRoutes = routes
+                    lastRegistration = registration
                 } else {
                     NSLog("cmux.deviceRegistry register failed status=%d", http.statusCode)
                 }

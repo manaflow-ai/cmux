@@ -157,6 +157,60 @@ import Testing
         #expect(routes?.first?.id == "good")
     }
 
+    @Test func appliesRefreshWhenStillSignedInSameUserSameActiveMac() {
+        #expect(DeviceRegistryRouteSelection.shouldApplyRegistryRefresh(
+            isSignedIn: true,
+            capturedUserID: "user-1",
+            currentUserID: "user-1",
+            activeMacID: "mac-1",
+            targetMacID: "mac-1"
+        ) == true)
+    }
+
+    @Test func rejectsRefreshAfterSignOut() {
+        // User signed out while freshRoutes was in flight: never resurrect.
+        #expect(DeviceRegistryRouteSelection.shouldApplyRegistryRefresh(
+            isSignedIn: false,
+            capturedUserID: "user-1",
+            currentUserID: nil,
+            activeMacID: nil,
+            targetMacID: "mac-1"
+        ) == false)
+    }
+
+    @Test func rejectsRefreshAfterUserSwitch() {
+        #expect(DeviceRegistryRouteSelection.shouldApplyRegistryRefresh(
+            isSignedIn: true,
+            capturedUserID: "user-1",
+            currentUserID: "user-2",
+            activeMacID: "mac-1",
+            targetMacID: "mac-1"
+        ) == false)
+    }
+
+    @Test func rejectsRefreshAfterMacForgotten() {
+        // The Mac was forgotten (no active Mac now): do not recreate it.
+        #expect(DeviceRegistryRouteSelection.shouldApplyRegistryRefresh(
+            isSignedIn: true,
+            capturedUserID: "user-1",
+            currentUserID: "user-1",
+            activeMacID: nil,
+            targetMacID: "mac-1"
+        ) == false)
+    }
+
+    @Test func rejectsRefreshAfterActiveMacSwitched() {
+        // The user switched to a different active Mac (e.g. rescanned a QR):
+        // do not reactivate the old one.
+        #expect(DeviceRegistryRouteSelection.shouldApplyRegistryRefresh(
+            isSignedIn: true,
+            capturedUserID: "user-1",
+            currentUserID: "user-1",
+            activeMacID: "mac-2",
+            targetMacID: "mac-1"
+        ) == false)
+    }
+
     @Test func deviceIdentityPersistsAcrossLookups() {
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

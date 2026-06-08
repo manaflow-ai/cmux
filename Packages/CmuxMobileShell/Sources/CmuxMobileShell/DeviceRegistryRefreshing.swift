@@ -43,4 +43,33 @@ public enum DeviceRegistryRouteSelection {
         guard registry != local else { return nil }
         return registry
     }
+
+    /// Whether a background registry refresh may write back into the paired-Mac
+    /// store, re-evaluated *after* the network call.
+    ///
+    /// The refresh upserts with `markActive: true`, so it must not resurrect a
+    /// pairing that the user removed or deactivated while the network call was in
+    /// flight. It is safe to apply only when the same user is still signed in and
+    /// the Mac it refreshed is still the active paired Mac. If the user signed
+    /// out, switched accounts, forgot the Mac, or switched to a different active
+    /// Mac, the captured user no longer matches, or the active Mac id is now
+    /// `nil`/different, so the write is rejected.
+    ///
+    /// - Parameters:
+    ///   - isSignedIn: Whether a user is signed in now.
+    ///   - capturedUserID: The signed-in user when the refresh started.
+    ///   - currentUserID: The signed-in user now.
+    ///   - activeMacID: The still-active paired Mac id now, or `nil` if none.
+    ///   - targetMacID: The Mac id this refresh fetched routes for.
+    public static func shouldApplyRegistryRefresh(
+        isSignedIn: Bool,
+        capturedUserID: String?,
+        currentUserID: String?,
+        activeMacID: String?,
+        targetMacID: String
+    ) -> Bool {
+        guard isSignedIn else { return false }
+        guard capturedUserID == currentUserID else { return false }
+        return activeMacID == targetMacID
+    }
 }

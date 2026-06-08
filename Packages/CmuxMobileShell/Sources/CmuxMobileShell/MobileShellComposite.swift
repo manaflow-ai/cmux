@@ -1013,6 +1013,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 local: localRoutes,
                 registry: registryRoutes
             ) else { return }
+            guard let self else { return }
+            // The network await above suspended; the user may have signed out,
+            // switched accounts, forgotten this Mac, or switched the active Mac
+            // meanwhile. Re-evaluate against the *current* store/identity before
+            // the `markActive: true` upsert, so a stale refresh can never
+            // resurrect or reactivate a pairing the user removed. Mirrors the
+            // user-switch guard in `loadPairedMacs`.
+            let activeMacID: String?
+            do {
+                activeMacID = try await pairedMacStore.activeMac(stackUserID: stackUserID)?.macDeviceID
+            } catch {
+                mobileShellLog.debug("registry refresh active-mac recheck failed: \(String(describing: error), privacy: .public)")
+                return
+            }
+            guard DeviceRegistryRouteSelection.shouldApplyRegistryRefresh(
+                isSignedIn: self.isSignedIn,
+                capturedUserID: stackUserID,
+                currentUserID: self.identityProvider?.currentUserID,
+                activeMacID: activeMacID,
+                targetMacID: macDeviceID
+            ) else { return }
             do {
                 try await pairedMacStore.upsert(
                     macDeviceID: macDeviceID,
@@ -1025,7 +1046,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 mobileShellLog.debug("registry route refresh upsert failed: \(String(describing: error), privacy: .public)")
                 return
             }
-            await self?.loadPairedMacs()
+            await self.loadPairedMacs()
         }
     }
 
