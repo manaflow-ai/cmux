@@ -1,11 +1,11 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-32516	CLI/cmux.swift
+32936	CLI/cmux.swift
 22132	Sources/TerminalController.swift
 19831	Sources/Workspace.swift
 19203	Sources/ContentView.swift
-18920	Sources/AppDelegate.swift
+19009	Sources/AppDelegate.swift
 16595	Sources/GhosttyTerminalView.swift
 13795	Sources/Panels/BrowserPanel.swift
 10346	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -25,7 +25,7 @@
 4267	cmuxTests/BrowserPanelTests.swift
 4209	Sources/BrowserWindowPortal.swift
 3953	cmuxTests/WindowAndDragTests.swift
-3918	Sources/Feed/FeedPanelView.swift
+3937	Sources/Feed/FeedPanelView.swift
 3845	cmuxTests/CLIGenericHookPersistenceTests.swift
 3793	cmuxTests/TabManagerUnitTests.swift
 3396	Sources/CmuxConfig.swift
@@ -83,13 +83,13 @@
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 969	cmuxUITests/TerminalCmdClickUITests.swift
 965	Sources/TextBoxMentionIndexStore.swift
+955	Sources/Feed/FeedCoordinator.swift
 949	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
 939	Sources/App/TerminalDirectoryOpenSupport.swift
 937	cmuxTests/MarkdownPanelTests.swift
 937	cmuxTests/RestorableAgentSessionIndexTests.swift
-928	Sources/Feed/FeedCoordinator.swift
 924	Sources/DockPanelView.swift
 905	Sources/CmuxSSHURLRequest.swift
 878	Sources/WorkspaceContentView.swift
@@ -149,6 +149,7 @@
 580	Packages/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 578	cmuxUITests/FeedSidebarUITests.swift
 577	cmuxTests/AppearanceSettingsTests.swift
+575	cmuxTests/FeedCoordinatorTests.swift
 574	Sources/Feed/FeedTextEditorDebugWindowController.swift
 568	Packages/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
 562	cmuxTests/AgentExecutableResolverTests.swift
@@ -160,6 +161,7 @@
 547	Packages/CmuxSocketControl/Sources/CmuxSocketControl/SocketControlSettings.swift
 546	Sources/Windowing/WindowGlassEffect.swift
 540	cmuxTests/CmuxConfigContextMenuTests.swift
+539	CLI/CodexTeamsApprovalBridge.swift
 538	CLI/CMUXCLI+Themes.swift
 530	cmuxUITests/AutomationSocketUITests.swift
 527	CLI/CLISocketPathResolver.swift
