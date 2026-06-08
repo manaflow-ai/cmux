@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import Foundation
 
 /// UserDefaults keys for the phone-forwarding feature. Default OFF: the Mac
@@ -20,11 +21,19 @@ final class PhonePushClient {
     static let shared = PhonePushClient()
 
     private let session: URLSession = .shared
+    /// Injected once via `configure(auth:)` at app startup. Forwarding is a
+    /// best-effort path; until configured, sends are silently skipped.
+    private var auth: AuthCoordinator?
     /// Per workspace+surface throttle to defend against notification bursts.
     private var lastSentAt: [String: Date] = [:]
     private static let minInterval: TimeInterval = 1.0
 
     private init() {}
+
+    /// Inject the auth dependency. Call once at the composition root.
+    func configure(auth: AuthCoordinator) {
+        self.auth = auth
+    }
 
     static var isForwardingEnabled: Bool {
         UserDefaults.standard.bool(forKey: PhonePushSettings.forwardEnabledKey)
@@ -62,13 +71,14 @@ final class PhonePushClient {
     }
 
     private func send(_ payload: Payload) async {
+        guard let auth else { return }
         let tokens: (accessToken: String, refreshToken: String)
         do {
-            tokens = try await AuthManager.shared.currentTokens()
+            tokens = try await auth.currentTokens()
         } catch {
             return // not signed in → nothing to do
         }
-        let teamID = AuthManager.shared.resolvedTeamID
+        let teamID = auth.resolvedTeamID
 
         guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
             return

@@ -48,10 +48,15 @@ struct CMUXMobileRootView: View {
         .onAppear {
             syncShellAuthentication(isAuthenticated)
             store.resumeForegroundRefresh()
-            connectUITestAttachURLIfNeeded()
             #if os(iOS)
             pushCoordinator.bind(store: store)
             #endif
+            // If the view mounts already authenticated (cached session, or a
+            // mock/fixture launch), `onChange(of: isAuthenticated)` never fires,
+            // so kick off the stored-Mac reconnect here too. Without this the
+            // restoring gate could stay on RestoringSessionView forever because
+            // nothing ever resolves `didFinishStoredMacReconnectAttempt`.
+            reconnectStoredMacIfNeeded()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
@@ -88,18 +93,7 @@ struct CMUXMobileRootView: View {
                 }
                 return
             }
-            let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
-            if !startedUITestAttachURL,
-               MobileRootAuthGate.shouldReconnectStoredMac(
-                stackAuthenticated: authManager.isAuthenticated,
-                attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
-                connectionState: store.connectionState
-            ) {
-                let stackUserID = authManager.currentUser?.id
-                Task {
-                    await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
-                }
-            }
+            reconnectStoredMacIfNeeded()
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
             syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
@@ -126,6 +120,16 @@ struct CMUXMobileRootView: View {
             RestoringSessionView()
         } else if !isAuthenticated {
             SignInView()
+        } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
+            if store.hasKnownPairedMac || store.isReconnectingStoredMac {
+                // We know a Mac is being reconnected: it is honest to say so.
+                RestoringSessionView()
+            } else {
+                // Still determining whether a paired Mac exists (install predating
+                // the hint, or a fresh sign-in): a neutral spinner, since we do not
+                // yet know if there is a session to restore.
+                MobilePairedMacDeterminingView()
+            }
         } else if store.connectionState != .connected {
             DisconnectedWorkspaceShellView(
                 showAddDevice: showAddDevice,
@@ -172,6 +176,17 @@ struct CMUXMobileRootView: View {
         )
     }
 
+    private var shouldShowRestoringStoredMac: Bool {
+        MobileRootAuthGate.shouldShowRestoringStoredMac(
+            authenticated: isAuthenticated,
+            connectionState: store.connectionState,
+            isReconnectingStoredMac: store.isReconnectingStoredMac,
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            pairedMacHintUndetermined: store.pairedMacHintUndetermined,
+            didFinishStoredMacReconnectAttempt: store.didFinishStoredMacReconnectAttempt
+        )
+    }
+
     private var hasActiveAttachTicketAuthentication: Bool {
         didAuthenticateWithAttachTicket && store.hasActiveUnexpiredAttachTicket
     }
@@ -185,6 +200,26 @@ struct CMUXMobileRootView: View {
             isRestoringSession: isRestoringSession ?? authManager.isRestoringSession,
             store: store
         )
+    }
+
+    /// Starts the stored-Mac reconnect when authenticated, unless a UITest attach
+    /// URL took over. Called from both initial `onAppear` (covers a mount that is
+    /// already authenticated) and `onChange(of: isAuthenticated)` (covers a
+    /// sign-in that completes after mount) so the restoring gate always resolves
+    /// even when the auth state never transitions while this view is mounted.
+    private func reconnectStoredMacIfNeeded() {
+        guard isAuthenticated else { return }
+        let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
+        guard !startedUITestAttachURL,
+              MobileRootAuthGate.shouldReconnectStoredMac(
+                stackAuthenticated: authManager.isAuthenticated,
+                attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+                connectionState: store.connectionState
+              ) else { return }
+        let stackUserID = authManager.currentUser?.id
+        Task {
+            await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+        }
     }
 
     private func showAddDevice() {
@@ -235,15 +270,21 @@ struct CMUXMobileRootView: View {
     @discardableResult
     private func connectUITestAttachURLIfNeeded() -> Bool {
         #if DEBUG
-        // Auto-pair when CMUX_UITEST_ATTACH_URL is supplied at launch. Originally
-        // gated on mock data (the XCUITest harness), but the dev-launch tooling
-        // (scripts/mobile-dev-launch.sh) signs in for real (CMUX_UITEST_STACK_*
-        // with CMUX_UITEST_MOCK_DATA=0) and still wants to auto-attach, so this
-        // fires for any authenticated session once the attach URL is present.
-        // No-op unless that env var is set, so normal launches are unaffected.
+        // Auto-pair when an attach URL is supplied at launch. Two sources:
+        //   - CMUX_DOGFOOD_ATTACH_URL (UITestConfig.dogfoodAttachURL): NOT gated on
+        //     mock data, so it fires against the real backend. The dev-launch
+        //     tooling (scripts/mobile-dev-launch.sh, scripts/dev-setup.sh) signs in
+        //     for real (CMUX_UITEST_STACK_* with CMUX_UITEST_MOCK_DATA=0) and wants
+        //     the phone to auto-pair to the freshly built Mac dev app. With mock
+        //     off, UITestConfig.attachURL is always nil, so this dedicated accessor
+        //     is what un-breaks real-backend auto-pair.
+        //   - CMUX_UITEST_ATTACH_URL (UITestConfig.attachURL): gated on mock data,
+        //     kept intact for the XCUITest harness.
+        // No-op unless one of those env vars is set, so normal launches are
+        // unaffected.
         guard !didConsumeUITestAttachURL,
               isAuthenticated,
-              let attachURL = UITestConfig.attachURL else {
+              let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
         didConsumeUITestAttachURL = true

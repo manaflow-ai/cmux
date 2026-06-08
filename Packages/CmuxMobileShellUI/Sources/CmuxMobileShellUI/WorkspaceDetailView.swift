@@ -16,16 +16,20 @@ struct WorkspaceDetailView: View {
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
-    @Binding var selectedTerminalID: MobileTerminalPreview.ID?
     let createWorkspace: () -> Void
     let createTerminal: () -> Void
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
     @State private var isTerminalPickerPresented = false
+    #if DEBUG && canImport(UIKit)
+    @State private var isFeedbackComposerPresented = false
+    @State private var feedbackText = ""
+    @State private var isSubmittingFeedback = false
+    #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
-        workspace.terminals.first { $0.id == selectedTerminalID } ?? workspace.terminals.first
+        workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
     }
 
     var body: some View {
@@ -45,7 +49,8 @@ struct WorkspaceDetailView: View {
                 GhosttySurfaceRepresentable(
                     surfaceID: terminalID,
                     store: store,
-                    fontSize: MobileTerminalFontPreference.defaultSize
+                    fontSize: MobileTerminalFontPreference.defaultSize,
+                    autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -54,6 +59,9 @@ struct WorkspaceDetailView: View {
                 // Keying on terminalID tears down the old surface (unregistering its
                 // sink via dismantleUIView) and builds the newly-selected one.
                 .id(terminalID)
+                .onAppear {
+                    store.consumeTerminalAutoFocusSuppression(for: terminalID)
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(TerminalPalette.background)
                 // The surface positions its grid + docked toolbar from
@@ -102,6 +110,11 @@ struct WorkspaceDetailView: View {
             }
         #endif
         }
+        #if DEBUG && canImport(UIKit)
+        .sheet(isPresented: $isFeedbackComposerPresented) {
+            feedbackComposer
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -197,6 +210,17 @@ struct WorkspaceDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
+
+            Button(action: openFeedbackComposerFromMenu) {
+                // DEV-only debug tooling; not shipped, so not localized.
+                Label("Send to agent", systemImage: "paperplane")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .accessibilityIdentifier("MobileSendFeedbackMenuItem")
             #endif
         }
         .frame(minWidth: 240, maxWidth: 320, alignment: .leading)
@@ -213,6 +237,68 @@ struct WorkspaceDetailView: View {
             let count = await MobileDebugLog.shared.copyToPasteboard(prepending: terminalText)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)
+        }
+    }
+
+    private func openFeedbackComposerFromMenu() {
+        isTerminalPickerPresented = false
+        feedbackText = ""
+        isFeedbackComposerPresented = true
+    }
+
+    // DEV-only dogfood feedback composer; not shipped, so its strings are not
+    // localized. Lets the dogfooder type an optional note and ship the structured
+    // diagnostic log + debug log + visible terminal text to the paired Mac.
+    private var feedbackComposer: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Send a structured diagnostic bundle (events + debug log + visible terminal) to the paired Mac. Add an optional note.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                TextField("What happened? (optional)", text: $feedbackText, axis: .vertical)
+                    .lineLimit(3...8)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("MobileFeedbackComposerField")
+                Spacer()
+            }
+            .padding(16)
+            .navigationTitle("Send to agent")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { isFeedbackComposerPresented = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Send", action: submitFeedbackFromComposer)
+                        .disabled(isSubmittingFeedback)
+                        .accessibilityIdentifier("MobileFeedbackComposerSend")
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func submitFeedbackFromComposer() {
+        guard !isSubmittingFeedback else { return }
+        isSubmittingFeedback = true
+        let note = feedbackText
+        // `visibleTerminalSnapshot()` reads off the output queue with a bounded
+        // wait (never a main-thread `ghostty_surface_read_text`, which blanks the
+        // terminal). The debug-log snapshot is awaited from its actor.
+        let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
+        Task { @MainActor in
+            defer {
+                isSubmittingFeedback = false
+                isFeedbackComposerPresented = false
+            }
+            let (_, debugLogText) = await MobileDebugLog.shared.sink.snapshotWithCount()
+            let ok = await store.submitDogfoodFeedback(
+                text: note,
+                debugLogText: debugLogText,
+                terminalText: terminalText
+            )
+            UINotificationFeedbackGenerator().notificationOccurred(ok ? .success : .error)
+            NSLog("cmux.dogfood feedback submit ok=%@", ok ? "1" : "0")
         }
     }
     #endif
@@ -237,10 +323,19 @@ struct WorkspaceDetailView: View {
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
         isTerminalPickerPresented = false
-        selectedTerminalID = terminalID
+        // Switching from the picker is chrome, not a typing intent, so the
+        // newly-selected surface must not grab the keyboard on attach. The
+        // store suppresses the target's autofocus (and is a no-op when it is
+        // already selected). A push-notification deep link uses the plain
+        // `selectTerminal` path instead and is allowed to autofocus.
+        store.selectTerminalFromChrome(terminalID)
     }
 
     private func dismissTerminalKeyboardForChrome() {
+        // Resign the terminal's hidden text input first so the surface clears
+        // its keyboard geometry and recomputes full-height before chrome covers
+        // it; then sweep any other responder across the scene.
+        GhosttySurfaceView.resignActiveInput()
         UIApplication.shared.dismissMobileKeyboard()
     }
 }

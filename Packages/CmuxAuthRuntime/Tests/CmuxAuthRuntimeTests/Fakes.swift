@@ -10,6 +10,7 @@ final class FakeKeyValueStore: CMUXAuthKeyValueStore, @unchecked Sendable {
 
     func bool(forKey defaultName: String) -> Bool { storage[defaultName] as? Bool ?? false }
     func data(forKey defaultName: String) -> Data? { storage[defaultName] as? Data }
+    func string(forKey defaultName: String) -> String? { storage[defaultName] as? String }
     func set(_ value: Any?, forKey defaultName: String) { storage[defaultName] = value }
     func removeObject(forKey defaultName: String) { storage[defaultName] = nil }
 }
@@ -24,7 +25,9 @@ actor FakeAuthClient: AuthClient {
     /// normal access token.
     var forceRefreshResult: String??
     var user: CMUXAuthUser?
+    var teams: [CMUXAuthTeam] = []
     var throwOnCurrentUser: (any Error)?
+    var throwOnListTeams: (any Error)?
     var nonce = "nonce-123"
     private(set) var signedInWithMagicLink = false
     private(set) var signedInWithCredential: (email: String, password: String)?
@@ -44,6 +47,8 @@ actor FakeAuthClient: AuthClient {
     }
     func setForceRefreshResult(_ result: String?) { forceRefreshResult = .some(result) }
     func setThrowOnCurrentUser(_ error: (any Error)?) { throwOnCurrentUser = error }
+    func setTeams(_ teams: [CMUXAuthTeam]) { self.teams = teams }
+    func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
 
     func accessToken() async -> String? { access }
     func refreshToken() async -> String? { refresh }
@@ -57,6 +62,11 @@ actor FakeAuthClient: AuthClient {
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
         if let throwOnCurrentUser { throw throwOnCurrentUser }
         return user
+    }
+
+    func listTeams() async throws -> [CMUXAuthTeam] {
+        if let throwOnListTeams { throw throwOnListTeams }
+        return teams
     }
 
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { nonce }
@@ -98,6 +108,24 @@ final class FakeAnchor: NSObject, AuthPresentationAnchoring {
 actor HookFlag {
     private(set) var fired = false
     func fire() { fired = true }
+}
+
+/// Captures a value observed inside an async hook, for ordering assertions.
+actor TokenProbe {
+    private(set) var value: String?
+    func set(_ token: String?) { value = token }
+}
+
+/// Records the lifecycle of a sign-out teardown hook so a test can prove the
+/// teardown is structured (joined + cancelled before sign-out returns) rather
+/// than detached.
+actor TeardownOutcomeProbe {
+    private(set) var started = false
+    private(set) var finished = false
+    private(set) var cancelled = false
+    func markStarted() { started = true }
+    func markFinished() { finished = true }
+    func markCancelled() { cancelled = true }
 }
 
 extension AuthLaunchOptions {

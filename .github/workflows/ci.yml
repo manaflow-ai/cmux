@@ -125,8 +125,8 @@ jobs:
       - name: Web tests
         run: bun test
 
-  # Checks for in-app React UIs (currently the diff viewer; more cmux React
-  # surfaces will live alongside it). Add per-app steps here as they land.
+  # Checks for in-app React webviews (currently the diff viewer; more cmux React
+  # surfaces will live alongside it).
   react-apps-check:
     runs-on: ubuntu-latest
     steps:
@@ -136,26 +136,26 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
-      - name: Verify generated diff viewer assets
-        run: ./scripts/build-diff-viewer-app.sh --check
+      - name: Verify generated webviews assets
+        run: ./scripts/build-webviews-app.sh --check
 
-      - name: Verify React Compiler for diff viewer
-        run: ./scripts/check-diff-viewer-react-compiler.mjs
+      - name: Verify React Compiler for webviews
+        run: ./scripts/check-webviews-react-compiler.mjs
 
-      - name: Typecheck diff viewer
-        working-directory: diff-viewer
+      - name: Typecheck webviews
+        working-directory: webviews
         run: bun run typecheck
 
-      - name: Test diff viewer
-        working-directory: diff-viewer
+      - name: Test webviews
+        working-directory: webviews
         run: bun run test
 
-      - name: Oxlint diff viewer
-        working-directory: diff-viewer
+      - name: Oxlint webviews
+        working-directory: webviews
         run: bun run lint:ci
 
       - name: React Doctor
-        working-directory: diff-viewer
+        working-directory: webviews
         run: bun run react-doctor:ci
 
   web-db-migrations:
@@ -419,6 +419,8 @@ jobs:
           # app-target dependency). Add a package here once its `swift test`
           # is confirmed to resolve standalone.
           PACKAGES=(
+            CMUXAuthCore
+            CmuxAuthRuntime
             CmuxControlSocket
             CmuxFileWatch
             CmuxFoundation
@@ -445,6 +447,14 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
+      - name: Build and test Agent Session web resources
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          bun run agent-session-web:build
+          bun run agent-session-web:test
+          git diff --exit-code -- Resources/agent-session-react Resources/agent-session-solid
+
       - name: Run CLI no-socket regressions
         run: |
           set -euo pipefail
@@ -468,6 +478,12 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
           python3 tests/test_claude_wrapper_hooks.py
+          python3 tests/test_claude_wrapper_user_binary_resolution.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_fallback_path.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_fallback_path.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omc_fallback_path.py
+          python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
           python3 tests/test_shell_git_branch_stale_cwd.py
           python3 tests/test_shell_git_config_remote_url_parsing.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
