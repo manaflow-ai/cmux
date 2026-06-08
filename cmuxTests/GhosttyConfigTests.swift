@@ -6487,3 +6487,31 @@ final class BrowserImportScopeTests: XCTestCase {
         XCTAssertNil(scope)
     }
 }
+
+/// Covers the `font-family` directive tracking the iOS app relies on to inherit
+/// the Mac's terminal font: the phone must receive the user's family only when
+/// they actually set one (not the silent "Menlo" default).
+final class GhosttyConfigFontFamilyDirectiveTests: XCTestCase {
+    func testUnsetFontFamilyHasNoDirective() {
+        var config = GhosttyConfig()
+        config.parse("font-size = 14")
+        XCTAssertFalse(config.hasFontFamilyDirective)
+        XCTAssertEqual(config.fontFamily, "Menlo")
+    }
+
+    func testExplicitFontFamilySetsDirective() {
+        var config = GhosttyConfig()
+        config.parse("font-family = JetBrains Mono")
+        XCTAssertTrue(config.hasFontFamilyDirective)
+        XCTAssertEqual(config.fontFamily, "JetBrains Mono")
+    }
+
+    func testEmptyFontFamilyResetsDirective() {
+        var config = GhosttyConfig()
+        config.parse("font-family = Berkeley Mono\nfont-family =")
+        // An empty value resets to the default in Ghostty's RepeatableString
+        // semantics, so the phone should fall back to its built-in default.
+        XCTAssertFalse(config.hasFontFamilyDirective)
+        XCTAssertEqual(config.fontFamily, "Menlo")
+    }
+}

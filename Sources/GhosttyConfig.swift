@@ -21,6 +21,10 @@ struct GhosttyConfig {
     static let maxSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize)
 
     var fontFamily: String = "Menlo"
+    /// Whether the user explicitly set `font-family` (vs the "Menlo" default).
+    /// Lets callers that want the user's actual choice (e.g. surfacing it to the
+    /// iOS app to inherit) send nil when unset rather than a false "Menlo".
+    var hasFontFamilyDirective = false
     var fontSize: CGFloat = 12
     var surfaceTabBarFontSize: CGFloat = Self.defaultSurfaceTabBarFontSize
     var sidebarFontSize: CGFloat = Self.defaultSidebarFontSize
@@ -399,7 +403,15 @@ struct GhosttyConfig {
 
                 switch key {
                 case "font-family":
-                    fontFamily = value
+                    // An empty value (`font-family =`) resets to the default in
+                    // Ghostty's RepeatableString semantics, so treat it as unset.
+                    if value.isEmpty {
+                        fontFamily = "Menlo"
+                        hasFontFamilyDirective = false
+                    } else {
+                        fontFamily = value
+                        hasFontFamilyDirective = true
+                    }
                 case "font-size":
                     if let size = Double(value) {
                         fontSize = CGFloat(size)

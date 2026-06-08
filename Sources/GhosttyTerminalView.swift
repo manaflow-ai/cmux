@@ -7343,20 +7343,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return (frame, frame.plainRows())
     }
 
-    /// The Mac's resolved primary terminal `font-family`, read from the surface's
-    /// finalized ghostty config, or `nil` when the user has not set one (so the
-    /// phone keeps its built-in default rather than an assumed "Menlo"). Returns
-    /// the first family libghostty resolved; the phone applies it as its primary
-    /// family and keeps its own fallback chain for glyph coverage.
+    /// The Mac's terminal `font-family` the iOS app should inherit, or `nil` when
+    /// the user has not set one (so the phone keeps its built-in default rather
+    /// than an assumed "Menlo").
+    ///
+    /// Read from the parsed `GhosttyConfig`, not `ghostty_config_get`: the C API
+    /// has no string getter for `font-family` (it is a `RepeatableString`, which
+    /// `ghostty_config_get` does not export, so it would always return false).
+    /// `hasFontFamilyDirective` distinguishes a user-set family from the default.
+    /// For a multi-line fallback chain the parser keeps the last entry; the phone
+    /// applies it as its primary face and keeps its own fallback for coverage.
     private func resolvedTerminalFontFamily() -> String? {
-        guard let config = GhosttyApp.shared.config else { return nil }
-        var value: UnsafePointer<Int8>?
-        let key = "font-family"
-        guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
-              let value else {
-            return nil
-        }
-        let family = String(cString: value).trimmingCharacters(in: .whitespacesAndNewlines)
+        let config = GhosttyConfig.load()
+        guard config.hasFontFamilyDirective else { return nil }
+        let family = config.fontFamily.trimmingCharacters(in: .whitespacesAndNewlines)
         return family.isEmpty ? nil : family
     }
 
