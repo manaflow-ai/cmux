@@ -20,13 +20,17 @@ public enum MobileFeedbackRoute: Equatable, Sendable {
 
 /// Pure routing decision for the Send Feedback feature.
 ///
-/// A submission goes direct-to-agent only when BOTH conditions hold:
+/// A submission goes direct-to-agent only when ALL of these hold:
 ///
 /// 1. The signed-in Stack user's email ends with `@manaflow.ai` (case- and
 ///    whitespace-insensitive), AND
 /// 2. The device is effectively on the tailnet — proxied by "has an active
 ///    mobile-host connection to a paired Mac", since that transport runs over
-///    Tailscale.
+///    Tailscale, AND
+/// 3. The connected Mac advertises the `dogfood.v1` capability (the
+///    `dogfood.feedback.submit` sink). Without this, a newer phone against an
+///    older Mac would take the agent path and get `method_not_found`, so the
+///    capability check makes it fall back to email under version skew.
 ///
 /// Build type does not change the route: the privileged path works on every
 /// build type (dev/beta/prod), so `@manaflow.ai` dogfooders on a Release build
@@ -37,13 +41,16 @@ public enum MobileFeedbackRoute: Equatable, Sendable {
 ///     when no email is set on the account.
 ///   - hasActiveMacConnection: `true` when an active mobile-host connection to a
 ///     paired Mac is established (the on-tailnet proxy).
-/// - Returns: ``MobileFeedbackRoute/privilegedAgent`` when both privileged
+///   - hostSupportsAgentSink: `true` when the connected Mac advertised the
+///     `dogfood.v1` capability.
+/// - Returns: ``MobileFeedbackRoute/privilegedAgent`` when all privileged
 ///   conditions hold, otherwise ``MobileFeedbackRoute/email``.
 public func resolveMobileFeedbackRoute(
     email: String?,
-    hasActiveMacConnection: Bool
+    hasActiveMacConnection: Bool,
+    hostSupportsAgentSink: Bool
 ) -> MobileFeedbackRoute {
-    guard hasActiveMacConnection, isManaflowEmail(email) else {
+    guard hasActiveMacConnection, hostSupportsAgentSink, isManaflowEmail(email) else {
         return .email
     }
     return .privilegedAgent

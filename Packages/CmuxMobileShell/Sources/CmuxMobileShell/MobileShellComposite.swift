@@ -59,6 +59,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
+    private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
 
     /// How long the render-grid stream may stay silent (no event of any topic)
@@ -178,6 +179,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// for older Macs that lack the handler, so the UI can hide rename/pin rather
     /// than offer actions that would fail with `method_not_found`.
     public private(set) var supportsWorkspaceActions: Bool = false
+    /// Whether the connected Mac advertises the `dogfood.v1` capability (the
+    /// `dogfood.feedback.submit` agent sink). `false` until host status is read,
+    /// and for older Macs that lack the handler, so the privileged Send Feedback
+    /// route falls back to email rather than failing with `method_not_found`
+    /// under client/server version skew.
+    public private(set) var supportsDogfoodFeedback: Bool = false
     public var terminalInputText: String
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
@@ -734,7 +741,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var currentFeedbackRoute: MobileFeedbackRoute {
         resolveMobileFeedbackRoute(
             email: signedInUserEmail,
-            hasActiveMacConnection: hasActiveMacConnection
+            hasActiveMacConnection: hasActiveMacConnection,
+            hostSupportsAgentSink: supportsDogfoodFeedback
         )
     }
 
@@ -2055,6 +2063,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplaySurfaceIDsInFlight = []
         terminalOutputTransport = .rawBytes
         supportsWorkspaceActions = false
+        supportsDogfoodFeedback = false
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
@@ -2462,9 +2471,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
                 terminalOutputTransport = fallback
                 supportsWorkspaceActions = false
+                supportsDogfoodFeedback = false
                 return fallback
             }
             supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
+            supportsDogfoodFeedback = payload.capabilities.contains(Self.dogfoodFeedbackCapability)
             let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
                 payload.terminalFidelity == "render_grid" ? .renderGrid : .rawBytes
             terminalOutputTransport = transport
@@ -2473,6 +2484,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             terminalOutputTransport = fallback
             supportsWorkspaceActions = false
+            supportsDogfoodFeedback = false
             MobileDebugLog.anchormux("sync.transport=raw_bytes reason=status_failed")
             return fallback
         }

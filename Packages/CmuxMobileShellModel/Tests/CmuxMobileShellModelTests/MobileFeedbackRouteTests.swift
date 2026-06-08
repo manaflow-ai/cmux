@@ -7,37 +7,66 @@ import Testing
 struct MobileFeedbackRouteTests {
     // MARK: - Routing decision
 
-    @Test func privilegedWhenManaflowAndConnected() {
+    @Test func privilegedWhenManaflowConnectedAndHostSupportsSink() {
         #expect(
-            resolveMobileFeedbackRoute(email: "lawrence@manaflow.ai", hasActiveMacConnection: true)
-                == .privilegedAgent
+            resolveMobileFeedbackRoute(
+                email: "lawrence@manaflow.ai",
+                hasActiveMacConnection: true,
+                hostSupportsAgentSink: true
+            ) == .privilegedAgent
         )
     }
 
     @Test func emailWhenManaflowButNotConnected() {
         #expect(
-            resolveMobileFeedbackRoute(email: "lawrence@manaflow.ai", hasActiveMacConnection: false)
-                == .email
+            resolveMobileFeedbackRoute(
+                email: "lawrence@manaflow.ai",
+                hasActiveMacConnection: false,
+                hostSupportsAgentSink: true
+            ) == .email
         )
     }
 
     @Test func emailWhenConnectedButNotManaflow() {
         #expect(
-            resolveMobileFeedbackRoute(email: "someone@gmail.com", hasActiveMacConnection: true)
-                == .email
+            resolveMobileFeedbackRoute(
+                email: "someone@gmail.com",
+                hasActiveMacConnection: true,
+                hostSupportsAgentSink: true
+            ) == .email
         )
     }
 
     @Test func emailWhenSignedOut() {
         #expect(
-            resolveMobileFeedbackRoute(email: nil, hasActiveMacConnection: true) == .email
+            resolveMobileFeedbackRoute(
+                email: nil,
+                hasActiveMacConnection: true,
+                hostSupportsAgentSink: true
+            ) == .email
+        )
+    }
+
+    @Test func emailWhenHostDoesNotAdvertiseSink() {
+        // Version skew: a privileged user on an active connection to an older Mac
+        // that does not expose `dogfood.feedback.submit` must fall back to email,
+        // not take the agent path and fail with `method_not_found`.
+        #expect(
+            resolveMobileFeedbackRoute(
+                email: "lawrence@manaflow.ai",
+                hasActiveMacConnection: true,
+                hostSupportsAgentSink: false
+            ) == .email
         )
     }
 
     @Test func manaflowMatchIsCaseAndWhitespaceInsensitive() {
         #expect(isManaflowEmail("  Lawrence@Manaflow.AI \n"))
-        #expect(resolveMobileFeedbackRoute(email: "  Lawrence@Manaflow.AI ", hasActiveMacConnection: true)
-            == .privilegedAgent)
+        #expect(resolveMobileFeedbackRoute(
+            email: "  Lawrence@Manaflow.AI ",
+            hasActiveMacConnection: true,
+            hostSupportsAgentSink: true
+        ) == .privilegedAgent)
     }
 
     @Test func lookalikeDomainsAreNotPrivileged() {
