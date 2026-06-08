@@ -25,6 +25,7 @@ export const navItems: NavEntry[] = [
   { titleKey: "skills", href: "/docs/skills" },
   { titleKey: "notifications", href: "/docs/notifications" },
   { titleKey: "ssh", href: "/docs/ssh" },
+  { titleKey: "mobile", href: "/docs/mobile" },
   {
     sectionKey: "agentIntegrations",
     children: [
