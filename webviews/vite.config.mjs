@@ -37,8 +37,17 @@ export default defineConfig({
       output: {
         format: "es",
         entryFileNames: "main.mjs",
-        chunkFileNames: "chunks/[name]-[hash].mjs",
-        assetFileNames: "assets/[name]-[hash][extname]",
+        // Stable (un-hashed) chunk names. The diff viewer copies these into its
+        // long-lived `/tmp/cmux-diff-viewer-$uid/assets/cmux-webviews-app`
+        // cache and overwrites in place via a size+mtime check; content hashes
+        // would instead orphan a new ~10MB diff-vendor copy there on every
+        // rebuild since nothing prunes that dir. The bundle is served via the
+        // diff viewer custom scheme (fresh per-token registration) and a
+        // versioned app-bundle file load, so content-hash cache-busting buys
+        // nothing here. The chunk set is small and explicitly named, so stable
+        // names do not collide.
+        chunkFileNames: "chunks/[name].mjs",
+        assetFileNames: "assets/[name][extname]",
         // Collapse the diff syntax-highlighting vendor (`@pierre/diffs` +
         // shiki, including its ~300 dynamically-imported TextMate grammars)
         // into one lazy chunk loaded only by the diff surface. Left split,
