@@ -16444,26 +16444,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Feed categories with inline decision buttons. Identifiers and
         // action strings are matched in `handleFeedNotificationResponse`.
-        let permissionCategory = UNNotificationCategory(
-            identifier: "CMUXFeedPermission",
-            actions: [
-                UNNotificationAction(
-                    identifier: "feed.permission.once",
-                    title: String(localized: "feed.notification.permission.allowOnce", defaultValue: "Allow Once")
-                ),
-                UNNotificationAction(
-                    identifier: "feed.permission.always",
-                    title: String(localized: "feed.notification.permission.always", defaultValue: "Always")
-                ),
-                UNNotificationAction(
-                    identifier: "feed.permission.deny",
-                    title: String(localized: "feed.notification.permission.deny", defaultValue: "Deny"),
-                    options: [.destructive]
-                ),
-            ],
-            intentIdentifiers: [],
-            options: []
+        let permissionOnceAction = UNNotificationAction(
+            identifier: "feed.permission.once",
+            title: String(localized: "feed.notification.permission.allowOnce", defaultValue: "Allow Once")
         )
+        let permissionAlwaysAction = UNNotificationAction(
+            identifier: "feed.permission.always",
+            title: String(localized: "feed.notification.permission.always", defaultValue: "Always")
+        )
+        let permissionAllAction = UNNotificationAction(
+            identifier: "feed.permission.all",
+            title: String(localized: "feed.notification.permission.all", defaultValue: "All tools")
+        )
+        let permissionDenyAction = UNNotificationAction(
+            identifier: "feed.permission.deny",
+            title: String(localized: "feed.notification.permission.deny", defaultValue: "Deny"),
+            options: [.destructive]
+        )
+        let permissionCategories = Self.feedPermissionNotificationCategoryIds().map { categoryId in
+            var actions: [UNNotificationAction] = []
+            if categoryId.contains("Once") || categoryId == "CMUXFeedPermission" {
+                actions.append(permissionOnceAction)
+            }
+            if categoryId.contains("Always") || categoryId == "CMUXFeedPermission" {
+                actions.append(permissionAlwaysAction)
+            }
+            if categoryId.contains("All") {
+                actions.append(permissionAllAction)
+            }
+            actions.append(permissionDenyAction)
+            return UNNotificationCategory(
+                identifier: categoryId,
+                actions: actions,
+                intentIdentifiers: [],
+                options: []
+            )
+        }
         let exitPlanCategory = UNNotificationCategory(
             identifier: "CMUXFeedExitPlan",
             actions: [
@@ -16497,9 +16513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 
         let center = UNUserNotificationCenter.current()
-        center.setNotificationCategories([
-            category, permissionCategory, exitPlanCategory, questionCategory
-        ])
+        center.setNotificationCategories(Set([category, exitPlanCategory, questionCategory] + permissionCategories))
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS"] == "1" {
             center.removeAllPendingNotificationRequests()
             center.removeAllDeliveredNotifications()
@@ -16507,12 +16521,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         center.delegate = self
     }
 
+    private static func feedPermissionNotificationCategoryIds() -> [String] {
+        [
+            "CMUXFeedPermission",
+            "CMUXFeedPermissionDeny",
+            "CMUXFeedPermissionOnce",
+            "CMUXFeedPermissionAlways",
+            "CMUXFeedPermissionAll",
+            "CMUXFeedPermissionOnceAlways",
+            "CMUXFeedPermissionOnceAll",
+            "CMUXFeedPermissionAlwaysAll",
+            "CMUXFeedPermissionOnceAlwaysAll",
+        ]
+    }
+
     /// Routes a notification action identifier like
     /// `feed.permission.once` back to `FeedCoordinator.deliverReply`.
     /// Returns `true` if the identifier was Feed-owned.
     private func handleFeedNotificationResponse(_ response: UNNotificationResponse) -> Bool {
         let categoryId = response.notification.request.content.categoryIdentifier
-        guard categoryId == "CMUXFeedPermission"
+        guard categoryId.hasPrefix("CMUXFeedPermission")
            || categoryId == "CMUXFeedExitPlan"
            || categoryId == "CMUXFeedQuestion"
         else { return false }
@@ -16523,9 +16551,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         switch response.actionIdentifier {
         case "feed.permission.once":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .permission(.once))
+            guard let decision = feedPermissionNotificationDecision(requestId: requestId, requestedMode: .once) else {
+                return true
+            }
+            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: decision)
         case "feed.permission.always":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .permission(.always))
+            guard let decision = feedPermissionNotificationDecision(requestId: requestId, requestedMode: .always) else {
+                return true
+            }
+            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: decision)
+        case "feed.permission.all":
+            guard let decision = feedPermissionNotificationDecision(requestId: requestId, requestedMode: .all) else {
+                return true
+            }
+            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: decision)
         case "feed.permission.deny":
             FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .permission(.deny))
         case "feed.exit_plan.ultraplan":
@@ -16547,6 +16586,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             break
         }
         return true
+    }
+
+    private func feedPermissionNotificationDecision(
+        requestId: String,
+        requestedMode: WorkstreamPermissionMode
+    ) -> WorkstreamDecision? {
+        guard let item = FeedCoordinator.shared.snapshot(pendingOnly: false).reversed().first(where: { item in
+            guard case .permissionRequest(let itemRequestId, _, _, _) = item.payload else { return false }
+            return itemRequestId == requestId
+        }) else {
+            return .permission(requestedMode)
+        }
+        guard case .permissionRequest(_, _, let toolInputJSON, _) = item.payload else {
+            return .permission(requestedMode)
+        }
+
+        switch requestedMode {
+        case .once:
+            guard FeedPermissionActionPolicy.supportsOncePermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ) else {
+                return nil
+            }
+            return .permission(.once)
+        case .always:
+            if FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ) {
+                return .permission(.always)
+            }
+            if FeedPermissionActionPolicy.supportsOncePermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ) {
+                return .permission(.once)
+            }
+            return nil
+        case .all:
+            guard FeedPermissionActionPolicy.supportsAllPermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ) else {
+                return nil
+            }
+            return .permission(.all)
+        default:
+            return .permission(requestedMode)
+        }
     }
 
     private func disableNativeTabbingShortcut() {
