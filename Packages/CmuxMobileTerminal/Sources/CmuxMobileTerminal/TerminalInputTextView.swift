@@ -6,8 +6,16 @@ final class TerminalInputTextView: UITextView {
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
     var onEscapeSequence: ((Data) -> Void)?
+    /// Invoked when the Paste accessory button reads an image off the system
+    /// clipboard. The host forwards the bytes (+ a lowercase format hint) to the
+    /// Mac, which injects the resulting file path into the terminal. Clipboard
+    /// *text* does not use this path; it rides ``onText``.
+    var onPasteImage: ((Data, String) -> Void)?
     var onZoom: ((TerminalFontZoomDirection) -> Void)?
     var onHideKeyboard: (() -> Void)?
+    /// Fired by the trailing "customize" button so the SwiftUI host can present
+    /// the toolbar shortcuts editor.
+    var onOpenToolbarSettings: (() -> Void)?
     var accessoryLayoutInsetsProvider: (() -> UIEdgeInsets)?
     /// The leftmost toolbar button. Toggles its glyph between dismiss-keyboard
     /// (when the keyboard is up) and show-keyboard (when down) via
@@ -192,12 +200,19 @@ final class TerminalInputTextView: UITextView {
     /// user-configurable shortcuts. Command is created but kept out of the
     /// stack until ``applyModifierPresentation()`` inserts it for a Mac remote.
     private static let pinnedLeadingActions: [TerminalInputAccessoryAction] = [
-        .control, .alternate, .command, .zoomOut, .zoomIn,
+        .control, .alternate, .command, .paste,
     ]
 
-    /// Build (or rebuild) the bar's buttons: the pinned modifier/zoom controls
-    /// followed by the user-configurable shortcuts in their saved order. Safe to
-    /// call repeatedly; it clears the stack first.
+    /// The structural buttons pinned to the end of the bar, after the
+    /// user-configurable shortcuts. The zoom controls live here so the
+    /// high-traffic shortcuts sit directly after the modifier keys.
+    private static let pinnedTrailingActions: [TerminalInputAccessoryAction] = [
+        .zoomOut, .zoomIn,
+    ]
+
+    /// Build (or rebuild) the bar's buttons: the pinned modifier controls, the
+    /// user-configurable shortcuts in their saved order, then the pinned zoom
+    /// controls. Safe to call repeatedly; it clears the stack first.
     private func populateAccessoryActions() {
         guard let stack = accessoryStackView else { return }
         for view in stack.arrangedSubviews {
@@ -207,8 +222,8 @@ final class TerminalInputTextView: UITextView {
         commandAccessoryButton?.removeFromSuperview()
         commandAccessoryButton = nil
 
-        let actions = Self.pinnedLeadingActions + TerminalAccessoryConfiguration.shared.enabledActions
-        for action in actions {
+        // Pinned leading modifier controls, in fixed order.
+        for action in Self.pinnedLeadingActions {
             let button = makeAccessoryButton(for: action)
             // Command is Mac-only; kept out of the stack and inserted by
             // applyModifierPresentation() when driving a Mac remote.
@@ -218,6 +233,23 @@ final class TerminalInputTextView: UITextView {
                 stack.addArrangedSubview(button)
             }
         }
+        // The user-configurable region: built-in shortcuts and custom actions in
+        // the user's saved order.
+        for item in TerminalAccessoryConfiguration.shared.enabledItems {
+            switch item {
+            case let .builtin(action):
+                stack.addArrangedSubview(makeAccessoryButton(for: action))
+            case let .custom(custom):
+                stack.addArrangedSubview(makeCustomAccessoryButton(for: custom))
+            }
+        }
+        // Pinned trailing zoom controls, after the configurable shortcuts (the
+        // redesigned bar moved zoom here from the leading region).
+        for action in Self.pinnedTrailingActions {
+            stack.addArrangedSubview(makeAccessoryButton(for: action))
+        }
+        // The "customize" button pinned at the very end of the bar.
+        stack.addArrangedSubview(makeToolbarSettingsButton())
     }
 
     @objc private func handleAccessoryConfigurationChanged() {
@@ -241,8 +273,8 @@ final class TerminalInputTextView: UITextView {
     /// configuration-driven rebuild can re-apply it without toggling the flag.
     private func applyModifierPresentation() {
         guard let stack = accessoryStackView else { return }
-        for case let button as UIButton in stack.arrangedSubviews {
-            guard let action = TerminalInputAccessoryAction(rawValue: button.tag) else { continue }
+        for case let button as AccessoryActionButton in stack.arrangedSubviews {
+            guard case let .builtin(action) = button.item else { continue }
             button.setTitle(action.title(isMacRemote: isMacRemote), for: .normal)
         }
         // Insert/remove the command button based on whether this is a Mac terminal.
@@ -254,7 +286,8 @@ final class TerminalInputTextView: UITextView {
                     // Find the alt button's index in the current arrangedSubviews
                     var insertIndex = stack.arrangedSubviews.count
                     for (idx, view) in stack.arrangedSubviews.enumerated() {
-                        if view.tag == TerminalInputAccessoryAction.alternate.rawValue {
+                        if let button = view as? AccessoryActionButton,
+                           case .builtin(.alternate) = button.item {
                             insertIndex = idx + 1
                             break
                         }
@@ -408,9 +441,27 @@ final class TerminalInputTextView: UITextView {
 
     @objc
     private func handleAccessoryButton(_ sender: Any) {
-        guard let button = sender as? UIView,
-              let action = TerminalInputAccessoryAction(rawValue: button.tag) else { return }
-        handleAccessoryAction(action)
+        guard let button = sender as? AccessoryActionButton else { return }
+        switch button.item {
+        case let .builtin(action):
+            handleAccessoryAction(action)
+        case let .custom(custom):
+            handleCustomAction(custom)
+        }
+    }
+
+    @objc
+    private func handleOpenToolbarSettings() {
+        onOpenToolbarSettings?()
+    }
+
+    /// Fire a custom action's bytes. Custom actions are macros, so any armed
+    /// modifier is cleared first to avoid silently modifying the macro's output.
+    private func handleCustomAction(_ custom: CustomToolbarAction) {
+        disarmAllModifiers()
+        refreshAccessoryButtonStyles()
+        guard let output = custom.output else { return }
+        onEscapeSequence?(output)
     }
 
     @discardableResult
@@ -422,10 +473,9 @@ final class TerminalInputTextView: UITextView {
         return true
     }
 
-    private func makeAccessoryButton(for action: TerminalInputAccessoryAction) -> UIButton {
-        let button = UIButton(type: .system)
+    private func makeAccessoryButton(for action: TerminalInputAccessoryAction) -> AccessoryActionButton {
+        let button = AccessoryActionButton(item: .builtin(action))
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.tag = action.rawValue
         button.addTarget(self, action: #selector(handleAccessoryButton(_:)), for: .touchUpInside)
         button.accessibilityIdentifier = action.accessibilityIdentifier
         button.accessibilityLabel = action.accessibilityLabel
@@ -442,6 +492,49 @@ final class TerminalInputTextView: UITextView {
         return button
     }
 
+    private func makeCustomAccessoryButton(for custom: CustomToolbarAction) -> AccessoryActionButton {
+        let button = AccessoryActionButton(item: .custom(custom))
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(handleAccessoryButton(_:)), for: .touchUpInside)
+        button.accessibilityIdentifier = "terminal.inputAccessory.custom.\(custom.id.uuidString)"
+        button.accessibilityLabel = custom.title
+        button.titleLabel?.font = Self.accessoryButtonFont
+
+        if let symbolName = custom.symbolName,
+           !symbolName.isEmpty,
+           UIImage(systemName: symbolName) != nil {
+            button.setImage(UIImage(systemName: symbolName), for: .normal)
+            button.setPreferredSymbolConfiguration(Self.accessoryButtonSymbolConfig, forImageIn: .normal)
+            button.accessibilityLabel = custom.title
+        } else {
+            button.setTitle(custom.title, for: .normal)
+        }
+
+        applyAccessoryButtonBaseStyle(button)
+        return button
+    }
+
+    /// The trailing button that opens the toolbar shortcuts editor. A plain
+    /// `UIButton` (not an ``AccessoryActionButton``) so the armed-modifier
+    /// styling/relabel loops skip it, and styled to read as a control rather
+    /// than an insertable key.
+    private func makeToolbarSettingsButton() -> UIButton {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(handleOpenToolbarSettings), for: .touchUpInside)
+        button.accessibilityIdentifier = "terminal.inputAccessory.customize"
+        button.accessibilityLabel = String(
+            localized: "terminal.input_accessory.customize",
+            defaultValue: "Customize Toolbar"
+        )
+        button.setImage(UIImage(systemName: "slider.horizontal.3"), for: .normal)
+        button.setPreferredSymbolConfiguration(Self.accessoryButtonSymbolConfig, forImageIn: .normal)
+        applyAccessoryButtonBaseStyle(button)
+        button.backgroundColor = .clear
+        button.tintColor = UIColor(white: 0.7, alpha: 1)
+        return button
+    }
+
     private func applyAccessoryButtonBaseStyle(_ button: UIButton) {
         button.contentEdgeInsets = Self.accessoryButtonInsets
         button.backgroundColor = Self.accessoryButtonNormalBackground
@@ -453,6 +546,15 @@ final class TerminalInputTextView: UITextView {
     }
 
     private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
+        if action == .paste {
+            // Paste is a clipboard read, not a key sequence: ignore any armed
+            // modifier and route clipboard content to the host directly.
+            disarmAllModifiers()
+            refreshAccessoryButtonStyles()
+            handlePasteAction()
+            return
+        }
+
         if let zoomDirection = action.zoomDirection {
             disarmAllModifiers()
             refreshAccessoryButtonStyles()
@@ -509,6 +611,35 @@ final class TerminalInputTextView: UITextView {
         }
     }
 
+    /// Read the system clipboard for the Paste button. An image is forwarded via
+    /// ``onPasteImage`` (the host uploads it to the Mac as `terminal.paste_image`
+    /// and the Mac injects the resulting file path); plain text rides the normal
+    /// ``onText`` input path. Images win when both are present. A large image
+    /// falls back to JPEG so it stays under the Mac's 10 MB cap. Accessing the
+    /// pasteboard contents here is what shows iOS's one-shot paste banner, which
+    /// is the expected confirmation for an explicit Paste tap.
+    private func handlePasteAction() {
+        let pasteboard = UIPasteboard.general
+        if pasteboard.hasImages, let image = pasteboard.image {
+            let maxImageBytes = 8 * 1024 * 1024
+            if let png = image.pngData(), png.count <= maxImageBytes {
+                onPasteImage?(png, "png")
+                return
+            }
+            if let jpeg = image.jpegData(compressionQuality: 0.8) {
+                onPasteImage?(jpeg, "jpg")
+                return
+            }
+            if let png = image.pngData() {
+                onPasteImage?(png, "png")
+                return
+            }
+        }
+        if pasteboard.hasStrings, let string = pasteboard.string, !string.isEmpty {
+            onText?(string)
+        }
+    }
+
     private func disarmAllModifiers() {
         modifierState.disarmAll()
     }
@@ -535,10 +666,17 @@ final class TerminalInputTextView: UITextView {
 
     private func refreshAccessoryButtonStyles() {
         guard let stack = accessoryStackView else { return }
-        for case let button as UIButton in stack.arrangedSubviews {
-            guard let action = TerminalInputAccessoryAction(rawValue: button.tag) else { continue }
-            let armed = isAccessoryActionArmed(action)
-            let sticky = isAccessoryActionSticky(action)
+        for case let button as AccessoryActionButton in stack.arrangedSubviews {
+            // Only built-in modifier keys arm; custom actions always render normal.
+            let armed: Bool
+            let sticky: Bool
+            if case let .builtin(action) = button.item {
+                armed = isAccessoryActionArmed(action)
+                sticky = isAccessoryActionSticky(action)
+            } else {
+                armed = false
+                sticky = false
+            }
             if sticky {
                 button.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.85)
                 button.setTitleColor(.white, for: .normal)

@@ -80,6 +80,10 @@ final class MobileWorkspaceListObserver {
                 // so without this a terminal rename never re-emits to the phone.
                 workspace.$panelCustomTitles.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$title.map { _ in () }.eraseToAnyPublisher(),
+                // Pin/unpin is iOS-facing (the phone shows a Pinned section), and
+                // a pure pin toggle need not change the panel set or title, so
+                // without this the phone never learns the workspace was pinned.
+                workspace.$isPinned.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
                 // Pure drag-reorders change spatial order without changing the panel
@@ -130,6 +134,7 @@ final class MobileWorkspaceListObserver {
         for workspace in tabs {
             hasher.combine(workspace.id)
             hasher.combine(workspace.title)
+            hasher.combine(workspace.isPinned)
             // Spatial order is significant: hash the ordered id sequence so a
             // reorder of the same panel set changes the hash.
             let panelIDs = workspace.orderedPanelIds
