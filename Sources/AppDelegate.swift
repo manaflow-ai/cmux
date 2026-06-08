@@ -1056,6 +1056,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isApplyingSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTask: Task<Void, Never>?
+    private var sessionAutosaveTaskGeneration: UInt64 = 0
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
     private let sessionPersistenceQueue = DispatchQueue(
@@ -3642,6 +3643,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionAutosaveTimer?.cancel()
         sessionAutosaveTimer = nil
         sessionAutosaveTask?.cancel()
+        sessionAutosaveTaskGeneration &+= 1
         sessionAutosaveTask = nil
         sessionAutosaveTickInFlight = false
         sessionAutosaveDeferredRetryPending = false
@@ -4000,21 +4002,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         sessionAutosaveTickInFlight = true
+        sessionAutosaveTaskGeneration &+= 1
+        let generation = sessionAutosaveTaskGeneration
         sessionAutosaveTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.finishSessionAutosaveTick(source: source)
+            await self.finishSessionAutosaveTick(source: source, generation: generation)
         }
     }
 
-    private func finishSessionAutosaveTick(source: String) async {
+    private func finishSessionAutosaveTick(source: String, generation: UInt64) async {
 #if DEBUG
         let timingStart = CmuxTypingTiming.start()
         let phaseStart = ProcessInfo.processInfo.systemUptime
         var fingerprintMs: Double = 0
         var saveMs: Double = 0
         defer {
-            sessionAutosaveTask = nil
-            sessionAutosaveTickInFlight = false
+            if sessionAutosaveTaskGeneration == generation {
+                sessionAutosaveTask = nil
+                sessionAutosaveTickInFlight = false
+            }
             let totalMs = (ProcessInfo.processInfo.systemUptime - phaseStart) * 1000.0
             CmuxTypingTiming.logBreakdown(
                 path: "session.autosaveTick.phase",
@@ -4034,8 +4040,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #else
         defer {
-            sessionAutosaveTask = nil
-            sessionAutosaveTickInFlight = false
+            if sessionAutosaveTaskGeneration == generation {
+                sessionAutosaveTask = nil
+                sessionAutosaveTickInFlight = false
+            }
         }
 #endif
 

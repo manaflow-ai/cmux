@@ -57,7 +57,8 @@ web/public/pagefind/
 tmp/
 tmp-*/
 .iter-logs/
-.claude/worktrees/
+.claude/
+.cursor/
 
 # Local dogfood scratch (screenshots, recordings) — never commit
 artifacts/

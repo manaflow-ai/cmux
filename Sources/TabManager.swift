@@ -18,7 +18,7 @@ typealias Tab = Workspace
 private let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "TabManager")
 
 protocol WorkspaceGitMetadataReading: Sendable {
-    func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata
+    nonisolated func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata
 }
 
 extension GitMetadataService: WorkspaceGitMetadataReading {}
@@ -27,7 +27,7 @@ private struct SidebarWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
     let service: GitMetadataService
     let options: GitMetadataReadOptions
 
-    func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+    nonisolated func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
         await service.workspaceMetadata(for: directory, options: options)
     }
 }
