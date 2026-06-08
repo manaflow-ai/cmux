@@ -910,11 +910,13 @@ check_bundled_ghostty_helper_regression_coverage() {
   if ! awk '
     /^[[:space:]]*- name: Run bundled Ghostty theme picker helper regression$/ { in_step=1; next }
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /if: \$\{\{ matrix\.shard_index == 0 \}\}/ { saw_shard_gate=1 }
+    in_step && /timeout-minutes: 20/ { saw_timeout=1 }
     in_step && /CMUX_SKIP_ZIG_BUILD=0/ { saw_real_helper=1 }
     in_step && /\.\/tests\/test_bundled_ghostty_theme_picker_helper\.sh/ { saw_script=1 }
-    END { exit(saw_real_helper && saw_script ? 0 : 1) }
+    END { exit(saw_shard_gate && saw_timeout && saw_real_helper && saw_script ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: ci.yml must run the bundled Ghostty theme picker helper regression with the real Zig-built helper"
+    echo "FAIL: ci.yml must run the bundled Ghostty theme picker helper regression once, with a step timeout, and with the real Zig-built helper"
     exit 1
   fi
 
@@ -953,6 +955,7 @@ check_swift_package_tests_require_nonzero_execution() {
   if ! awk '
     function reset_step() {
       saw_swift_test=0
+      saw_shard_gate=0
       saw_capture=0
       saw_nonzero_guard=0
       saw_failure_message=0
@@ -962,7 +965,7 @@ check_swift_package_tests_require_nonzero_execution() {
         return
       }
       steps += 1
-      if (!(saw_swift_test && saw_capture && saw_nonzero_guard && saw_failure_message)) {
+      if (!(saw_shard_gate && saw_swift_test && saw_capture && saw_nonzero_guard && saw_failure_message)) {
         bad_step=1
       }
       in_step=0
@@ -970,17 +973,18 @@ check_swift_package_tests_require_nonzero_execution() {
     }
     /^[[:space:]]*- name: Run Swift package unit tests$/ { finish_step(); in_step=1; reset_step(); next }
     in_step && /^[[:space:]]*- name:/ { finish_step() }
+    in_step && /if: \$\{\{ matrix\.shard_index == 0 \}\}/ { saw_shard_gate=1 }
     in_step && /swift test --package-path "Packages\/\$pkg"/ { saw_swift_test=1 }
     in_step && /tee "\$output_file"/ { saw_capture=1 }
     in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
     in_step && /completed without executing any tests/ { saw_failure_message=1 }
     END { finish_step(); exit(steps > 0 && !bad_step ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: every Swift package unit-test lane must fail if a listed package completes without executing any XCTest or Swift Testing tests"
+    echo "FAIL: Swift package unit tests must run once and fail if a listed package completes without executing any XCTest or Swift Testing tests"
     exit 1
   fi
 
-  echo "PASS: Swift package unit-test lanes reject zero-test package runs"
+  echo "PASS: Swift package unit-test lane rejects zero-test package runs"
 }
 
 check_standalone_swift_package_tests_are_wired() {
