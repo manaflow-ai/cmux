@@ -1,6 +1,43 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Verify a built/exported IPA's single .app carries an aps-environment entitlement
+# in its actual code signature. A config-level entitlement only delivers push if
+# it survives into the SIGNED binary; only `codesign -d --entitlements` on the
+# .app proves it (see the #5496 regression note below). Returns 0 if present,
+# non-zero otherwise. One shared check used by both signing paths (manual
+# post-re-sign gate, automatic pre-upload gate) so the two paths can't drift.
+verify_ipa_has_aps_environment() {
+  local ipa="$1"
+  local workdir app
+  workdir="$(mktemp -d)"
+  if ! ( cd "$workdir" && unzip -q "$ipa" ); then
+    echo "error: could not unzip IPA to verify entitlements: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  app="$(find "$workdir/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1)"
+  if [[ -z "$app" || ! -d "$app" ]]; then
+    echo "error: IPA has no Payload/*.app to verify: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  # --verify --strict catches a corrupt bundle (e.g. a bad re-zip); the
+  # aps-environment grep catches the dropped-entitlement regression.
+  if ! codesign --verify --strict --verbose=2 "$app" >&2; then
+    rm -rf "$workdir"
+    return 1
+  fi
+  if codesign -d --entitlements :- --xml "$app" 2>/dev/null | plutil -p - | grep -q '"aps-environment"'; then
+    rm -rf "$workdir"
+    return 0
+  fi
+  echo "error: signed app is MISSING aps-environment (push would silently fail): $app" >&2
+  codesign -d --entitlements :- --xml "$app" 2>/dev/null | plutil -p - >&2 || true
+  rm -rf "$workdir"
+  return 1
+}
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -461,20 +498,11 @@ if [[ "$SIGNING" == "manual" ]]; then
   ( cd "$RESIGN_DIR" && zip -qrX "$RESIGNED_IPA" Payload )
 
   # Post-zip gate: a wrong Payload root or stripped attributes corrupts the bundle
-  # silently. Unzip the produced IPA and re-verify the extracted .app so altool is
-  # not the first thing to notice.
-  VERIFY_DIR="$RESIGN_DIR/verify"
-  rm -rf "$VERIFY_DIR"
-  mkdir -p "$VERIFY_DIR"
-  ( cd "$VERIFY_DIR" && unzip -q "$RESIGNED_IPA" )
-  VERIFY_APP="$(find "$VERIFY_DIR/Payload" -maxdepth 1 -name '*.app' -type d | head -n 1)"
-  if [[ -z "$VERIFY_APP" || ! -d "$VERIFY_APP" ]]; then
-    echo "error: re-signed IPA has no Payload/*.app after re-zip; bundle layout is wrong" >&2
-    exit 1
-  fi
-  codesign --verify --strict --verbose=2 "$VERIFY_APP"
-  if ! codesign -d --entitlements :- --xml "$VERIFY_APP" 2>/dev/null | plutil -p - | grep -q '"aps-environment"'; then
-    echo "error: re-zipped IPA lost aps-environment; refusing to upload" >&2
+  # silently, and the whole point is that aps-environment survives. Re-verify the
+  # produced IPA (strict signature + aps-environment) so altool is not the first
+  # thing to notice. Same shared check the automatic path uses.
+  if ! verify_ipa_has_aps_environment "$RESIGNED_IPA"; then
+    echo "error: re-signed IPA failed verification (corrupt bundle or lost aps-environment); refusing to upload" >&2
     exit 1
   fi
 
@@ -482,13 +510,28 @@ if [[ "$SIGNING" == "manual" ]]; then
   echo "re-signed IPA with full entitlements (aps-environment=production): $IPA_PATH"
 else
   # Automatic (cloud-managed) signing: there is no named distribution cert in the
-  # keychain to re-sign with, so we cannot re-add the dropped entitlements here.
-  # An unsigned-archive + automatic-export IPA may therefore be MISSING
-  # aps-environment and silently fail push (the #5496 regression). Betas are cut
-  # manually (where the re-sign above runs), so warn loudly rather than hide it.
-  # TODO: make CI cut betas via the manual path, or have the archive carry
-  # entitlements, so the automatic path is not push-broken.
-  echo "warning: --signing automatic skips the entitlements re-sign; the exported IPA may be MISSING aps-environment and silently fail push delivery. Verify with: codesign -d --entitlements :- <app>. Cut betas via the manual signing path (default) to get the re-sign." >&2
+  # keychain to re-sign with, so we cannot re-add a dropped entitlement here. The
+  # archive is unsigned and -exportArchive does NOT mine the profile's
+  # app-capability entitlements (verified: even a manual export with the
+  # push-capable "cmux Beta Distribution" profile produced only the 4-key baseline
+  # with no aps-environment), so an automatic export almost certainly drops it too.
+  #
+  # Rather than upload a known-push-broken build with only a warning (CI warnings
+  # are effectively silent, and ios-testflight.yml drives the PRIMARY beta cut with
+  # --signing automatic), FAIL CLOSED: verify the exported IPA actually carries
+  # aps-environment, and refuse the upload if it does not. If automatic ever does
+  # preserve it, the gate passes and upload proceeds.
+  #
+  # To make CI cut a push-WORKING beta, ios-testflight.yml must import the iOS
+  # distribution cert and call this script with --signing manual (nightly.yml /
+  # release.yml already import a signing cert on ephemeral runners, so the pattern
+  # exists). That is a security-relevant workflow + secrets decision, deliberately
+  # out of scope here; this gate just stops shipping a broken artifact until then.
+  if ! verify_ipa_has_aps_environment "$IPA_PATH"; then
+    echo "error: --signing automatic produced an IPA missing aps-environment; refusing to upload a push-broken beta. Cut the beta via --signing manual (import the iOS distribution cert in CI), or re-sign with the distribution cert." >&2
+    exit 1
+  fi
+  echo "automatic-signed IPA verified to carry aps-environment: $IPA_PATH"
 fi
 
 echo "IPA_PATH=$IPA_PATH"
