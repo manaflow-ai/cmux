@@ -1236,6 +1236,10 @@ private final class ClaudeHookSessionStore {
               let normalizedWorkspace = normalizeOptional(workspaceId) else {
             return false
         }
+        // The two-phase read (the `isCurrent` lock above + this one) is intentional: this is an
+        // optimistic gate hint, not a critical section. A benign TOCTOU can at most let a clearing
+        // event proceed against a `needsInput` that just changed -- which only ever clears a stale
+        // badge, never the reverse -- so a single combined lock isn't needed.
         return try withLockedState { state in
             guard let active = state.activeSessionsByWorkspace[normalizedWorkspace],
                   active.sessionId == normalizedSessionId,
@@ -22107,11 +22111,59 @@ struct CMUXCLI {
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
             )
-            // pre-tool-use clears "Needs input" (-> running) when Claude resumes work, so use the
-            // relaxed gate to clear a stale same-session badge even on turnId drift
-            // (https://github.com/manaflow-ai/cmux/issues/1027). The AskUserQuestion branch below
-            // (which SETS needsInput) keeps the strict `isCurrent` gate, so the relaxation only ever
-            // clears, never spuriously sets. A different-session event still fails closed.
+            // AskUserQuestion means Claude is about to ask the user something: it is a needsInput
+            // SETTING event, not a clearing one. Handle it BEFORE the relaxed clearing gate and
+            // always return, so a drifted/stale AskUserQuestion can never fall through to the
+            // running path below and wipe a live "Needs input"
+            // (https://github.com/manaflow-ai/cmux/issues/1027). Raising needsInput stays on the
+            // STRICT gate: only a current event may set it; a stale one simply leaves state as-is.
+            if let toolName = parsedInput.object?["tool_name"] as? String,
+               toolName == "AskUserQuestion" {
+                if !suppressVisibleMutations,
+                   let question = describeAskUserQuestion(parsedInput.object),
+                   let sessionId = parsedInput.sessionId,
+                   shouldApplyClaudeHookVisibleMutation(
+                       sessionStore: sessionStore,
+                       parsedInput: parsedInput,
+                       workspaceId: workspaceId,
+                       telemetry: telemetry
+                   ) {
+                    // Save question text in session so the Notification handler can use it
+                    // instead of the generic "Claude Code needs your attention".
+                    // Preserve a non-empty surfaceId from SessionStart; passing ""
+                    // would overwrite it and cause notifications to target the wrong workspace.
+                    let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
+                    try? sessionStore.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: existingSurfaceId,
+                        cwd: parsedInput.cwd,
+                        transcriptPath: parsedInput.transcriptPath,
+                        agentLifecycle: .needsInput,
+                        lastSubtitle: "Waiting",
+                        lastBody: question
+                    )
+                    setAgentLifecycle(
+                        client: client,
+                        key: Self.claudeCodeStatusKey,
+                        lifecycle: .needsInput,
+                        workspaceId: workspaceId,
+                        surfaceId: existingSurfaceId
+                    )
+                    // Don't clear notifications or set status here.
+                    // The Notification hook fires right after and will use the saved question.
+                } else {
+                    telemetry.breadcrumb("claude-hook.pre-tool-use.ask-user-question.skipped")
+                }
+                print("OK")
+                return
+            }
+
+            // A non-AskUserQuestion pre-tool-use means Claude resumed work, so this is a CLEARING
+            // transition (-> running). Use the relaxed gate so a stale same-session "Needs input"
+            // is cleared even when this event's turnId drifted from the active turn
+            // (https://github.com/manaflow-ai/cmux/issues/1027). A different-session event still
+            // fails closed.
             guard shouldApplyClaudeHookClearingMutation(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
@@ -22124,46 +22176,6 @@ struct CMUXCLI {
             }
             guard !suppressVisibleMutations else {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.nested-suppressed")
-                print("OK")
-                return
-            }
-
-            // AskUserQuestion means Claude is about to ask the user something.
-            // Save question text in session so the Notification handler can use it
-            // instead of the generic "Claude Code needs your attention".
-            // The SETTING path stays on the strict gate: only a current event may raise needsInput.
-            if let toolName = parsedInput.object?["tool_name"] as? String,
-               toolName == "AskUserQuestion",
-               let question = describeAskUserQuestion(parsedInput.object),
-               let sessionId = parsedInput.sessionId,
-               shouldApplyClaudeHookVisibleMutation(
-                   sessionStore: sessionStore,
-                   parsedInput: parsedInput,
-                   workspaceId: workspaceId,
-                   telemetry: telemetry
-               ) {
-                // Preserve a non-empty surfaceId from SessionStart; passing ""
-                // would overwrite it and cause notifications to target the wrong workspace.
-                let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
-                try? sessionStore.upsert(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: existingSurfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
-                    lastSubtitle: "Waiting",
-                    lastBody: question
-                )
-                setAgentLifecycle(
-                    client: client,
-                    key: Self.claudeCodeStatusKey,
-                    lifecycle: .needsInput,
-                    workspaceId: workspaceId,
-                    surfaceId: existingSurfaceId
-                )
-                // Don't clear notifications or set status here.
-                // The Notification hook fires right after and will use the saved question.
                 print("OK")
                 return
             }
