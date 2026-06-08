@@ -1068,11 +1068,10 @@ check_bundled_ghostty_helper_regression_coverage() {
   if ! awk '
     /^[[:space:]]*- name: Run bundled Ghostty theme picker helper regression$/ { in_step=1; next }
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
-    in_step && /if: \$\{\{ matrix\.shard_index == 0 \}\}/ { saw_shard_gate=1 }
     in_step && /timeout-minutes: 20/ { saw_timeout=1 }
     in_step && /CMUX_SKIP_ZIG_BUILD=0/ { saw_real_helper=1 }
     in_step && /\.\/tests\/test_bundled_ghostty_theme_picker_helper\.sh/ { saw_script=1 }
-    END { exit(saw_shard_gate && saw_timeout && saw_real_helper && saw_script ? 0 : 1) }
+    END { exit(saw_timeout && saw_real_helper && saw_script ? 0 : 1) }
   ' "$CI_FILE"; then
     echo "FAIL: ci.yml must run the bundled Ghostty theme picker helper regression once, with a step timeout, and with the real Zig-built helper"
     exit 1

@@ -53,10 +53,6 @@ jobs:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
           persist-credentials: false
-          submodules: false
-
-      - name: Initialize submodules with retry
-        run: ./scripts/ci/init-submodules-with-retry.sh
 
       - name: Detect iOS changes
         id: detect

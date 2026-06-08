@@ -449,54 +449,6 @@ jobs:
             exit 1
           fi
 
-      - name: Run bundled Ghostty theme picker helper regression
-        if: ${{ matrix.shard_index == 0 }}
-        timeout-minutes: 20
-        run: |
-          set -euo pipefail
-          CMUX_SKIP_ZIG_BUILD=0 \
-          CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
-            ./tests/test_bundled_ghostty_theme_picker_helper.sh
-
-      - name: Run Swift package unit tests
-        if: ${{ matrix.shard_index == 0 }}
-        run: |
-          set -euo pipefail
-          # The cmux-unit scheme only runs the cmuxTests app-host suite; it does
-          # not execute the SPM package test targets. Run them here so package
-          # tests (settings stores, secret-file migration, socket-control
-          # convergence, etc.) are a real CI gate, not just compiled.
-          # Scoped to packages that build headlessly via SwiftPM (no GhosttyKit /
-          # app-target dependency). Add a package here once its `swift test`
-          # is confirmed to resolve standalone.
-          PACKAGES=(
-            CMUXAuthCore
-            CmuxAuthRuntime
-            CmuxControlSocket
-            CmuxFileWatch
-            CmuxFoundation
-            CmuxGit
-            CmuxProcess
-            CmuxSettings
-            CmuxSettingsUI
-            CmuxSocketControl
-            CMUXAgentLaunch
-          )
-          for pkg in "${PACKAGES[@]}"; do
-            echo "::group::swift test Packages/$pkg"
-            output_file="/tmp/cmux-swift-package-${pkg}-test-output.txt"
-            swift test --package-path "Packages/$pkg" 2>&1 | tee "$output_file"
-            if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$output_file"; then
-              echo "swift test Packages/$pkg completed without executing any tests" >&2
-              exit 1
-            fi
-            echo "::endgroup::"
-          done
-
-      - name: Setup Bun
-        if: ${{ matrix.shard_index == 0 }}
-        run: ./scripts/ci/setup-bun-with-retry.sh 1.3.13
-
       - name: Run CLI no-socket regressions
         if: ${{ matrix.shard_index == 0 }}
         run: |
@@ -722,6 +674,7 @@ jobs:
           fi
 
       - name: Run bundled Ghostty theme picker helper regression
+        timeout-minutes: 20
         run: |
           set -euo pipefail
           CMUX_SKIP_ZIG_BUILD=0 \
@@ -739,13 +692,20 @@ jobs:
           # app-target dependency). Add a package here once its `swift test`
           # is confirmed to resolve standalone.
           PACKAGES=(
+            CMUXAgentLaunch
             CMUXAgentVault
+            CMUXAuthCore
             CMUXDebugLog
             CMUXPasteboardFidelity
             CMUXProjectModel
             CMUXWorkstream
+            CmuxAuthRuntime
+            CmuxControlSocket
             CmuxExtensionKit
+            CmuxFileWatch
             CmuxFoundation
+            CmuxGit
+            CmuxProcess
             CmuxSettings
             CmuxSettingsUI
             CmuxSidebarInterpreterService
