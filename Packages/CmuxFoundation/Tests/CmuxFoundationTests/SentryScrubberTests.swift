@@ -203,6 +203,26 @@ import Testing
         #expect(scrubber.scrub("GET http://localhost/health") == "GET http://localhost/health")
     }
 
+    @Test func redactsUrlUserinfoWithUnencodedAtInPassword() {
+        // A password containing an unencoded `@` must not leak its tail: the
+        // userinfo is consumed through the LAST `@` of the authority, so neither
+        // `ss@host` nor `w0rd@db…` survives.
+        #expect(
+            scrubber.scrub("redis://user:p@ss@host/db")
+                == "redis://<redacted-secret>@host/db"
+        )
+        #expect(
+            scrubber.scrub("mongodb://u:p@w0rd@db.example.com:27017/x")
+                == "mongodb://<redacted-secret>@db.example.com:27017/x"
+        )
+        // Two URLs with credentials in one string: each is redacted independently
+        // and a preceding credential-free URL's host is not swallowed.
+        #expect(
+            scrubber.scrub("see http://a.com/x and http://b:c@d.com/y")
+                == "see http://a.com/x and http://<redacted-secret>@d.com/y"
+        )
+    }
+
     @Test func redactsExactHomePathsWithoutTrailingSlash() {
         #expect(scrubber.scrub("build dir /Users/buildbot") == "build dir /Users/<redacted>")
         #expect(scrubber.scrub("file:///Users/alice") == "file:///Users/<redacted>")

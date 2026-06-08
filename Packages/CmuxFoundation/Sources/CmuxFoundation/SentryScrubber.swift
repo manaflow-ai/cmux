@@ -68,7 +68,15 @@ public struct SentryScrubber: Sendable {
     /// group 1 as a prefix to keep (the scheme), the inverse of relay's group-1
     /// convention; duplicating relay's pattern would double-handle with the wrong
     /// group meaning.
-    static let urlUserInfo = SentryRegexPattern(#"([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#@\s]+@"#)
+    ///
+    /// The userinfo class deliberately does **not** exclude `@`, only the
+    /// authority terminators (`/`, `?`, `#`, whitespace). A password with an
+    /// unencoded `@` (`redis://user:p@ss@host/db`) is therefore consumed
+    /// greedily through the *last* `@` of the authority, redacting the whole
+    /// credential rather than stopping at the first `@` and leaking the password
+    /// tail (`ss@host`). The terminators still bound each match to one URL's
+    /// authority, so a later URL's host is never swallowed.
+    static let urlUserInfo = SentryRegexPattern(#"([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#\s]+@"#)
 
     /// Matches an email address.
     static let email = SentryRegexPattern(#"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"#)
