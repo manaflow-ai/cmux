@@ -4,7 +4,6 @@ actor TextBoxMentionIndexStore {
     static let shared = TextBoxMentionIndexStore()
 
     private static let fileIndexTTL: TimeInterval = 30
-    private static let fileIndexMissRefreshInterval: TimeInterval = 2
     private static let maxCachedFileIndexes = 8
     private static let directorySeedBatchSize = 128
     private static let maxIndexedDirectories = 2000
@@ -44,7 +43,6 @@ actor TextBoxMentionIndexStore {
 
     private var fileIndexesByRoot: [String: TextBoxMentionCachedIndex] = [:]
     private var fileIndexRefreshTasks: [String: TextBoxMentionFileIndexRefreshTask] = [:]
-    private var fileIndexMissRefreshRequestedAtByRoot: [String: Date] = [:]
     private var nextFileIndexRefreshTaskID: UInt64 = 0
     private var skillIndexesByRootKey: [String: TextBoxMentionCandidateIndex] = [:]
 
@@ -75,21 +73,6 @@ actor TextBoxMentionIndexStore {
         }
     }
 
-    #if DEBUG
-    func waitForFileIndexRefreshesForTesting(rootDirectory: String?) async {
-        guard let normalizedRootDirectory = Self.normalizedDirectory(rootDirectory) else { return }
-        while let refreshTask = fileIndexRefreshTasks[normalizedRootDirectory] {
-            let index = await refreshTask.task.value
-            storeFileIndex(
-                rootDirectory: normalizedRootDirectory,
-                index: index,
-                refreshStartedAt: refreshTask.startedAt,
-                refreshTaskID: refreshTask.id
-            )
-        }
-    }
-    #endif
-
     private func fileSuggestions(
         for query: TextBoxMentionQuery,
         rootDirectory: String
@@ -118,14 +101,25 @@ actor TextBoxMentionIndexStore {
         let cachedLookup = await fileIndex(rootDirectory: rootDirectory, now: now)
         if Task.isCancelled { return [] }
 
-        let matches = cachedLookup.index.rankedCandidates(
+        var matches = cachedLookup.index.rankedCandidates(
             matching: query.query,
             limit: Self.suggestionLimit,
             shouldCancel: { Task.isCancelled }
         )
         if Task.isCancelled { return [] }
         if matches.isEmpty && !cachedLookup.refreshed {
-            refreshFileIndexForMissInBackground(rootDirectory: rootDirectory, now: Date())
+            let refreshed = await refreshFileIndex(
+                rootDirectory: rootDirectory,
+                now: Date(),
+                minimumStartedAt: now
+            )
+            if Task.isCancelled { return [] }
+            matches = refreshed.rankedCandidates(
+                matching: query.query,
+                limit: Self.suggestionLimit,
+                shouldCancel: { Task.isCancelled }
+            )
+            if Task.isCancelled { return [] }
         }
         return matches
             .map { $0.suggestion(trigger: query.trigger) }
@@ -254,7 +248,6 @@ actor TextBoxMentionIndexStore {
         }
         for rootDirectory in expiredRoots {
             fileIndexesByRoot[rootDirectory] = nil
-            fileIndexMissRefreshRequestedAtByRoot[rootDirectory] = nil
         }
 
         guard fileIndexesByRoot.count > Self.maxCachedFileIndexes else { return }
@@ -269,27 +262,6 @@ actor TextBoxMentionIndexStore {
             .map(\.key)
         for rootDirectory in rootsToRemove {
             fileIndexesByRoot[rootDirectory] = nil
-            fileIndexMissRefreshRequestedAtByRoot[rootDirectory] = nil
-        }
-    }
-
-    private func refreshFileIndexForMissInBackground(rootDirectory: String, now: Date) {
-        if let lastRequested = fileIndexMissRefreshRequestedAtByRoot[rootDirectory],
-           now.timeIntervalSince(lastRequested) < Self.fileIndexMissRefreshInterval {
-            return
-        }
-        guard fileIndexRefreshTasks[rootDirectory] == nil else { return }
-
-        fileIndexMissRefreshRequestedAtByRoot[rootDirectory] = now
-        let refreshTask = fileIndexRefreshTask(rootDirectory: rootDirectory)
-        Task { [rootDirectory, refreshTask] in
-            let index = await refreshTask.task.value
-            self.storeFileIndex(
-                rootDirectory: rootDirectory,
-                index: index,
-                refreshStartedAt: refreshTask.startedAt,
-                refreshTaskID: refreshTask.id
-            )
         }
     }
 

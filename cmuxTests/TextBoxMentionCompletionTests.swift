@@ -726,7 +726,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionFileSuggestionsRefreshCachedMissesInBackground() async throws {
+    func testTextBoxMentionFileSuggestionsReturnRefreshedCachedMisses() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-mentions-refresh-\(UUID().uuidString)",
@@ -758,18 +758,6 @@ struct TextBoxMentionCompletionTests {
             encoding: .utf8
         )
 
-        let immediateMissSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
-            for: TextBoxMentionQuery(
-                kind: .file,
-                range: NSRange(location: 0, length: 8),
-                query: "new-file",
-                trigger: "@"
-            ),
-            rootDirectory: root.path
-        )
-        #expect(immediateMissSuggestions.isEmpty)
-
-        await TextBoxMentionIndexStore.shared.waitForFileIndexRefreshesForTesting(rootDirectory: root.path)
         let refreshedSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
