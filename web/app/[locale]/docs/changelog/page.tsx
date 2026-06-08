@@ -39,7 +39,15 @@ interface ChangelogVersion {
   sections: ChangelogSection[];
 }
 
-const scrollbackShortcutsChangelogItem = "Configurable terminal scrollback shortcuts for page up/down and line up/down, with Shift+Page Up and Shift+Page Down defaults; line scrolling is configurable but unbound by default so shells can receive Shift+Up/Down.";
+const scrollbackShortcutsChangelogItemPrefix = "Configurable terminal scrollback shortcuts for page up/down and line up/down";
+
+function normalizeChangelogItem(item: string): string {
+  return item.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function matchesChangelogItem(item: string, prefix: string): boolean {
+  return normalizeChangelogItem(item).startsWith(normalizeChangelogItem(prefix));
+}
 
 function parseChangelog(markdown: string): ChangelogVersion[] {
   const versions: ChangelogVersion[] = [];
@@ -252,7 +260,7 @@ export default function ChangelogPage() {
   const markdown = fs.readFileSync(changelogPath, "utf-8");
   const versions = parseChangelog(markdown);
   const localizedChangelogItem = (item: string) =>
-    item === scrollbackShortcutsChangelogItem ? t("items.scrollbackShortcuts") : item;
+    matchesChangelogItem(item, scrollbackShortcutsChangelogItemPrefix) ? t("items.scrollbackShortcuts") : item;
 
   return (
     <div className="max-w-[640px] overflow-hidden">

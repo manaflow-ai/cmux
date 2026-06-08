@@ -138,6 +138,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       {
         id: "scrollbackLineUp",
         combos: [],
+        configValue: "shift+up",
         description: { en: "Scroll terminal line up", ja: "ターミナルを1行上へスクロール" },
         note: {
           en: "unbound by default so shells can receive Shift+Up",
@@ -147,6 +148,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       {
         id: "scrollbackLineDown",
         combos: [],
+        configValue: "shift+down",
         description: { en: "Scroll terminal line down", ja: "ターミナルを1行下へスクロール" },
         note: {
           en: "unbound by default so shells can receive Shift+Down",
