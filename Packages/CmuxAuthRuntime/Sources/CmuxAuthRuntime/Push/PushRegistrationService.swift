@@ -257,9 +257,14 @@ public actor PushRegistrationService: PushRegistering {
                 cachedMutedWorkspaceIDs(forUserKey: userKey),
                 expectedUserKey: userKey
             )
-            if uploaded {
-                // The server now matches local: clear the unsynced marker so the
-                // next hydration is free to adopt the server set.
+            // Clear the unsynced marker only when this upload confirmed the LATEST
+            // local set: if a newer mutation arrived during the await it set
+            // `mutesNeedResync`, so the snapshot we just uploaded is already stale.
+            // Clearing now would unprotect that newer change, and if its resync
+            // later fails (or the app dies) the next hydration could replace it
+            // with the stale server set. Keep pending set until the final, current
+            // upload succeeds.
+            if uploaded && !mutesNeedResync {
                 defaults.removeObject(forKey: Self.pendingKey(forUserKey: userKey))
             }
             // A mutation that arrived during the upload set the flag; drain it
