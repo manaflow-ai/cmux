@@ -30,6 +30,11 @@ public struct SurfaceSize: Sendable, Equatable, Codable {
     /// non-positive dimension) are skipped. With no attachments the GUI size is
     /// returned unchanged, which is what restores the surface after the last
     /// client detaches.
+    ///
+    /// NOTE: not yet wired into the host. The single-viewer attach path mins
+    /// against the GUI directly (see `SurfaceAttachBridge.applyAttachmentSize`);
+    /// this is the primitive for the cross-viewer arbitration follow-up, which
+    /// must reconcile attach with the GUI's `mobileViewportReportsBySurfaceID`.
     public static func arbitrate(gui: SurfaceSize, attachments: [SurfaceSize]) -> SurfaceSize {
         var cols = gui.cols
         var rows = gui.rows

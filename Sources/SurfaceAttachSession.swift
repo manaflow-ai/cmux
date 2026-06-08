@@ -224,7 +224,11 @@ enum SurfaceAttachSocketIO {
             var remaining = raw.count
             while remaining > 0 {
                 let n = write(fd, ptr, remaining)
-                if n <= 0 { return false }
+                if n < 0 {
+                    if errno == EINTR { continue }   // signal, not a dead peer; retry
+                    return false
+                }
+                if n == 0 { return false }
                 ptr = ptr.advanced(by: n)
                 remaining -= n
             }

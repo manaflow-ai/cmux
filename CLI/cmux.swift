@@ -10592,7 +10592,7 @@ struct CMUXCLI {
         return nil
     }
 
-    private func writeAll(fd: Int32, data: Data) throws {
+    private func writeAll(fd: Int32, data: Data, context: String = "ssh-pty-attach") throws {
         try data.withUnsafeBytes { rawBuffer in
             guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
             var remaining = rawBuffer.count
@@ -10605,7 +10605,7 @@ struct CMUXCLI {
                 } else if written < 0 && errno == EINTR {
                     continue
                 } else {
-                    throw CLIError(message: "ssh-pty-attach: bridge write failed")
+                    throw CLIError(message: "\(context): bridge write failed")
                 }
             }
         }
@@ -10626,7 +10626,8 @@ struct CMUXCLI {
             throw CLIError(message: "attach: unknown flag '\(unknown)'")
         }
         let positional = remaining.first(where: { !Self.isFlagToken($0) })
-        let surfaceRaw = surfaceOpt ?? positional ?? Self.normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
+        let envSurfaceID = Self.normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
+        let surfaceRaw = surfaceOpt ?? positional ?? envSurfaceID
 
         // A relay-backed client closes its socket after every request/response
         // (`send` sets shouldCloseAfterSend when relayEndpoint != nil), so the
@@ -10659,7 +10660,7 @@ struct CMUXCLI {
         // to attach a session to a client inside it). Detect it by comparing this
         // process's controlling tty with the surface's tty; also honor the cheap
         // CMUX_SURFACE_ID hint when cmux set it in this pane's environment.
-        if let envSurface = Self.normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]),
+        if let envSurface = envSurfaceID,
            envSurface.lowercased() == surfaceUUID.lowercased() {
             throw CLIError(message: surfaceSelfAttachMessage(handle))
         }
@@ -10707,7 +10708,7 @@ struct CMUXCLI {
         do {
             writeLock.lock()
             defer { writeLock.unlock() }
-            try writeAll(fd: fd, data: requestLine)
+            try writeAll(fd: fd, data: requestLine, context: "attach")
         }
 
         signal(SIGWINCH, SIG_IGN)
@@ -10730,15 +10731,15 @@ struct CMUXCLI {
             while true {
                 let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
                 if count > 0 {
-                    let slice = Array(buffer.prefix(count))
-                    if let idx = slice.firstIndex(of: detachByte) {
-                        let head = Data(slice.prefix(idx))
+                    let chunk = buffer[0..<count]
+                    if let idx = chunk.firstIndex(of: detachByte) {
+                        let head = Data(buffer[0..<idx])
                         if !head.isEmpty, !readOnly { sendFrame(.input(bytes: head)) }
                         sendFrame(.detach)
                         _ = shutdown(fd, SHUT_WR)
                         return
                     }
-                    if !readOnly { sendFrame(.input(bytes: Data(slice))) }
+                    if !readOnly { sendFrame(.input(bytes: Data(chunk))) }
                 } else if count == 0 {
                     sendFrame(.detach)
                     _ = shutdown(fd, SHUT_WR)
@@ -10763,7 +10764,6 @@ struct CMUXCLI {
             if count > 0 {
                 pending.append(contentsOf: outBuffer[0..<count])
                 if pending.count > maxPending {
-                    rawMode?.restore()
                     throw CLIError(message: "attach: stream framing error (oversized line from host)")
                 }
                 // Process every complete line, then drop the consumed prefix once.
@@ -10776,7 +10776,6 @@ struct CMUXCLI {
                     // The host can emit a plain-text access/mode error before any
                     // frame (e.g. cmux-only rejection). Surface it with a hint.
                     if line.starts(with: errorPrefix) {
-                        rawMode?.restore()
                         let text = (String(data: line, encoding: .utf8) ?? "ERROR")
                             .trimmingCharacters(in: .whitespacesAndNewlines)
                         throw CLIError(message: surfaceAttachAccessHint(text))
@@ -10786,7 +10785,6 @@ struct CMUXCLI {
                     case .output(_, let bytes):
                         stdout.write(bytes)
                     case .error(let code, let message):
-                        rawMode?.restore()
                         throw CLIError(message: "attach: \(code): \(message)")
                     case .detach:
                         return
@@ -10853,6 +10851,24 @@ struct CMUXCLI {
         return path.split(separator: "/").last.map(String.init)
     }
 
+    /// Walk every surface in a `system.tree` payload, calling `body(workspace,
+    /// surface)` for each (so callers can read workspace-level fields like the
+    /// title). Returning `true` from `body` stops the walk early.
+    private func forEachTreeSurface(
+        in payload: [String: Any],
+        _ body: (_ workspace: [String: Any], _ surface: [String: Any]) -> Bool
+    ) {
+        for window in (payload["windows"] as? [[String: Any]] ?? []) {
+            for ws in (window["workspaces"] as? [[String: Any]] ?? []) {
+                for pane in (ws["panes"] as? [[String: Any]] ?? []) {
+                    for surface in (pane["surfaces"] as? [[String: Any]] ?? []) {
+                        if body(ws, surface) { return }
+                    }
+                }
+            }
+        }
+    }
+
     /// The tty name (e.g. `ttys024`) the host reports for a surface, or nil if it
     /// has none / cannot be found. Walks `system.tree` across all windows so it
     /// resolves a surface in any workspace.
@@ -10860,18 +10876,13 @@ struct CMUXCLI {
         guard let payload = try? client.sendV2(method: "system.tree", params: ["all_windows": true]) else {
             return nil
         }
-        for window in (payload["windows"] as? [[String: Any]] ?? []) {
-            for ws in (window["workspaces"] as? [[String: Any]] ?? []) {
-                for pane in (ws["panes"] as? [[String: Any]] ?? []) {
-                    for surface in (pane["surfaces"] as? [[String: Any]] ?? []) {
-                        if (surface["id"] as? String)?.lowercased() == uuid.lowercased() {
-                            return (surface["tty"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-                        }
-                    }
-                }
-            }
+        var tty: String?
+        forEachTreeSurface(in: payload) { _, surface in
+            guard (surface["id"] as? String)?.lowercased() == uuid.lowercased() else { return false }
+            tty = (surface["tty"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return true
         }
-        return nil
+        return tty
     }
 
     /// List terminal surfaces across the tree so a user can pick one to
@@ -10899,17 +10910,13 @@ struct CMUXCLI {
 
         let payload = try client.sendV2(method: "system.tree", params: params)
         var rows: [[String: Any]] = []
-        for window in (payload["windows"] as? [[String: Any]] ?? []) {
-            for ws in (window["workspaces"] as? [[String: Any]] ?? []) {
-                let wsTitle = (ws["title"] as? String) ?? ""
-                for pane in (ws["panes"] as? [[String: Any]] ?? []) {
-                    for surface in (pane["surfaces"] as? [[String: Any]] ?? []) where (surface["type"] as? String) == "terminal" {
-                        var row = surface
-                        row["workspace_title"] = wsTitle
-                        rows.append(row)
-                    }
-                }
+        forEachTreeSurface(in: payload) { ws, surface in
+            if (surface["type"] as? String) == "terminal" {
+                var row = surface
+                row["workspace_title"] = (ws["title"] as? String) ?? ""
+                rows.append(row)
             }
+            return false
         }
 
         if jsonOutput {
