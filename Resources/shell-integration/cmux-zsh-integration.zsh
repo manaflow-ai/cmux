@@ -311,6 +311,7 @@ typeset -g _CMUX_GIT_HEAD_LAST_PWD=""
 typeset -g _CMUX_GIT_HEAD_PATH=""
 typeset -g _CMUX_GIT_HEAD_SIGNATURE=""
 typeset -g _CMUX_GIT_HEAD_WATCH_PID=""
+typeset -g _CMUX_GIT_WATCH_DISABLED_CLEARED="${_CMUX_GIT_WATCH_DISABLED_CLEARED:-0}"
 typeset -g _CMUX_GIT_ACTIVE_PWD_FILE="${_CMUX_GIT_ACTIVE_PWD_FILE:-$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-git-active-pwd.XXXXXX" 2>/dev/null || true)}"
 typeset -g _CMUX_PR_POLL_PID=""
 typeset -g _CMUX_PR_POLL_PWD=""
@@ -1640,7 +1641,12 @@ _cmux_precmd() {
         _CMUX_PR_FORCE=0
         _CMUX_LAST_PR_ACTION=""
         _CMUX_LAST_PR_TARGET=""
-        _cmux_clear_pr_for_disabled_git_watch
+        if [[ "$_CMUX_GIT_WATCH_DISABLED_CLEARED" != "1" ]]; then
+            _CMUX_GIT_WATCH_DISABLED_CLEARED=1
+            _cmux_clear_pr_for_disabled_git_watch
+        fi
+    else
+        _CMUX_GIT_WATCH_DISABLED_CLEARED=0
     fi
 
     local cmux_has_unix_socket=0
