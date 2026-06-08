@@ -308,6 +308,44 @@ def _check_size_arbitration(cli: str, client: cmux, surface: str) -> None:
     _must(restored == base_cols, f"width not restored after detach: got {restored}, want {base_cols}")
 
 
+def _check_self_attach_refused(cli: str, surface: str) -> None:
+    """A client whose terminal IS the target surface must be refused, not looped.
+    cmux sets CMUX_SURFACE_ID in a pane's environment; the CLI uses it (and a tty
+    match) to detect a self-attach and bail before any streaming."""
+    master_fd, slave_fd = pty.openpty()
+    _set_winsize(slave_fd, 80, 24)
+    env = dict(os.environ)
+    env["CMUX_SURFACE_ID"] = surface
+    proc = subprocess.Popen(
+        [cli, "--socket", SOCKET_PATH, "attach", surface],
+        stdin=slave_fd, stdout=slave_fd, stderr=slave_fd, env=env, close_fds=True,
+    )
+    os.close(slave_fd)
+    out = bytearray()
+    deadline = time.time() + 8.0
+    while time.time() < deadline and proc.poll() is None:
+        ready, _, _ = select.select([master_fd], [], [], 0.3)
+        if master_fd in ready:
+            try:
+                chunk = os.read(master_fd, 4096)
+            except OSError:
+                break
+            if not chunk:
+                break
+            out += chunk
+    try:
+        rc = proc.wait(timeout=4.0)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        rc = None
+    try:
+        os.close(master_fd)
+    except OSError:
+        pass
+    _must(rc not in (0, None), f"self-attach should be refused (got rc={rc}); a loop would hang")
+    _must(b"refusing to attach" in bytes(out), f"missing self-attach refusal: {bytes(out)[:200]!r}")
+
+
 def main() -> int:
     cli = _find_cli_binary()
     client = cmux(SOCKET_PATH)
@@ -325,6 +363,7 @@ def main() -> int:
         _check_read_only_blocks_input(cli, client, surface)
         _check_input_roundtrip(cli, client, surface)
         _check_size_arbitration(cli, client, surface)
+        _check_self_attach_refused(cli, surface)
     finally:
         try:
             if workspace is not None:
@@ -333,7 +372,7 @@ def main() -> int:
             pass
         client.close()
 
-    print("PASS: cmux attach replay/live/input/read-only/detach/size-arbitration")
+    print("PASS: cmux attach replay/live/input/read-only/detach/size-arbitration/self-attach-guard")
     return 0
 
 

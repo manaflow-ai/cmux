@@ -10645,6 +10645,22 @@ struct CMUXCLI {
             throw CLIError(message: "attach: requires an interactive terminal (stdin and stdout must be a TTY)")
         }
 
+        // Refuse self-attach. If this terminal *is* the target surface, streaming
+        // its output back into itself loops forever (the same reason tmux refuses
+        // to attach a session to a client inside it). Detect it by comparing this
+        // process's controlling tty with the surface's tty; also honor the cheap
+        // CMUX_SURFACE_ID hint when cmux set it in this pane's environment.
+        if let envSurface = Self.normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]),
+           envSurface.lowercased() == surfaceUUID.lowercased() {
+            throw CLIError(message: surfaceSelfAttachMessage(handle))
+        }
+        if let myTTY = ttyBasename(fd: STDIN_FILENO),
+           let surfaceTTY = surfaceTTYName(uuid: surfaceUUID, client: client),
+           !surfaceTTY.isEmpty,
+           myTTY == surfaceTTY {
+            throw CLIError(message: surfaceSelfAttachMessage(handle))
+        }
+
         let fd = client.rawFileDescriptor
         guard fd >= 0 else { throw CLIError(message: "attach: not connected") }
         client.makeBlockingForStreaming()
@@ -10795,6 +10811,39 @@ struct CMUXCLI {
             message += "\n\nThe cmux socket only accepts processes started inside cmux. To attach from a bare SSH terminal, run cmux with the control socket in automation/allow-all mode, or set a socket password and pass --password <password>."
         }
         return message
+    }
+
+    private func surfaceSelfAttachMessage(_ handle: String) -> String {
+        "attach: refusing to attach \(handle) to the terminal it is already running in — that would stream the surface's output back into itself in an endless loop. Run `cmux attach` from a different terminal, or attach a different surface (see `cmux list-surfaces`)."
+    }
+
+    /// The basename of the tty backing `fd` (e.g. `ttys024`), or nil if `fd` is
+    /// not a tty. Used to detect a self-attach.
+    private func ttyBasename(fd: Int32) -> String? {
+        guard isatty(fd) != 0, let cName = ttyname(fd) else { return nil }
+        let path = String(cString: cName)
+        return path.split(separator: "/").last.map(String.init)
+    }
+
+    /// The tty name (e.g. `ttys024`) the host reports for a surface, or nil if it
+    /// has none / cannot be found. Walks `system.tree` across all windows so it
+    /// resolves a surface in any workspace.
+    private func surfaceTTYName(uuid: String, client: SocketClient) -> String? {
+        guard let payload = try? client.sendV2(method: "system.tree", params: ["all_windows": true]) else {
+            return nil
+        }
+        for window in (payload["windows"] as? [[String: Any]] ?? []) {
+            for ws in (window["workspaces"] as? [[String: Any]] ?? []) {
+                for pane in (ws["panes"] as? [[String: Any]] ?? []) {
+                    for surface in (pane["surfaces"] as? [[String: Any]] ?? []) {
+                        if (surface["id"] as? String)?.lowercased() == uuid.lowercased() {
+                            return (surface["tty"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                    }
+                }
+            }
+        }
+        return nil
     }
 
     /// List terminal surfaces across the tree so a user can pick one to
