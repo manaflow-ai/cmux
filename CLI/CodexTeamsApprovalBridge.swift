@@ -208,6 +208,18 @@ enum CodexTeamsApprovalBridge {
         source != "hermes-agent"
     }
 
+    static func feedSourceSupportsAlwaysPermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
+        guard feedSourceSupportsPersistentPermissionModes(source) else { return false }
+        guard source == "codex" else { return true }
+        return codexCapabilities(toolInputJSON: toolInputJSON).supportsAlways
+    }
+
+    static func feedSourceSupportsAllPermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
+        guard feedSourceSupportsPersistentPermissionModes(source) else { return false }
+        guard source == "codex" else { return true }
+        return codexCapabilities(toolInputJSON: toolInputJSON).supportsAll
+    }
+
     static func feedSourceSupportsBypassPermissions(_ source: String) -> Bool {
         source != "codex" && source != "claude" && source != "hermes-agent"
     }
@@ -240,6 +252,9 @@ enum CodexTeamsApprovalBridge {
            let decision = commandApprovalAmendmentDecision(params: params) {
             return decision
         }
+        if mode == "all" || mode == "bypass" {
+            return rejectApprovalDecision(params: params)
+        }
         if modeRequestsPersistentApproval(mode),
            decisionAvailableOrUnspecified("acceptForSession", params: params) {
             return "acceptForSession"
@@ -247,6 +262,12 @@ enum CodexTeamsApprovalBridge {
         if modeRequestsPersistentApproval(mode),
            let decision = commandApprovalAmendmentDecision(params: params) {
             return decision
+        }
+        if modeRequestsPersistentApproval(mode) {
+            return rejectApprovalDecision(params: params)
+        }
+        guard mode == "once" else {
+            return rejectApprovalDecision(params: params)
         }
         if decisionAvailableOrUnspecified("accept", params: params) {
             return "accept"
@@ -298,6 +319,12 @@ enum CodexTeamsApprovalBridge {
             && decisionAvailableOrUnspecified("acceptForSession", params: params) {
             return "acceptForSession"
         }
+        if modeRequestsPersistentApproval(mode) {
+            return rejectApprovalDecision(params: params)
+        }
+        guard mode == "once" else {
+            return rejectApprovalDecision(params: params)
+        }
         if decisionAvailableOrUnspecified("accept", params: params) {
             return "accept"
         }
@@ -306,6 +333,12 @@ enum CodexTeamsApprovalBridge {
 
     private static func permissionsApprovalResponse(params: [String: Any], mode: String) -> [String: Any] {
         if mode == "deny" {
+            return [
+                "permissions": [String: Any](),
+                "scope": "turn"
+            ]
+        }
+        guard mode == "once" || modeRequestsPersistentApproval(mode) else {
             return [
                 "permissions": [String: Any](),
                 "scope": "turn"
@@ -359,4 +392,60 @@ enum CodexTeamsApprovalBridge {
             return nil
         }
     }
+
+    private static func codexCapabilities(toolInputJSON: String?) -> CodexPermissionCapabilities {
+        guard let toolInputJSON,
+              let data = toolInputJSON.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else {
+            return CodexPermissionCapabilities(supportsAlways: true, supportsAll: true)
+        }
+
+        let method = object["app_server_method"] as? String
+        let decisions = codexAvailableDecisions(in: object)
+        let acceptsSession = decisions?.contains("acceptForSession") ?? true
+        switch method {
+        case "item/permissions/requestApproval":
+            return CodexPermissionCapabilities(supportsAlways: true, supportsAll: true)
+        case "item/commandExecution/requestApproval":
+            return CodexPermissionCapabilities(
+                supportsAlways: acceptsSession,
+                supportsAll: codexSupportsAmendmentDecision(object: object, decisions: decisions)
+            )
+        case "item/fileChange/requestApproval":
+            return CodexPermissionCapabilities(supportsAlways: acceptsSession, supportsAll: false)
+        default:
+            return CodexPermissionCapabilities(supportsAlways: acceptsSession, supportsAll: false)
+        }
+    }
+
+    private static func codexSupportsAmendmentDecision(object: [String: Any], decisions: Set<String>?) -> Bool {
+        if let amendment = object["proposed_execpolicy_amendment"],
+           codexDecisionAvailableOrUnspecified("acceptWithExecpolicyAmendment", decisions: decisions),
+           !(amendment is NSNull) {
+            return true
+        }
+        if let amendments = object["proposed_network_policy_amendments"] as? [Any],
+           !amendments.isEmpty,
+           codexDecisionAvailableOrUnspecified("applyNetworkPolicyAmendment", decisions: decisions) {
+            return true
+        }
+        return false
+    }
+
+    private static func codexAvailableDecisions(in object: [String: Any]) -> Set<String>? {
+        guard let raw = object["available_decisions"] ?? object["availableDecisions"] else {
+            return nil
+        }
+        return Set(decisionNames(raw))
+    }
+
+    private static func codexDecisionAvailableOrUnspecified(_ decision: String, decisions: Set<String>?) -> Bool {
+        decisions?.contains(decision) ?? true
+    }
+}
+
+private struct CodexPermissionCapabilities {
+    let supportsAlways: Bool
+    let supportsAll: Bool
 }

@@ -29559,6 +29559,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let createdAt: Date?
         let title: String
         let detail: String
+        let toolInputJSON: String
         let defaultMode: String?
         let questionMultiSelect: Bool
         let questionOptions: [FeedTUIOption]
@@ -29608,6 +29609,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 createdAt: createdAt,
                 title: title,
                 detail: detail,
+                toolInputJSON: (dict["tool_input"] as? String) ?? "",
                 defaultMode: dict["default_mode"] as? String,
                 questionMultiSelect: (dict["question_multi_select"] as? Bool) ?? false,
                 questionOptions: options,
@@ -30308,11 +30310,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         guard item.canResolve else { return "Resolved or informational item" }
         switch item.kind {
         case "permissionRequest":
-            if !feedTUISourceSupportsPersistentPermissionModes(item.source) {
+            let supportsAlways = feedTUISourceSupportsAlwaysPermissionMode(
+                item.source,
+                toolInputJSON: item.toolInputJSON
+            )
+            let supportsAll = feedTUISourceSupportsAllPermissionMode(
+                item.source,
+                toolInputJSON: item.toolInputJSON
+            )
+            if !supportsAlways && !supportsAll {
                 return "Permission: Enter/o once, d deny"
             }
             if !feedTUISourceSupportsBypassPermissions(item.source) {
-                return "Permission: Enter/o once, a always, l all tools, d deny"
+                if supportsAlways && supportsAll {
+                    return "Permission: Enter/o once, a always, l all tools, d deny"
+                }
+                if supportsAlways {
+                    return "Permission: Enter/o once, a always, d deny"
+                }
+                return "Permission: Enter/o once, l all tools, d deny"
             }
             return "Permission: Enter/o once, a always, l all tools, b bypass, d deny"
         case "exitPlan":
@@ -30339,8 +30355,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
     }
 
-    private func feedTUISourceSupportsPersistentPermissionModes(_ source: String) -> Bool {
-        CMUXCLI.feedSourceSupportsPersistentPermissionModes(source)
+    private func feedTUISourceSupportsAlwaysPermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
+        CMUXCLI.feedSourceSupportsAlwaysPermissionMode(source, toolInputJSON: toolInputJSON)
+    }
+
+    private func feedTUISourceSupportsAllPermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
+        CMUXCLI.feedSourceSupportsAllPermissionMode(source, toolInputJSON: toolInputJSON)
     }
 
     private func feedTUISourceSupportsBypassPermissions(_ source: String) -> Bool {
@@ -30349,6 +30369,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     static func feedSourceSupportsPersistentPermissionModes(_ source: String) -> Bool {
         CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes(source)
+    }
+
+    static func feedSourceSupportsAlwaysPermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
+        CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode(source, toolInputJSON: toolInputJSON)
+    }
+
+    static func feedSourceSupportsAllPermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
+        CodexTeamsApprovalBridge.feedSourceSupportsAllPermissionMode(source, toolInputJSON: toolInputJSON)
     }
 
     static func feedSourceSupportsBypassPermissions(_ source: String) -> Bool {
@@ -30372,9 +30400,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             switch key {
             case .enter, .once:
                 mode = "once"
-            case .always where feedTUISourceSupportsPersistentPermissionModes(item.source):
+            case .always where feedTUISourceSupportsAlwaysPermissionMode(
+                item.source,
+                toolInputJSON: item.toolInputJSON
+            ):
                 mode = "always"
-            case .all where feedTUISourceSupportsPersistentPermissionModes(item.source):
+            case .all where feedTUISourceSupportsAllPermissionMode(
+                item.source,
+                toolInputJSON: item.toolInputJSON
+            ):
                 mode = "all"
             case .bypass where feedTUISourceSupportsBypassPermissions(item.source):
                 mode = "bypass"

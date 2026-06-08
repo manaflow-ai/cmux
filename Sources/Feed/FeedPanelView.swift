@@ -1453,7 +1453,10 @@ private struct PermissionActionArea: View {
                         onApprove(.once)
                     }
                         .accessibilityIdentifier("FeedPermissionAllowOnceButton")
-                    if FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: source) {
+                    if FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
+                        source: source,
+                        toolInputJSON: toolInputJSON
+                    ) {
                         FeedButton(label: String(localized: "feed.permission.always", defaultValue: "Always Allow"),
                                    kind: .primary, size: .medium, fullWidth: true) {
                             onActionRow()

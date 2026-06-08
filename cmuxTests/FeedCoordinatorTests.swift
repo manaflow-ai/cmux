@@ -70,6 +70,28 @@ struct FeedCoordinatorTests {
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes("codex"))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsBypassPermissions("codex"))
 
+        let codexOneShotOnly = #"""
+        {"app_server_method":"item/commandExecution/requestApproval","available_decisions":["accept","decline"]}
+        """#
+        #expect(!FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexOneShotOnly))
+        #expect(!FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: codexOneShotOnly))
+        #expect(!CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: codexOneShotOnly))
+        #expect(!CodexTeamsApprovalBridge.feedSourceSupportsAllPermissionMode("codex", toolInputJSON: codexOneShotOnly))
+
+        let codexSession = #"""
+        {"app_server_method":"item/commandExecution/requestApproval","available_decisions":["accept","acceptForSession","decline"]}
+        """#
+        #expect(FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexSession))
+        #expect(CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: codexSession))
+
+        let codexAmendment = #"""
+        {"app_server_method":"item/commandExecution/requestApproval","available_decisions":[{"acceptWithExecpolicyAmendment":{}}],"proposed_execpolicy_amendment":[{"kind":"prefix","value":"npm test"}]}
+        """#
+        #expect(!FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexAmendment))
+        #expect(FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: codexAmendment))
+        #expect(!CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: codexAmendment))
+        #expect(CodexTeamsApprovalBridge.feedSourceSupportsAllPermissionMode("codex", toolInputJSON: codexAmendment))
+
         #expect(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .opencode))
         #expect(FeedPermissionActionPolicy.supportsBypassPermissions(source: .opencode))
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes("opencode"))
@@ -276,6 +298,13 @@ struct FeedCoordinatorTests {
         )
         #expect(
             CodexTeamsApprovalBridge.appServerApprovalResponse(
+                method: "item/commandExecution/requestApproval",
+                params: ["availableDecisions": ["accept", "decline"]],
+                mode: "always"
+            )?["decision"] as? String == "decline"
+        )
+        #expect(
+            CodexTeamsApprovalBridge.appServerApprovalResponse(
                 method: "item/fileChange/requestApproval",
                 params: [:],
                 mode: "once"
@@ -293,7 +322,7 @@ struct FeedCoordinatorTests {
                 method: "item/fileChange/requestApproval",
                 params: ["availableDecisions": ["accept", "decline"]],
                 mode: "always"
-            )?["decision"] as? String == "accept"
+            )?["decision"] as? String == "decline"
         )
         #expect(
             CodexTeamsApprovalBridge.appServerApprovalResponse(
