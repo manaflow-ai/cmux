@@ -314,6 +314,16 @@ check_virtual_display_helper_links_appkit() {
     exit 1
   fi
 
+  if ! grep -Fq -- '--probe-display-id' scripts/create-virtual-display.m; then
+    echo "FAIL: create-virtual-display.m must verify AppKit visibility in a fresh helper process before failing closed"
+    exit 1
+  fi
+
+  if ! grep -Fq 'freshAppKitProcessSeesDisplay(displayID)' scripts/create-virtual-display.m; then
+    echo "FAIL: create-virtual-display.m must avoid relying only on the creating process NSScreen cache"
+    exit 1
+  fi
+
   if grep -Fq 'app diagnostics will verify AppKit visibility' scripts/create-virtual-display.m; then
     echo "FAIL: create-virtual-display.m must not mark an AppKit-invisible display ready for app diagnostics"
     exit 1
