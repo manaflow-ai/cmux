@@ -50,6 +50,9 @@ struct WorkspaceShellView: View {
         .accessibilityIdentifier("MobileWorkspaceShell")
         .overlay(alignment: .top) {
             MobileConnectionRecoveryBanner(store: store, signOut: signOut)
+                // Drop the centered "Reconnecting…" banner clear of the nav
+                // header below it; without this offset it overlaps the header.
+                .padding(.top, 30)
         }
     }
 
