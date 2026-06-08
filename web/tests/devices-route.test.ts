@@ -312,4 +312,27 @@ describe("device registry route", () => {
     `;
     expect(instancesTotal).toBe(0);
   });
+
+  dbTest("a non-owner cannot delete another user's device", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    // User 1 registers their Mac.
+    await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "stable", routes: [] }));
+
+    // A second same-team member tries to delete it: the row must survive.
+    currentUserId = "registry-user-2";
+    const del = await DELETE(
+      new Request("https://cmux.test/api/devices", {
+        method: "DELETE",
+        headers: authHeaders(),
+        body: JSON.stringify({ deviceId: DEVICE_A }),
+      }),
+    );
+    expect(del.status).toBe(200); // idempotent no-op, not an error
+
+    const [{ total }] = await sql<{ total: number }[]>`
+      select count(*)::int as total from devices where device_uuid = ${DEVICE_A}
+    `;
+    expect(total).toBe(1);
+  });
 });

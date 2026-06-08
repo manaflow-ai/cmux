@@ -372,12 +372,21 @@ export async function DELETE(request: Request): Promise<Response> {
     return jsonResponse({ error: "invalid_device_id" }, 400);
   }
 
-  // Delete only this team's row for the device (the (teamId, deviceUuid) row),
-  // never another team's row for the same physical Mac.
+  // Delete only the caller's own row for this device in this team. Scoping by
+  // userId (not just team) mirrors the POST ownership guard, so a co-member who
+  // sees the device UUID via GET cannot remove another member's registered Mac
+  // and break their phone reconnect. Never touches another team's row for the
+  // same physical Mac.
   const db = cloudDb();
   await db
     .delete(devices)
-    .where(and(eq(devices.deviceUuid, deviceUuid), eq(devices.teamId, team.teamId)));
+    .where(
+      and(
+        eq(devices.deviceUuid, deviceUuid),
+        eq(devices.teamId, team.teamId),
+        eq(devices.userId, user.id),
+      ),
+    );
 
   return jsonResponse({ ok: true });
 }

@@ -60,7 +60,7 @@ final class DeviceRegistryClient {
     /// `statusUpdates()` tick) and the never-registered empty start (`nil`
     /// previous with empty routes) are both no-ops, so the off-state is published
     /// exactly once rather than on every empty tick.
-    static func shouldReRegister(
+    nonisolated static func shouldReRegister(
         previous: Registration?,
         current: Registration
     ) -> Bool {
