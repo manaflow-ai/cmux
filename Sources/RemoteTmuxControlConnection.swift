@@ -22,16 +22,10 @@ final class RemoteTmuxControlConnection {
     /// Opaque token identifying a registered observer (pass to ``removeObserver(_:)``).
     typealias ObserverToken = UUID
 
-    // Multicast observer registries. A single connection is shared by every
-    // consumer of the same host+session (``RemoteTmuxController.attach`` reuses
-    // it), so events MUST fan out to all consumers — a single overwritable
-    // closure silently cut off whichever consumer wired up first.
-    private var paneOutputObservers: [ObserverToken: (_ paneId: Int, _ data: Data) -> Void] = [:]
-    private var paneCwdObservers: [ObserverToken: (_ paneId: Int, _ path: String) -> Void] = [:]
-    private var activePaneObservers: [ObserverToken: (_ windowId: Int, _ paneId: Int) -> Void] = [:]
-    private var topologyObservers: [ObserverToken: () -> Void] = [:]
-    private var exitObservers: [ObserverToken: () -> Void] = [:]
-    private var stateObservers: [ObserverToken: (ConnectionState) -> Void] = [:]
+    /// Multicast observer registry. A single connection is shared by every consumer
+    /// of the same host+session (``RemoteTmuxController.attach`` reuses it), so events
+    /// fan out to all consumers via this registry.
+    private let observers = RemoteTmuxConnectionObservers()
 
     // MARK: Observed state
 
@@ -42,7 +36,7 @@ final class RemoteTmuxControlConnection {
     private(set) var connectionState: ConnectionState = .connecting {
         didSet {
             guard oldValue != connectionState else { return }
-            for callback in Array(stateObservers.values) { callback(connectionState) }
+            observers.notifyStateChanged(connectionState)
         }
     }
     /// `true` once the connection has permanently ended (genuine tmux `%exit`, a
@@ -56,7 +50,6 @@ final class RemoteTmuxControlConnection {
     private(set) var activePaneByWindow: [Int: Int] = [:]
     private(set) var paneOutputByteCounts: [Int: Int] = [:]
     private(set) var totalOutputBytes = 0
-    private(set) var recentEvents: [String] = []
 
     private var process: Process?
     private var stdinHandle: FileHandle?
@@ -72,7 +65,12 @@ final class RemoteTmuxControlConnection {
     private var ingestTask: Task<Void, Never>?
     private var pendingCommands: [CommandKind] = []
     private let createIfMissing: Bool
-    private let maxRecentEvents = 100
+
+    /// Stateless pure decoders for control-mode message payloads (pane-state seed,
+    /// window reorder, session-gone classification). Holds no state.
+    private let decoding = RemoteTmuxControlMessageDecoding()
+    /// Bounded ring of recent event labels surfaced through `remote.tmux.state`.
+    private let diagnostics = RemoteTmuxConnectionDiagnostics()
 
     // MARK: Reconnect state
 
@@ -182,48 +180,19 @@ final class RemoteTmuxControlConnection {
         onExit: (() -> Void)? = nil,
         onConnectionStateChanged: ((ConnectionState) -> Void)? = nil
     ) -> ObserverToken {
-        let token = ObserverToken()
-        if let onPaneOutput { paneOutputObservers[token] = onPaneOutput }
-        if let onPaneCwd { paneCwdObservers[token] = onPaneCwd }
-        if let onActivePaneChanged { activePaneObservers[token] = onActivePaneChanged }
-        if let onTopologyChanged { topologyObservers[token] = onTopologyChanged }
-        if let onExit { exitObservers[token] = onExit }
-        if let onConnectionStateChanged { stateObservers[token] = onConnectionStateChanged }
-        return token
+        observers.add(
+            onPaneOutput: onPaneOutput,
+            onPaneCwd: onPaneCwd,
+            onActivePaneChanged: onActivePaneChanged,
+            onTopologyChanged: onTopologyChanged,
+            onExit: onExit,
+            onConnectionStateChanged: onConnectionStateChanged
+        )
     }
 
     /// Deregisters the callbacks registered under `token`.
     func removeObserver(_ token: ObserverToken) {
-        paneOutputObservers[token] = nil
-        paneCwdObservers[token] = nil
-        activePaneObservers[token] = nil
-        topologyObservers[token] = nil
-        exitObservers[token] = nil
-        stateObservers[token] = nil
-    }
-
-    private func emitPaneOutput(_ paneId: Int, _ data: Data) {
-        // Snapshot before iterating: a callback may unregister an observer (mutating
-        // the dict) synchronously, which would trap on the live collection.
-        for callback in Array(paneOutputObservers.values) { callback(paneId, data) }
-    }
-
-    private func emitPaneCwd(_ paneId: Int, _ path: String) {
-        for callback in Array(paneCwdObservers.values) { callback(paneId, path) }
-    }
-
-    private func emitActivePaneChanged(_ windowId: Int, _ paneId: Int) {
-        for callback in Array(activePaneObservers.values) { callback(windowId, paneId) }
-    }
-
-    private func notifyTopologyChanged() {
-        for callback in Array(topologyObservers.values) { callback() }
-    }
-
-    private func notifyExit() {
-        // Snapshot: notifyExit -> handleSessionEndedRemotely -> detachObserver ->
-        // removeObserver mutates exitObservers synchronously during this loop.
-        for callback in Array(exitObservers.values) { callback() }
+        observers.remove(token)
     }
 
     /// Spawns the SSH `tmux -CC` process and begins streaming.
@@ -388,15 +357,7 @@ final class RemoteTmuxControlConnection {
     /// later reorder and roll the order back. Out-of-band changes still reconcile
     /// via the topology events that already trigger ``requestWindows()``.)
     func applyWindowReorder(_ reordered: [Int]) {
-        windowOrder = Self.windowOrder(windowOrder, applyingReorder: reordered)
-    }
-
-    /// Returns `order` with the windows in `reordered` rearranged into
-    /// `reordered`'s sequence, leaving windows not in that set in their positions.
-    nonisolated static func windowOrder(_ order: [Int], applyingReorder reordered: [Int]) -> [Int] {
-        let set = Set(reordered)
-        var iterator = reordered.makeIterator()
-        return order.map { set.contains($0) ? (iterator.next() ?? $0) : $0 }
+        windowOrder = decoding.windowOrder(windowOrder, applyingReorder: reordered)
     }
 
     /// Captures a pane's current visible contents (with escapes) and delivers
@@ -594,14 +555,14 @@ final class RemoteTmuxControlConnection {
             guard connectionState == .reconnecting else { return }
             // Classify: a session/server found gone is a genuine end; anything else
             // (host unreachable, refused) is transient — keep retrying with backoff.
-            let sessionGone = Self.stderrIndicatesSessionGone(stderrBuffer)
+            let sessionGone = decoding.stderrIndicatesSessionGone(stderrBuffer)
             teardownProcessHandles()
             if sessionGone {
                 record("reconnect-session-gone")
                 connectionState = .ended
                 reconnectTask?.cancel()
                 reconnectTask = nil
-                notifyExit()
+                observers.notifyExit()
             } else {
                 scheduleReconnectAttempt()
             }
@@ -673,25 +634,12 @@ final class RemoteTmuxControlConnection {
         }
         for window in windowsByID.values {
             for paneId in window.paneIDsInOrder {
-                emitPaneOutput(paneId, Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8))
+                observers.emitPaneOutput(paneId, Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8))
                 capturePane(paneId: paneId)
                 requestPanePath(paneId: paneId)
                 subscribePanePath(paneId: paneId)
             }
         }
-    }
-
-    /// Whether captured ssh/tmux stderr indicates the session/server is genuinely
-    /// gone (reconnect should stop and end) vs a transient transport failure (host
-    /// unreachable / connection refused — keep retrying).
-    nonisolated static func stderrIndicatesSessionGone(_ stderr: String) -> Bool {
-        let lowered = stderr.lowercased()
-        return lowered.contains("can't find session")
-            || lowered.contains("can\u{2019}t find session")
-            || lowered.contains("no server running")
-            || lowered.contains("no current session")
-            || lowered.contains("session not found")
-            || lowered.contains("lost server")
     }
 
     private func handle(_ message: RemoteTmuxControlMessage) {
@@ -722,11 +670,11 @@ final class RemoteTmuxControlConnection {
             connectionState = .ended
             reconnectTask?.cancel()
             reconnectTask = nil
-            notifyExit()
+            observers.notifyExit()
         case let .output(paneId, data):
             paneOutputByteCounts[paneId, default: 0] += data.count
             totalOutputBytes += data.count
-            emitPaneOutput(paneId, data)
+            observers.emitPaneOutput(paneId, data)
         case let .sessionChanged(id, name):
             sessionId = id
             // Track the new name too: `sessionName` is the value reused for
@@ -750,7 +698,7 @@ final class RemoteTmuxControlConnection {
             windowsByID[id] = nil
             windowOrder.removeAll { $0 == id }
             record("window-close @\(id)")
-            notifyTopologyChanged()
+            observers.notifyTopologyChanged()
         case let .windowRenamed(id, name):
             record("window-renamed @\(id)")
             // Propagate the new name into the topology so the mirrored tab title
@@ -760,15 +708,15 @@ final class RemoteTmuxControlConnection {
                     id: id, name: name,
                     width: existing.width, height: existing.height, layout: existing.layout
                 )
-                notifyTopologyChanged()
+                observers.notifyTopologyChanged()
             }
         case let .layoutChange(id, layout):
             applyLayout(windowId: id, layout: layout)
             record("layout-change @\(id)")
-            notifyTopologyChanged()
+            observers.notifyTopologyChanged()
         case let .windowPaneChanged(windowId, paneId):
             activePaneByWindow[windowId] = paneId
-            emitActivePaneChanged(windowId, paneId)
+            observers.emitActivePaneChanged(windowId, paneId)
         case let .sessionWindowChanged(_, windowId):
             record("session-window-changed @\(windowId)")
         case let .subscriptionChanged(name, value):
@@ -776,7 +724,7 @@ final class RemoteTmuxControlConnection {
             if name.hasPrefix(Self.cwdSubscriptionPrefix),
                let paneId = Int(name.dropFirst(Self.cwdSubscriptionPrefix.count)) {
                 let path = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !path.isEmpty { emitPaneCwd(paneId, path) }
+                if !path.isEmpty { observers.emitPaneCwd(paneId, path) }
             }
         case let .commandResult(_, lines, isError):
             handleCommandResult(lines: lines, isError: isError)
@@ -829,7 +777,7 @@ final class RemoteTmuxControlConnection {
                 let livePanes = Set(next.values.flatMap { $0.paneIDsInOrder })
                 paneOutputByteCounts = paneOutputByteCounts.filter { livePanes.contains($0.key) }
                 windowOrder = order
-                notifyTopologyChanged()
+                observers.notifyTopologyChanged()
                 // Now that the attach block is drained and the topology is fresh, run
                 // the deferred reconnect re-seed (re-capture each pane). Queuing the
                 // capture commands here keeps the result FIFO aligned.
@@ -851,7 +799,7 @@ final class RemoteTmuxControlConnection {
             // the visible screen.
             let painted = "\u{1b}[H\u{1b}[2J" + lines.joined(separator: "\r\n")
             if let data = painted.data(using: .utf8) {
-                emitPaneOutput(paneId, data)
+                observers.emitPaneOutput(paneId, data)
             }
         case let .paneState(paneId):
             // Restore the pane's terminal state (scroll region + DEC modes + cursor)
@@ -859,11 +807,11 @@ final class RemoteTmuxControlConnection {
             // region (DECSTBM) is the important one: without it an inline TUI's
             // region-relative redraws land on the wrong rows even at a static size.
             if let line = lines.first {
-                emitPaneOutput(paneId, Self.paneStateSeedSequence(from: line))
+                observers.emitPaneOutput(paneId, decoding.paneStateSeedSequence(from: line))
             }
         case let .panePath(paneId):
             if let path = lines.first?.trimmingCharacters(in: .whitespaces), !path.isEmpty {
-                emitPaneCwd(paneId, path)
+                observers.emitPaneCwd(paneId, path)
             }
         case let .paneAltScreen(paneId):
             // Enter the alternate screen on the mirror surface so it matches the
@@ -872,87 +820,11 @@ final class RemoteTmuxControlConnection {
             // screen. A pane on the primary screen needs no toggle (the surface
             // defaults to primary, and a later live `%output` 1049l would leave alt).
             if lines.first?.trimmingCharacters(in: .whitespaces) == "1" {
-                emitPaneOutput(paneId, Self.altScreenEnterSequence)
+                observers.emitPaneOutput(paneId, Self.altScreenEnterSequence)
             }
         case .other:
             break
         }
-    }
-
-    /// Builds the escape sequence that restores a pane's terminal state onto the
-    /// mirror surface, from a `display-message` `key=value,…` line. Sets the scroll
-    /// region (DECSTBM), the DEC private modes (wrap/cursor/insert/app-cursor-keys/
-    /// keypad), mouse tracking, origin mode, and finally the cursor position.
-    ///
-    /// The cursor placement is emitted LAST on purpose: setting the scroll region
-    /// (DECSTBM) and changing origin mode (DECOM) each move the cursor to the home
-    /// position, so any earlier cursor placement would be lost. When origin mode is
-    /// on with a restricted region, tmux's absolute cursor row is translated to the
-    /// region-relative row the (origin-relative) CUP then expects.
-    nonisolated static func paneStateSeedSequence(from line: String) -> Data {
-        var fields: [String: String] = [:]
-        for pair in line.split(separator: ",") {
-            let kv = pair.split(separator: "=", maxSplits: 1)
-            if kv.count == 2 { fields[String(kv[0])] = String(kv[1]) }
-        }
-        let on: (String) -> Bool = { fields[$0] == "1" }
-        // Clamp to a plausible terminal-dimension range: the values come from an
-        // untrusted remote, and a crafted `Int.min`/`Int.max` would trap the later
-        // `+ 1` / `- 1` arithmetic (Swift overflow is a hard crash). Out-of-range or
-        // non-numeric values are treated as absent.
-        let num: (String) -> Int? = { fields[$0].flatMap { Int($0) }.flatMap { (0...65535).contains($0) ? $0 : nil } }
-
-        var seq = ""
-        // Scroll region (DECSTBM) — tmux reports 0-based, DECSTBM is 1-based. Only
-        // seed a RESTRICTED region: a full-window region (upper 0, lower height-1)
-        // is the surface's default already, and pinning it to the capture-time row
-        // count would go stale across a later resize (the surface, left at default,
-        // tracks resizes on its own). A restricted region is re-asserted by the
-        // remote app on its next redraw, so a transiently stale one self-heals.
-        let regionUpper = num("scroll_region_upper")
-        var restrictedRegion = false
-        if let upper = regionUpper, let lower = num("scroll_region_lower"), lower >= upper {
-            let isFullWindow = upper == 0 && (num("pane_height").map { lower == $0 - 1 } ?? false)
-            if !isFullWindow {
-                seq += "\u{1b}[\(upper + 1);\(lower + 1)r"
-                restrictedRegion = true
-            }
-        }
-        seq += on("wrap_flag") ? "\u{1b}[?7h" : "\u{1b}[?7l"            // DECAWM
-        seq += on("cursor_flag") ? "\u{1b}[?25h" : "\u{1b}[?25l"        // DECTCEM (cursor visible)
-        seq += on("insert_flag") ? "\u{1b}[4h" : "\u{1b}[4l"           // IRM
-        seq += on("keypad_cursor_flag") ? "\u{1b}[?1h" : "\u{1b}[?1l"   // DECCKM (app cursor keys)
-        seq += on("keypad_flag") ? "\u{1b}=" : "\u{1b}>"              // DECKPAM / DECKPNM
-        // Mouse: enable the active tracking mode + encoding so clicks/scroll/drag in
-        // the mirror reach the remote app (the surface defaults to off). The
-        // tmux-flag → xterm DECSET mapping below was verified empirically against
-        // tmux 3.6a (set the DECSET in a pane, read the flags back):
-        //   ?1000h → mouse_standard_flag,  ?1002h → mouse_button_flag,
-        //   ?1003h → mouse_all_flag,  and mouse_any_flag is set for ALL of them.
-        // So enable the most aggressive concrete flag that is on, plus the encoding
-        // (SGR/1006 preferred over UTF-8/1005). `mouse_any_flag` is deliberately NOT
-        // used: it is tmux's aggregate "any mouse mode on" OR-flag, not a concrete
-        // level. (NOTE: ghostty's vendored tmux viewer uses a different, one-slot-
-        // shifted mapping — do not "align" to it; the above matches real tmux.)
-        if on("mouse_all_flag") { seq += "\u{1b}[?1003h" }
-        else if on("mouse_button_flag") { seq += "\u{1b}[?1002h" }
-        else if on("mouse_standard_flag") { seq += "\u{1b}[?1000h" }
-        if on("mouse_sgr_flag") { seq += "\u{1b}[?1006h" }
-        else if on("mouse_utf8_flag") { seq += "\u{1b}[?1005h" }
-        // (Bracketed-paste mode is intentionally not seeded: tmux exposes no
-        // reliable pane format for it, and paste fidelity is handled by tmux's own
-        // `paste-buffer -p` in ``pastePane(paneId:text:)``.)
-        // Origin mode (DECOM) before the cursor — changing it homes the cursor.
-        let originOn = on("origin_flag")
-        seq += originOn ? "\u{1b}[?6h" : "\u{1b}[?6l"
-        // Cursor LAST. tmux reports an absolute row; with origin mode on and a
-        // restricted region the CUP is interpreted region-relative, so subtract the
-        // region top.
-        if let cx = num("cursor_x"), let cy = num("cursor_y") {
-            let row = (originOn && restrictedRegion) ? max(0, cy - (regionUpper ?? 0)) : cy
-            seq += "\u{1b}[\(row + 1);\(cx + 1)H"
-        }
-        return Data(seq.utf8)
     }
 
     private func applyLayout(windowId: Int, layout: String) {
@@ -966,10 +838,7 @@ final class RemoteTmuxControlConnection {
     }
 
     private func record(_ event: String) {
-        recentEvents.append(event)
-        if recentEvents.count > maxRecentEvents {
-            recentEvents.removeFirst(recentEvents.count - maxRecentEvents)
-        }
+        diagnostics.record(event)
     }
 
     /// An immutable, `Sendable` snapshot for diagnostics (`remote.tmux.state`).
@@ -983,7 +852,7 @@ final class RemoteTmuxControlConnection {
             windowIDs: windowOrder,
             paneOutputByteCounts: paneOutputByteCounts,
             totalOutputBytes: totalOutputBytes,
-            recentEvents: recentEvents
+            recentEvents: diagnostics.events
         )
     }
 

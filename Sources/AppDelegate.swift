@@ -1086,6 +1086,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Set to true when the user has already confirmed quit via the warning dialog,
     // so applicationShouldTerminate does not show a second alert.
     private var isQuitWarningConfirmed = false
+    // One-shot guard so NSApp.reply(toApplicationShouldTerminate:) is funneled through
+    // replyToTerminateOnce and can never be called twice (deferred kill Task + watchdog
+    // + a re-entrant terminate) or hang the quit.
+    private var didReplyToTerminate = false
+    // True while a deferred-kill .terminateLater is in flight, so a re-entrant
+    // applicationShouldTerminate doesn't spawn a second kill Task / second reply.
+    private var isAwaitingTerminateKills = false
     private var didInstallLifecycleSnapshotObservers = false
     private var didDisableSuddenTermination = false
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
@@ -1751,7 +1758,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
     }
 
+    /// Sole caller of `NSApp.reply(toApplicationShouldTerminate:)`, guarded so the
+    /// deferred-kill Task, its watchdog, and any re-entrant terminate can't double-reply.
+    private func replyToTerminateOnce(_ shouldTerminate: Bool) {
+        guard !didReplyToTerminate else { return }
+        didReplyToTerminate = true
+        NSApp.reply(toApplicationShouldTerminate: shouldTerminate)
+        // The guard only coalesces replies WITHIN a single terminate request. A
+        // cancelled quit (`false`) ends that request, so reset both flags — otherwise
+        // a later quit attempt's reply would be silently swallowed and the app could
+        // never terminate.
+        if !shouldTerminate {
+            didReplyToTerminate = false
+            isAwaitingTerminateKills = false
+        }
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // A deferred kill-then-quit is already in flight (a prior terminate returned
+        // .terminateLater; its Task + watchdog own the single reply). A re-entrant
+        // terminate must defer to it WITHOUT re-evaluating — the kill Task consumes the
+        // marker early, so re-checking windowsMarkedForKillOnClose() here would find it
+        // empty and wrongly fall through to .terminateNow, quitting before the kill lands.
+        if isAwaitingTerminateKills { return .terminateLater }
         let buildFlavor = BuildFlavor.current
         let hasDirtyWorkspaces = hasQuitConfirmationDirtyWorkspaces()
         let confirmQuitMode = QuitWarningSettings.confirmQuitMode()
@@ -1786,6 +1815,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 reason = "policy"
             }
+            // An explicit tab/session close of a remote window's LAST tab escalates to
+            // this quit. Those windows are marked for kill-on-close: defer termination,
+            // KILL the remote session(s) (awaited, bounded), then reply to let the app
+            // quit — "close the session, then close cmux". A plain quit (no marker, e.g.
+            // ⌘Q or a window close) takes the synchronous .terminateNow path below and
+            // only detaches. Gated on the marker (not `reason`) so it fires on dev
+            // builds too — otherwise dogfooding (always dev) never exercises the kill.
+            let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
+            if !markedForKill.isEmpty {
+                if !isAwaitingTerminateKills {
+                    isAwaitingTerminateKills = true
+                    StartupBreadcrumbLog.append("appDelegate.shouldTerminate.killLater", fields: ["windows": String(markedForKill.count), "reason": reason])
+                    Task { @MainActor in
+                        await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
+                        self.replyToTerminateOnce(true)
+                    }
+                    // Watchdog: guarantee the quit is released even if the deferred Task
+                    // is starved (it can return .terminateLater from inside the modal's
+                    // nested run loop). 3.5s > the 3s kill budget so it never preempts a
+                    // completing kill; replyToTerminateOnce makes it a no-op if already replied.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { [weak self] in
+                        self?.replyToTerminateOnce(true)
+                    }
+                }
+                return .terminateLater
+            }
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
             return .terminateNow
         }
@@ -1817,7 +1872,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.isTerminatingApp = false
                 StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
             }
-            NSApp.reply(toApplicationShouldTerminate: shouldQuit)
+            self.replyToTerminateOnce(shouldQuit)
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
@@ -1859,8 +1914,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
-        // Detach remote tmux control connections (kills the local ssh clients);
-        // the remote tmux server + sessions stay alive for resume next launch.
+        // Detach remote tmux control connections (kills the local ssh clients); the
+        // remote tmux server + sessions stay alive for resume next launch. Any explicit
+        // tab/session close that escalated to this quit already killed its session in
+        // applicationShouldTerminate's deferred path and removed that host's
+        // transport/connections, so detachAll finds nothing for it and can't race the kill.
         remoteTmuxController.detachAll()
         closeAllWebInspectorsBeforeAppTeardown()
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
@@ -8156,14 +8214,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let controller = MainWindowController(window: window)
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
-            // If this was a dedicated remote-tmux window, detach its host's
-            // control connections (the remote tmux server stays alive for resume;
-            // closing the window must not kill remote sessions).
+            let manager = self.tabManagerFor(windowId: windowId)
+            // An explicit close of the window's LAST remote workspace (a tab/session
+            // close) kills its remote session(s) — synced with tmux — even though it
+            // also closes the app window. A plain window/quit close leaves the marker
+            // unset and falls through to detach below (server stays alive for resume).
+            if self.remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId),
+               let manager {
+                for workspace in manager.tabs where workspace.isRemoteTmuxMirror {
+                    self.remoteTmuxController.handleWorkspaceClosed(workspaceId: workspace.id)
+                }
+            }
+            // If this was a dedicated remote-tmux window, detach its host's control
+            // connections (no-op when the kill path above already tore them down).
+            // A window/quit close only detaches — the remote tmux server stays alive.
             self.remoteTmuxController.handleRemoteWindowClosed(windowId: windowId)
             // Also detach any per-workspace mirrors in this window (covers the
             // socket `remote.tmux.mirror` path into a non-dedicated window), so
             // their pane surfaces / ssh connections don't leak on window close.
-            if let manager = self.tabManagerFor(windowId: windowId) {
+            if let manager {
                 self.remoteTmuxController.handleWindowWorkspacesClosed(
                     workspaceIds: manager.tabs.map { $0.id }
                 )
@@ -8174,6 +8243,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
             if !shouldClose {
                 self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
+                // Close CANCELLED (a genuine veto, not a confirmed quit): clear any
+                // kill-on-close marker so a later window/quit close detaches. A
+                // CONFIRMED quit of the last tab keeps the marker set so
+                // applicationWillTerminate kills the session before exit.
+                if self?.isTerminatingApp != true {
+                    self?.remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId)
+                }
             }
             return shouldClose
         }

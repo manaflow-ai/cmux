@@ -162,7 +162,7 @@ import Testing
             + "cursor_flag=1,insert_flag=0,keypad_cursor_flag=0,keypad_flag=0,"
             + "wrap_flag=1,origin_flag=1,pane_height=24"
         let seq = String(
-            decoding: RemoteTmuxControlConnection.paneStateSeedSequence(from: line),
+            decoding: RemoteTmuxControlMessageDecoding().paneStateSeedSequence(from: line),
             as: UTF8.self
         )
         #expect(seq.contains("\u{1b}[4;21r"))   // restricted region, 1-based 4..21
@@ -194,7 +194,7 @@ import Testing
         // Each concrete tmux flag maps to its xterm DECSET tracking level, and ONLY
         // that level is enabled (so the app gets exactly the mode it requested).
         let seq = String(
-            decoding: RemoteTmuxControlConnection.paneStateSeedSequence(from: mouseSeedLine(flag: flag)),
+            decoding: RemoteTmuxControlMessageDecoding().paneStateSeedSequence(from: mouseSeedLine(flag: flag)),
             as: UTF8.self
         )
         #expect(seq.contains(expected))
@@ -214,7 +214,7 @@ import Testing
             + "wrap_flag=1,origin_flag=0,pane_height=52,"
             + "mouse_any_flag=1,mouse_all_flag=0,mouse_button_flag=0,mouse_standard_flag=0,mouse_sgr_flag=1"
         let seq = String(
-            decoding: RemoteTmuxControlConnection.paneStateSeedSequence(from: line),
+            decoding: RemoteTmuxControlMessageDecoding().paneStateSeedSequence(from: line),
             as: UTF8.self
         )
         for mode in ["\u{1b}[?1003h", "\u{1b}[?1002h", "\u{1b}[?1000h"] {
@@ -230,7 +230,7 @@ import Testing
             + "cursor_flag=1,insert_flag=0,keypad_cursor_flag=0,keypad_flag=0,"
             + "wrap_flag=1,origin_flag=0,pane_height=52"
         let seq = String(
-            decoding: RemoteTmuxControlConnection.paneStateSeedSequence(from: line),
+            decoding: RemoteTmuxControlMessageDecoding().paneStateSeedSequence(from: line),
             as: UTF8.self
         )
         #expect(!seq.contains(";52r"))            // full-window DECSTBM suppressed
@@ -243,16 +243,16 @@ import Testing
     @Test func windowOrderApplyingReorderRearrangesSubsetInPlace() {
         // All windows reordered → result is exactly the new sequence.
         #expect(
-            RemoteTmuxControlConnection.windowOrder([0, 4, 6], applyingReorder: [0, 6, 4]) == [0, 6, 4]
+            RemoteTmuxControlMessageDecoding().windowOrder([0, 4, 6], applyingReorder: [0, 6, 4]) == [0, 6, 4]
         )
         // A window not in the dragged subset keeps its slot; the dragged windows
         // fill the slots they occupied, in the new order.
         #expect(
-            RemoteTmuxControlConnection.windowOrder([0, 4, 6, 9], applyingReorder: [6, 4, 0]) == [6, 4, 0, 9]
+            RemoteTmuxControlMessageDecoding().windowOrder([0, 4, 6, 9], applyingReorder: [6, 4, 0]) == [6, 4, 0, 9]
         )
         // No-op reorder leaves the order unchanged.
         #expect(
-            RemoteTmuxControlConnection.windowOrder([0, 4, 6], applyingReorder: [0, 4, 6]) == [0, 4, 6]
+            RemoteTmuxControlMessageDecoding().windowOrder([0, 4, 6], applyingReorder: [0, 4, 6]) == [0, 4, 6]
         )
     }
 
@@ -339,21 +339,21 @@ import Testing
     @Test func stderrSessionGoneIsDetected() {
         // A reconnect that reaches the host but finds the session/server gone is a
         // genuine end (stop retrying, close).
-        #expect(RemoteTmuxControlConnection.stderrIndicatesSessionGone("can't find session: work"))
-        #expect(RemoteTmuxControlConnection.stderrIndicatesSessionGone("no server running on /tmp/tmux-501/default"))
-        #expect(RemoteTmuxControlConnection.stderrIndicatesSessionGone("lost server"))
-        #expect(RemoteTmuxControlConnection.stderrIndicatesSessionGone("ERROR: SESSION NOT FOUND"))
+        #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("can't find session: work"))
+        #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("no server running on /tmp/tmux-501/default"))
+        #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("lost server"))
+        #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("ERROR: SESSION NOT FOUND"))
     }
 
     @Test func stderrTransientFailureIsNotSessionGone() {
         // Network/transport failures must NOT be classified as session-gone — the
         // reconnect loop keeps retrying through these.
-        #expect(!RemoteTmuxControlConnection.stderrIndicatesSessionGone(
+        #expect(!RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone(
             "ssh: connect to host example.com port 22: Operation timed out"))
-        #expect(!RemoteTmuxControlConnection.stderrIndicatesSessionGone(
+        #expect(!RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone(
             "ssh: connect to host x port 22: No route to host"))
-        #expect(!RemoteTmuxControlConnection.stderrIndicatesSessionGone("Connection to host closed."))
-        #expect(!RemoteTmuxControlConnection.stderrIndicatesSessionGone(""))
+        #expect(!RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("Connection to host closed."))
+        #expect(!RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone(""))
     }
 
     // MARK: - Raw layout parser

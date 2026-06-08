@@ -110,6 +110,38 @@ actor RemoteTmuxSSHTransport {
         try? process.run()  // fire-and-forget — do not wait
     }
 
+    /// Kills each `(transport, sessionTarget)` via `tmux kill-session`. Races the kill
+    /// round-trips against a single `Task.sleep(timeout)` and returns at the first to
+    /// finish (`group.next()` then `cancelAll()`) — so on a RESPONSIVE connection this
+    /// returns as soon as the kills land (well under `timeout`). Kills to the SAME host
+    /// serialize on that host's transport actor; different hosts run in parallel.
+    ///
+    /// CAVEAT: `runProcess` is not cancellation-aware, so on a HUNG connection the
+    /// abandoned kill child can outlive `timeout` (the structured group still awaits
+    /// it). The hard bound on the user-visible app-quit is therefore the CALLER's
+    /// watchdog (``AppDelegate``'s deferred-terminate reply fires regardless), not this
+    /// `timeout`. The orphaned `ssh` is reaped by the OS on app exit; the kill is
+    /// best-effort (it can't land on a dead connection anyway).
+    nonisolated static func killSessions(
+        _ jobs: [(transport: RemoteTmuxSSHTransport, target: String)],
+        timeout: Duration
+    ) async {
+        guard !jobs.isEmpty else { return }
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await withTaskGroup(of: Void.self) { kills in
+                    for job in jobs {
+                        kills.addTask { _ = try? await job.transport.runTmux(["kill-session", "-t", job.target]) }
+                    }
+                    await kills.waitForAll()
+                }
+            }
+            group.addTask { try? await Task.sleep(for: timeout) }
+            await group.next()
+            group.cancelAll()
+        }
+    }
+
     // MARK: - Heuristics
 
     /// Whether stderr indicates the remote tmux server simply isn't running.

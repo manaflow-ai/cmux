@@ -14899,10 +14899,14 @@ private struct SidebarEmptyArea: View {
             .contentShape(Rectangle())
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onTapGesture(count: 2) {
-                // In a dedicated remote-tmux window, route through
+                // When the active workspace is a remote-tmux mirror, route through
                 // performNewWorkspaceAction so a new workspace becomes a new tmux
-                // session instead of a local (orphan) workspace.
-                if tabManager.tabs.contains(where: { $0.isRemoteTmuxMirror }) {
+                // session instead of a local (orphan) workspace. Gate on the
+                // SELECTED tab, not `tabs.contains`: a dedicated remote window can
+                // be polluted with a dragged-in local workspace (move targets don't
+                // exclude dedicated windows), and `contains` would then misroute a
+                // local empty-area double-tap into spawning an unwanted tmux session.
+                if tabManager.selectedTab?.isRemoteTmuxMirror == true {
                     _ = AppDelegate.shared?.performNewWorkspaceAction(
                         tabManager: tabManager,
                         debugSource: "sidebar.emptyArea.remoteTmux"
