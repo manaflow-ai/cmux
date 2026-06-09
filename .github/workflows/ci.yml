@@ -76,14 +76,8 @@ jobs:
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
 
-      # Paused: stale-base merge races (two PRs each fitting the budget can
-      # overshoot when merged back-to-back without rebasing). CodeRabbit and
-      # Greptile already flag large-file growth on PRs. Re-enable by uncommenting
-      # this step (and refresh the budget tsv first):
-      #   python3 scripts/swift_file_length_budget.py \
-      #     --budget .github/swift-file-length-budget.tsv --write-budget
-      # - name: Validate Swift file length budget
-      #   run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
+      - name: Validate Swift file length budget
+        run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
 
   remote-daemon-tests:
     runs-on: ubuntu-latest
