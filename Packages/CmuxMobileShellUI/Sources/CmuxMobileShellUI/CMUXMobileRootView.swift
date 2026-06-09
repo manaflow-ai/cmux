@@ -192,14 +192,18 @@ struct CMUXMobileRootView: View {
     }
 
     /// Which setup gate the disconnected screen's "Trouble connecting?" help marks
-    /// as the user's current step. A returning device whose stored Mac just failed
-    /// to reconnect has a known paired Mac, so its recovery path is "wake the Mac";
-    /// a device that has never paired is guided to install and pair.
+    /// as the user's current step. When the host rejected this device on
+    /// authorization grounds (a different cmux account, or a token it could not
+    /// verify), the account gate wins, since retrying cannot fix it. Otherwise a
+    /// returning device whose stored Mac just failed to reconnect has a known
+    /// paired Mac, so its recovery path is "wake the Mac"; a device that has never
+    /// paired is guided to install and pair. `connectionRequiresReauth` is the
+    /// store's existing public signal for that auth rejection; this only reads it.
     private var disconnectedSetupHelpHighlight: MobileSetupGuidanceState {
         MobileSetupGuidancePolicy.state(
             isSignedIn: isAuthenticated,
             hasKnownPairedMac: store.hasKnownPairedMac,
-            hasAccountMismatch: false
+            hasAccountMismatch: store.connectionRequiresReauth
         )
     }
 

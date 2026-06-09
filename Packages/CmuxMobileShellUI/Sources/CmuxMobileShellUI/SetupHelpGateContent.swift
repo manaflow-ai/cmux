@@ -73,7 +73,7 @@ func setupHelpGateContent(for gate: MobileSetupGuidanceState) -> SetupHelpGateCo
             title: L10n.string("mobile.setupHelp.mismatchTitle", defaultValue: "Match the account"),
             body: L10n.string(
                 "mobile.setupHelp.mismatchBody",
-                defaultValue: "If pairing is refused for a different account, this phone and the Mac are on different cmux accounts. Sign this phone in to the Mac's account, or sign the Mac in to this one, then pair again."
+                defaultValue: "If the Mac rejects this device's sign-in, the two are on different cmux accounts or this device's session is stale. Sign this phone in to the Mac's account (or sign the Mac in to this one), then pair again."
             ),
             link: nil,
             identifierSuffix: "accountMismatch",

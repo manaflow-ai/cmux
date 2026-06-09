@@ -4138,13 +4138,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "If pairing is refused for a different account, this phone and the Mac are on different cmux accounts. Sign this phone in to the Mac's account, or sign the Mac in to this one, then pair again."
+            "value": "If the Mac rejects this device's sign-in, the two are on different cmux accounts or this device's session is stale. Sign this phone in to the Mac's account (or sign the Mac in to this one), then pair again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "別のアカウントを理由にペアリングが拒否される場合、この端末とMacが別々のcmuxアカウントになっています。この端末をMacのアカウントでサインインし直すか、Macをこの端末のアカウントでサインインしてから、もう一度ペアリングしてください。"
+            "value": "Macがこの端末のサインインを拒否する場合、両者が別々のcmuxアカウントになっているか、この端末のセッションが古くなっています。この端末をMacのアカウントでサインインし（またはMacをこの端末のアカウントでサインインし）、もう一度ペアリングしてください。"
           }
         }
       }
