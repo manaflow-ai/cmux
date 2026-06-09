@@ -118,6 +118,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var macConnectionStatus: MobileMacConnectionStatus
     public private(set) var connectedHostName: String
     public private(set) var connectionError: String?
+
+    /// Transient notice for a pasted image that could not be sent (too large to
+    /// fit the sync frame, or rejected by the Mac's clipboard-image cap).
+    ///
+    /// Distinct from ``connectionError``: an oversized paste is not a connection
+    /// problem, so it must not drive the connection-recovery banner (Retry / mark
+    /// Mac unavailable). The UI shows this as a short-lived toast and clears it via
+    /// ``dismissPasteImageNotice()``.
+    public private(set) var pasteImageNotice: String?
+
+    /// Monotonic token bumped every time a paste notice is set, even when the
+    /// localized text is identical. The toast keys its auto-dismiss timer on this
+    /// so a second oversized paste restarts the 3-second lifecycle instead of
+    /// being dismissed early by the first paste's still-pending timer.
+    public private(set) var pasteImageNoticeToken: Int = 0
+
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
 
@@ -2272,10 +2288,55 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
         } catch {
             guard generation == connectionGeneration else { return }
+            // An oversized image is a paste problem, not a connection problem:
+            // route it to the transient paste notice instead of tearing down or
+            // showing the connection-recovery banner.
+            if Self.isPasteImageTooLargeError(error) {
+                setPasteImageTooLargeNotice()
+                return
+            }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             markMacConnectionUnavailableIfNeeded(after: error)
             connectionError = Self.localizedConnectionError(for: error)
         }
+    }
+
+    /// Whether `error` means a pasted image was rejected for being too large,
+    /// either locally (the base64 JSON overflowed the sync frame cap) or by the
+    /// Mac (its 10 MB clipboard-image cap, surfaced as an `invalid_params`
+    /// RPC error from `terminal.paste_image`).
+    private static func isPasteImageTooLargeError(_ error: any Error) -> Bool {
+        if case MobileSyncFrameCodecError.frameTooLarge = error {
+            return true
+        }
+        if let connectionError = error as? MobileShellConnectionError,
+           case let .rpcError(_, message) = connectionError,
+           message.localizedCaseInsensitiveContains("size limit") {
+            return true
+        }
+        return false
+    }
+
+    /// Surface the "image too large" notice triggered by the iOS-side size check,
+    /// before any frame is sent (every encoding overflowed the frame budget).
+    public func reportPasteImageTooLarge() {
+        setPasteImageTooLargeNotice()
+    }
+
+    /// Clear the transient paste-image notice (e.g. when its toast auto-dismisses
+    /// or the user taps it away).
+    public func dismissPasteImageNotice() {
+        pasteImageNotice = nil
+    }
+
+    /// Single setter for the too-large notice so the iOS-side pre-send check and
+    /// the Mac-side RPC rejection both surface identical, localized feedback.
+    private func setPasteImageTooLargeNotice() {
+        pasteImageNotice = L10n.string(
+            "mobile.paste.imageTooLarge",
+            defaultValue: "Image is too large to paste. Try a smaller image."
+        )
+        pasteImageNoticeToken &+= 1
     }
 
     private var terminalEventStreamID: String {

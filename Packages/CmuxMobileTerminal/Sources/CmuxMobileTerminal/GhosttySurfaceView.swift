@@ -60,6 +60,10 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// path into the terminal so a running TUI (e.g. Claude Code) attaches it.
     /// `format` is a lowercase file-extension hint (e.g. `"png"`). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String)
+    /// The user pasted an image that is too large to send even after trying a
+    /// compressed JPEG, so nothing was uploaded. The host should surface a
+    /// user-visible "too large" notice. Optional.
+    func ghosttySurfaceViewDidFailToPasteImageTooLarge(_ surfaceView: GhosttySurfaceView)
 }
 
 public extension GhosttySurfaceViewDelegate {
@@ -67,6 +71,7 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
+    func ghosttySurfaceViewDidFailToPasteImageTooLarge(_ surfaceView: GhosttySurfaceView) {}
 }
 
 @MainActor
@@ -841,6 +846,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let self else { return }
             TerminalInputDebugLog.log("surface.onPasteImage bytes=\(data.count) format=\(format)")
             self.delegate?.ghosttySurfaceView(self, didPasteImage: data, format: format)
+        }
+        inputProxy.onPasteImageTooLarge = { [weak self] in
+            guard let self else { return }
+            TerminalInputDebugLog.log("surface.onPasteImageTooLarge")
+            self.delegate?.ghosttySurfaceViewDidFailToPasteImageTooLarge(self)
         }
         inputProxy.onZoom = { [weak self] direction in
             self?.performFontZoom(direction)

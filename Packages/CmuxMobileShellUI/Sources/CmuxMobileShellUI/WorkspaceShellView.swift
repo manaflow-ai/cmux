@@ -51,6 +51,9 @@ struct WorkspaceShellView: View {
         .overlay(alignment: .top) {
             MobileConnectionRecoveryBanner(store: store, signOut: signOut)
         }
+        .overlay(alignment: .bottom) {
+            MobilePasteImageNoticeToast(store: store)
+        }
     }
 
     private var stackLayout: some View {
