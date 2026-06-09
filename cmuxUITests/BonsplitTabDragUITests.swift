@@ -321,7 +321,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         let (app, dataPath) = launchConfiguredApp(alwaysShowShortcutHints: true)
 
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
             "Expected app to launch for titlebar shortcut hint geometry test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected titlebar geometry data at \(dataPath)")
