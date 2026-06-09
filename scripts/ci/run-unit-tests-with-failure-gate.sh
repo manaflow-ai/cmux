@@ -8,16 +8,15 @@ run_unit_tests_once() {
   fi
 
   local source_packages_dir="${SOURCE_PACKAGES_DIR:-$PWD/.ci-source-packages}"
+  local derived_data_path="${CMUX_DERIVED_DATA_PATH:-$PWD/.ci-derived-data/cmux-unit}"
   local command=(
     scripts/ci/xcodebuild_noninteractive.py
     xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug
+    -derivedDataPath "$derived_data_path"
     -clonedSourcePackagesDirPath "$source_packages_dir"
     -disableAutomaticPackageResolution
     -destination "platform=macOS"
   )
-  if [[ -n "${CMUX_DERIVED_DATA_PATH:-}" ]]; then
-    command+=(-derivedDataPath "$CMUX_DERIVED_DATA_PATH")
-  fi
   command+=(test)
 
   "${command[@]}" 2>&1 &
@@ -59,12 +58,9 @@ main() {
     echo "SwiftPM package resolution failed, clearing caches and retrying once"
     rm -rf ~/Library/Caches/org.swift.swiftpm
     mkdir -p ~/Library/Caches/org.swift.swiftpm
-    if [[ -n "${CMUX_DERIVED_DATA_PATH:-}" ]]; then
-      rm -rf "$CMUX_DERIVED_DATA_PATH"
-      mkdir -p "$CMUX_DERIVED_DATA_PATH"
-    else
-      rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
-    fi
+    local derived_data_path="${CMUX_DERIVED_DATA_PATH:-$PWD/.ci-derived-data/cmux-unit}"
+    rm -rf "$derived_data_path"
+    mkdir -p "$derived_data_path"
     exit_code=0
     run_with_output_capture "$output_file" || exit_code=$?
   fi

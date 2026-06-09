@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import pty
 import select
+import signal
 import sys
 
 
@@ -30,7 +31,24 @@ def main() -> int:
 
     pid, fd = pty.fork()
     if pid == 0:
+        try:
+            os.setpgrp()
+        except OSError:
+            pass
         os.execvp(sys.argv[1], sys.argv[1:])
+
+    terminating = False
+
+    def forward_signal(signum: int, _frame: object) -> None:
+        nonlocal terminating
+        terminating = True
+        try:
+            os.killpg(pid, signum)
+        except ProcessLookupError:
+            pass
+
+    signal.signal(signal.SIGTERM, forward_signal)
+    signal.signal(signal.SIGINT, forward_signal)
 
     prompt_window = b""
     while True:
@@ -57,6 +75,8 @@ def main() -> int:
             prompt_window = b""
 
     _, status = os.waitpid(pid, 0)
+    if terminating and child_exit_code(status) == 0:
+        return 128 + signal.SIGTERM
     return child_exit_code(status)
 
 
