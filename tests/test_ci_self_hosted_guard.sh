@@ -123,6 +123,36 @@ check_release_build_signal() {
   echo "PASS: release-build keeps universal artifact verification"
 }
 
+check_release_helper_upload_retry() {
+  if ! awk '
+    /^  release-ghostty-cli-helper:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /- name: Upload universal Ghostty CLI helper/ { in_upload=1; next }
+    in_upload && /^[[:space:]]*- name:/ { in_upload=0 }
+    in_upload && /id:[[:space:]]*upload-ghostty-cli-helper/ { upload_id=1 }
+    in_upload && /continue-on-error:[[:space:]]*true/ { upload_continue=1 }
+    in_upload && /uses: actions\/upload-artifact@/ { upload_action=1 }
+    in_upload && /if-no-files-found:[[:space:]]*error/ { upload_required=1 }
+
+    in_job && /- name: Retry universal Ghostty CLI helper upload/ { in_retry=1; retry_step=1; next }
+    in_retry && /^[[:space:]]*- name:/ { in_retry=0 }
+    in_retry && index($0, "steps.upload-ghostty-cli-helper.outcome == '\''failure'\''") { retry_if=1 }
+    in_retry && /uses: actions\/upload-artifact@/ { retry_action=1 }
+    in_retry && /if-no-files-found:[[:space:]]*error/ { retry_required=1 }
+    in_retry && /overwrite:[[:space:]]*true/ { retry_overwrite=1 }
+
+    END {
+      exit !(upload_id && upload_continue && upload_action && upload_required && retry_step && retry_if && retry_action && retry_required && retry_overwrite)
+    }
+  ' "$CI_FILE"; then
+    echo "FAIL: release-ghostty-cli-helper must retry required Ghostty helper artifact uploads instead of failing on a single transient upload error"
+    exit 1
+  fi
+
+  echo "PASS: release-ghostty-cli-helper retries required Ghostty helper artifact uploads"
+}
+
 # ci.yml jobs
 check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
@@ -142,3 +172,4 @@ check_e2e_runner_fallbacks
 
 check_xcode_selection
 check_release_build_signal
+check_release_helper_upload_retry
