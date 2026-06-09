@@ -153,6 +153,15 @@ check_release_helper_upload_retry() {
   echo "PASS: release-ghostty-cli-helper retries required Ghostty helper artifact uploads"
 }
 
+check_no_ci_xctest_skips() {
+  if grep -nE '(^|[[:space:]])-skip-testing:' "$CI_FILE"; then
+    echo "FAIL: ci.yml must not exclude individual XCTest methods with -skip-testing; fix or isolate the flaky test instead"
+    exit 1
+  fi
+
+  echo "PASS: ci.yml does not exclude XCTest methods"
+}
+
 # ci.yml jobs
 check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
@@ -173,3 +182,4 @@ check_e2e_runner_fallbacks
 check_xcode_selection
 check_release_build_signal
 check_release_helper_upload_retry
+check_no_ci_xctest_skips
