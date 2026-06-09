@@ -267,7 +267,9 @@ final class TerminalOutputCollector {
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
-    #expect(store.connectionError == "Invalid pairing code.")
+    // An expired code is a distinct, recoverable case: the message must say the
+    // code expired and how to mint a fresh one, not the dead-end "invalid code".
+    #expect(store.connectionError == "This code expired. On your Mac, click Refresh Code in the pairing window, then scan the new code.")
 }
 
 @MainActor
