@@ -6,10 +6,11 @@ import SwiftUI
 /// disconnected shell, onboarding/setup help) can explain "your tailnet is
 /// off" instead of letting failures look like mysterious hangs.
 ///
-/// The root view injects one monitor with ``SwiftUICore/View/tailscaleStatusMonitor(_:)``;
-/// views read it via `@Environment(\.tailscaleStatusMonitor)`. The default is
-/// `nil`, meaning "no detector wired": previews and unwired subtrees show no
-/// Tailscale guidance rather than guessing.
+/// The app composition root builds one monitor and the root scene injects it
+/// with ``SwiftUICore/View/tailscaleStatusMonitor(_:)``; views read it via
+/// `@Environment(\.tailscaleStatusMonitor)`. The default is `nil`, meaning
+/// "no detector wired": previews and unwired subtrees show no Tailscale
+/// guidance rather than guessing.
 private struct TailscaleStatusMonitorKey: EnvironmentKey {
     static let defaultValue: TailscaleStatusMonitor? = nil
 }

@@ -23,6 +23,9 @@ final class AppCompositionRoot {
     let pushCoordinator: MobilePushCoordinator
     let analytics: MobileAnalyticsComposition
     let displaySettings: MobileDisplaySettings
+    /// The process-wide tailnet detector, injected down so pairing and
+    /// disconnected surfaces can explain a Tailscale-off phone.
+    let tailscaleStatusMonitor: TailscaleStatusMonitor
 
     #if DEBUG
     /// The structured diagnostic log, built once here and injected into the
@@ -50,6 +53,7 @@ final class AppCompositionRoot {
             analytics: analytics.emitter
         )
         self.displaySettings = MobileDisplaySettings()
+        self.tailscaleStatusMonitor = TailscaleStatusMonitor()
         #if DEBUG
         self.diagnosticLog = DiagnosticLog(buildStamp: MobileDebugLog.buildStamp)
         #endif

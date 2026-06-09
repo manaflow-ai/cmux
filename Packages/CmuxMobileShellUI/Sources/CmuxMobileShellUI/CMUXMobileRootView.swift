@@ -25,11 +25,13 @@ struct CMUXMobileRootView: View {
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
-    /// The app's one tailnet detector. Injected into the environment below so
-    /// pairing, the disconnected shell, and future setup-help surfaces share
-    /// the same signal. Re-evaluates on connectivity changes by itself; the
-    /// scene-phase handler below covers foreground returns.
-    @State private var tailscaleStatusMonitor = TailscaleStatusMonitor()
+    /// The app's one tailnet detector, built at the composition root and
+    /// injected through the environment so pairing, the disconnected shell,
+    /// and future setup-help surfaces share the same signal. Re-evaluates on
+    /// connectivity changes by itself; the scene-phase handler below covers
+    /// foreground returns. `nil` when unwired (previews), which shows no
+    /// Tailscale guidance.
+    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
     private var shouldShowTerminalLayoutPreview: Bool {
         #if os(iOS) && DEBUG
@@ -49,7 +51,6 @@ struct CMUXMobileRootView: View {
 
     var body: some View {
         rootContent
-        .tailscaleStatusMonitor(tailscaleStatusMonitor)
         .animation(.snappy(duration: 0.18), value: isAuthenticated)
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
@@ -69,7 +70,7 @@ struct CMUXMobileRootView: View {
             guard phase == .active else { return }
             store.resumeForegroundRefresh()
             // The user may have toggled Tailscale while we were backgrounded.
-            tailscaleStatusMonitor.refresh()
+            tailscaleStatusMonitor?.refresh()
             // Re-check the Stack session on resume so one that died while
             // backgrounded routes to the sign-in page instead of waiting for a
             // failed connect to surface a confusing host-side message.
