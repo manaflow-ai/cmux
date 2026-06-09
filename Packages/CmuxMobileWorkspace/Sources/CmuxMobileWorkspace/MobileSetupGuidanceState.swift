@@ -14,7 +14,7 @@
 /// machine: it never drives a connect attempt and never inspects an in-flight
 /// pairing, so reading it cannot perturb pairing. Classified by
 /// ``MobileSetupGuidancePolicy``.
-public enum MobileSetupGuidanceState: Equatable, Sendable, CaseIterable {
+public enum MobileSetupGuidanceState: Hashable, Sendable, CaseIterable {
     /// Fresh install, no Stack session on this device. The next step is to sign
     /// in with the same cmux account the Mac uses.
     case notSignedIn
