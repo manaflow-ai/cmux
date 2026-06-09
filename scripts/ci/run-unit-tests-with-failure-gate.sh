@@ -19,22 +19,42 @@ run_unit_tests_once() {
   )
   command+=(test)
 
-  "${command[@]}" 2>&1 &
+  local child_pid_file
+  child_pid_file="$(mktemp)"
+  XCODEBUILD_NONINTERACTIVE_CHILD_PID_FILE="$child_pid_file" "${command[@]}" 2>&1 &
   local xcodebuild_pid=$!
   local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-1800}"
   local deadline=$((SECONDS + timeout_seconds))
   while kill -0 "$xcodebuild_pid" 2>/dev/null; do
     if [[ "$SECONDS" -ge "$deadline" ]]; then
       echo "xcodebuild unit test timeout after ${timeout_seconds}s; terminating"
-      kill -TERM "$xcodebuild_pid" 2>/dev/null || true
+      terminate_unit_test_processes "$xcodebuild_pid" "$child_pid_file" TERM
       sleep 5
-      kill -KILL "$xcodebuild_pid" 2>/dev/null || true
+      terminate_unit_test_processes "$xcodebuild_pid" "$child_pid_file" KILL
       wait "$xcodebuild_pid" 2>/dev/null || true
+      rm -f "$child_pid_file"
       return 124
     fi
     sleep 5
   done
   wait "$xcodebuild_pid"
+  local status=$?
+  rm -f "$child_pid_file"
+  return "$status"
+}
+
+terminate_unit_test_processes() {
+  local wrapper_pid="$1"
+  local child_pid_file="$2"
+  local signal="$3"
+  if [[ -s "$child_pid_file" ]]; then
+    local child_pid
+    child_pid="$(cat "$child_pid_file")"
+    if [[ "$child_pid" =~ ^[0-9]+$ ]]; then
+      kill "-$signal" "-$child_pid" 2>/dev/null || kill "-$signal" "$child_pid" 2>/dev/null || true
+    fi
+  fi
+  kill "-$signal" "$wrapper_pid" 2>/dev/null || true
 }
 
 run_with_output_capture() {

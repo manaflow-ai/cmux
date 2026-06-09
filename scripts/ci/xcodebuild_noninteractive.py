@@ -37,6 +37,10 @@ def main() -> int:
             pass
         os.execvp(sys.argv[1], sys.argv[1:])
 
+    if pid_file := os.environ.get("XCODEBUILD_NONINTERACTIVE_CHILD_PID_FILE"):
+        with open(pid_file, "w", encoding="utf-8") as handle:
+            handle.write(f"{pid}\n")
+
     terminating = False
 
     def forward_signal(signum: int, _frame: object) -> None:
