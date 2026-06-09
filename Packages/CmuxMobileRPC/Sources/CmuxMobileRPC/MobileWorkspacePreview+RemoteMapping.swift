@@ -1,3 +1,4 @@
+import Foundation
 public import CmuxMobileShellModel
 
 extension MobileWorkspacePreview {
@@ -9,6 +10,8 @@ extension MobileWorkspacePreview {
             name: remote.title,
             isPinned: remote.isPinned ?? false,
             groupID: remote.groupID.map { MobileWorkspaceGroupPreview.ID(rawValue: $0) },
+            previewText: remote.preview,
+            previewAt: remote.previewAt.map { Date(timeIntervalSince1970: $0) },
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
             }

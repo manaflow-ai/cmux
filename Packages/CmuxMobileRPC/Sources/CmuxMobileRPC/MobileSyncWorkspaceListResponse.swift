@@ -21,6 +21,14 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         /// The id of the group this workspace belongs to, if any. `nil` for
         /// ungrouped workspaces and for Macs old enough not to emit groups.
         public let groupID: String?
+        /// A one-line, plain-text preview of the most recent activity (the latest
+        /// notification body/title), shown under the row like an iMessage preview.
+        /// `nil` when the workspace has no activity or the Mac is old enough not to
+        /// emit it.
+        public let preview: String?
+        /// Unix epoch seconds of the preview's activity, for the row's relative
+        /// time. `nil` when there is no preview.
+        public let previewAt: Double?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
 
@@ -31,6 +39,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case isSelected = "is_selected"
             case isPinned = "is_pinned"
             case groupID = "group_id"
+            case preview
+            case previewAt = "preview_at"
             case terminals
         }
     }

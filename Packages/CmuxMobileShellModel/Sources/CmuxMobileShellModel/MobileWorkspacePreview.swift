@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A lightweight, `Sendable` snapshot of a remote workspace shown in the mobile shell.
 ///
@@ -36,6 +36,13 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// workspaces. Used to fold contiguous same-group workspaces under their
     /// group header, mirroring the Mac sidebar.
     public var groupID: MobileWorkspaceGroupPreview.ID?
+    /// A one-line, plain-text preview of the workspace's most recent activity
+    /// (latest notification body/title), shown under the row like an iMessage
+    /// preview. `nil` when there is no activity to preview.
+    public var previewText: String?
+    /// When the preview's activity happened, for the row's relative time. `nil`
+    /// when there is no preview.
+    public var previewAt: Date?
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
 
@@ -45,18 +52,24 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - name: The workspace's user-facing display name.
     ///   - isPinned: Whether the workspace is pinned on the Mac. Defaults to `false`.
     ///   - groupID: The group this workspace belongs to, if any. Defaults to `nil`.
+    ///   - previewText: One-line preview of the latest activity. Defaults to `nil`.
+    ///   - previewAt: When the preview's activity happened. Defaults to `nil`.
     ///   - terminals: The terminals contained in the workspace, in display order.
     public init(
         id: ID,
         name: String,
         isPinned: Bool = false,
         groupID: MobileWorkspaceGroupPreview.ID? = nil,
+        previewText: String? = nil,
+        previewAt: Date? = nil,
         terminals: [MobileTerminalPreview]
     ) {
         self.id = id
         self.name = name
         self.isPinned = isPinned
         self.groupID = groupID
+        self.previewText = previewText
+        self.previewAt = previewAt
         self.terminals = terminals
     }
 }

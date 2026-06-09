@@ -13,9 +13,14 @@ private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category:
 @MainActor
 final class MobileWorkspaceListObserver {
     private weak var tabManager: TabManager?
+    /// The app-global notification store, source of each workspace's last-activity
+    /// preview line. Weak because the store outlives no observer and the observer
+    /// must never extend its lifetime.
+    private weak var notificationStore: TerminalNotificationStore?
     private var tabsCancellable: AnyCancellable?
     private var selectionCancellable: AnyCancellable?
     private var groupsCancellable: AnyCancellable?
+    private var notificationsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var lastSummaryHash: Int = 0
     /// Throttle window with `latest: true`. First event in a burst emits
@@ -25,8 +30,9 @@ final class MobileWorkspaceListObserver {
     /// per 80 ms. Hash-diff suppresses no-op rebroadcasts.
     private let throttleMilliseconds: Int = 80
 
-    init(tabManager: TabManager) {
+    init(tabManager: TabManager, notificationStore: TerminalNotificationStore? = nil) {
         self.tabManager = tabManager
+        self.notificationStore = notificationStore
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
@@ -40,7 +46,8 @@ final class MobileWorkspaceListObserver {
         let initial = Self.summaryHash(
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
-            selectedTabID: tabManager.selectedTabId
+            selectedTabID: tabManager.selectedTabId,
+            previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
         )
         lastSummaryHash = initial
         emitIfNeeded(force: true)
@@ -74,8 +81,34 @@ final class MobileWorkspaceListObserver {
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
             }
+        // Last-activity preview lines come from the notification store, which is
+        // not part of the TabManager graph. A new notification (or a cleared one)
+        // changes a row's preview + relative time without touching the tab set,
+        // groups, panels, or title, so observe `$notifications` to push it.
+        notificationsCancellable = notificationStore?.$notifications
+            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] _ in
+                self?.emitIfNeeded(force: false)
+            }
 
         refreshPerWorkspaceSubscriptions(tabs: tabManager.tabs)
+    }
+
+    /// A per-workspace signature of the latest-notification preview the mobile
+    /// payload serializes (its id + timestamp), so the hash changes when a new
+    /// notification arrives or the latest one is cleared. Empty when no store is
+    /// attached (tests, or a build with notifications unavailable).
+    private func currentPreviewSignatures(for tabs: [Workspace]) -> [UUID: Int] {
+        guard let notificationStore else { return [:] }
+        var signatures: [UUID: Int] = [:]
+        for workspace in tabs {
+            guard let latest = notificationStore.latestNotification(forTabId: workspace.id) else { continue }
+            var hasher = Hasher()
+            hasher.combine(latest.id)
+            hasher.combine(latest.createdAt)
+            signatures[workspace.id] = hasher.finalize()
+        }
+        return signatures
     }
 
     private func refreshPerWorkspaceSubscriptions(tabs: [Workspace]) {
@@ -126,7 +159,8 @@ final class MobileWorkspaceListObserver {
         let hash = Self.summaryHash(
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
-            selectedTabID: tabManager.selectedTabId
+            selectedTabID: tabManager.selectedTabId,
+            previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
         )
         if !force, hash == lastSummaryHash {
             #if DEBUG
@@ -153,10 +187,15 @@ final class MobileWorkspaceListObserver {
     /// produces a different hash and re-emits to the phone. Titles are hashed via
     /// `panelTitle(panelId:)` so a custom terminal rename (which sets
     /// `panelCustomTitles`, not `panelTitles`) is detected too.
+    /// `previewSignatures` maps a workspace id to a hash of its latest-notification
+    /// preview (notification id + timestamp). Folding it in means a new notification
+    /// (or a cleared one) re-emits to the phone, which renders the preview + relative
+    /// time. Workspaces with no notification are simply absent from the map.
     private static func summaryHash(
         for tabs: [Workspace],
         groups: [WorkspaceGroup],
-        selectedTabID: UUID?
+        selectedTabID: UUID?,
+        previewSignatures: [UUID: Int]
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(tabs.count)
@@ -181,6 +220,10 @@ final class MobileWorkspaceListObserver {
             // group header), and a pure move-into/out-of-group need not change the
             // panel set or title, so hash it here.
             hasher.combine(workspace.groupId)
+            // Last-activity preview line + timestamp shown on each row. Sourced
+            // from the notification store (not the TabManager graph), so it is
+            // folded in here as a precomputed signature.
+            hasher.combine(previewSignatures[workspace.id])
             // Spatial order is significant: hash the ordered id sequence so a
             // reorder of the same panel set changes the hash.
             let panelIDs = workspace.orderedPanelIds
@@ -207,9 +250,15 @@ final class MobileWorkspaceListObserver {
     static func summaryHashForTesting(
         tabs: [Workspace],
         groups: [WorkspaceGroup] = [],
-        selectedTabID: UUID?
+        selectedTabID: UUID?,
+        previewSignatures: [UUID: Int] = [:]
     ) -> Int {
-        summaryHash(for: tabs, groups: groups, selectedTabID: selectedTabID)
+        summaryHash(
+            for: tabs,
+            groups: groups,
+            selectedTabID: selectedTabID,
+            previewSignatures: previewSignatures
+        )
     }
     #endif
 }

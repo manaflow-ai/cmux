@@ -3537,6 +3537,23 @@
         }
       }
     },
+    "mobile.workspace.preview.justNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今"
+          }
+        }
+      }
+    },
     "mobile.workspace.rename.action": {
       "extractionState": "manual",
       "localizations": {

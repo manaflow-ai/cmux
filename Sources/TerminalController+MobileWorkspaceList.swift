@@ -202,6 +202,7 @@ extension TerminalController {
             ]
         }
 
+        let preview = mobileWorkspacePreview(workspace: workspace)
         return [
             "id": workspace.id.uuidString,
             "title": workspace.title,
@@ -211,8 +212,67 @@ extension TerminalController {
             // Group membership so the phone can fold contiguous same-group
             // workspaces under their group header. nil for ungrouped workspaces.
             "group_id": v2OrNull(workspace.groupId?.uuidString),
+            // iMessage-style last-activity preview: a one-line, plain-text summary
+            // of the most recent notification (agent/terminal activity), with its
+            // timestamp, so the phone can show a preview + relative time per row.
+            // nil when the workspace has no activity yet.
+            "preview": v2OrNull(preview?.text),
+            "preview_at": v2OrNull(preview?.epochSeconds),
             "terminals": terminals
         ]
+    }
+
+    /// The most recent activity line shown under a workspace row on the phone.
+    ///
+    /// Sourced from the same `latestNotification(forTabId:)` the Mac sidebar uses
+    /// for its subtitle (body, falling back to title), so the phone mirrors the
+    /// desktop. The text is flattened to a single line, has control/ANSI bytes
+    /// stripped, collapses runs of whitespace, and is length-capped so a noisy
+    /// notification can never bloat the list payload or wrap the row. `nil` when
+    /// the workspace has no notification yet (the row then shows no preview).
+    private func mobileWorkspacePreview(workspace: Workspace) -> (text: String, epochSeconds: Double)? {
+        guard let notification = AppDelegate.shared?.notificationStore?
+            .latestNotification(forTabId: workspace.id) else {
+            return nil
+        }
+        let raw = notification.body.isEmpty ? notification.title : notification.body
+        guard let text = Self.mobilePreviewSanitize(raw) else { return nil }
+        return (text, notification.createdAt.timeIntervalSince1970)
+    }
+
+    /// Maximum characters in a mobile workspace preview line. Long enough for a
+    /// useful summary, short enough that the row never wraps and the payload stays
+    /// small for big workspace lists.
+    nonisolated static let mobilePreviewMaxLength = 140
+
+    /// Flattens arbitrary notification text into a single plain-text preview line:
+    /// strips ANSI escape sequences and other control characters, collapses
+    /// whitespace runs (including newlines) to single spaces, trims, and caps the
+    /// length with an ellipsis. Returns `nil` for empty/whitespace-only input.
+    nonisolated static func mobilePreviewSanitize(_ raw: String) -> String? {
+        // Drop ANSI/OSC escape sequences first so their payload bytes don't leak
+        // into the preview as stray characters once the ESC is removed.
+        let withoutEscapes = raw.replacingOccurrences(
+            of: "\u{001B}\\[[0-9;?]*[ -/]*[@-~]|\u{001B}\\][^\u{0007}\u{001B}]*(?:\u{0007}|\u{001B}\\\\)|\u{001B}[@-Z\\\\-_]",
+            with: "",
+            options: .regularExpression
+        )
+        // Replace any remaining control character (including newlines/tabs) and
+        // collapse whitespace runs into single spaces.
+        let scalars = withoutEscapes.unicodeScalars.map { scalar -> Character in
+            (CharacterSet.controlCharacters.contains(scalar) || CharacterSet.whitespacesAndNewlines.contains(scalar))
+                ? " "
+                : Character(scalar)
+        }
+        let collapsed = String(scalars)
+            .split(separator: " ", omittingEmptySubsequences: true)
+            .joined(separator: " ")
+        let trimmed = collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.count <= mobilePreviewMaxLength {
+            return trimmed
+        }
+        return String(trimmed.prefix(mobilePreviewMaxLength - 1)) + "\u{2026}"
     }
 
     /// Serializes the window's workspace groups into the iOS-facing mobile shape.
