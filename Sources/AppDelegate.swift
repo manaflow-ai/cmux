@@ -4085,9 +4085,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> Bool {
-        let restorableAgentIndex = restorableAgentIndexForCheapSessionSnapshot(
+        guard let restorableAgentIndex = restorableAgentIndexForCheapSessionSnapshot(
             explicitIndex: restorableAgentIndex
-        )
+        ) else {
+#if DEBUG
+            cmuxDebugLog("session.save.skipped reason=missing_cached_resume_metadata includeScrollback=\(includeScrollback ? 1 : 0)")
+#endif
+            return false
+        }
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
@@ -4098,15 +4103,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func restorableAgentIndexForCheapSessionSnapshot(
         explicitIndex: RestorableAgentSessionIndex?
-    ) -> RestorableAgentSessionIndex {
+    ) -> RestorableAgentSessionIndex? {
         sessionAutosaveCoordinator.snapshotForCheapSave(
-            explicitSnapshot: explicitIndex,
-            fallbackLoader: {
-                // Seed from persisted hook metadata before the first cheap lifecycle save.
-                // This avoids an expensive live process scan while preventing an
-                // uninitialized empty index from overwriting valid resume metadata.
-                RestorableAgentSessionIndex.loadStaleTolerant()
-            }
+            explicitSnapshot: explicitIndex
         )
     }
 

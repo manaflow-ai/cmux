@@ -68,22 +68,15 @@ public final class SessionAutosaveCoordinator<CachedSnapshot: Sendable> {
         cachedSnapshot = snapshot
     }
 
-    /// Returns explicit snapshot metadata, cached metadata, or a freshly loaded fallback.
+    /// Returns explicit snapshot metadata or cached metadata without loading from disk.
     public func snapshotForCheapSave(
-        explicitSnapshot: CachedSnapshot?,
-        fallbackLoader: () -> CachedSnapshot
-    ) -> CachedSnapshot {
+        explicitSnapshot: CachedSnapshot?
+    ) -> CachedSnapshot? {
         if let explicitSnapshot {
             cachedSnapshot = explicitSnapshot
             return explicitSnapshot
         }
-        if let cachedSnapshot {
-            return cachedSnapshot
-        }
-
-        let snapshot = fallbackLoader()
-        cachedSnapshot = snapshot
-        return snapshot
+        return cachedSnapshot
     }
 
     /// Loads snapshot metadata off the main actor.

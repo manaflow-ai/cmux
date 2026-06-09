@@ -100,31 +100,17 @@ final class SessionAutosaveCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testUsesExplicitCachedThenFallbackSnapshots() {
+    func testUsesExplicitThenCachedSnapshotsWithoutFallbackLoading() throws {
         let coordinator = SessionAutosaveCoordinator<Int>()
-        var fallbackCount = 0
 
+        XCTAssertNil(coordinator.snapshotForCheapSave(explicitSnapshot: nil))
         XCTAssertEqual(
-            coordinator.snapshotForCheapSave(explicitSnapshot: nil) {
-                fallbackCount += 1
-                return 1
-            },
-            1
-        )
-        XCTAssertEqual(
-            coordinator.snapshotForCheapSave(explicitSnapshot: nil) {
-                fallbackCount += 1
-                return 2
-            },
-            1
-        )
-        XCTAssertEqual(
-            coordinator.snapshotForCheapSave(explicitSnapshot: 3) {
-                fallbackCount += 1
-                return 4
-            },
+            coordinator.snapshotForCheapSave(explicitSnapshot: 3),
             3
         )
-        XCTAssertEqual(fallbackCount, 1)
+        XCTAssertEqual(
+            try XCTUnwrap(coordinator.snapshotForCheapSave(explicitSnapshot: nil)),
+            3
+        )
     }
 }
