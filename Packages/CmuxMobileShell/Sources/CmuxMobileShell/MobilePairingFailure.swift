@@ -106,7 +106,7 @@ extension MobilePairingFailureCategory {
                 defaultValue: "This device looks offline. Connect to Wi-Fi or cellular, then try again."
             )
         case let .hostUnreachable(host, port):
-            return hostPortMessage(
+            return Self.hostPortMessage(
                 key: "mobile.pairing.hostUnreachableFormat",
                 defaultValue: "Can't reach %@:%d. Make sure your Mac is awake and on the same Tailscale network as this device.",
                 fallbackKey: "mobile.pairing.runtimeUnavailable",
@@ -140,7 +140,7 @@ extension MobilePairingFailureCategory {
                 defaultValue: "Could not connect to your computer."
             )
         case let .handshakeTimedOut(host, port):
-            return hostPortMessage(
+            return Self.hostPortMessage(
                 key: "mobile.pairing.connectTimedOutFormat",
                 defaultValue: "No response from %@:%d. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network.",
                 fallbackKey: "mobile.pairing.requestTimedOut",
@@ -149,7 +149,7 @@ extension MobilePairingFailureCategory {
                 port: port
             )
         case let .connectionDropped(host, port):
-            return hostPortMessage(
+            return Self.hostPortMessage(
                 key: "mobile.pairing.connectionDroppedFormat",
                 defaultValue: "Connected to %@:%d, but the host closed the connection. Check that the host app is still running.",
                 fallbackKey: "mobile.pairing.runtimeUnavailable",
@@ -190,7 +190,7 @@ extension MobilePairingFailureCategory {
         case .cancelled:
             return ""
         case let .unknown(host, port):
-            return hostPortMessage(
+            return Self.hostPortMessage(
                 key: "mobile.pairing.connectionFailedFormat",
                 defaultValue: "Could not reach %@:%d. Check that the host is reachable over Tailscale or LAN and that the port is correct.",
                 fallbackKey: "mobile.pairing.runtimeUnavailable",
@@ -303,60 +303,60 @@ extension MobilePairingFailureCategory {
         }
         return .unknown(host: host, port: port)
     }
-}
 
-/// Maps an RPC error code/message pair to the auth-flavored categories when the
-/// host rejected the request for an authorization reason, falling back to
-/// ``MobilePairingFailureCategory/unknown(host:port:)`` so the user still gets
-/// an actionable message for unrecognized codes.
-private func classifyRPCError(
-    code: String?,
-    message: String,
-    host: String?,
-    port: Int?
-) -> MobilePairingFailureCategory {
-    let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if let normalizedCode {
-        if normalizedCode == "account_mismatch" {
-            return .accountMismatch
+    /// Maps an RPC error code/message pair to the auth-flavored categories when
+    /// the host rejected the request for an authorization reason, falling back
+    /// to ``unknown(host:port:)`` so the user still gets an actionable message
+    /// for unrecognized codes.
+    private static func classifyRPCError(
+        code: String?,
+        message: String,
+        host: String?,
+        port: Int?
+    ) -> MobilePairingFailureCategory {
+        let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let normalizedCode {
+            if normalizedCode == "account_mismatch" {
+                return .accountMismatch
+            }
+            if ["unauthorized", "forbidden", "invalid_token", "token_expired",
+                "expired_token", "auth_required"].contains(normalizedCode) {
+                return .authFailed
+            }
         }
-        if ["unauthorized", "forbidden", "invalid_token", "token_expired",
-            "expired_token", "auth_required"].contains(normalizedCode) {
+        let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedMessage.contains("unauthorized")
+            || normalizedMessage.contains("forbidden")
+            || normalizedMessage.contains("invalid token")
+            || normalizedMessage.contains("expired token")
+            || normalizedMessage.contains("token expired") {
             return .authFailed
         }
+        return .unknown(host: host, port: port)
     }
-    let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if normalizedMessage.contains("unauthorized")
-        || normalizedMessage.contains("forbidden")
-        || normalizedMessage.contains("invalid token")
-        || normalizedMessage.contains("expired token")
-        || normalizedMessage.contains("token expired") {
-        return .authFailed
-    }
-    return .unknown(host: host, port: port)
-}
 
-/// The host/port pair a direct route dials, when the route has one (used to
-/// name the address that was tried in failure messages).
-private func hostPort(for route: CmxAttachRoute) -> (host: String, port: Int)? {
-    guard case let .hostPort(host, port) = route.endpoint else {
-        return nil
+    /// The host/port pair a direct route dials, when the route has one (used to
+    /// name the address that was tried in failure messages).
+    private static func hostPort(for route: CmxAttachRoute) -> (host: String, port: Int)? {
+        guard case let .hostPort(host, port) = route.endpoint else {
+            return nil
+        }
+        return (host, port)
     }
-    return (host, port)
-}
 
-/// Formats a host/port failure message, falling back to a generic localized
-/// message when the failed route has no host/port to name.
-private func hostPortMessage(
-    key: StaticString,
-    defaultValue: String.LocalizationValue,
-    fallbackKey: StaticString,
-    fallbackDefaultValue: String.LocalizationValue,
-    host: String?,
-    port: Int?
-) -> String {
-    guard let host, let port else {
-        return L10n.string(fallbackKey, defaultValue: fallbackDefaultValue)
+    /// Formats a host/port failure message, falling back to a generic localized
+    /// message when the failed route has no host/port to name.
+    private static func hostPortMessage(
+        key: StaticString,
+        defaultValue: String.LocalizationValue,
+        fallbackKey: StaticString,
+        fallbackDefaultValue: String.LocalizationValue,
+        host: String?,
+        port: Int?
+    ) -> String {
+        guard let host, let port else {
+            return L10n.string(fallbackKey, defaultValue: fallbackDefaultValue)
+        }
+        return String(format: L10n.string(key, defaultValue: defaultValue), host, port)
     }
-    return String(format: L10n.string(key, defaultValue: defaultValue), host, port)
 }
