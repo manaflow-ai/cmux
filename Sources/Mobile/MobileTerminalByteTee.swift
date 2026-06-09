@@ -60,15 +60,18 @@ final class MobileTerminalByteTee {
         let onDrop: @MainActor () -> Void
     }
 
-    /// Count of registered attach consumers across all surfaces. The output hot
-    /// path (`append`, off the main actor) reads this to decide whether to
-    /// capture bytes when no phone is paired. Uses `OSAllocatedUnfairLock`
-    /// (the codebase's pattern for nonisolated hot-path state, macOS 13+) rather
-    /// than `Synchronization.Atomic`, which needs macOS 15. Writers are only the
-    /// rare attach/detach paths, so the IO thread never meaningfully contends.
-    /// This is a hot-path hint; `attachConsumersBySurfaceID` (main actor) is the
-    /// source of truth for actual delivery.
-    nonisolated private let attachConsumerCount = OSAllocatedUnfairLock(initialState: 0)
+    /// Per-surface count of registered attach consumers. The output hot path
+    /// (`append`, off the main actor) reads this to decide whether to capture a
+    /// *specific* surface's bytes when no phone is paired - so an attach on one
+    /// surface does not arm capture for every other surface in the app. Uses
+    /// `OSAllocatedUnfairLock` (the codebase's pattern for nonisolated hot-path
+    /// state, macOS 13+) rather than `Synchronization.Atomic`, which needs
+    /// macOS 15. Writers are only the rare attach/detach paths, so the IO thread
+    /// never meaningfully contends; the read is an O(1) dictionary membership
+    /// check under the lock. A count (not a Set) because a surface can carry
+    /// multiple attach consumers. This is a hot-path hint;
+    /// `attachConsumersBySurfaceID` (main actor) is the source of truth.
+    nonisolated private let armedSurfaces = OSAllocatedUnfairLock<[UUID: Int]>(initialState: [:])
     /// Serial queue so fan-out preserves byte order even though the
     /// upstream callback runs off the main thread.
     private let publishQueue = DispatchQueue(
@@ -98,7 +101,7 @@ final class MobileTerminalByteTee {
         guard
             MobileHostService.hasEventSubscribers(topic: "terminal.bytes")
                 || MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
-                || attachConsumerCount.withLock({ $0 }) > 0
+                || armedSurfaces.withLock({ $0[surfaceID] != nil })
         else {
             return
         }
@@ -124,13 +127,13 @@ final class MobileTerminalByteTee {
     }
 
     /// Drop replay history for a surface (e.g. when the surface closes). Also
-    /// clears any attach consumers still registered for it and decrements the
-    /// hot-path count, so a surface closing out from under a live attach can
-    /// never strand the gate in the armed state.
+    /// clears any attach consumers still registered for it and clears the
+    /// surface's hot-path arm entry, so a surface closing out from under a live
+    /// attach can never strand the gate in the armed state.
     func dropSurface(surfaceID: UUID) {
         statesBySurfaceID.removeValue(forKey: surfaceID)
         if let stranded = attachConsumersBySurfaceID.removeValue(forKey: surfaceID), !stranded.isEmpty {
-            attachConsumerCount.withLock { $0 -= stranded.count }
+            armedSurfaces.withLock { $0.removeValue(forKey: surfaceID) }
             // The surface closed under a live attach. Tell each session so it
             // tears down (shuts its socket, ending the client's read) rather than
             // leaving the client blocked forever with no output and no EOF.
@@ -152,7 +155,7 @@ final class MobileTerminalByteTee {
         nextAttachConsumerToken += 1
         let token = nextAttachConsumerToken
         attachConsumersBySurfaceID[surfaceID, default: [:]][token] = AttachConsumer(deliver: deliver, onDrop: onDrop)
-        attachConsumerCount.withLock { $0 += 1 }
+        armedSurfaces.withLock { $0[surfaceID, default: 0] += 1 }
         return token
     }
 
@@ -167,7 +170,10 @@ final class MobileTerminalByteTee {
         } else {
             attachConsumersBySurfaceID[surfaceID] = consumers
         }
-        attachConsumerCount.withLock { $0 -= 1 }
+        armedSurfaces.withLock {
+            guard let count = $0[surfaceID] else { return }
+            if count <= 1 { $0.removeValue(forKey: surfaceID) } else { $0[surfaceID] = count - 1 }
+        }
     }
 
     private func publishFromMain(surfaceID: UUID, data: Data) {
