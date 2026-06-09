@@ -10864,18 +10864,24 @@ struct VerticalTabsSidebar: View {
         return KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
     }
 
-    private func requestSelectedWorkspaceScroll(_ proxy: ScrollViewProxy, workspaceIds: [UUID]) {
+    private func requestSelectedWorkspaceScroll(
+        _ proxy: ScrollViewProxy,
+        renderContext: WorkspaceListRenderContext
+    ) {
         guard let selectedWorkspaceId = tabManager.selectedTabId,
-              workspaceIds.contains(selectedWorkspaceId) else {
+              renderContext.workspaceIds.contains(selectedWorkspaceId) else {
             pendingSelectedWorkspaceScrollId = nil
             return
         }
 
         pendingSelectedWorkspaceScrollId = selectedWorkspaceId
-        flushPendingSelectedWorkspaceScroll(proxy)
+        flushPendingSelectedWorkspaceScroll(proxy, renderContext: renderContext)
     }
 
-    private func flushPendingSelectedWorkspaceScroll(_ proxy: ScrollViewProxy) {
+    private func flushPendingSelectedWorkspaceScroll(
+        _ proxy: ScrollViewProxy,
+        renderContext: WorkspaceListRenderContext
+    ) {
         guard let selectedWorkspaceId = pendingSelectedWorkspaceScrollId else { return }
 
         // Scroll unconditionally: ScrollViewProxy resolves `.id(_:)` values in
@@ -10888,8 +10894,25 @@ struct VerticalTabsSidebar: View {
         // (https://github.com/manaflow-ai/cmux/issues/2586).
         //
         // No anchor means SwiftUI scrolls the minimum needed to reveal the row.
-        proxy.scrollTo(selectedWorkspaceId)
+        proxy.scrollTo(sidebarScrollTargetId(for: selectedWorkspaceId, renderContext: renderContext))
         pendingSelectedWorkspaceScrollId = nil
+    }
+
+    /// A member of a collapsed group has no row of its own, so its UUID is not
+    /// a scrollable `.id` and `scrollTo` would no-op. Target the group header
+    /// (which carries the anchor workspace id) so the scroll still lands where
+    /// the workspace lives. Decided purely from render-context data, never
+    /// from what the lazy layout happens to have realized.
+    private func sidebarScrollTargetId(
+        for workspaceId: UUID,
+        renderContext: WorkspaceListRenderContext
+    ) -> UUID {
+        guard let tab = renderContext.workspaceById[workspaceId],
+              let groupId = tab.groupId,
+              let group = renderContext.workspaceGroupById[groupId],
+              group.isCollapsed
+        else { return workspaceId }
+        return group.anchorWorkspaceId
     }
 
     private func shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
@@ -11176,20 +11199,20 @@ struct VerticalTabsSidebar: View {
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
                 .onAppear {
-                    requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
+                    requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
                 }
                 .onChange(of: tabManager.selectedTabId) { _, _ in
-                    requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
+                    requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
                 }
                 .onChange(of: renderContext.workspaceIds) { oldWorkspaceIds, newWorkspaceIds in
                     guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
                         from: oldWorkspaceIds,
                         to: newWorkspaceIds
                     ) else {
-                        flushPendingSelectedWorkspaceScroll(scrollProxy)
+                        flushPendingSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
                         return
                     }
-                    requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: newWorkspaceIds)
+                    requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
                     requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
