@@ -9793,7 +9793,37 @@ private struct SidebarPanelObservationState: Equatable {
     }
 }
 
-enum WorkspaceRemoteConnectionState: String {
+private struct SidebarImmediateObservationState: Equatable {
+    let title: String
+    let customDescription: String?
+    let isPinned: Bool
+    let customColor: String?
+    let latestConversationMessage: String?
+    let latestSubmittedMessage: String?
+    let latestSubmittedAt: Date?
+}
+
+private struct SidebarObservationState: Equatable {
+    let currentDirectory: String
+    let extensionSidebarProjectRootPath: String?
+    let panels: SidebarPanelObservationState
+    let panelDirectories: [UUID: String]
+    let statusEntries: [String: SidebarStatusEntry]
+    let metadataBlocks: [String: SidebarMetadataBlock]
+    let logEntries: [SidebarLogEntry]
+    let progress: SidebarProgressState?
+    let gitBranch: SidebarGitBranchState?
+    let panelGitBranches: [UUID: SidebarGitBranchState]
+    let pullRequest: SidebarPullRequestState?
+    let panelPullRequests: [UUID: SidebarPullRequestState]
+    let remoteConfiguration: WorkspaceRemoteConfiguration?
+    let remoteConnectionState: WorkspaceRemoteConnectionState
+    let remoteConnectionDetail: String?
+    let activeRemoteTerminalSessionCount: Int
+    let listeningPorts: [Int]
+}
+
+enum WorkspaceRemoteConnectionState: String, Equatable {
     case disconnected
     case connecting
     case reconnecting
@@ -10652,62 +10682,101 @@ final class Workspace: Identifiable, ObservableObject {
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
 
-    private func sidebarObservationSignal<Value: Equatable>(
-        _ publisher: Published<Value>.Publisher
-    ) -> AnyPublisher<Void, Never> {
-        publisher
-            .dropFirst()
+    // Sidebar rows cache snapshots, so observation must begin with the current
+    // workspace state. Build state publishers from @Published current values
+    // instead of dropping the first value and repairing timing with a Void event.
+    lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = {
+        let workspaceFields = Publishers.CombineLatest4(
+            $title,
+            $customDescription,
+            $isPinned,
+            $customColor
+        )
+        let conversationFields = Publishers.CombineLatest3(
+            $latestConversationMessage,
+            $latestSubmittedMessage,
+            $latestSubmittedAt
+        )
+
+        return workspaceFields
+            .combineLatest(conversationFields)
+            .map { workspaceFields, conversationFields in
+                SidebarImmediateObservationState(
+                    title: workspaceFields.0,
+                    customDescription: workspaceFields.1,
+                    isPinned: workspaceFields.2,
+                    customColor: workspaceFields.3,
+                    latestConversationMessage: conversationFields.0,
+                    latestSubmittedMessage: conversationFields.1,
+                    latestSubmittedAt: conversationFields.2
+                )
+            }
             .removeDuplicates()
             .map { _ in () }
             .eraseToAnyPublisher()
-    }
-
-    lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = {
-        let publishers: [AnyPublisher<Void, Never>] = [
-            sidebarObservationSignal($title),
-            sidebarObservationSignal($customDescription),
-            sidebarObservationSignal($isPinned),
-            sidebarObservationSignal($customColor),
-            sidebarObservationSignal($latestConversationMessage),
-            sidebarObservationSignal($latestSubmittedMessage),
-            sidebarObservationSignal($latestSubmittedAt),
-        ]
-
-        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
     }()
 
     lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = {
-        let publishers: [AnyPublisher<Void, Never>] = [
-            sidebarObservationSignal($currentDirectory),
-            sidebarObservationSignal($extensionSidebarProjectRootPath),
-            $panels
-                .map(SidebarPanelObservationState.init)
-                .dropFirst()
-                .removeDuplicates()
-                .map { _ in () }
-                .eraseToAnyPublisher(),
-            sidebarObservationSignal($panelDirectories),
-            sidebarObservationSignal($statusEntries),
-            sidebarObservationSignal($metadataBlocks),
-            sidebarObservationSignal($logEntries),
-            sidebarObservationSignal($progress),
-            sidebarObservationSignal($gitBranch),
-            sidebarObservationSignal($panelGitBranches),
-            sidebarObservationSignal($pullRequest),
-            sidebarObservationSignal($panelPullRequests),
-            sidebarObservationSignal($remoteConfiguration),
-            sidebarObservationSignal($remoteConnectionState),
-            sidebarObservationSignal($remoteConnectionDetail),
-            sidebarObservationSignal($activeRemoteTerminalSessionCount),
-            sidebarObservationSignal($listeningPorts),
-        ]
+        let workspaceFields = Publishers.CombineLatest4(
+            $currentDirectory,
+            $extensionSidebarProjectRootPath,
+            $panels.map(SidebarPanelObservationState.init),
+            $panelDirectories
+        )
+        let metadataFields = Publishers.CombineLatest4(
+            $statusEntries,
+            $metadataBlocks,
+            $logEntries,
+            $progress
+        )
+        let gitFields = Publishers.CombineLatest4(
+            $gitBranch,
+            $panelGitBranches,
+            $pullRequest,
+            $panelPullRequests
+        )
+        let remoteFields = Publishers.CombineLatest4(
+            $remoteConfiguration,
+            $remoteConnectionState,
+            $remoteConnectionDetail,
+            $activeRemoteTerminalSessionCount
+        )
 
-        return Publishers.MergeMany(publishers)
-            // Rows cache an immutable sidebar snapshot. Emit once per subscription
-            // so rows mounted after metadata already changed still rebuild from
-            // the workspace's current state instead of waiting for another change.
-            .prepend(())
-            .eraseToAnyPublisher()
+        return Publishers.CombineLatest4(
+            workspaceFields,
+            metadataFields,
+            gitFields,
+            remoteFields
+        )
+        .combineLatest($listeningPorts)
+        .map { groupedFields, listeningPorts in
+            let workspaceFields = groupedFields.0
+            let metadataFields = groupedFields.1
+            let gitFields = groupedFields.2
+            let remoteFields = groupedFields.3
+            return SidebarObservationState(
+                currentDirectory: workspaceFields.0,
+                extensionSidebarProjectRootPath: workspaceFields.1,
+                panels: workspaceFields.2,
+                panelDirectories: workspaceFields.3,
+                statusEntries: metadataFields.0,
+                metadataBlocks: metadataFields.1,
+                logEntries: metadataFields.2,
+                progress: metadataFields.3,
+                gitBranch: gitFields.0,
+                panelGitBranches: gitFields.1,
+                pullRequest: gitFields.2,
+                panelPullRequests: gitFields.3,
+                remoteConfiguration: remoteFields.0,
+                remoteConnectionState: remoteFields.1,
+                remoteConnectionDetail: remoteFields.2,
+                activeRemoteTerminalSessionCount: remoteFields.3,
+                listeningPorts: listeningPorts
+            )
+        }
+        .removeDuplicates()
+        .map { _ in () }
+        .eraseToAnyPublisher()
     }()
 
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
