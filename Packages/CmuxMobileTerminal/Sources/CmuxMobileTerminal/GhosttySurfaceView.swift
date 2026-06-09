@@ -1243,6 +1243,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// slow-but-valid response landed. Cleared only by a full snapshot.
     private var localScrollFetchAwaitingSnapshot = false
 
+    /// Scroll position (in accumulated wheel-delta units, same units as
+    /// `localScrollUpRowsExact`) to restore after a deeper-scrollback fetch's
+    /// snapshot applies. A full snapshot rebuilds the local surface at the live
+    /// bottom; without a restore, every history page-in would bounce the reader
+    /// back to the bottom instead of leaving them on the rows they were reading.
+    /// The fetch only grows history ABOVE the unchanged live bottom, so
+    /// re-issuing the same cumulative upward delta lands on the same content
+    /// rows. Set when a fetch response is classified (`setHeldScrollbackRows`),
+    /// consumed by the snap path in `processOutput` so the snap, the snapshot
+    /// apply, and the restore run back-to-back in `process_output` order on
+    /// `outputQueue`. Cold-attach snapshots clear it (content may have changed
+    /// wholesale; snapping to live is correct there).
+    private var pendingLocalScrollRestoreUpRows: Double?
+
     /// True once a deeper-scrollback fetch returned no additional history: the
     /// shell's whole scrollback is now held locally. Gates the fetch trigger so
     /// the view stops cleanly at the oldest known line instead of re-firing an RPC
@@ -1286,10 +1300,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // A fetch that did not grow history means we have reached the oldest
             // line the Mac can supply for now.
             localHistoryFullyLoaded = newRows <= heldScrollbackRows
+            // The reader was up in history when this fetch's snapshot was built;
+            // arm a restore so the snapshot apply (which rebuilds the surface at
+            // the live bottom) puts them back on the rows they were reading
+            // instead of bouncing them to the bottom. The live bottom is
+            // unchanged by a deeper fetch, so the same cumulative upward delta
+            // lands on the same content rows; libghostty clamps at the top of
+            // whatever it actually holds.
+            pendingLocalScrollRestoreUpRows = isLocalScrollActive ? localScrollUpRowsExact : nil
         } else {
             // Not a fetch response (cold attach / live full snapshot): history may
-            // have changed underneath us, so re-open the ceiling.
+            // have changed underneath us, so re-open the ceiling and snap to live
+            // rather than restoring a position into stale content.
             localHistoryFullyLoaded = false
+            pendingLocalScrollRestoreUpRows = nil
         }
         localScrollFetchInFlight = false
         heldScrollbackRows = newRows
@@ -1681,6 +1705,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // main actor (where the gesture mutated the offset); applied off-main in
         // `process_output` order below via the exact `scroll_to_bottom` action.
         let snapLocalScrollToLive = consumeLocalScrollSnapRequest()
+        // If this frame is a deeper-scrollback fetch's snapshot (classified by
+        // `setHeldScrollbackRows` off the metadata stream), restore the reader's
+        // position after it applies instead of leaving them bounced to the
+        // bottom. Re-arm the tracked offset here on the main actor so the
+        // restore and the offset stay in step; the surface-side scroll runs
+        // after `process_output` below, in queue order.
+        var restoreLocalScrollUpRows: Double?
+        if snapLocalScrollToLive, let pending = pendingLocalScrollRestoreUpRows {
+            pendingLocalScrollRestoreUpRows = nil
+            restoreLocalScrollUpRows = pending
+            localScrollUpRowsExact = pending
+            MobileDebugLog.anchormux("scroll.restore up=\(String(format: "%.1f", pending))")
+        }
 
         // `ghostty_surface_process_output` BLOCKS on libghostty's internal
         // renderer/IO synchronization (a futex). Device crash logs show it
@@ -1702,6 +1739,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+            }
+            if let restoreLocalScrollUpRows {
+                // Deeper-fetch snapshot applied (rebuilt at the live bottom):
+                // scroll back up by the reader's preserved cumulative delta so
+                // they stay on the rows they were reading. Same queue, so it
+                // cannot interleave with the apply; libghostty clamps at the
+                // top of the history it now holds.
+                ghostty_surface_mouse_scroll(surface, 0, restoreLocalScrollUpRows, 0)
             }
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
