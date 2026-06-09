@@ -4284,6 +4284,23 @@
           }
         }
       }
+    },
+    "mobile.setupHelp.introReference": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To see your Mac's terminals here, four things have to line up."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここでMacのターミナルを表示するには、4つの条件がそろう必要があります。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

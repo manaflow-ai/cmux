@@ -21,10 +21,12 @@ import SwiftUI
 /// Tailscale only works by typing the Mac's local address by hand over an
 /// unencrypted link.
 struct SetupHelpView: View {
-    /// The gate to emphasize. Callers pass the classifier's result so the user's
-    /// current blocker floats to the top with a "You are here" marker; the other
-    /// gates still render so the whole path is visible.
-    let highlight: MobileSetupGuidanceState
+    /// The gate to emphasize, or `nil` when the user has no current blocker (for
+    /// example Settings opened while connected). When set, that gate floats to the
+    /// top with a "You are here" marker; the other gates still render so the whole
+    /// path stays visible. When `nil`, the screen is a plain reference with no
+    /// marker, in setup order.
+    let highlight: MobileSetupGuidanceState?
     /// Optional dismiss for sheet presentation. `nil` when pushed onto a stack.
     let onDone: (() -> Void)?
 
@@ -59,21 +61,28 @@ struct SetupHelpView: View {
         }
     }
 
-    /// All four gates, current blocker first, then the rest in setup order, so the
-    /// user sees their next step at the top without losing the full path.
+    /// All four gates in setup order. When a blocker is highlighted it floats to
+    /// the top so the user sees their next step first without losing the full
+    /// path; with no blocker the natural setup order is kept.
     private var orderedGates: [MobileSetupGuidanceState] {
         let order: [MobileSetupGuidanceState] = [
             .notSignedIn, .signedInNeverPaired, .macUnreachable, .accountMismatch,
         ]
+        guard let highlight else { return order }
         return [highlight] + order.filter { $0 != highlight }
     }
 
     private var introSection: some View {
         Section {
-            Text(L10n.string(
-                "mobile.setupHelp.intro",
-                defaultValue: "To see your Mac's terminals here, four things have to line up. The step you are on is marked below."
-            ))
+            Text(highlight == nil
+                ? L10n.string(
+                    "mobile.setupHelp.introReference",
+                    defaultValue: "To see your Mac's terminals here, four things have to line up."
+                )
+                : L10n.string(
+                    "mobile.setupHelp.intro",
+                    defaultValue: "To see your Mac's terminals here, four things have to line up. The step you are on is marked below."
+                ))
             .font(.subheadline)
             .foregroundStyle(.secondary)
         }

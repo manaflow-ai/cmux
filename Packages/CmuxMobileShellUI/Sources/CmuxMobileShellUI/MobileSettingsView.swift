@@ -191,33 +191,31 @@ struct MobileSettingsView: View {
             }
             .sheet(isPresented: $showingOnboarding) {
                 // Re-entry from Settings: walk the explainer again. `onComplete`
-                // only dismisses; it never touches the persisted seen flag.
+                // only dismisses; it never touches the persisted seen flag. No
+                // current blocker is highlighted, since reaching Settings means the
+                // user got past every setup gate.
                 OnboardingFlowView(
                     onComplete: { showingOnboarding = false },
                     setupHelpHighlight: setupHelpHighlight
                 )
             }
             .sheet(isPresented: $showingSetupHelp) {
-                // Re-enterable setup help: surfaces every pre-pairing dead-end with
-                // its concrete next step, highlighting the user's current gate.
+                // Re-enterable setup help as a plain reference: every pre-pairing
+                // gate with its concrete next step. Settings is reached only from
+                // the connected workspace list, so there is no current blocker to
+                // mark "You are here".
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
     }
 
-    /// The setup gate to highlight, from durable public signals only (signed in,
-    /// known paired Mac). Settings is reached only from the connected workspace
-    /// list today, so a known paired Mac is the common case; the classifier still
-    /// degrades correctly if the entry point widens. Account-mismatch is not
-    /// inferred here (it is a live pairing-failure signal owned elsewhere), but it
-    /// is always shown as a gate in the help body.
-    private var setupHelpHighlight: MobileSetupGuidanceState {
-        MobileSetupGuidancePolicy.state(
-            isSignedIn: authManager.isAuthenticated,
-            hasKnownPairedMac: store?.hasKnownPairedMac ?? !connectedHostName.isEmpty,
-            hasAccountMismatch: false
-        )
+    /// Which setup gate to mark as the user's current blocker. Settings is reached
+    /// only from the connected workspace list, so the user has cleared every gate
+    /// and there is no "You are here" step; the help is a plain reference. `nil`
+    /// keeps that honest instead of mislabeling a connected Mac as unreachable.
+    private var setupHelpHighlight: MobileSetupGuidanceState? {
+        nil
     }
 
     private var accountEmail: String {

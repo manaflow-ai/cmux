@@ -162,7 +162,8 @@ struct CMUXMobileRootView: View {
         } else if store.connectionState != .connected {
             DisconnectedWorkspaceShellView(
                 showAddDevice: showAddDevice,
-                signOut: signOut
+                signOut: signOut,
+                setupHelpHighlight: disconnectedSetupHelpHighlight
             )
             .sheet(isPresented: $isShowingAddDeviceSheet) {
                 PairingView(
@@ -188,6 +189,18 @@ struct CMUXMobileRootView: View {
         } else {
             WorkspaceShellView(store: store, signOut: signOut)
         }
+    }
+
+    /// Which setup gate the disconnected screen's "Trouble connecting?" help marks
+    /// as the user's current step. A returning device whose stored Mac just failed
+    /// to reconnect has a known paired Mac, so its recovery path is "wake the Mac";
+    /// a device that has never paired is guided to install and pair.
+    private var disconnectedSetupHelpHighlight: MobileSetupGuidanceState {
+        MobileSetupGuidancePolicy.state(
+            isSignedIn: isAuthenticated,
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            hasAccountMismatch: false
+        )
     }
 
     /// Whether the one-time first-run onboarding should be presented. Always

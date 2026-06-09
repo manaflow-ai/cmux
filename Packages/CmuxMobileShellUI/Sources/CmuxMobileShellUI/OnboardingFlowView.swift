@@ -24,10 +24,11 @@ struct OnboardingFlowView: View {
     /// flow seen (first launch) and/or dismisses the presentation.
     let onComplete: () -> Void
 
-    /// Which setup gate the "Trouble connecting?" help should highlight. The
-    /// caller passes the classifier's result so a stuck user lands on their
-    /// current blocker; defaults to the never-paired gate for plain re-entry.
-    var setupHelpHighlight: MobileSetupGuidanceState = .signedInNeverPaired
+    /// Which setup gate the "Trouble connecting?" help should highlight, or `nil`
+    /// for a plain reference with no "You are here" marker. First-run onboarding
+    /// defaults to the never-paired gate (the user has not paired yet); Settings
+    /// re-entry passes `nil`, since reaching Settings means every gate is cleared.
+    var setupHelpHighlight: MobileSetupGuidanceState? = .signedInNeverPaired
 
     @State private var pageIndex = 0
     @State private var isShowingSetupHelp = false

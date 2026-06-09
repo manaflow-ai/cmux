@@ -1,7 +1,7 @@
 import CmuxMobileSupport
+import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
-import CmuxMobileWorkspace
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
@@ -10,6 +10,11 @@ import AppKit
 struct DisconnectedWorkspaceShellView: View {
     let showAddDevice: () -> Void
     let signOut: () -> Void
+    /// The setup gate to highlight in the "Trouble connecting?" help (iOS only).
+    /// The root passes `.macUnreachable` for a returning device whose stored Mac
+    /// just failed to reconnect, and `.signedInNeverPaired` for a device that has
+    /// never paired, so the help marks the user's real recovery step.
+    var setupHelpHighlight: MobileSetupGuidanceState = .signedInNeverPaired
 
     /// The Founders Edition page (Mac download + TestFlight enrollment) the
     /// onboarding "Download via TestFlight" link points at while TestFlight is
@@ -77,8 +82,9 @@ struct DisconnectedWorkspaceShellView: View {
         .sheet(isPresented: $isShowingSetupHelp) {
             // A user on the never-paired/offline screen can reach the same
             // explicit setup-gate guidance shown in onboarding and Settings, so
-            // the dead end is never silent.
-            SetupHelpView(highlight: .signedInNeverPaired) { isShowingSetupHelp = false }
+            // the dead end is never silent. The highlighted gate reflects whether
+            // this device has paired a Mac before (offline recovery) or not.
+            SetupHelpView(highlight: setupHelpHighlight) { isShowingSetupHelp = false }
         }
         #endif
     }
