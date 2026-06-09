@@ -2667,6 +2667,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        // The frame-meta stream is consumed by the same coordinator and shares
+        // the byte stream's lifetime; finish it here so byte-stream teardown
+        // cannot leave a dangling meta continuation (its own onTermination also
+        // cleans up, this is the symmetric path).
+        terminalFrameMetaContinuationsBySurfaceID.removeValue(forKey: surfaceID)?.finish()
         // Tell the Mac this device is no longer viewing the surface so it stops
         // pinning the shared grid to our viewport and clears the macOS border.
         clearTerminalViewport(surfaceID: surfaceID)
@@ -2883,8 +2888,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 // A render-grid replay (cold attach OR deeper-scrollback fetch) is
                 // a full snapshot that re-flows scrollback into the local surface;
-                // surface its scrollback depth + active screen so the view resets
-                // its local-scroll offset and knows how much history it now holds.
+                // surface its scrollback depth + active screen so the view knows
+                // how much history it now holds (and can classify this snapshot
+                // as a deeper-fetch result or a cold attach).
                 if let renderGrid {
                     self.deliverTerminalFrameMeta(from: renderGrid)
                 }
@@ -2936,8 +2942,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif
-        // Surface the active screen so the view gates local scroll; deliver before
-        // the bytes so the view can snap to live before the delta applies.
+        // Surface the active screen so the view gates local scroll. Meta and
+        // bytes ride two independent AsyncStreams consumed by two tasks, so
+        // cross-stream ordering is NOT guaranteed; nothing here relies on it.
+        // The snap-to-live decision is made by the view per applied byte chunk
+        // from its own scroll state (`processOutput`), and the active-screen
+        // gate self-heals on the next frame if a flip's meta lands late.
         deliverTerminalFrameMeta(from: renderGrid)
         guard !bytes.isEmpty else { return }
         deliverTerminalBytes(bytes, surfaceID: renderGrid.surfaceID)

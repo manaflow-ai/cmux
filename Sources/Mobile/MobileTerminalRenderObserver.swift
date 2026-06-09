@@ -211,7 +211,13 @@ final class MobileTerminalRenderObserver {
                     cursor: snapshot.frame.cursor,
                     full: false,
                     styles: snapshot.frame.styles,
-                    rowSpans: []
+                    rowSpans: [],
+                    // Carry the real active screen: the phone gates local
+                    // (primary) vs forward-to-Mac (alternate) scrolling on every
+                    // frame's `activeScreen`, so a no-row-change frame defaulting
+                    // to `.primary` would silently flip an alt-screen TUI back to
+                    // local scrolling.
+                    activeScreen: snapshot.frame.activeScreen
                 ) else {
                     return
                 }
