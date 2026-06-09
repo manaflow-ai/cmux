@@ -19,22 +19,6 @@ public enum TailscaleStatus: Sendable, Equatable {
     case unknown
 }
 
-/// One numeric self-address of one network interface, as enumerated from the
-/// system. A plain value type so classification logic is testable with
-/// injected fixtures.
-public struct NetworkInterfaceAddress: Sendable, Equatable {
-    /// The BSD interface name (for example `en0`, `utun4`, `pdp_ip0`).
-    public let interfaceName: String
-    /// The numeric address string (IPv4 dotted quad or IPv6, possibly with a
-    /// `%zone` suffix as returned by `getnameinfo`).
-    public let address: String
-
-    public init(interfaceName: String, address: String) {
-        self.interfaceName = interfaceName
-        self.address = address
-    }
-}
-
 extension TailscaleStatus {
     /// Pure classification from an interface-address snapshot.
     ///
@@ -86,52 +70,5 @@ extension TailscaleStatus {
         }
 
         return false
-    }
-}
-
-/// Source of the current interface-address snapshot. The system
-/// implementation walks `getifaddrs`; tests inject fixtures.
-public protocol NetworkInterfaceAddressProviding: Sendable {
-    /// The current interface addresses, or `nil` when enumeration failed.
-    func currentInterfaceAddresses() -> [NetworkInterfaceAddress]?
-}
-
-/// The real provider: a single `getifaddrs` walk over IPv4/IPv6 entries.
-public struct SystemNetworkInterfaceAddressProvider: NetworkInterfaceAddressProviding {
-    public init() {}
-
-    public func currentInterfaceAddresses() -> [NetworkInterfaceAddress]? {
-        var head: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&head) == 0, let first = head else { return nil }
-        defer { freeifaddrs(head) }
-
-        var results: [NetworkInterfaceAddress] = []
-        var cursor: UnsafeMutablePointer<ifaddrs>? = first
-        while let entry = cursor {
-            defer { cursor = entry.pointee.ifa_next }
-            guard entry.pointee.ifa_flags & UInt32(IFF_UP) != 0,
-                  let addressPointer = entry.pointee.ifa_addr else { continue }
-            let family = Int32(addressPointer.pointee.sa_family)
-            guard family == AF_INET || family == AF_INET6 else { continue }
-
-            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-            guard getnameinfo(
-                addressPointer,
-                socklen_t(addressPointer.pointee.sa_len),
-                &host,
-                socklen_t(host.count),
-                nil,
-                0,
-                NI_NUMERICHOST
-            ) == 0 else { continue }
-
-            results.append(
-                NetworkInterfaceAddress(
-                    interfaceName: String(cString: entry.pointee.ifa_name),
-                    address: String(cString: host)
-                )
-            )
-        }
-        return results
     }
 }
