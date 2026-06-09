@@ -31,7 +31,12 @@ public actor ReachabilityService: ReachabilityProviding {
     /// pairing preflight would wrongly see `true` and dial into the slow
     /// timeout path this preflight exists to avoid).
     private var receivedFirstPath = false
-    private var firstPathWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstPathWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var nextFirstPathWaiterID = 0
+    /// Waiter IDs whose cancellation handler ran before the waiter stored its
+    /// continuation (a task cancelled right as it began waiting), so the store
+    /// step resumes immediately instead of parking a dead task.
+    private var cancelledFirstPathWaiterIDs: Set<Int> = []
 
     /// Creates a reachability monitor and begins observing path updates.
     ///
@@ -56,10 +61,32 @@ public actor ReachabilityService: ReachabilityProviding {
         }
     }
 
+    /// Parks the caller until the first path delivery, honoring task
+    /// cancellation: a cancelled waiter resumes immediately (the caller then
+    /// reads the provisional `online` value and its own cancellation checks
+    /// take over) instead of staying suspended until the monitor fires.
     private func waitForFirstPathIfNeeded() async {
         guard !receivedFirstPath else { return }
-        await withCheckedContinuation { continuation in
-            firstPathWaiters.append(continuation)
+        let id = nextFirstPathWaiterID
+        nextFirstPathWaiterID += 1
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                if receivedFirstPath || cancelledFirstPathWaiterIDs.remove(id) != nil || Task.isCancelled {
+                    continuation.resume()
+                    return
+                }
+                firstPathWaiters[id] = continuation
+            }
+        } onCancel: {
+            Task { await self.cancelFirstPathWaiter(id: id) }
+        }
+    }
+
+    private func cancelFirstPathWaiter(id: Int) {
+        if let continuation = firstPathWaiters.removeValue(forKey: id) {
+            continuation.resume()
+        } else {
+            cancelledFirstPathWaiterIDs.insert(id)
         }
     }
 
@@ -108,10 +135,11 @@ public actor ReachabilityService: ReachabilityProviding {
         if online { lastInterfaceType = primaryType }
         if !receivedFirstPath {
             receivedFirstPath = true
-            for waiter in firstPathWaiters {
+            for waiter in firstPathWaiters.values {
                 waiter.resume()
             }
             firstPathWaiters.removeAll()
+            cancelledFirstPathWaiterIDs.removeAll()
         }
         let regainedOnline = online && !wasOnline
         let interfaceChanged = online && previousType != nil && primaryType != previousType
@@ -136,7 +164,7 @@ public actor ReachabilityService: ReachabilityProviding {
         for continuation in subscribers.values {
             continuation.finish()
         }
-        for waiter in firstPathWaiters {
+        for waiter in firstPathWaiters.values {
             waiter.resume()
         }
     }
