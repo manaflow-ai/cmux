@@ -25,7 +25,7 @@ use std::{
 
 use iroh::{
     Endpoint, EndpointAddr, EndpointId, RelayMode, RelayUrl, SecretKey, TransportAddr,
-    endpoint::{Connection, RecvStream, SendStream, presets},
+    endpoint::{Connection, ConnectionError, ReadError, RecvStream, SendStream, presets},
 };
 use tokio::{runtime::Runtime, sync::Mutex};
 
@@ -308,6 +308,13 @@ pub extern "C" fn cmux_iroh_connection_recv(
     match result {
         Ok(Some(read)) => read as isize,
         Ok(None) => 0,
+        // A clean peer close (application error code 0) is end-of-stream,
+        // not an error: QUIC CONNECTION_CLOSE can race the stream FIN.
+        Err(ReadError::ConnectionLost(ConnectionError::ApplicationClosed(close)))
+            if u64::from(close.error_code) == 0 =>
+        {
+            0
+        }
         Err(error) => {
             set_error(err_buf, err_cap, &format!("recv failed: {error:#}"));
             -1

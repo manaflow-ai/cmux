@@ -23,7 +23,8 @@ ios-sim)
     rust_target="aarch64-apple-ios-sim"
     sdk="iphonesimulator"
     swift_target="arm64-apple-ios17.0-simulator"
-    frameworks=(-framework SystemConfiguration -framework Security)
+    # netdev (iroh's interface enumeration) uses Network.framework nw_path_monitor on iOS.
+    frameworks=(-framework SystemConfiguration -framework Security -framework Network)
     ;;
 *)
     echo "usage: $0 [macos|ios-sim]" >&2

@@ -10,6 +10,10 @@
 
 import Foundation
 
+// Line-buffer stdout even when piped, so orchestration scripts can react to
+// the endpoint-id line before the process exits.
+setvbuf(stdout, nil, _IOLBF, 0)
+
 let errCap = 512
 
 func lastError(_ buf: [CChar]) -> String {
@@ -43,7 +47,9 @@ func waitOnline(_ endpoint: OpaquePointer) {
 }
 
 func runListen() {
+    print("binding endpoint...")
     let endpoint = bindEndpoint(acceptConnections: true)
+    print("bound; waiting for relay connection...")
     waitOnline(endpoint)
     print("endpoint-id: \(takeString(cmux_iroh_endpoint_id(endpoint)))")
     print("route: \(takeString(cmux_iroh_endpoint_route_json(endpoint)))")
