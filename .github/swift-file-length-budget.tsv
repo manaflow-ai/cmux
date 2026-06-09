@@ -1,15 +1,15 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-32943	CLI/cmux.swift
+32676	CLI/cmux.swift
 22263	Sources/TerminalController.swift
-19831	Sources/Workspace.swift
-19203	Sources/ContentView.swift
-19025	Sources/AppDelegate.swift
+19853	Sources/Workspace.swift
+19200	Sources/ContentView.swift
+19038	Sources/AppDelegate.swift
 16595	Sources/GhosttyTerminalView.swift
-13795	Sources/Panels/BrowserPanel.swift
+13788	Sources/Panels/BrowserPanel.swift
 10346	cmuxTests/AppDelegateShortcutRoutingTests.swift
-10023	Sources/TabManager.swift
+10028	Sources/TabManager.swift
 8615	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7760	Sources/Panels/BrowserPanelView.swift
 7230	cmuxTests/WorkspaceUnitTests.swift
@@ -27,7 +27,7 @@
 3953	cmuxTests/WindowAndDragTests.swift
 3937	Sources/Feed/FeedPanelView.swift
 3845	cmuxTests/CLIGenericHookPersistenceTests.swift
-3793	cmuxTests/TabManagerUnitTests.swift
+3784	cmuxTests/TabManagerUnitTests.swift
 3396	Sources/CmuxConfig.swift
 3321	cmuxTests/TabManagerSessionSnapshotTests.swift
 3255	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
@@ -56,8 +56,8 @@
 1742	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1715	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
 1713	cmuxUITests/MultiWindowNotificationsUITests.swift
-1709	cmuxTests/TerminalControllerSocketSecurityTests.swift
-1701	Sources/RestorableAgentSession.swift
+1708	Sources/RestorableAgentSession.swift
+1707	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1654	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1563	cmuxTests/TextBoxMentionCompletionTests.swift
 1498	cmuxTests/OmnibarAndToolsTests.swift
@@ -141,6 +141,7 @@
 613	Sources/PortScanner.swift
 607	cmuxTests/SessionIndexViewTests.swift
 599	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
+596	cmuxTests/CmuxEventBusTests.swift
 595	cmuxTests/PortalTabDragRoutingTests.swift
 589	Sources/SettingsNavigation.swift
 586	Sources/JSONCParser.swift
@@ -166,7 +167,6 @@
 530	cmuxUITests/AutomationSocketUITests.swift
 527	CLI/CLISocketPathResolver.swift
 523	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
-596	cmuxTests/CmuxEventBusTests.swift
 522	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
 522	Packages/CmuxUpdaterUI/Sources/CmuxUpdaterUI/UpdatePopoverView.swift
 521	cmuxTests/TerminalNotificationSocketActionTests.swift

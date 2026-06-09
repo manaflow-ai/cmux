@@ -923,6 +923,13 @@ struct RestorableAgentSessionIndex: Sendable {
         !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
     }
 
+    // WARNING: Expensive. This reads every agent kind's hook-store file from disk,
+    // resolves transcripts, and runs sysctl(KERN_PROCARGS2) per recorded session for
+    // live-PID filtering (measured 350ms-1.8s on machines with large agent history).
+    // NEVER call it synchronously on the main actor or in interactive paths (workspace/
+    // panel/window close, SwiftUI body, didSet, menu evaluation, socket handlers). Read
+    // the off-main, cached `SharedLiveAgentIndex.shared` instead. The only sanctioned
+    // synchronous callers are cold-cache fallbacks guarded by a nil cache check.
     static func load(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default

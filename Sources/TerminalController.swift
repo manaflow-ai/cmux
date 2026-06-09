@@ -1144,25 +1144,32 @@ class TerminalController {
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
 
-                if isEventsStreamRequest(trimmed) {
-                    if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
-                        guard writeSocketResponse(response, to: socket) else {
+                var shouldCloseSocket = false
+                autoreleasepool {
+                    if isEventsStreamRequest(trimmed) {
+                        if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                            if !writeSocketResponse(response, to: socket) {
+                                shouldCloseSocket = true
+                            }
                             return
                         }
-                        continue
-                    }
-                    handleEventsStreamRequest(trimmed, socket: socket)
-                    return
-                }
-
-                let result = processSocketLine(trimmed, authenticated: authenticated)
-                authenticated = result.authenticated
-                if let response = result.response {
-                    let didWriteResponse = writeSocketResponse(response, to: socket)
-                    publishSocketEvents(command: trimmed, response: response)
-                    guard didWriteResponse else {
+                        handleEventsStreamRequest(trimmed, socket: socket)
+                        shouldCloseSocket = true
                         return
                     }
+
+                    let result = processSocketLine(trimmed, authenticated: authenticated)
+                    authenticated = result.authenticated
+                    if let response = result.response {
+                        let didWriteResponse = writeSocketResponse(response, to: socket)
+                        publishSocketEvents(command: trimmed, response: response)
+                        if !didWriteResponse {
+                            shouldCloseSocket = true
+                        }
+                    }
+                }
+                if shouldCloseSocket {
+                    return
                 }
             }
         }
@@ -1256,17 +1263,145 @@ class TerminalController {
         if trimmed.hasPrefix("ERROR:") {
             return "error"
         }
-        if trimmed.hasPrefix("{"),
-           let data = trimmed.data(using: .utf8),
-           let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] {
-            if let ok = dict["ok"] as? Bool {
-                return ok ? "ok" : "error"
-            }
-            if dict["error"] != nil {
+        if trimmed.hasPrefix("{") {
+            let prefix = trimmed.prefix(4096)
+            if topLevelJSONResponseStatus(in: prefix) == "error" {
                 return "error"
             }
         }
         return "ok"
+    }
+
+    private nonisolated static func topLevelJSONResponseStatus(in text: Substring) -> String? {
+        var index = text.startIndex
+        skipJSONWhitespace(in: text, index: &index)
+        guard index < text.endIndex, text[index] == "{" else { return nil }
+        index = text.index(after: index)
+
+        while index < text.endIndex {
+            skipJSONWhitespace(in: text, index: &index)
+            if index >= text.endIndex { return nil }
+            if text[index] == "}" { return nil }
+            if text[index] == "," {
+                index = text.index(after: index)
+                continue
+            }
+            guard text[index] == "\"",
+                  let key = scanJSONString(in: text, index: &index) else {
+                return nil
+            }
+            skipJSONWhitespace(in: text, index: &index)
+            guard index < text.endIndex, text[index] == ":" else { return nil }
+            index = text.index(after: index)
+            skipJSONWhitespace(in: text, index: &index)
+
+            if key == "error" {
+                return "error"
+            }
+            if key == "ok" {
+                if text[index...].hasPrefix("false") {
+                    return "error"
+                }
+                if text[index...].hasPrefix("true") {
+                    return "ok"
+                }
+            }
+            guard skipJSONValue(in: text, index: &index) else {
+                return nil
+            }
+        }
+        return nil
+    }
+
+    private nonisolated static func scanJSONString(in text: Substring, index: inout String.Index) -> String? {
+        guard index < text.endIndex, text[index] == "\"" else { return nil }
+        index = text.index(after: index)
+        var result = ""
+        var isEscaped = false
+        while index < text.endIndex {
+            let char = text[index]
+            index = text.index(after: index)
+            if isEscaped {
+                result.append(char)
+                isEscaped = false
+                continue
+            }
+            if char == "\\" {
+                isEscaped = true
+                continue
+            }
+            if char == "\"" {
+                return result
+            }
+            result.append(char)
+        }
+        return nil
+    }
+
+    private nonisolated static func skipJSONValue(in text: Substring, index: inout String.Index) -> Bool {
+        guard index < text.endIndex else { return false }
+        switch text[index] {
+        case "\"":
+            return scanJSONString(in: text, index: &index) != nil
+        case "{", "[":
+            return skipJSONContainer(in: text, index: &index)
+        default:
+            while index < text.endIndex {
+                switch text[index] {
+                case ",", "}":
+                    return true
+                default:
+                    index = text.index(after: index)
+                }
+            }
+            return true
+        }
+    }
+
+    private nonisolated static func skipJSONContainer(in text: Substring, index: inout String.Index) -> Bool {
+        guard index < text.endIndex else { return false }
+        let opener = text[index]
+        let closer: Character = opener == "{" ? "}" : "]"
+        var depth = 1
+        index = text.index(after: index)
+        var isInString = false
+        var isEscaped = false
+        while index < text.endIndex {
+            let char = text[index]
+            index = text.index(after: index)
+            if isInString {
+                if isEscaped {
+                    isEscaped = false
+                } else if char == "\\" {
+                    isEscaped = true
+                } else if char == "\"" {
+                    isInString = false
+                }
+                continue
+            }
+            if char == "\"" {
+                isInString = true
+            } else if char == opener {
+                depth += 1
+            } else if char == closer {
+                depth -= 1
+                if depth == 0 {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private nonisolated static func skipJSONWhitespace(in text: Substring, index: inout String.Index) {
+        while index < text.endIndex {
+            switch text[index] {
+            case " ", "\t", "\n", "\r":
+                index = text.index(after: index)
+            default:
+                return
+            }
+        }
     }
 
     private nonisolated static func debugLogSocketCommandEndIfNeeded(
