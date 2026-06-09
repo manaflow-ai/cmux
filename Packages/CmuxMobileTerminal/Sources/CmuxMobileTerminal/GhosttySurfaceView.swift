@@ -374,6 +374,14 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return String(localized: "terminal.input_accessory.zoom_in", defaultValue: "Zoom In")
         case .paste:
             return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
+        case .upArrow:
+            return String(localized: "terminal.input_accessory.up_arrow", defaultValue: "Up Arrow")
+        case .downArrow:
+            return String(localized: "terminal.input_accessory.down_arrow", defaultValue: "Down Arrow")
+        case .leftArrow:
+            return String(localized: "terminal.input_accessory.left_arrow", defaultValue: "Left Arrow")
+        case .rightArrow:
+            return String(localized: "terminal.input_accessory.right_arrow", defaultValue: "Right Arrow")
         default:
             return nil
         }
@@ -387,6 +395,14 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return "plus.magnifyingglass"
         case .paste:
             return "doc.on.clipboard"
+        case .upArrow:
+            return "arrow.up"
+        case .downArrow:
+            return "arrow.down"
+        case .leftArrow:
+            return "arrow.left"
+        case .rightArrow:
+            return "arrow.right"
         default:
             return nil
         }
