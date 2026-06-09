@@ -245,15 +245,43 @@ extension TerminalController {
     /// small for big workspace lists.
     nonisolated static let mobilePreviewMaxLength = 140
 
+    /// How much raw notification text the sanitizer is willing to process.
+    /// Notification bodies come from terminal output and are not length-capped at
+    /// ingestion, and sanitizing runs on the main actor for every workspace on
+    /// every mobile list refresh, so the work must be bounded before the regex and
+    /// scalar passes, not after. A 16x multiple of the visible cap is plenty to
+    /// fill the preview even when escapes and whitespace inflate the raw text;
+    /// pathological input that is escapes-only past this bound just yields a
+    /// shorter (or no) preview.
+    nonisolated static let mobilePreviewInputCap = mobilePreviewMaxLength * 16
+
     /// Flattens arbitrary notification text into a single plain-text preview line:
     /// strips ANSI escape sequences and other control characters, collapses
     /// whitespace runs (including newlines) to single spaces, trims, and caps the
     /// length with an ellipsis. Returns `nil` for empty/whitespace-only input.
+    /// Input beyond ``mobilePreviewInputCap`` is never scanned; a truncated input
+    /// always renders a trailing ellipsis so the row signals there was more.
     nonisolated static func mobilePreviewSanitize(_ raw: String) -> String? {
+        // Bound the work first. `index(_:offsetBy:limitedBy:)` walks at most the
+        // cap, never the full body, so a multi-megabyte notification costs the
+        // same as a small one.
+        let bounded: Substring
+        let inputWasTruncated: Bool
+        if let cutoff = raw.index(raw.startIndex, offsetBy: mobilePreviewInputCap, limitedBy: raw.endIndex),
+           cutoff < raw.endIndex {
+            bounded = raw[..<cutoff]
+            inputWasTruncated = true
+        } else {
+            bounded = raw[...]
+            inputWasTruncated = false
+        }
         // Drop ANSI/OSC escape sequences first so their payload bytes don't leak
-        // into the preview as stray characters once the ESC is removed.
-        let withoutEscapes = raw.replacingOccurrences(
-            of: "\u{001B}\\[[0-9;?]*[ -/]*[@-~]|\u{001B}\\][^\u{0007}\u{001B}]*(?:\u{0007}|\u{001B}\\\\)|\u{001B}[@-Z\\\\-_]",
+        // into the preview as stray characters once the ESC is removed. Each
+        // alternation also matches an unterminated sequence at end-of-input (the
+        // CSI final byte is optional, OSC accepts `$` as terminator) so a
+        // sequence cut by the input cap is stripped instead of leaking payload.
+        let withoutEscapes = bounded.replacingOccurrences(
+            of: "\u{001B}\\[[0-9;?]*[ -/]*[@-~]?|\u{001B}\\][^\u{0007}\u{001B}]*(?:\u{0007}|\u{001B}\\\\|$)|\u{001B}[@-Z\\\\-_]",
             with: "",
             options: .regularExpression
         )
@@ -269,7 +297,7 @@ extension TerminalController {
             .joined(separator: " ")
         let trimmed = collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        if trimmed.count <= mobilePreviewMaxLength {
+        if trimmed.count <= mobilePreviewMaxLength, !inputWasTruncated {
             return trimmed
         }
         return String(trimmed.prefix(mobilePreviewMaxLength - 1)) + "\u{2026}"

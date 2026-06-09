@@ -220,5 +220,18 @@ struct MobileWorkspaceListFidelityTests {
         let capped = try #require(TerminalController.mobilePreviewSanitize(long))
         #expect(capped.count == TerminalController.mobilePreviewMaxLength)
         #expect(capped.hasSuffix("\u{2026}"))
+        // Input past the processing cap is never scanned (bounded main-actor
+        // work); a huge body still yields the documented capped preview.
+        let huge = String(repeating: "b", count: TerminalController.mobilePreviewInputCap * 64)
+        let boundedHuge = try #require(TerminalController.mobilePreviewSanitize(huge))
+        #expect(boundedHuge.count == TerminalController.mobilePreviewMaxLength)
+        #expect(boundedHuge.hasSuffix("\u{2026}"))
+        // A short visible head followed by over-cap filler keeps the head and
+        // signals the truncation with an ellipsis instead of dropping it.
+        let headThenFiller = "ok" + String(repeating: " ", count: TerminalController.mobilePreviewInputCap) + "tail"
+        #expect(TerminalController.mobilePreviewSanitize(headThenFiller) == "ok\u{2026}")
+        // An OSC sequence left unterminated (e.g. cut by the input cap) is
+        // stripped wholly rather than leaking its payload bytes.
+        #expect(TerminalController.mobilePreviewSanitize("\u{001B}]0;unterminated title") == nil)
     }
 }
