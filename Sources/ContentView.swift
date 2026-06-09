@@ -985,6 +985,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
         let remoteConnectionState: WorkspaceRemoteConnectionState?
         let remoteConnectionDetail: String?
         let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
+        let title: String?
     }
 
     @Published private(set) var directoryChangeGeneration: UInt64 = 0
@@ -1009,7 +1010,8 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConfiguration: nil,
                             remoteConnectionState: nil,
                             remoteConnectionDetail: nil,
-                            remoteDaemonStatus: nil
+                            remoteDaemonStatus: nil,
+                            title: nil
                         )
                     )
                     .eraseToAnyPublisher()
@@ -1021,7 +1023,9 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                         workspace.$remoteConnectionDetail
                     )
                     .combineLatest(workspace.$remoteDaemonStatus)
-                    .map { values, remoteDaemonStatus in
+                    .combineLatest(workspace.$title)
+                    .map { combined, title in
+                        let (values, remoteDaemonStatus) = combined
                         let (
                             currentDirectory,
                             remoteConfiguration,
@@ -1034,7 +1038,8 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConfiguration: remoteConfiguration,
                             remoteConnectionState: remoteConnectionState,
                             remoteConnectionDetail: remoteConnectionDetail,
-                            remoteDaemonStatus: remoteDaemonStatus
+                            remoteDaemonStatus: remoteDaemonStatus,
+                            title: title
                         )
                     }
                     .eraseToAnyPublisher()
@@ -2658,6 +2663,35 @@ struct ContentView: View {
                     rootPath: tab.currentDirectory,
                     isAvailable: tab.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
+                )
+            )
+            return
+        }
+
+        let detectedSSH: DetectedSSHSession? = tab.focusedPanelId.flatMap { panelId in
+            tab.candidateTTYNames(forPanel: panelId).lazy
+                .compactMap { TerminalSSHSessionDetector.detect(forTTY: $0) }
+                .first
+        }
+        if let sshSession = detectedSSH {
+            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            guard shouldSyncFileExplorerStore else {
+                fileExplorerStore.applyWorkspaceRoot(.none)
+                return
+            }
+            fileExplorerStore.applyWorkspaceRoot(
+                .remoteSSH(
+                    workspaceId: tab.id,
+                    connection: SSHFileExplorerConnection(
+                        destination: sshSession.destination,
+                        port: sshSession.port,
+                        identityFile: sshSession.identityFile,
+                        sshOptions: sshSession.sshOptions
+                    ),
+                    displayTarget: sshSession.destination,
+                    rootPath: TerminalSSHSessionDetector.remoteWorkingDirectory(fromTitle: tab.title),
+                    isAvailable: true,
+                    unavailableDetail: nil
                 )
             )
             return

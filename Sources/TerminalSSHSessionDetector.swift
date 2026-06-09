@@ -392,6 +392,25 @@ enum TerminalSSHSessionDetector {
         let executableName: String
     }
 
+    /// Best-effort extraction of the remote working directory from a terminal
+    /// title produced by a remote shell prompt (commonly `user@host:cwd`).
+    ///
+    /// Ghostty rejects OSC 7 (pwd) reports from non-local hosts, so during an SSH
+    /// session the only signal for the remote cwd is the window title the remote
+    /// shell sets. The returned path may be tilde-prefixed (`~/...`); callers that
+    /// need an absolute path must expand it against the resolved remote home.
+    /// Returns `nil` when the title does not look like a `user@host:path` prompt.
+    static func remoteWorkingDirectory(fromTitle title: String) -> String? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let atIndex = trimmed.firstIndex(of: "@") else { return nil }
+        let afterAt = trimmed[trimmed.index(after: atIndex)...]
+        guard let colonIndex = afterAt.firstIndex(of: ":") else { return nil }
+        let cwd = afterAt[afterAt.index(after: colonIndex)...]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cwd == "~" || cwd.hasPrefix("/") || cwd.hasPrefix("~/") else { return nil }
+        return cwd
+    }
+
     static func detect(forTTY ttyName: String) -> DetectedSSHSession? {
         let normalizedTTY = normalizeTTYName(ttyName)
         guard !normalizedTTY.isEmpty else { return nil }

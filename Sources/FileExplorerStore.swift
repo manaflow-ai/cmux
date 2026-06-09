@@ -1185,15 +1185,31 @@ final class FileExplorerStore: ObservableObject {
         }
 
         let requestedRootPath = Self.normalizedRootPath(requestedRootPath)
+        let currentHomePath = sshProvider.homePath.trimmingCharacters(in: .whitespacesAndNewlines)
+
         if let requestedRootPath {
-            cancelRemoteHomeResolution()
-            setRootStatusMessage(nil)
-            setRootPath(requestedRootPath)
-            return
+            // Tilde-prefixed paths come from the remote shell title and must be
+            // expanded against the resolved remote home before listing (the SSH
+            // `ls` path is single-quoted, so `~` would not expand remotely).
+            if requestedRootPath == "~" || requestedRootPath.hasPrefix("~/") {
+                if !currentHomePath.isEmpty {
+                    cancelRemoteHomeResolution()
+                    setRootStatusMessage(nil)
+                    setRootPath(Self.expandTilde(requestedRootPath, home: currentHomePath))
+                    return
+                }
+                // Home not resolved yet: fall through to resolve it (rooting at
+                // home). A subsequent title-change sync re-applies the cwd once
+                // the home path is cached.
+            } else {
+                cancelRemoteHomeResolution()
+                setRootStatusMessage(nil)
+                setRootPath(requestedRootPath)
+                return
+            }
         }
 
-        let currentHomePath = sshProvider.homePath
-        if !currentHomePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if !currentHomePath.isEmpty {
             setRootStatusMessage(nil)
             setRootPath(currentHomePath)
             return
@@ -1284,6 +1300,17 @@ final class FileExplorerStore: ObservableObject {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return trimmed
+    }
+
+    /// Expands a leading `~` (home) in a remote path against the resolved remote
+    /// home directory. Non-tilde paths are returned unchanged.
+    private static func expandTilde(_ path: String, home: String) -> String {
+        let base = home.hasSuffix("/") && home != "/" ? String(home.dropLast()) : home
+        if path == "~" { return base }
+        if path.hasPrefix("~/") {
+            return base + "/" + path.dropFirst(2)
+        }
+        return path
     }
 
     private static func remotePreviewCacheURL(displayTarget: String, remotePath: String) -> URL {
