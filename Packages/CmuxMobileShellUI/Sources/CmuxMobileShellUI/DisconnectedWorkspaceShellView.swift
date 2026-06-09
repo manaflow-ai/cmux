@@ -10,6 +10,8 @@ struct DisconnectedWorkspaceShellView: View {
     let showAddDevice: () -> Void
     let signOut: () -> Void
 
+    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
+
     /// The Founders Edition page (Mac download + TestFlight enrollment) the
     /// onboarding "Download via TestFlight" link points at while TestFlight is
     /// still private.
@@ -25,6 +27,14 @@ struct DisconnectedWorkspaceShellView: View {
             } description: {
                 Text(L10n.string("mobile.devices.emptyDescription", defaultValue: "Add a Mac to start syncing terminal workspaces."))
             } actions: {
+                // When the Mac is unreachable and this device has no active
+                // tailnet, lead with that explanation instead of leaving the
+                // user staring at a generic empty state.
+                if tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
+                    TailscaleInactiveCallout(context: .disconnected)
+                        .frame(maxWidth: 320, alignment: .leading)
+                        .padding(.bottom, 4)
+                }
                 Button(action: showAddDevice) {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
                 }
