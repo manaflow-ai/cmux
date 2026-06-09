@@ -6603,6 +6603,72 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testSidebarOrderedPanelIdsCacheInvalidatesAfterSurfaceReorder() {
+        let workspace = Workspace()
+        guard let firstPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: firstPanelId),
+              let secondPanel = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
+            XCTFail("Expected two panels in one pane for sidebar order cache test")
+            return
+        }
+
+        XCTAssertEqual(workspace.sidebarOrderedPanelIds(), [firstPanelId, secondPanel.id])
+
+        XCTAssertTrue(workspace.reorderSurface(panelId: secondPanel.id, toIndex: 0, focus: false))
+        XCTAssertEqual(workspace.sidebarOrderedPanelIds(), [secondPanel.id, firstPanelId])
+    }
+
+    func testSidebarBranchDirectoryCacheInvalidatesAfterRemoteConfigurationChange() {
+        let workspace = Workspace()
+        let liveDirectory = "/home/remoteuser/project"
+        let requestedDirectory = "~/project"
+
+        guard let firstPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: firstPanelId),
+              let requestedPanel = workspace.newTerminalSurface(
+                  inPane: paneId,
+                  focus: false,
+                  workingDirectory: requestedDirectory
+              ) else {
+            XCTFail("Expected panels for sidebar branch directory cache test")
+            return
+        }
+
+        workspace.updatePanelDirectory(panelId: firstPanelId, directory: liveDirectory)
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+        XCTAssertEqual(orderedPanelIds, [firstPanelId, requestedPanel.id])
+        XCTAssertEqual(
+            workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds).map(\.directory),
+            [liveDirectory, requestedDirectory]
+        )
+
+        workspace.updatePanelGitBranch(panelId: firstPanelId, branch: "feature/sidebar-cache", isDirty: true)
+        let branchedEntries = workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
+        XCTAssertEqual(branchedEntries.map(\.branch), ["feature/sidebar-cache", nil])
+        XCTAssertEqual(branchedEntries.map(\.isDirty), [true, false])
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: nil
+            ),
+            autoConnect: false
+        )
+
+        XCTAssertEqual(
+            workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds).map(\.directory),
+            [liveDirectory]
+        )
+    }
+
     func testSidebarDerivedCollectionsMatchWhenUsingPrecomputedPanelOrder() {
         let workspace = Workspace()
         guard let leftFirstPanelId = workspace.focusedPanelId,
