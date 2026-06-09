@@ -464,24 +464,33 @@ working-directory = ~/code`}</CodeBlock>
       <DocsHeading level={3} id="shortcuts-when">
         <code>shortcuts.when</code>
       </DocsHeading>
-      <p>
-        Optional per-action focus predicates (VS Code-style <code>when</code> clauses), keyed by
-        cmux action id. A binding only fires &mdash; and only conflicts with another binding on the
-        same keystroke &mdash; when its clause holds. Each value is a boolean expression over the
-        focus context keys <code>sidebarFocus</code>, <code>browserFocus</code>,{" "}
-        <code>markdownFocus</code>, and <code>terminalFocus</code>, combined with <code>!</code>,{" "}
-        <code>&amp;&amp;</code>, <code>||</code>, and parentheses. Omit a clause to keep the action&apos;s
-        built-in context.
-      </p>
-      <p>
-        For example, this makes <code>ctrl+1</code>&ndash;<code>9</code> select workspaces everywhere
-        except when the right sidebar is focused, leaving <code>ctrl+1</code>&ndash;<code>5</code>{" "}
-        free for the vault/files/find/feed/dock switcher:
-      </p>
+      <p>{t("shortcutsWhenIntro")}</p>
+      <ul>
+        <li>
+          <code>sidebarFocus</code>, <code>browserFocus</code>, <code>markdownFocus</code>,{" "}
+          <code>terminalFocus</code>, <code>commandPaletteVisible</code>,{" "}
+          <code>terminalFindVisible</code> &mdash; {t("shortcutsWhenBooleanKeys")}
+        </li>
+        <li>
+          <code>sidebarMode</code> (<code>files</code>, <code>find</code>, <code>sessions</code>,{" "}
+          <code>feed</code>, <code>dock</code>), <code>paneCount</code>,{" "}
+          <code>workspaceCount</code> &mdash; {t("shortcutsWhenTypedKeys")}
+        </li>
+        <li>
+          <code>!</code>, <code>&amp;&amp;</code>, <code>||</code>, <code>(&hellip;)</code>,{" "}
+          <code>==</code>, <code>!=</code>, <code>=~</code>, <code>&lt;</code>, <code>&lt;=</code>,{" "}
+          <code>&gt;</code>, <code>&gt;=</code>, <code>in [a, b]</code> &mdash;{" "}
+          {t("shortcutsWhenOperators")}
+        </li>
+      </ul>
+      <p>{t("shortcutsWhenExample")}</p>
       <pre className="not-prose overflow-x-auto rounded-xl border border-border/70 bg-background/40 p-4 text-sm">
         <code>{`"shortcuts": {
   "bindings": { "selectWorkspaceByNumber": "ctrl+1" },
-  "when": { "selectWorkspaceByNumber": "!sidebarFocus" }
+  "when": {
+    "selectWorkspaceByNumber": "!sidebarFocus",
+    "selectSurfaceByNumber": "sidebarMode == 'find' && paneCount > 1"
+  }
 }`}</code>
       </pre>
     </>

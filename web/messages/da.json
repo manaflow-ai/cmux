@@ -744,13 +744,18 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Valgfri fokusprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over fokuskontekstnøglerne sidebarFocus, browserFocus, markdownFocus og terminalFocus, kombineret med !, &&, || og parenteser. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempel: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } får Ctrl+1–9 til at vælge workspaces overalt undtagen når højre sidebjælke har fokus, så Ctrl+1–5 er fri til sidebjælken."
+          "when": "Valgfri kontekstprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over kontekstnøgler, kombineret med !, &&, || og parenteser. Boolske nøgler: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typede nøgler understøtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorerne er ==, !=, =~ (regulært udtryk), <, <=, >, >= og `in [a, b]`; en ukendt eller manglende nøgle læses som false. De boolske litteraler true og false accepteres også; `key == false` svarer til `!key`. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } vælger workspaces med Ctrl+1–9 overalt undtagen når højre sidebjælke har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrænser en binding til Find-sidebjælken, når workspacet har flere paneler."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "shortcutsWhenIntro": "Valgfri kontekstprædikater pr. handling (VS Code-lignende when-klausuler), nøgleindekseret efter cmux-handlings-id. En binding udløses kun — og konflikter kun med en anden binding på samme tastetryk — når dens klausul er sand. Udelad klausulen for at beholde handlingens indbyggede kontekst. Klausulernes ordforråd:",
+      "shortcutsWhenBooleanKeys": "boolske nøgler. En ukendt eller manglende nøgle læses som false; litteralerne true og false accepteres også.",
+      "shortcutsWhenTypedKeys": "typede nøgler til sammenligninger: den højre sidebjælkes aktive tilstand (streng) samt antal paneler og workspaces (heltal).",
+      "shortcutsWhenOperators": "boolske operatorer, typede sammenligninger, regex-match og listemedlemskab. Sammenligninger binder tættere end && og ||.",
+      "shortcutsWhenExample": "Dette får for eksempel Ctrl+1–9 til at vælge workspaces overalt, undtagen når højre sidebjælke har fokus (så Ctrl+1–5 er fri til sidebjælkens tilstandsskifter), og begrænser overfladevalg til Find-sidebjælken, når workspacet har flere paneler:"
     },
     "customCommands": {
       "title": "Brugerdefinerede kommandoer",

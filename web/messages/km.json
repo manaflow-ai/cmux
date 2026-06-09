@@ -744,13 +744,18 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "លក្ខខណ្ឌផ្តោតជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទផ្តោត sidebarFocus, browserFocus, markdownFocus និង terminalFocus ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ធ្វើឱ្យ Ctrl+1–9 ជ្រើសរើស workspace នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus ដោយទុក Ctrl+1–5 សម្រាប់របារចំហៀង។"
+          "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "shortcutsWhenIntro": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា when រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ ការចងនឹងដំណើរការ — និងទាស់ជាមួយការចងផ្សេងទៀតលើការចុចដូចគ្នា — តែពេលឃ្លារបស់វាពិតប៉ុណ្ណោះ។ បើមិនដាក់ឃ្លា សកម្មភាពនឹងរក្សាបរិបទដើមរបស់វា។ វាក្យសព្ទក្នុងឃ្លា៖",
+      "shortcutsWhenBooleanKeys": "គន្លឹះ boolean។ គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false ហើយក៏អាចប្រើ true និង false ផងដែរ។",
+      "shortcutsWhenTypedKeys": "គន្លឹះមានប្រភេទសម្រាប់ការប្រៀបធៀប៖ មុខងារសកម្មរបស់របារចំហៀងស្តាំ (ខ្សែអក្សរ) និងចំនួនផ្ទាំង និង workspace (ចំនួនគត់)។",
+      "shortcutsWhenOperators": "សញ្ញាប្រមាណវិធី boolean ការប្រៀបធៀបតាមប្រភេទ ការផ្គូផ្គង regex និងសមាជិកភាពក្នុងបញ្ជី។ ការប្រៀបធៀបចងតឹងជាង && និង ||។",
+      "shortcutsWhenExample": "ឧទាហរណ៍ ការកំណត់នេះធ្វើឱ្យ Ctrl+1–9 ជ្រើសរើស workspace នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus (ទុក Ctrl+1–5 សម្រាប់កុងតាក់មុខងាររបារចំហៀង) ហើយកំណត់ការជ្រើសរើសផ្ទៃទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន៖"
     },
     "customCommands": {
       "title": "ពាក្យបញ្ជាផ្ទាល់ខ្លួន",
