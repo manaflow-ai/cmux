@@ -1765,13 +1765,17 @@ check_ui_regression_budget() {
     in_step && /stop_pid\(\)/ { saw_stop_pid=1 }
     in_step && /wait_for_cmux_dev_exit\(\)/ { saw_wait_cmux=1 }
     in_step && /HELPER_COMMAND=\("\$HELPER_PATH"\)/ { saw_helper_command=1 }
+    in_step && /HELPER_LAUNCH_MODE=direct/ { saw_launch_mode=1 }
     in_step && /stat -f %Su \/dev\/console/ { saw_console_user=1 }
     in_step && /launchctl asuser "\$GUI_UID"/ { saw_gui_bootstrap=1 }
     in_step && /CURRENT_UID="\$\(id -u\)"/ { saw_current_uid=1 }
     in_step && /launchctl print "gui\/\$CURRENT_UID"/ { saw_current_gui_probe=1 }
     in_step && /launchctl asuser "\$CURRENT_UID"/ { saw_current_gui_bootstrap=1 }
+    in_step && /HELPER_LAUNCH_MODE=current_gui/ { saw_current_gui_mode=1 }
     in_step && /"\$\{HELPER_COMMAND\[@\]\}"/ { saw_command_launch=1 }
     in_step && /Virtual display helper exited before readiness/ { saw_helper_exit_ready=1 }
+    in_step && /Could not switch to audit session/ { saw_audit_detection=1 }
+    in_step && /Retrying persistent display helper in current bootstrap after launchctl audit-session failure/ { saw_audit_retry=1 }
     in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
     in_step && /Display resolution UI regression completed without executing any tests/ { saw_no_tests_message=1 }
     in_step && /xcode_status=\$\{PIPESTATUS\[0\]\}/ { after_xcode=1 }
@@ -1779,9 +1783,9 @@ check_ui_regression_budget() {
     in_step && after_xcode && /exit "\$xcode_status"/ { saw_xcode_exit=1 }
     in_step && after_xcode && /Attempt \$attempt failed, retrying/ { saw_post_xcode_retry=1 }
     in_step && /^[[:space:]]*sleep 3$/ { saw_fixed_retry_sleep=1 }
-    END { exit(saw_wait_pid && saw_stop_pid && saw_wait_cmux && saw_helper_command && saw_console_user && saw_gui_bootstrap && saw_current_uid && saw_current_gui_probe && saw_current_gui_bootstrap && saw_command_launch && saw_helper_exit_ready && saw_nonzero_guard && saw_no_tests_message && saw_fail_closed_xcode && saw_xcode_exit && !saw_post_xcode_retry && !saw_fixed_retry_sleep ? 0 : 1) }
+    END { exit(saw_wait_pid && saw_stop_pid && saw_wait_cmux && saw_helper_command && saw_launch_mode && saw_console_user && saw_gui_bootstrap && saw_current_uid && saw_current_gui_probe && saw_current_gui_bootstrap && saw_current_gui_mode && saw_command_launch && saw_helper_exit_ready && saw_audit_detection && saw_audit_retry && saw_nonzero_guard && saw_no_tests_message && saw_fail_closed_xcode && saw_xcode_exit && !saw_post_xcode_retry && !saw_fixed_retry_sleep ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: ui-regressions must launch the display helper in an available GUI bootstrap, wait for app/helper cleanup, fail fast on dead display helpers, reject zero-test display regression runs, and fail closed after XCTest starts"
+    echo "FAIL: ui-regressions must launch the display helper in an available GUI bootstrap, retry current-bootstrap launchctl audit-session failures directly, wait for app/helper cleanup, fail fast on dead display helpers, reject zero-test display regression runs, and fail closed after XCTest starts"
     exit 1
   fi
 

@@ -1548,6 +1548,7 @@ jobs:
             -framework AppKit \
             -o "$HELPER_PATH" scripts/create-virtual-display.m
           HELPER_COMMAND=("$HELPER_PATH")
+          HELPER_LAUNCH_MODE=direct
           CURRENT_USER="$(id -un)"
           CURRENT_UID="$(id -u)"
           GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
@@ -1555,9 +1556,11 @@ jobs:
             GUI_UID="$(id -u "$GUI_USER")"
             echo "Launching persistent display helper in console GUI bootstrap for $GUI_USER ($GUI_UID); current user: $CURRENT_USER"
             HELPER_COMMAND=(sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" /usr/bin/env "$HELPER_PATH")
+            HELPER_LAUNCH_MODE=console_gui
           elif launchctl print "gui/$CURRENT_UID" >/dev/null 2>&1; then
             echo "Launching persistent display helper in current user GUI bootstrap for $CURRENT_USER ($CURRENT_UID)"
             HELPER_COMMAND=(launchctl asuser "$CURRENT_UID" /usr/bin/env "$HELPER_PATH")
+            HELPER_LAUNCH_MODE=current_gui
           else
             echo "Launching persistent display helper in current bootstrap"
           fi
@@ -1604,6 +1607,14 @@ jobs:
               echo "ERROR: Virtual display not ready after 90s" >&2
               cat "$HELPER_LOG" 2>/dev/null || true
               stop_pid "$HELPER_PID" "virtual display helper"
+              if [ "$HELPER_LAUNCH_MODE" = "current_gui" ] &&
+                 grep -Fq "Could not switch to audit session" "$HELPER_LOG"; then
+                echo "Retrying persistent display helper in current bootstrap after launchctl audit-session failure" >&2
+                HELPER_COMMAND=("$HELPER_PATH")
+                HELPER_LAUNCH_MODE=direct
+                cleanup
+                continue
+              fi
               if [ "$attempt" -eq "$DISPLAY_ATTEMPTS" ]; then
                 echo "Display resolution UI regression failed to create a virtual display after $DISPLAY_ATTEMPTS attempts" >&2
                 exit 1
