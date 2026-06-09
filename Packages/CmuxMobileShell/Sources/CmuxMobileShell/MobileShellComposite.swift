@@ -856,8 +856,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // sit in NWConnection's `.waiting` state until the per-route timeouts
         // stack into the opaque ~60s blob the reporter saw. Fail immediately with
         // actionable guidance instead.
-        if await failPairingIfOffline(attemptID: attemptID, phase: "preflight") {
+        switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight") {
+        case .failedOffline, .superseded:
             return
+        case .proceed:
+            break
         }
         do {
             let ticket = try await manualHostTicket(
@@ -866,7 +869,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 port: port
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
-            try await connect(ticket: ticket, allowsStackAuthFallback: true)
+            let noThrowFailure = try await connect(ticket: ticket, allowsStackAuthFallback: true)
             guard isCurrentPairingAttempt(attemptID) else { return }
             if connectionState == .connected {
                 recordPairingSucceeded()
@@ -874,7 +877,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // `connect()` returned without connecting (e.g. no supported
                 // route): it already set a specific error, so record the failure
                 // without overwriting that message.
-                recordFailureForCurrentConnectionError(phase: "connect")
+                recordFailureForCurrentConnectionError(phase: "connect", category: noThrowFailure)
             }
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return }
@@ -1249,13 +1252,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Fast offline preflight before the (potentially multi-route) connect, so
         // a phone with no network path fails immediately with guidance instead of
         // stacking the per-route connect timeouts into the opaque ~60s wait.
-        if await failPairingIfOffline(attemptID: attemptID, phase: "preflight") {
+        switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight") {
+        case .failedOffline:
             return .failed
+        case .superseded:
+            return .superseded
+        case .proceed:
+            break
         }
 
         do {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
-            try await connect(ticket: ticket)
+            let noThrowFailure = try await connect(ticket: ticket)
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             if connectionState == .connected && activeTicket != nil {
                 recordPairingSucceeded()
@@ -1263,7 +1271,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             // `connect()` returned without connecting (e.g. no supported route):
             // it already set a specific error, so record without overwriting it.
-            recordFailureForCurrentConnectionError(phase: "connect")
+            recordFailureForCurrentConnectionError(phase: "connect", category: noThrowFailure)
             return .failed
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
@@ -1685,10 +1693,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Establishes the live connection for `ticket`.
+    ///
+    /// - Returns: `nil` on success (and on superseded-generation early exits),
+    ///   or the specific ``MobilePairingFailureCategory`` it applied when it
+    ///   returned without connecting and without throwing (currently only
+    ///   ``MobilePairingFailureCategory/noSupportedRoute``), so callers record
+    ///   the matching analytics reason instead of a generic `other`.
+    @discardableResult
     private func connect(
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool? = nil
-    ) async throws {
+    ) async throws -> MobilePairingFailureCategory? {
         let generation = UUID()
         connectionGeneration = generation
         diagnosticLog?.record(DiagnosticEvent(.connect))
@@ -1705,7 +1721,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
-            return
+            return .noSupportedRoute
         }
         guard Self.attachTicketIsUnexpired(ticket, now: runtime?.now() ?? Date()) else {
             connectionError = MobilePairingFailureCategory.ticketExpired.message
@@ -1722,12 +1738,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         replaceRemoteClient(with: nil)
 
         guard let runtime else {
-            guard generation == connectionGeneration else { return }
+            guard generation == connectionGeneration else { return nil }
             clearPairingError()
             applyPreviewTicket(ticket, route: firstRoute)
             connectionState = .connected
             markMacConnectionHealthy()
-            return
+            return nil
         }
 
         let workspaceListRequests = try Self.initialWorkspaceListRequests(for: ticket)
@@ -1754,7 +1770,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-                    guard generation == connectionGeneration, isSignedIn else { return }
+                    guard generation == connectionGeneration, isSignedIn else { return nil }
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
                     clearPairingError()
@@ -1771,10 +1787,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             generation: generation
                         )
                     }
-                    return
+                    return nil
                 } catch {
                     lastError = error
-                    guard generation == connectionGeneration, isSignedIn else { return }
+                    guard generation == connectionGeneration, isSignedIn else { return nil }
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
@@ -2052,6 +2068,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// call sites because some paths (auth re-auth) also flip
     /// ``connectionRequiresReauth``.
     private func applyPairingFailure(_ category: MobilePairingFailureCategory, phase: String) {
+        // `.cancelled` is the only category with an empty message; cancellation
+        // must be handled by the `catch is CancellationError` branches before
+        // classification, never surfaced as a pairing failure.
+        assert(!category.message.isEmpty, "applyPairingFailure must not receive .cancelled")
         if !category.message.isEmpty {
             connectionError = category.message
         }
@@ -2070,16 +2090,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Record an `ios_pairing_failed` for a `connect()` that returned without
     /// connecting and already set a specific ``connectionError`` (no exception
     /// to classify). Guarantees a non-empty error is showing, then emits the
-    /// generic `other` reason without overwriting the specific message.
-    private func recordFailureForCurrentConnectionError(phase: String) {
+    /// analytics reason of the category `connect()` reported (falling back to
+    /// the generic `other`) without overwriting the specific message.
+    private func recordFailureForCurrentConnectionError(
+        phase: String,
+        category: MobilePairingFailureCategory? = nil
+    ) {
         if connectionError == nil {
             // Defense in depth: `connect()` should always set an error before it
             // returns without connecting, but never leave the user with a silent
             // revert if a future path forgets to.
-            applyPairingFailure(.unknown(host: nil, port: nil), phase: phase)
+            applyPairingFailure(category ?? .unknown(host: nil, port: nil), phase: phase)
             return
         }
-        recordPairingFailed(reason: "other", phase: phase)
+        recordPairingFailed(reason: category?.analyticsReason ?? "other", phase: phase)
     }
 
     /// Surface an operational error (a request failing on an already-live
@@ -2094,6 +2118,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionErrorGuidance = category.guidance
     }
 
+    /// How the reachability preflight resolved, so callers can distinguish a
+    /// real offline failure from an attempt that was superseded while the
+    /// preflight awaited the reachability actor.
+    private enum PairingPreflightOutcome {
+        /// The device has a network path; proceed with the full connect.
+        case proceed
+        /// The device is offline; the ``.offline`` failure was applied.
+        case failedOffline
+        /// A newer attempt superseded this one; nothing was applied.
+        case superseded
+    }
+
     /// Reachability preflight: when the device has no satisfied network path,
     /// short-circuit the pairing attempt with the ``.offline`` category instead
     /// of letting the connect sit in `NWConnection`'s `.waiting` state until the
@@ -2101,21 +2137,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///
     /// Records a compact ``DiagnosticEventCode/pairUnreachable`` so a captured
     /// diagnostic shows the attempt failed at the preflight (no host/secret).
-    /// Returns `true` when it short-circuited (the caller should return), `false`
-    /// to proceed with the full connect.
     private func failPairingIfOffline(
         attemptID: UUID,
         phase: String
-    ) async -> Bool {
-        guard await reachability.isOnline == false else { return false }
-        guard isCurrentPairingAttempt(attemptID) else { return true }
+    ) async -> PairingPreflightOutcome {
+        guard await reachability.isOnline == false else { return .proceed }
+        guard isCurrentPairingAttempt(attemptID) else { return .superseded }
         mobileShellLog.info("pairing preflight: device offline, short-circuiting")
         diagnosticLog?.record(DiagnosticEvent(.pairUnreachable))
         applyPairingFailure(.offline, phase: phase)
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
-        return true
+        return .failedOffline
     }
 
     private func clearCreateWorkspaceTask(id: UUID) {
@@ -3126,6 +3160,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
+        // Deliberately not `applyPairingFailure`: this path must also set
+        // `connectionRequiresReauth`, uses a fallback (not skip) policy for an
+        // empty message, and must gate its analytics on `pairingAttemptMethod`
+        // below so live-connection auth evictions never emit `ios_pairing_failed`.
         connectionError = category.message.isEmpty
             ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
             : category.message

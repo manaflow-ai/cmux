@@ -672,8 +672,11 @@ final class TerminalOutputCollector {
     // Non-empty, offline-specific headline: the spinner can no longer revert
     // silently, and the message names the real problem (the phone is offline).
     #expect(store.connectionError == "This device looks offline. Connect to Wi-Fi or cellular, then try again.")
+    // The offline headline carries the actionable guidance inline (connect to
+    // Wi-Fi or cellular), so no separate guidance line is shown for it.
+    #expect(store.connectionErrorGuidance == nil)
     // The preflight short-circuited before any transport was created.
-    #expect(await dials.count == 0)
+    #expect(dials.count == 0)
 }
 
 @MainActor
@@ -704,7 +707,8 @@ final class TerminalOutputCollector {
     #expect(result == .failed)
     #expect(store.connectionState == .disconnected)
     #expect(store.connectionError == "This device looks offline. Connect to Wi-Fi or cellular, then try again.")
-    #expect(await dials.count == 0)
+    #expect(store.connectionErrorGuidance == nil)
+    #expect(dials.count == 0)
 }
 
 @MainActor
@@ -3080,20 +3084,28 @@ private struct OfflineReachability: ReachabilityProviding {
     }
 }
 
-/// Counts how many times a transport was created (dialed). Used to prove the
-/// offline preflight returns before any transport is made.
-private actor TransportDialRecorder {
-    private(set) var count = 0
-    func record() { count += 1 }
+/// Counts how many times a transport was created (dialed), synchronously, so
+/// the "zero transports created" assertion cannot race a fire-and-forget task.
+/// Used to prove the offline preflight returns before any transport is made.
+private final class TransportDialRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var dialCount = 0
+    var count: Int {
+        lock.withLock { dialCount }
+    }
+
+    func record() {
+        lock.withLock { dialCount += 1 }
+    }
 }
 
 /// A transport factory whose product would never connect; it records each
-/// `makeTransport` so a test can assert the offline preflight never dialed.
+/// `makeTransport` synchronously so a test can assert the offline preflight
+/// never dialed.
 private struct RecordingNeverConnectTransportFactory: CmxByteTransportFactory {
     let dials: TransportDialRecorder
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        let dials = dials
-        Task { await dials.record() }
+        dials.record()
         return HangingTransport()
     }
 }

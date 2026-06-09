@@ -25,6 +25,13 @@ public actor ReachabilityService: ReachabilityProviding {
     private var lastInterfaceType: NWInterface.InterfaceType?
     private var nextSubscriptionID = 0
     private var subscribers: [Int: AsyncStream<Void>.Continuation] = [:]
+    /// Whether `NWPathMonitor` has delivered its first path since `start`.
+    /// Until then the cached `online` value is just the optimistic initial
+    /// constant, so ``isOnline`` must not answer from it (a cold-launch offline
+    /// pairing preflight would wrongly see `true` and dial into the slow
+    /// timeout path this preflight exists to avoid).
+    private var receivedFirstPath = false
+    private var firstPathWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Creates a reachability monitor and begins observing path updates.
     ///
@@ -37,9 +44,23 @@ public actor ReachabilityService: ReachabilityProviding {
     }
 
     /// Whether the system currently has a satisfied network path.
+    ///
+    /// Suspends until `NWPathMonitor` has delivered its first path (it posts
+    /// the current path promptly on `start`), so the answer always reflects a
+    /// real observation instead of the optimistic initial constant.
     public var isOnline: Bool {
-        startIfNeeded()
-        return online
+        get async {
+            startIfNeeded()
+            await waitForFirstPathIfNeeded()
+            return online
+        }
+    }
+
+    private func waitForFirstPathIfNeeded() async {
+        guard !receivedFirstPath else { return }
+        await withCheckedContinuation { continuation in
+            firstPathWaiters.append(continuation)
+        }
     }
 
     /// A stream that yields once per meaningful path change.
@@ -85,6 +106,13 @@ public actor ReachabilityService: ReachabilityProviding {
         let previousType = lastInterfaceType
         self.online = online
         if online { lastInterfaceType = primaryType }
+        if !receivedFirstPath {
+            receivedFirstPath = true
+            for waiter in firstPathWaiters {
+                waiter.resume()
+            }
+            firstPathWaiters.removeAll()
+        }
         let regainedOnline = online && !wasOnline
         let interfaceChanged = online && previousType != nil && primaryType != previousType
         guard regainedOnline || interfaceChanged else { return }
@@ -107,6 +135,9 @@ public actor ReachabilityService: ReachabilityProviding {
         monitor.cancel()
         for continuation in subscribers.values {
             continuation.finish()
+        }
+        for waiter in firstPathWaiters {
+            waiter.resume()
         }
     }
 }
