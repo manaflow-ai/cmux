@@ -5,6 +5,11 @@ import { defineConfig } from "vite";
 const outDir = process.env.CMUX_WEBVIEWS_OUT_DIR ?? "../Resources/markdown-viewer/webviews-app";
 
 export default defineConfig({
+  // Relative asset base. The bundle is served from a sub-path (the diff viewer
+  // custom scheme serves under `<token>/assets/cmux-webviews-app/`, and the
+  // app-bundle file load is nested too), so asset URLs (e.g. Monaco's emitted
+  // worker) must be relative, not rooted at `/`.
+  base: "./",
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
@@ -32,6 +37,22 @@ export default defineConfig({
     // scheme registers every emitted `.js`/`.mjs`, and the agent-session file
     // load grants read access to the whole output directory.
     modulePreload: false,
+    // Monaco's `?worker` import builds a worker bundle. Emit it as an ES module
+    // worker so `new Worker(url, {type:"module"})` works. Vite still
+    // content-hashes the emitted worker filename (the `?worker` output is not
+    // covered by the chunk-name policy above); it is referenced by that hash via
+    // `import.meta.url`, so it resolves correctly. The hash means an old worker
+    // copy can linger in the diff viewer `/tmp` asset cache across rebuilds — a
+    // minor follow-up next to the big stable-named vendor chunks.
+    worker: {
+      format: "es",
+      rollupOptions: {
+        output: {
+          chunkFileNames: "chunks/[name].mjs",
+          assetFileNames: "assets/[name][extname]",
+        },
+      },
+    },
     rollupOptions: {
       input: { main: "src/main.tsx" },
       output: {
@@ -76,6 +97,17 @@ export default defineConfig({
             id.includes("/oniguruma-to-es/")
           ) {
             return "diff-vendor";
+          }
+          // Collapse Monaco *core* into one lazy chunk loaded only by the
+          // editor surface. The basic-language Monarch grammars and the JSON
+          // language service must stay as their own lazy chunks: collapsing
+          // them into the core chunk breaks `_.contribution`'s lazy grammar
+          // `import()` (the tokenizers never register, so nothing highlights).
+          if (id.includes("/monaco-editor/")) {
+            if (id.includes("/basic-languages/") || id.includes("/vs/language/")) {
+              return undefined;
+            }
+            return "monaco-vendor";
           }
           // Framework code both surfaces share. Pinning it to a stable `vendor`
           // chunk name keeps the shared chunk from being renamed (and rehashed)

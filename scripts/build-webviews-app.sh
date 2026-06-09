@@ -40,6 +40,42 @@ normalize_webviews_output() {
   strip_trailing_line_whitespace "$out_dir/main.mjs" "$out_dir/agent-session.html"
 }
 
+# Deflate large chunks so the committed git tree + .app bundle stay small; the
+# CLI inflates them on copy into the diff viewer's serving dir. Only the big
+# vendor chunks (diff-vendor, monaco-vendor) exceed the threshold, and they are
+# served exclusively through the HTTP server / custom scheme, never the
+# agent-session file:// load, so inflating on copy needs no serving changes.
+# Raw DEFLATE (node deflateRawSync) matches Swift `NSData.decompressed(.zlib)`.
+compress_webviews_output() {
+  out_dir="$1"
+  if [ ! -d "$out_dir/chunks" ]; then
+    return
+  fi
+  find "$out_dir/chunks" -type f -name '*.mjs' -size +1000k 2>/dev/null | while IFS= read -r f; do
+    node -e 'const z=require("zlib"),fs=require("fs");const p=process.argv[1];fs.writeFileSync(p+".deflate",z.deflateRawSync(fs.readFileSync(p),{level:9}));fs.unlinkSync(p)' "$f"
+  done
+}
+
+# Materialize a directory for comparison: inflate every `*.deflate` back to its
+# logical name so `--check` compares decompressed CONTENT, immune to deflate
+# byte-variance across environments/zlib versions. Non-deflate files are copied
+# verbatim (still byte-compared).
+materialize_for_compare() {
+  src="$1"
+  dst="$2"
+  (cd "$src" && find . -type f -print0) | while IFS= read -r -d '' f; do
+    mkdir -p "$dst/$(dirname "$f")"
+    case "$f" in
+      *.deflate)
+        node -e 'const z=require("zlib"),fs=require("fs");process.stdout.write(z.inflateRawSync(fs.readFileSync(process.argv[1])))' "$src/$f" > "$dst/${f%.deflate}"
+        ;;
+      *)
+        cp "$src/$f" "$dst/$f"
+        ;;
+    esac
+  done
+}
+
 if [ "${1:-}" = "--check" ]; then
   tmp_dir="$(mktemp -d)"
   trap 'rm -rf "$tmp_dir"' EXIT
@@ -49,10 +85,16 @@ if [ "${1:-}" = "--check" ]; then
     CMUX_WEBVIEWS_OUT_DIR="$tmp_dir" bun run build
     write_agent_session_html "$tmp_dir"
     normalize_webviews_output "$tmp_dir"
+    compress_webviews_output "$tmp_dir"
   )
+  committed_view="$(mktemp -d)"
+  fresh_view="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir" "$committed_view" "$fresh_view"' EXIT
+  materialize_for_compare "$OUT_DIR" "$committed_view"
+  materialize_for_compare "$tmp_dir" "$fresh_view"
   diff_output="$(mktemp)"
   set +e
-  diff -qr "$OUT_DIR" "$tmp_dir" >"$diff_output"
+  diff -qr "$committed_view" "$fresh_view" >"$diff_output"
   diff_status=$?
   set -e
   if [ "$diff_status" -ne 0 ]; then
@@ -76,3 +118,4 @@ fi
 )
 write_agent_session_html "$OUT_DIR"
 normalize_webviews_output "$OUT_DIR"
+compress_webviews_output "$OUT_DIR"
