@@ -1846,10 +1846,8 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
                 GhosttyNotificationKey.backgroundOpacity: updatedOpacity
             ]
         )
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = updatedColor.withAlphaComponent(updatedOpacity).usingColorSpace(.sRGB) else {
+        guard let expected = updatedColor.withAlphaComponent(updatedOpacity).usingColorSpace(.sRGB),
+              let actual = cmuxWaitForBrowserBackgroundColorForTesting(panel, matching: expected) else {
             XCTFail("Expected sRGB-convertible under-page background colors")
             return
         }
@@ -1917,10 +1915,8 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
                 GhosttyNotificationKey.backgroundOpacity: NSNumber(value: 0.57),
             ]
         )
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = updatedColor.withAlphaComponent(0.57).usingColorSpace(.sRGB) else {
+        guard let expected = updatedColor.withAlphaComponent(0.57).usingColorSpace(.sRGB),
+              let actual = cmuxWaitForBrowserBackgroundColorForTesting(panel, matching: expected) else {
             XCTFail("Expected sRGB-convertible under-page background colors")
             return
         }
@@ -2926,6 +2922,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
 @MainActor
 final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
+    private static var retainedWebKitWindows: [NSWindow] = []
     private final class WKInspectorProbeView: NSView {
         override var acceptsFirstResponder: Bool { true }
     }
@@ -3050,8 +3047,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
 
-    private func makeWindowKeyForNilTargetAction(_ window: NSWindow) { NSApp.activate(ignoringOtherApps: true); window.orderFrontRegardless(); window.makeKeyAndOrderFront(nil); window.makeKey(); RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05)) }
-
     private func closeBrowserPanel(_ panel: BrowserPanel) {
         panel.close()
         BrowserWindowPortalRegistry.detach(webView: panel.webView)
@@ -3060,6 +3055,12 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     private func closeWindow(_ window: NSWindow) {
+        if cmuxContainsWebViewForTesting(window.contentView) {
+            window.contentView = nil
+            window.orderOut(nil)
+            Self.retainedWebKitWindows.append(window)
+            return
+        }
         window.contentView = nil
         window.orderOut(nil)
         window.close()
@@ -3366,7 +3367,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         inspector.setFrontendWebView(frontendWebView)
         defer { closeWindow(inspectorWindow) }
 
-        makeWindowKeyForNilTargetAction(inspectorWindow)
+        cmuxMakeWindowKeyForTesting(inspectorWindow)
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertEqual(inspector.closeCount, 0)
         XCTAssertTrue(inspectorWindow.isKeyWindow)
@@ -3423,7 +3424,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         inspector.setFrontendWebView(frontendWebView)
         defer { closeWindow(inspectorWindow) }
 
-        makeWindowKeyForNilTargetAction(inspectorWindow)
+        cmuxMakeWindowKeyForTesting(inspectorWindow)
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertEqual(inspector.closeCount, 0)
         XCTAssertTrue(inspectorWindow.isKeyWindow)
@@ -3483,7 +3484,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         contentView.addSubview(frontendWebView)
         inspector.setFrontendWebView(frontendWebView)
 
-        makeWindowKeyForNilTargetAction(mainWindow)
+        cmuxMakeWindowKeyForTesting(mainWindow)
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.closeCount, 0)

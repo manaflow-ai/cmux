@@ -992,8 +992,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        secondWindow.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        cmuxMakeWindowKeyForTesting(secondWindow)
 
         // Force a stale app-level pointer to another manager. Window-local UI
         // controls should still target the key/main window, not this stale pointer.
@@ -5991,12 +5990,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        window.makeKeyAndOrderFront(nil)
+        cmuxMakeWindowKeyForTesting(window)
         window.displayIfNeeded()
         terminalPanel.hostedView.setVisibleInUI(true)
         terminalPanel.hostedView.setActive(true)
         terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitUntil(timeout: 1.0) { terminalPanel.hostedView.isSurfaceViewFirstResponder() }
 
         XCTAssertTrue(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
@@ -6348,7 +6347,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         staleMenu.addItem(staleCloseItem)
         NSApp.mainMenu = staleMenu
 
-        window.makeKeyAndOrderFront(nil)
+        cmuxMakeWindowKeyForTesting(window)
         window.displayIfNeeded()
 
         guard let event = makeKeyDownEvent(
@@ -6533,12 +6532,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         contentView.addSubview(strayView)
         defer { strayView.removeFromSuperview() }
 
-        window.makeKeyAndOrderFront(nil)
+        cmuxMakeWindowKeyForTesting(window)
         window.displayIfNeeded()
         terminalPanel.hostedView.setVisibleInUI(true)
         terminalPanel.hostedView.setActive(true)
         terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitUntil(timeout: 1.0) { terminalPanel.hostedView.isSurfaceViewFirstResponder() }
 
         XCTAssertTrue(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
@@ -7387,10 +7386,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textView.string = "@a"
         textView.setSelectedRange(NSRange(location: 2, length: 0))
         let staleSuggestion = TextBoxMentionSuggestion(
-            id: "alpha",
-            title: "@alpha.txt",
-            subtitle: "alpha.txt",
-            insertionText: "[@alpha.txt](/tmp/alpha.txt)",
+            id: "zeta",
+            title: "@zeta.txt",
+            subtitle: "zeta.txt",
+            insertionText: "[@zeta.txt](/tmp/zeta.txt)",
             systemImageName: "doc"
         )
 
@@ -7791,6 +7790,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 completed = true
             }
 
+            waitFor(timeout: 1.0, until: { surface.sentKeys == ["paste_from_clipboard"] })
             XCTAssertEqual(surface.sentKeys, ["paste_from_clipboard"])
             waitFor(timeout: 1.0, until: { completed })
 
@@ -7829,7 +7829,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 completions.append("second")
             }
 
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            waitFor(timeout: 1.0, until: { surface.sentKeys == ["paste_from_clipboard"] })
             XCTAssertEqual(surface.sentText, [])
             XCTAssertEqual(completions, [])
             XCTAssertEqual(surface.sentKeys, ["paste_from_clipboard"])
@@ -7884,7 +7884,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 completions.append("second")
             }
 
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            waitFor(timeout: 1.0, until: { firstSurface.sentKeys == ["paste_from_clipboard"] })
             XCTAssertEqual(firstSurface.sentKeys, ["paste_from_clipboard"])
             XCTAssertEqual(secondSurface.sentKeys, [])
             XCTAssertEqual(completions, [])
@@ -7945,7 +7945,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 completions.append("finishing")
             }
 
-            waitFor(timeout: 1.0, until: { completions == ["finishing"] })
+            waitFor(timeout: 1.0, until: { completions == ["finishing"] && activeSurface.sentKeys == ["paste_from_clipboard"] })
             XCTAssertEqual(finishingSurface.sentText, ["finishing"])
             XCTAssertEqual(activeSurface.sentText, [])
             XCTAssertEqual(activeSurface.sentKeys, ["paste_from_clipboard"])
@@ -10271,6 +10271,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textView.insertPendingAttachmentUploadPlaceholder(id: uploadID)
 
         XCTAssertTrue(textView.replacePendingAttachmentUploadPlaceholder(id: uploadID, with: [attachment]))
+        TextBoxInputTextView.flushPendingSessionDraftAttachmentCopies()
         GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
 
         let draft = try XCTUnwrap(textView.sessionDraftSnapshot(isActive: true))
@@ -10754,8 +10755,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         originalWindow.orderFront(nil)
-        focusedWindow.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        cmuxMakeWindowKeyForTesting(focusedWindow)
 
         // Model the observed bug: the user-visible focused window is the new window,
         // but the key event still carries the original window number.
