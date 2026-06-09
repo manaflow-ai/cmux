@@ -369,7 +369,16 @@ enum AgentResumeCommandBuilder {
                 workingDirectory: cwd
             )
             : commandParts
-        let shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
+        // Render the claude executable as the wrapper shim token so the executed
+        // command routes through cmux's `claude` wrapper (re-injecting the hook
+        // --settings) even inside the `$SHELL -lic` restore launcher, where the
+        // shell integration's PATH shim / `claude()` function are not active and an
+        // `env`-prefixed invocation would otherwise hit the user's real binary.
+        // https://github.com/manaflow-ai/cmux/issues/5639
+        let quotedCommandParts = kind == .claude
+            ? AgentResumeArgv.renderingClaudeWrapperExecutable(parts: sanitizedCommandParts, quote: shellSingleQuoted)
+            : sanitizedCommandParts.map(shellSingleQuoted)
+        let shellCommand = quotedCommandParts.joined(separator: " ")
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }
 

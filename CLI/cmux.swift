@@ -25358,7 +25358,14 @@ struct CMUXCLI {
         let resumeCommandParts = kind == "hermes-agent"
             ? hermesAgentArgumentsByReplacingOpenAICodexProvider(sanitizedCommandParts)
             : sanitizedCommandParts
-        var command = resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        // Route the claude executable through the wrapper shim token so the executed
+        // command re-injects cmux hooks even when run via the `$SHELL -lic` restore
+        // launcher (where the integration's PATH shim / `claude()` function are not
+        // active). https://github.com/manaflow-ai/cmux/issues/5639
+        let quotedResumeCommandParts = kind == "claude"
+            ? AgentResumeArgv.renderingClaudeWrapperExecutable(parts: resumeCommandParts, quote: cliShellQuote)
+            : resumeCommandParts.map(cliShellQuote)
+        var command = quotedResumeCommandParts.joined(separator: " ")
         if kind == "hermes-agent" {
             command = hermesAgentSubrouterResumeCommand(
                 command,

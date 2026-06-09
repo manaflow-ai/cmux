@@ -61,7 +61,7 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
 
         XCTAssertFalse(command.contains("CLAUDE_CONFIG_DIR="))
         XCTAssertTrue(command.hasPrefix("cd /tmp/repo && "))
-        XCTAssertTrue(command.contains("claude --resume session-123"))
+        XCTAssertTrue(command.contains("\"${CMUX_CLAUDE_WRAPPER_SHIM:-claude}\" --resume session-123"))
         XCTAssertTrue(command.contains("--model claude-opus-4-7"))
         XCTAssertTrue(command.contains("--permission-mode default"))
     }
@@ -114,7 +114,7 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
         )
 
         XCTAssertTrue(command.contains("CLAUDE_CONFIG_DIR=\(configDir.path)"))
-        XCTAssertTrue(command.contains("claude --resume session-123"))
+        XCTAssertTrue(command.contains("\"${CMUX_CLAUDE_WRAPPER_SHIM:-claude}\" --resume session-123"))
     }
 
     private func makeClaudeSessionEntry(

@@ -315,7 +315,11 @@ struct SessionEntry: Identifiable, Hashable {
     private var resumeCommandWithoutWorkingDirectory: String? {
         switch specifics {
         case let .claude(model, permissionMode, configDirectoryForResume):
-            var parts = ["claude --resume \(sessionId)"]
+            // Route through the wrapper shim token so a manually-resumed claude session
+            // re-injects cmux hooks even when the command runs in a shell where the
+            // integration's PATH shim / `claude()` function are not active (e.g. the
+            // `$SHELL -lic` restore launcher). https://github.com/manaflow-ai/cmux/issues/5639
+            var parts = ["\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)"]
             if let model, !model.isEmpty {
                 parts.append("--model \(Self.shellQuote(model))")
             }

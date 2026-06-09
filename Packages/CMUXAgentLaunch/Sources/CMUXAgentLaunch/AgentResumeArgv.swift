@@ -18,6 +18,52 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// Creates a resume-argv builder. The type holds no state.
     public init() {}
 
+    /// The shell token that resolves cmux's `claude` wrapper at exec time.
+    ///
+    /// The claude resume/fork argv emits a bare `claude` executable and relies on
+    /// cmux's `claude` wrapper (which re-injects the hook `--settings` on `--resume`)
+    /// being reachable. Inside cmux terminals the wrapper is reached two ways: a
+    /// `claude()` shell function and a per-surface PATH shim, both installed by the
+    /// shell integration. Neither survives the close-&-reopen restore launcher, which
+    /// runs the resumed agent in a fresh `$SHELL -lic` login-interactive shell where
+    /// the integration is not active (the user's login profile clobbers `ZDOTDIR`/`PATH`).
+    /// Worse, the resume command is `env … claude …`, and `env` resolves `claude` via
+    /// `execvp` — bypassing the shell function entirely — so even re-sourcing the
+    /// integration would not help an `env`-prefixed invocation whose `PATH` was rebuilt.
+    ///
+    /// `CMUX_CLAUDE_WRAPPER_SHIM` is a *managed* terminal environment variable (set by
+    /// `TerminalStartupEnvironment` / `GhosttyTerminalView`) pointing at the per-surface
+    /// shim that execs the wrapper. It is inherited by every descendant shell regardless
+    /// of `PATH`/function shadowing, so rendering the claude executable as
+    /// `"${CMUX_CLAUDE_WRAPPER_SHIM:-claude}"` makes the executed resume command route
+    /// through the wrapper (hooks fire) inside the `-lic` launcher, and falls back to
+    /// bare `claude` outside cmux. https://github.com/manaflow-ai/cmux/issues/5639
+    public static let claudeWrapperShellExecutableToken = "\"${CMUX_CLAUDE_WRAPPER_SHIM:-claude}\""
+
+    /// Renders shell command `parts` to quoted tokens, substituting
+    /// ``claudeWrapperShellExecutableToken`` for the first bare `claude` executable token.
+    ///
+    /// Callers pass the full command parts (any leading `env VAR=value …` prefix plus the
+    /// resume argv) and their own quoting function. Only the first element equal to `claude`
+    /// — the wrapper executable emitted by the claude resume/fork builders — is replaced;
+    /// every other token (including any later argument that happens to be the word `claude`)
+    /// is quoted normally. Call only for the claude kind. Keeping this in the pure value
+    /// layer lets the app resume builder and the cmux-cli surface-restore publisher share one
+    /// wrapper-routing seam. https://github.com/manaflow-ai/cmux/issues/5639
+    public static func renderingClaudeWrapperExecutable(
+        parts: [String],
+        quote: (String) -> String
+    ) -> [String] {
+        var replaced = false
+        return parts.map { part in
+            if !replaced, part == "claude" {
+                replaced = true
+                return claudeWrapperShellExecutableToken
+            }
+            return quote(part)
+        }
+    }
+
     /// The result of resolving a cmux wrapper launcher (the `claude-teams` / `codex-teams` / `omo`
     /// style launchers cmux injects), checked before the per-kind verb.
     public enum LauncherResolution: Sendable, Equatable {
@@ -143,20 +189,21 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// Builds the claude resume argv, routing it through cmux's `claude` wrapper
     /// so cmux hooks fire on the resumed session.
     ///
-    /// cmux injects Claude Code's hook `--settings` from the `Resources/bin/claude`
-    /// wrapper, which is first on `PATH` inside cmux terminals. The wrapper
-    /// re-injects those hooks whenever it sees `--resume`, exactly as it does on a
-    /// fresh launch (and it also re-applies the rest of the fresh-launch setup:
+    /// cmux injects Claude Code's hook `--settings` from the `cmux-claude-wrapper`,
+    /// which re-injects those hooks whenever it sees `--resume`, exactly as it does on
+    /// a fresh launch (and it also re-applies the rest of the fresh-launch setup:
     /// `CLAUDE_CONFIG_DIR` normalization, auth-selection env handling, NODE_OPTIONS,
     /// nested-session unset). The captured launch executable, however, is the
     /// *real* claude binary (`CMUX_AGENT_LAUNCH_EXECUTABLE`), so resuming with it
     /// directly bypassed the wrapper and dropped every hook
     /// (https://github.com/manaflow-ai/cmux/issues/5427).
     ///
-    /// Forcing the executable to the bare `claude` wrapper is the same thing the
-    /// session-index resume builder (`SessionEntry.resumeCommand`) already does,
-    /// so both resume paths now share one injection point. The captured executable
-    /// is intentionally ignored for claude; the wrapper resolves the real binary
+    /// The argv keeps a bare `claude` executable as its logical value; the wrapper is
+    /// reached at render time via ``claudeWrapperShellExecutableToken`` (resolved through
+    /// the `CMUX_CLAUDE_WRAPPER_SHIM` managed env var), because relying on the wrapper
+    /// being first on `PATH` does not hold inside the `$SHELL -lic` restore launcher
+    /// (https://github.com/manaflow-ai/cmux/issues/5639). The captured executable is
+    /// intentionally ignored for claude; the wrapper resolves the real binary
     /// (honouring `CMUX_CUSTOM_CLAUDE_PATH`).
     private func claudeResumeArgv(
         sessionId: String,
