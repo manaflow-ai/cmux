@@ -1,6 +1,16 @@
-type WebviewKind = "agent-session" | "diff";
+type WebviewKind = "agent-chat" | "agent-session" | "diff";
 
 function resolveWebviewKind(): WebviewKind {
+  if (
+    document.documentElement.dataset.cmuxWebviewKind === "agent-chat" ||
+    document.body.dataset.cmuxWebviewKind === "agent-chat" ||
+    document.getElementById("cmux-agent-chat-config") ||
+    // Vite dev / standalone fallback: the router uses hash history, so plain
+    // `bun run dev` reaches the surface at `/#/agent-chat` with no host HTML.
+    window.location.hash.startsWith("#/agent-chat")
+  ) {
+    return "agent-chat";
+  }
   if (
     document.documentElement.dataset.cmuxWebviewKind === "agent-session" ||
     document.body.dataset.cmuxWebviewKind === "agent-session" ||
@@ -20,7 +30,12 @@ if (!rootElement) {
 // viewer pulls in `@pierre/diffs`, the agent session pulls in its editor UI,
 // and neither pays for the other. Shared vendor code (React, the router) is
 // hoisted by Rollup into chunks both surfaces reuse.
-if (resolveWebviewKind() === "agent-session") {
+const webviewKind = resolveWebviewKind();
+if (webviewKind === "agent-chat") {
+  void import("./surfaces/agentChatSurface").then((surface) => {
+    surface.mountAgentChatSurface(rootElement);
+  });
+} else if (webviewKind === "agent-session") {
   void import("./surfaces/agentSessionSurface").then((surface) => {
     surface.mountAgentSessionSurface(rootElement);
   });
