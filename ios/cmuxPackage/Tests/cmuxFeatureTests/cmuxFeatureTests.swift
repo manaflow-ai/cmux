@@ -712,6 +712,42 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func expiredQRTicketWhileOfflineReportsExpiredNotOffline() async throws {
+    // The expiry guard is local and definitive: reconnecting to Wi-Fi will not
+    // revive an expired QR, so the offline preflight must not mask it with the
+    // "connect and try again" offline message. Still fails fast with no dial.
+    let ticketExpiresAt = Date().addingTimeInterval(60)
+    let route = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: UUID().uuidString,
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: ticketExpiresAt,
+        authToken: "ticket-secret"
+    )
+    let dials = TransportDialRecorder()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: RecordingNeverConnectTransportFactory(dials: dials),
+        now: { ticketExpiresAt.addingTimeInterval(1) }
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        reachability: OfflineReachability()
+    )
+
+    store.signIn()
+    let result = await store.connectPairingURLResult(try attachURL(for: ticket).absoluteString)
+
+    #expect(result == .failed)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == "This pairing link expired. Pair again with a fresh QR/link from that computer.")
+    #expect(dials.count == 0)
+}
+
+@MainActor
 @Test func cancelManualHostPairingDoesNotApplyDelayedTicket() async throws {
     let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let router = DelayedManualAttachTicketRouter(route: route)
