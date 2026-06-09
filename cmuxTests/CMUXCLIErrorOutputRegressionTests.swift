@@ -1265,6 +1265,104 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertFalse(openArguments.contains(workingDirectory.standardizedFileURL.path), openArguments.joined(separator: " "))
     }
 
+    func testTmuxOpenCreatesSurfaceWithAttachOrCreateCommand() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-tmux-open-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let socketPath = "/tmp/cmux-tmux-open-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"surface_ref":"surface:tmux","workspace_ref":"workspace:tmux"}}"#
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "tmux", "work", "--cwd", workingDirectory.path, "--no-focus"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK surface:tmux workspace:tmux")
+
+        let request = try XCTUnwrap(responder.receivedRequests.first)
+        let requestData = try XCTUnwrap(request.data(using: .utf8))
+        let requestObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: requestData, options: []) as? [String: Any]
+        )
+        XCTAssertEqual(requestObject["method"] as? String, "surface.create")
+        let params = try XCTUnwrap(requestObject["params"] as? [String: Any])
+        XCTAssertEqual(params["type"] as? String, "terminal")
+        let command = try XCTUnwrap(params["initial_command"] as? String)
+        XCTAssertEqual(command, #"exec "${CMUX_BUNDLED_CLI_PATH:-cmux}" __tmux-io-backend --mode open --session work"#)
+        XCTAssertEqual(params["tmux_start_command"] as? String, command)
+        XCTAssertEqual(params["working_directory"] as? String, workingDirectory.standardizedFileURL.path)
+        XCTAssertEqual(params["focus"] as? Bool, false)
+    }
+
+    func testTmuxAttachSplitCreatesPaneWithStrictAttachCommand() throws {
+        let cliPath = try bundledCLIPath()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let socketPath = "/tmp/cmux-tmux-split-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"surface_ref":"surface:tmux","pane_ref":"pane:tmux","workspace_ref":"workspace:tmux"}}"#
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "tmux", "attach", "-s", "ops team",
+                "--workspace", workspaceID,
+                "--surface", surfaceID,
+                "--split", "right"
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK surface:tmux pane:tmux workspace:tmux")
+
+        let request = try XCTUnwrap(responder.receivedRequests.first)
+        let requestData = try XCTUnwrap(request.data(using: .utf8))
+        let requestObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: requestData, options: []) as? [String: Any]
+        )
+        XCTAssertEqual(requestObject["method"] as? String, "pane.create")
+        let params = try XCTUnwrap(requestObject["params"] as? [String: Any])
+        XCTAssertEqual(params["type"] as? String, "terminal")
+        let command = try XCTUnwrap(params["initial_command"] as? String)
+        XCTAssertEqual(command, #"exec "${CMUX_BUNDLED_CLI_PATH:-cmux}" __tmux-io-backend --mode attach --session 'ops team'"#)
+        XCTAssertEqual(params["tmux_start_command"] as? String, command)
+        XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
+        XCTAssertEqual(params["surface_id"] as? String, surfaceID)
+        XCTAssertEqual(params["direction"] as? String, "right")
+        XCTAssertEqual(params["focus"] as? Bool, true)
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)

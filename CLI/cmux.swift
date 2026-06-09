@@ -2773,7 +2773,7 @@ struct CMUXCLI {
         "--order", "--out", "--pane", "--panel", "--path", "--profile", "--property",
         "--provider", "--relay-port", "--script", "--selector", "--session",
         "--shell", "--source", "--subtitle", "--surface", "--tab", "--target-pane",
-        "--text", "--timeout", "--timeout-ms", "--title", "--transcript",
+        "--text", "--timeout", "--timeout-ms", "--title", "--tmux", "--transcript",
         "--turn", "--type", "--url", "--url-contains", "--value", "--window",
         "--workspace", "--checkpoint", "--checkpoint-id",
     ]
@@ -2996,6 +2996,7 @@ struct CMUXCLI {
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
+        if command == "__tmux-io-backend" { try runTmuxIOBackendCommand(commandArgs: commandArgs); return }
 
         if command == "settings",
            settingsCommandDoesNotNeedSocket(commandArgs) {
@@ -3842,6 +3843,15 @@ struct CMUXCLI {
             // Hidden compatibility alias for workspaces created before the split helper was
             // nested under `cmux vm`.
             try runVMSSHAttach(commandArgs: commandArgs, client: client)
+
+        case "tmux":
+            try runTmuxCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
 
         case "new-workspace":
             Self.warnLegacyVerbDeprecated("new-workspace", replacement: "cmux workspace create")
@@ -5128,6 +5138,7 @@ struct CMUXCLI {
         "swap-pane",
         "tab-action",
         "themes",
+        "tmux",
         "top",
         "tree",
         "trigger-flash",
@@ -12574,6 +12585,401 @@ struct CMUXCLI {
         throw CLIError(message: "Unsupported browser subcommand: \(subcommand)")
     }
 
+    private func runTmuxCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        var remaining = commandArgs
+        let (sessionOpt, rem0) = parseOption(remaining, name: "--session")
+        let (shortSessionOpt, rem1) = parseOption(rem0, name: "-s")
+        let (nameOpt, rem2) = parseOption(rem1, name: "--name")
+        let (cwdOpt, rem3) = parseOption(rem2, name: "--cwd")
+        let (workspaceOpt, rem4) = parseOption(rem3, name: "--workspace")
+        let (paneOpt, rem5) = parseOption(rem4, name: "--pane")
+        let (surfaceOpt, rem6) = parseOption(rem5, name: "--surface")
+        let (splitOpt, rem7) = parseOption(rem6, name: "--split")
+        let (focusOpt, rem8) = parseOption(rem7, name: "--focus")
+        let (windowOpt, rem9) = parseOption(rem8, name: "--window")
+        let (tmuxOpt, rem10) = parseOption(rem9, name: "--tmux")
+        remaining = rem10
+
+        var noFocus = false
+        remaining.removeAll { arg in
+            if arg == "--no-focus" {
+                noFocus = true
+                return true
+            }
+            return false
+        }
+
+        let action: String
+        if let first = remaining.first?.lowercased(),
+           ["attach", "attach-session", "new", "new-session", "open"].contains(first) {
+            action = first
+            remaining.removeFirst()
+        } else {
+            action = "open"
+        }
+
+        if let unknown = remaining.first(where: { $0.hasPrefix("-") && $0 != "--" }) {
+            throw CLIError(message: "tmux: unknown flag '\(unknown)'")
+        }
+
+        let positionalSession = remaining.first { $0 != "--" }
+        let session = (sessionOpt ?? shortSessionOpt ?? nameOpt ?? positionalSession ?? "cmux")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !session.isEmpty else {
+            throw CLIError(message: "tmux requires a non-empty session name")
+        }
+
+        let tmuxExecutable: String
+        if let tmuxOpt,
+           !tmuxOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            tmuxExecutable = tmuxOpt
+        } else {
+            tmuxExecutable = "tmux"
+        }
+        let tmuxCommand: String
+        switch action {
+        case "attach", "attach-session":
+            tmuxCommand = tmuxIOBackendShellCommand(action: "attach", session: session, tmuxExecutable: tmuxExecutable)
+        case "new", "new-session":
+            tmuxCommand = tmuxIOBackendShellCommand(action: "new", session: session, tmuxExecutable: tmuxExecutable)
+        default:
+            tmuxCommand = tmuxIOBackendShellCommand(action: "open", session: session, tmuxExecutable: tmuxExecutable)
+        }
+
+        var params: [String: Any] = [
+            "type": "terminal",
+            "initial_command": tmuxCommand,
+            "tmux_start_command": tmuxCommand
+        ]
+        let windowRaw = windowOpt ?? windowOverride
+        let winId = try normalizeWindowHandle(windowRaw, client: client)
+        if let winId { params["window_id"] = winId }
+        let workspaceArg = workspaceOpt ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
+        if let wsId { params["workspace_id"] = wsId }
+        if let cwd = cwdOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !cwd.isEmpty {
+            params["working_directory"] = resolvePath(cwd)
+        }
+
+        let focusValue = noFocus ? "false" : focusOpt
+        try applyFocusOption(focusValue, defaultValue: true, to: &params)
+
+        let payload: [String: Any]
+        if let split = splitOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !split.isEmpty {
+            params["direction"] = try validatedSplitDirection(split, commandName: "tmux")
+            let surfaceRaw = surfaceOpt ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let surfaceId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
+            if let surfaceId { params["surface_id"] = surfaceId }
+            payload = try client.sendV2(method: "pane.create", params: params)
+        } else {
+            if let paneOpt,
+               !paneOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let paneId = try normalizePaneHandle(paneOpt, client: client, workspaceHandle: wsId, windowHandle: winId)
+                if let paneId { params["pane_id"] = paneId }
+            }
+            payload = try client.sendV2(method: "surface.create", params: params)
+        }
+        printV2Payload(
+            payload,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat,
+            fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"])
+        )
+    }
+
+    private func tmuxIOBackendShellCommand(action: String, session: String, tmuxExecutable: String) -> String {
+        var tokens = [
+            "\"${CMUX_BUNDLED_CLI_PATH:-cmux}\"",
+            "__tmux-io-backend",
+            "--mode", shellQuote(action),
+            "--session", shellQuote(session)
+        ]
+        if tmuxExecutable != "tmux" {
+            tokens += ["--tmux", shellQuote(tmuxExecutable)]
+        }
+        return "exec " + tokens.joined(separator: " ")
+    }
+
+    private func runTmuxIOBackendCommand(commandArgs: [String]) throws {
+        let (sessionOpt, rem0) = parseOption(commandArgs, name: "--session")
+        let (modeOpt, rem1) = parseOption(rem0, name: "--mode")
+        let (tmuxOpt, rem2) = parseOption(rem1, name: "--tmux")
+        if let unknown = rem2.first(where: { $0.hasPrefix("-") }) {
+            throw CLIError(message: "__tmux-io-backend: unknown flag '\(unknown)'")
+        }
+        let session = (sessionOpt ?? "cmux").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !session.isEmpty else {
+            throw CLIError(message: "__tmux-io-backend requires a non-empty session name")
+        }
+        let mode = (modeOpt ?? "open").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard ["open", "attach", "new"].contains(mode) else {
+            throw CLIError(message: "__tmux-io-backend mode must be open, attach, or new")
+        }
+        let tmuxExecutable = (tmuxOpt?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            ? tmuxOpt!
+            : "tmux"
+        let backend = TmuxControlModeIOBackend(
+            tmuxExecutable: tmuxExecutable,
+            session: session,
+            mode: mode
+        )
+        try backend.run()
+    }
+
+    private final class TmuxControlModeIOBackend {
+        private let tmuxExecutable: String
+        private let session: String
+        private let mode: String
+        private let writeLock = NSLock()
+        private let stateLock = NSLock()
+        private var commandInput: FileHandle?
+        private var isRunning = true
+        private var lastWindowSize: (columns: UInt16, rows: UInt16)?
+        private var savedTermios: termios?
+        private var savedStdinFlags: Int32?
+
+        init(tmuxExecutable: String, session: String, mode: String) {
+            self.tmuxExecutable = tmuxExecutable
+            self.session = session
+            self.mode = mode
+        }
+
+        func run() throws {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: tmuxExecutable)
+            process.arguments = tmuxArguments()
+
+            let stdinPipe = Pipe()
+            let stdoutPipe = Pipe()
+            process.standardInput = stdinPipe
+            process.standardOutput = stdoutPipe
+            process.standardError = FileHandle.standardError
+            commandInput = stdinPipe.fileHandleForWriting
+
+            try enterRawMode()
+            defer { restoreTerminalMode() }
+
+            try process.run()
+            sendInitialResize()
+
+            let outputThread = Thread { [weak self] in
+                self?.readControlOutput(from: stdoutPipe.fileHandleForReading)
+            }
+            outputThread.name = "cmux tmux control output"
+            outputThread.start()
+
+            let resizeThread = Thread { [weak self] in
+                self?.pollWindowSize()
+            }
+            resizeThread.name = "cmux tmux resize poll"
+            resizeThread.start()
+
+            forwardTerminalInput()
+            if running() {
+                sendCommand("detach-client")
+            }
+            markStopped()
+            process.waitUntilExit()
+        }
+
+        private func tmuxArguments() -> [String] {
+            switch mode {
+            case "attach":
+                return ["-C", "attach-session", "-t", session]
+            case "new":
+                return ["-C", "new-session", "-s", session]
+            default:
+                return ["-C", "new-session", "-A", "-s", session]
+            }
+        }
+
+        private func enterRawMode() throws {
+            guard isatty(STDIN_FILENO) == 1 else { return }
+            var original = termios()
+            guard tcgetattr(STDIN_FILENO, &original) == 0 else { return }
+            savedTermios = original
+            var raw = original
+            cfmakeraw(&raw)
+            guard tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0 else {
+                throw CLIError(message: "Failed to enter raw terminal mode")
+            }
+            let flags = fcntl(STDIN_FILENO, F_GETFL)
+            if flags >= 0 {
+                savedStdinFlags = flags
+                _ = fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK)
+            }
+        }
+
+        private func restoreTerminalMode() {
+            if let savedStdinFlags {
+                _ = fcntl(STDIN_FILENO, F_SETFL, savedStdinFlags)
+            }
+            guard var savedTermios else { return }
+            _ = tcsetattr(STDIN_FILENO, TCSANOW, &savedTermios)
+        }
+
+        private func forwardTerminalInput() {
+            while running() {
+                var bytes = [UInt8](repeating: 0, count: 1024)
+                let count = read(STDIN_FILENO, &bytes, bytes.count)
+                if count < 0 {
+                    if errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR {
+                        Thread.sleep(forTimeInterval: 0.025)
+                        continue
+                    }
+                    break
+                }
+                guard count > 0 else { break }
+                var offset = 0
+                while offset < count {
+                    let end = min(offset + 128, count)
+                    let chunk = bytes[offset..<end]
+                    let encoded = chunk.map { String(format: "%02x", $0) }.joined(separator: " ")
+                    sendCommand("send-keys -H \(encoded)")
+                    offset = end
+                }
+            }
+        }
+
+        private func readControlOutput(from handle: FileHandle) {
+            var buffer = Data()
+            while running() {
+                let data = handle.availableData
+                guard !data.isEmpty else { break }
+                buffer.append(data)
+                while let newline = buffer.firstIndex(of: 0x0A) {
+                    let lineData = buffer[..<newline]
+                    buffer.removeSubrange(...newline)
+                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                    handleControlLine(line.trimmingCharacters(in: CharacterSet(charactersIn: "\r")))
+                }
+            }
+            if !buffer.isEmpty,
+               let line = String(data: buffer, encoding: .utf8) {
+                handleControlLine(line.trimmingCharacters(in: CharacterSet(charactersIn: "\r")))
+            }
+            markStopped()
+        }
+
+        private func handleControlLine(_ line: String) {
+            if line.hasPrefix("%output ") {
+                let parts = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+                guard parts.count == 3 else { return }
+                writeTerminalOutput(Self.decodeTmuxEscapedBytes(String(parts[2])))
+                return
+            }
+
+            if line.hasPrefix("%extended-output ") {
+                guard let colon = line.range(of: " : ") else { return }
+                writeTerminalOutput(Self.decodeTmuxEscapedBytes(String(line[colon.upperBound...])))
+                return
+            }
+
+            if line.hasPrefix("%exit") {
+                markStopped()
+            }
+        }
+
+        private func writeTerminalOutput(_ data: Data) {
+            guard !data.isEmpty else { return }
+            FileHandle.standardOutput.write(data)
+        }
+
+        private func sendInitialResize() {
+            if let size = currentWindowSize() {
+                lastWindowSize = size
+                sendResize(size)
+            }
+        }
+
+        private func pollWindowSize() {
+            while running() {
+                if let size = currentWindowSize(),
+                   lastWindowSize?.columns != size.columns || lastWindowSize?.rows != size.rows {
+                    lastWindowSize = size
+                    sendResize(size)
+                }
+                Thread.sleep(forTimeInterval: 0.25)
+            }
+        }
+
+        private func sendResize(_ size: (columns: UInt16, rows: UInt16)) {
+            guard size.columns > 0, size.rows > 0 else { return }
+            sendCommand("refresh-client -C \(size.columns),\(size.rows)")
+        }
+
+        private func currentWindowSize() -> (columns: UInt16, rows: UInt16)? {
+            var size = winsize()
+            guard ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0 else { return nil }
+            guard size.ws_col > 0, size.ws_row > 0 else { return nil }
+            return (size.ws_col, size.ws_row)
+        }
+
+        private func sendCommand(_ command: String) {
+            guard running() else { return }
+            guard let data = "\(command)\n".data(using: .utf8) else { return }
+            writeLock.lock()
+            defer { writeLock.unlock() }
+            do {
+                try commandInput?.write(contentsOf: data)
+            } catch {
+                markStopped()
+            }
+        }
+
+        private func running() -> Bool {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return isRunning
+        }
+
+        private func markStopped() {
+            stateLock.lock()
+            isRunning = false
+            stateLock.unlock()
+        }
+
+        private static func decodeTmuxEscapedBytes(_ value: String) -> Data {
+            let bytes = Array(value.utf8)
+            var output = Data()
+            output.reserveCapacity(bytes.count)
+            var index = 0
+            while index < bytes.count {
+                if bytes[index] == 0x5C,
+                   index + 3 < bytes.count,
+                   isOctal(bytes[index + 1]),
+                   isOctal(bytes[index + 2]),
+                   isOctal(bytes[index + 3]) {
+                    let decoded = (octalValue(bytes[index + 1]) << 6)
+                        | (octalValue(bytes[index + 2]) << 3)
+                        | octalValue(bytes[index + 3])
+                    output.append(UInt8(decoded))
+                    index += 4
+                } else {
+                    output.append(bytes[index])
+                    index += 1
+                }
+            }
+            return output
+        }
+
+        private static func isOctal(_ byte: UInt8) -> Bool {
+            byte >= 0x30 && byte <= 0x37
+        }
+
+        private static func octalValue(_ byte: UInt8) -> UInt8 {
+            byte - 0x30
+        }
+    }
+
     private func parseWindows(_ response: String) -> [WindowInfo] {
         guard response != "No windows" else { return [] }
         return response
@@ -13177,6 +13583,34 @@ struct CMUXCLI {
               cmux omc
               cmux omc team 3:claude "implement feature"
               cmux omc --watch
+            """)
+        case "tmux":
+            return String(localized: "cli.tmux.usage", defaultValue: """
+            Usage: cmux tmux [open|attach|new] [session] [options]
+
+            Open a cmux terminal attached to a tmux session.
+
+            Modes:
+              open                 Attach to the session if it exists, otherwise create it (default)
+              attach               Attach only; fail if the session does not exist
+              new                  Create only; fail if the session already exists
+
+            Options:
+              --session, -s <name>  Session name (defaults to cmux)
+              --cwd <path>          Working directory for the terminal
+              --workspace <id|ref>  Target workspace, defaults to the caller workspace
+              --pane <id|ref>       Target pane
+              --surface <id|ref>    Source surface for --split, defaults to the caller surface
+              --split <direction>   Create a split instead of a new surface in the pane
+              --focus <true|false>  Focus the new terminal (default true)
+              --no-focus            Do not focus the new terminal
+              --tmux <path>         tmux executable path (default: tmux)
+
+            Examples:
+              cmux tmux work
+              cmux tmux attach -s work
+              cmux tmux new scratch --cwd ~/src/app
+              cmux tmux work --split right
             """)
         case "identify":
             return """
@@ -32332,6 +32766,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           omo [opencode-args...]
           omx [omx-args...]
           omc [omc-args...]
+          tmux [open|attach|new] [session] [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--split <left|right|up|down>] [--cwd <path>]
           hooks setup|uninstall [--agent <name>]
           hooks <agent> <install|uninstall|event> [options; opencode supports --project]
           hooks feed --source <agent> [--event <event>]
