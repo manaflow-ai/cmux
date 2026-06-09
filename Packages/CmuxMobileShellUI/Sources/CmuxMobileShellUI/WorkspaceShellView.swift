@@ -105,6 +105,11 @@ struct WorkspaceShellView: View {
         }
         .onChange(of: store.workspaces.map(\.id)) { _, workspaceIDs in
             compactNavigationPath.removeAll { !workspaceIDs.contains($0) }
+            // Replay a pending open whose target only just arrived: an APNs tap
+            // during cold attach sets the request while the list is still empty,
+            // so the token `onChange` below bails. Without this the deep-link is
+            // stranded at the root even after the workspace appears.
+            pushPendingWorkspaceOpenIfPossible()
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         // Explicit open requests (notification tap / deep-link) must push the
@@ -113,13 +118,7 @@ struct WorkspaceShellView: View {
         // Observe the monotonic token so a repeat open of the already-selected
         // workspace still fires.
         .onChange(of: store.pendingWorkspaceOpenRequest?.token) { _, _ in
-            guard let request = store.pendingWorkspaceOpenRequest,
-                  store.workspaces.contains(where: { $0.id == request.id }) else {
-                return
-            }
-            if compactNavigationPath.last != request.id {
-                compactNavigationPath = [request.id]
-            }
+            pushPendingWorkspaceOpenIfPossible()
         }
         .onAppear {
             autoOpenSelectedWorkspaceForSoakIfNeeded()
@@ -200,6 +199,20 @@ struct WorkspaceShellView: View {
             pendingCompactCreateNavigationWorkspaceIDs = nil
             compactNavigationPath = createdPath
         }
+    }
+
+    /// Push the workspace detail for the latest explicit open request, but only
+    /// once its target is present in the list. Safe to call repeatedly: it is a
+    /// no-op when there is no pending request, the target is not loaded yet, or
+    /// the detail is already on top, so both the request-token `onChange` and the
+    /// workspaces-arrived replay path can share it.
+    private func pushPendingWorkspaceOpenIfPossible() {
+        guard let request = store.pendingWorkspaceOpenRequest,
+              store.workspaces.contains(where: { $0.id == request.id }),
+              compactNavigationPath.last != request.id else {
+            return
+        }
+        compactNavigationPath = [request.id]
     }
 
     private func autoOpenSelectedWorkspaceForSoakIfNeeded() {
