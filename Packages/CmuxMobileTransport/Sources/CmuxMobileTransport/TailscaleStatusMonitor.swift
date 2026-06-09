@@ -1,6 +1,7 @@
 import Foundation
 @preconcurrency import Network
 public import Observation
+import os
 
 /// An observable, push-driven view of ``TailscaleStatus`` for UI surfaces.
 ///
@@ -20,6 +21,13 @@ public final class TailscaleStatusMonitor {
 
     @ObservationIgnored private let provider: any NetworkInterfaceAddressProviding
     @ObservationIgnored private let pathMonitor: NWPathMonitor?
+    /// Allocates monotonic tickets ordering every evaluation, including the
+    /// ones taken off-main on the path-monitor queue.
+    @ObservationIgnored private let ticketAllocator = OSAllocatedUnfairLock<UInt64>(initialState: 0)
+    /// The ticket of the last published evaluation; ``apply(_:ticket:)`` drops
+    /// anything older so a slow path-queue walk cannot overwrite a fresher
+    /// foreground `refresh()`.
+    @ObservationIgnored private var lastAppliedTicket: UInt64 = 0
 
     /// Creates a monitor and synchronously evaluates the current status.
     ///
@@ -46,8 +54,13 @@ public final class TailscaleStatusMonitor {
             // VPN), so walk the interfaces here on the monitor's utility
             // queue; only the publish hops to the main actor. Keeps the
             // syscall off the main thread during unrelated network churn.
+            // Take the ordering ticket before walking so any refresh() that
+            // starts later outranks this snapshot; apply(_:ticket:) then
+            // drops it if a fresher evaluation already published.
+            guard let self else { return }
+            let ticket = self.nextEvaluationTicket()
             let next = TailscaleStatus(interfaces: provider.currentInterfaceAddresses())
-            Task { @MainActor in self?.apply(next) }
+            Task { @MainActor in self.apply(next, ticket: ticket) }
         }
         monitor.start(queue: DispatchQueue(label: "dev.cmux.tailscale-status", qos: .utility))
     }
@@ -58,12 +71,28 @@ public final class TailscaleStatusMonitor {
     /// synchronous so init and the app-foreground caller observe the result
     /// immediately instead of first painting a stale status.
     public func refresh() {
-        apply(TailscaleStatus(interfaces: provider.currentInterfaceAddresses()))
+        let ticket = nextEvaluationTicket()
+        apply(TailscaleStatus(interfaces: provider.currentInterfaceAddresses()), ticket: ticket)
     }
 
-    /// Publishes a newly evaluated status, dropping no-op updates so SwiftUI
-    /// observation is not invalidated by unrelated path churn.
-    private func apply(_ next: TailscaleStatus) {
+    /// Hands out the next evaluation ticket; callable from any context so the
+    /// path-monitor queue and main-actor `refresh()` share one ordering.
+    /// Internal (not private) so tests can stage out-of-order publishes.
+    nonisolated func nextEvaluationTicket() -> UInt64 {
+        ticketAllocator.withLock { counter in
+            counter += 1
+            return counter
+        }
+    }
+
+    /// Publishes a newly evaluated status. Drops evaluations older than the
+    /// last published one (a stale path-queue walk racing a foreground
+    /// `refresh()`) and no-op updates, so SwiftUI observation is not
+    /// invalidated by unrelated path churn. Internal (not private) so tests
+    /// can stage out-of-order publishes.
+    func apply(_ next: TailscaleStatus, ticket: UInt64) {
+        guard ticket > lastAppliedTicket else { return }
+        lastAppliedTicket = ticket
         if next != status {
             status = next
         }

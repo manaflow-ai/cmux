@@ -153,6 +153,30 @@ private final class FakeInterfaceProvider: NetworkInterfaceAddressProviding, @un
     #expect(monitor.status == .unknown)
 }
 
+@MainActor
+@Test func staleEvaluationCannotOverwriteFresherRefresh() {
+    let provider = FakeInterfaceProvider([interface("utun5", "100.99.1.2")])
+    let monitor = TailscaleStatusMonitor(provider: provider, monitorsPathChanges: false)
+    #expect(monitor.status == .active)
+
+    // A path-change walk takes its ticket first (as the real handler does
+    // before walking), then Tailscale goes down and a foreground refresh()
+    // publishes the fresh status.
+    let staleTicket = monitor.nextEvaluationTicket()
+    provider.set([interface("en0", "192.168.1.5")])
+    monitor.refresh()
+    #expect(monitor.status == .inactiveOrNotInstalled)
+
+    // The older snapshot arrives late on the main actor; it must be dropped,
+    // not regress status back to .active.
+    monitor.apply(.active, ticket: staleTicket)
+    #expect(monitor.status == .inactiveOrNotInstalled)
+
+    // A genuinely newer evaluation still publishes.
+    monitor.apply(.active, ticket: monitor.nextEvaluationTicket())
+    #expect(monitor.status == .active)
+}
+
 // MARK: - System provider smoke
 
 @Test func systemProviderEnumeratesInterfaces() {
