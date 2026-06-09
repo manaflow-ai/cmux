@@ -1915,6 +1915,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func replaceRemoteClient(with newValue: MobileCoreRPCClient?) {
         let previous = remoteClient
         remoteClient = newValue
+        if previous !== newValue {
+            // The notification feed is per-Mac. Dropping or swapping the client
+            // (sign-out, forget, reauth failure, Mac switch) must clear the
+            // mirror so the Notifications tab never shows the previous Mac's
+            // titles/bodies. A fresh connection's cold-attach fetch repopulates
+            // it; an older Mac with no notifications hub leaves it empty.
+            notificationsStore.apply([])
+        }
         if let previous, previous !== newValue {
             Task { await previous.disconnect() }
         }
@@ -1931,6 +1939,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTaskID = nil
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = nil
+        notificationsRefreshTask?.cancel()
+        notificationsRefreshTask = nil
     }
 
     private func resetTerminalOutputTracking() {

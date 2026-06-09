@@ -146,6 +146,11 @@ struct WorkspaceShellView: View {
 
     private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
+        // Opening a workspace from the list is a read of its activity: clear its
+        // unread notification badge optimistically and propagate the read-state
+        // to the Mac. Same shared mark-read path the Notifications feed uses, so
+        // both entrypoints stay consistent.
+        store.markNotificationsRead(forWorkspace: id.rawValue)
         store.selectedWorkspaceID = id
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
