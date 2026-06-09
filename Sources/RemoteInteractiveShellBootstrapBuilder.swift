@@ -6,7 +6,8 @@ enum RemoteInteractiveShellBootstrapBuilder {
         shellFeatures: String,
         terminfoSource: String? = nil,
         bundledZshIntegration: String? = nil,
-        bundledBashIntegration: String? = nil
+        bundledBashIntegration: String? = nil,
+        bundledFishIntegration: String? = nil
     ) -> String {
         let shellStateDir = shellStateDirForRemoteRelayPort(remoteRelayPort)
         let commonShellExportLines = commonShellLines(
@@ -43,6 +44,14 @@ enum RemoteInteractiveShellBootstrapBuilder {
                 "cat > \"$cmux_shell_dir/cmux-bash-integration.bash\" <<'CMUXCMUXBASH'",
                 bundledBashIntegration,
                 "CMUXCMUXBASH",
+            ]
+        }
+        if let bundledFishIntegration {
+            outerLines += [
+                "mkdir -p \"$cmux_shell_dir/fish\"",
+                "cat > \"$cmux_shell_dir/fish/config.fish\" <<'CMUXCMUXFISH'",
+                bundledFishIntegration,
+                "CMUXCMUXFISH",
             ]
         }
         outerLines.append(contentsOf: commonShellExportLines)
@@ -98,6 +107,18 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
         outerLines += [
             "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
+            "    ;;",
+            "  fish)",
+        ]
+        outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
+        outerLines += [
+            "    if [ -n \"${XDG_CONFIG_HOME:-}\" ] && [ \"$XDG_CONFIG_HOME\" != \"$cmux_shell_dir\" ]; then",
+            "      export CMUX_FISH_CONFIG_HOME=\"$XDG_CONFIG_HOME\"",
+            "    else",
+            "      export CMUX_FISH_CONFIG_HOME=\"$HOME/.config\"",
+            "    fi",
+            "    export XDG_CONFIG_HOME=\"$cmux_shell_dir\"",
+            "    exec \"$CMUX_LOGIN_SHELL\" -il",
             "    ;;",
             "  *)",
         ]

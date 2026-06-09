@@ -165,6 +165,9 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             ),
             bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
                 named: "cmux-bash-integration.bash"
+            ),
+            bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                named: "fish/config.fish"
             )
         )
     }

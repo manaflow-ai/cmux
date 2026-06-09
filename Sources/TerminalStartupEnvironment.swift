@@ -148,6 +148,32 @@ extension TerminalSurface {
         return merged
     }
 
+    static func applyManagedFishStartupEnvironment(
+        integrationDir: String,
+        to environment: inout [String: String],
+        protectedKeys: inout Set<String>,
+        ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        let normalizedIntegrationDir = URL(fileURLWithPath: integrationDir, isDirectory: true)
+            .standardizedFileURL
+            .path
+        let candidateConfigHome = (environment["XDG_CONFIG_HOME"]?.isEmpty == false ? environment["XDG_CONFIG_HOME"] : nil)
+            ?? (ambientEnvironment["XDG_CONFIG_HOME"]?.isEmpty == false ? ambientEnvironment["XDG_CONFIG_HOME"] : nil)
+
+        if let candidateConfigHome, !candidateConfigHome.isEmpty {
+            let normalizedCandidate = URL(fileURLWithPath: candidateConfigHome, isDirectory: true)
+                .standardizedFileURL
+                .path
+            if normalizedCandidate != normalizedIntegrationDir {
+                environment["CMUX_FISH_CONFIG_HOME"] = normalizedCandidate
+                protectedKeys.insert("CMUX_FISH_CONFIG_HOME")
+            }
+        }
+
+        environment["XDG_CONFIG_HOME"] = normalizedIntegrationDir
+        protectedKeys.insert("XDG_CONFIG_HOME")
+    }
+
     private static func shellSingleQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }

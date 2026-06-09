@@ -125,6 +125,46 @@ struct GhosttyTerminalStartupEnvironmentTests {
     }
 
     @Test
+    func testApplyManagedFishStartupEnvironmentPreservesUserConfigHome() {
+        var environment = [
+            "XDG_CONFIG_HOME": "/Users/example/.config"
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedFishStartupEnvironment(
+            integrationDir: "/Applications/cmux.app/Contents/Resources/shell-integration",
+            to: &environment,
+            protectedKeys: &protectedKeys,
+            ambientEnvironment: [:]
+        )
+
+        expectEqual(environment["XDG_CONFIG_HOME"], "/Applications/cmux.app/Contents/Resources/shell-integration")
+        expectEqual(environment["CMUX_FISH_CONFIG_HOME"], "/Users/example/.config")
+        expectTrue(protectedKeys.contains("XDG_CONFIG_HOME"))
+        expectTrue(protectedKeys.contains("CMUX_FISH_CONFIG_HOME"))
+    }
+
+    @Test
+    func testApplyManagedFishStartupEnvironmentAvoidsRecursiveConfigHome() {
+        var environment = [
+            "XDG_CONFIG_HOME": "/Applications/cmux.app/Contents/Resources/shell-integration/"
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedFishStartupEnvironment(
+            integrationDir: "/Applications/cmux.app/Contents/Resources/shell-integration",
+            to: &environment,
+            protectedKeys: &protectedKeys,
+            ambientEnvironment: [:]
+        )
+
+        expectEqual(environment["XDG_CONFIG_HOME"], "/Applications/cmux.app/Contents/Resources/shell-integration")
+        expectEqual(environment["CMUX_FISH_CONFIG_HOME"], nil)
+        expectTrue(protectedKeys.contains("XDG_CONFIG_HOME"))
+        expectFalse(protectedKeys.contains("CMUX_FISH_CONFIG_HOME"))
+    }
+
+    @Test
     func testPathByPrependingUniqueDirectoryMovesDirectoryToFront() {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
