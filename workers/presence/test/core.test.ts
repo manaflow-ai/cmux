@@ -1,0 +1,209 @@
+import { describe, expect, it } from "bun:test";
+import {
+  applyHeartbeat,
+  buildSnapshot,
+  expireInstances,
+  HEARTBEAT_INTERVAL_MS,
+  nextAlarmTime,
+  OFFLINE_TIMEOUT_MS,
+  PRUNE_AFTER_MS,
+  shouldPrune,
+  type HeartbeatInput,
+  type PresenceInstance,
+} from "../src/core";
+
+const T0 = 1_750_000_000_000;
+
+function beat(overrides: Partial<HeartbeatInput> = {}): HeartbeatInput {
+  return {
+    deviceId: "11111111-2222-4333-8444-555555555555",
+    tag: "default",
+    platform: "mac",
+    ...overrides,
+  };
+}
+
+function onlineInstance(overrides: Partial<PresenceInstance> = {}): PresenceInstance {
+  return {
+    deviceId: "11111111-2222-4333-8444-555555555555",
+    tag: "default",
+    platform: "mac",
+    capabilities: [],
+    online: true,
+    lastSeenAt: T0,
+    onlineSince: T0,
+    ...overrides,
+  };
+}
+
+describe("cadence constants", () => {
+  it("offline timeout tolerates two missed heartbeats before declaring offline", () => {
+    expect(OFFLINE_TIMEOUT_MS).toBe(3 * HEARTBEAT_INTERVAL_MS);
+  });
+});
+
+describe("applyHeartbeat", () => {
+  it("first heartbeat brings an unknown instance online and emits online", () => {
+    const { instance, events } = applyHeartbeat(undefined, beat({ displayName: "Studio" }), T0);
+    expect(instance.online).toBe(true);
+    expect(instance.onlineSince).toBe(T0);
+    expect(instance.lastSeenAt).toBe(T0);
+    expect(instance.displayName).toBe("Studio");
+    expect(events).toEqual([{ type: "online", instance }]);
+  });
+
+  it("repeat heartbeat on an online instance keeps onlineSince and emits only seen", () => {
+    const first = applyHeartbeat(undefined, beat(), T0).instance;
+    const { instance, events } = applyHeartbeat(first, beat(), T0 + HEARTBEAT_INTERVAL_MS);
+    expect(instance.online).toBe(true);
+    expect(instance.onlineSince).toBe(T0);
+    expect(instance.lastSeenAt).toBe(T0 + HEARTBEAT_INTERVAL_MS);
+    expect(events).toEqual([
+      {
+        type: "seen",
+        deviceId: instance.deviceId,
+        tag: instance.tag,
+        lastSeenAt: T0 + HEARTBEAT_INTERVAL_MS,
+      },
+    ]);
+  });
+
+  it("heartbeat after a timeout-offline re-emits online with a fresh onlineSince", () => {
+    const first = applyHeartbeat(undefined, beat(), T0).instance;
+    const { expired } = expireInstances([first], T0 + OFFLINE_TIMEOUT_MS);
+    const offline = expired[0]!;
+    const later = T0 + OFFLINE_TIMEOUT_MS + 5_000;
+    const { instance, events } = applyHeartbeat(offline, beat(), later);
+    expect(instance.online).toBe(true);
+    expect(instance.onlineSince).toBe(later);
+    expect(events[0]!.type).toBe("online");
+  });
+
+  it("preserves displayName and capabilities from the previous record when omitted", () => {
+    const first = applyHeartbeat(
+      undefined,
+      beat({ displayName: "Studio", capabilities: ["terminal"] }),
+      T0,
+    ).instance;
+    const { instance } = applyHeartbeat(first, beat(), T0 + 1);
+    expect(instance.displayName).toBe("Studio");
+    expect(instance.capabilities).toEqual(["terminal"]);
+  });
+
+  it("goodbye on an online instance flips offline immediately with reason goodbye", () => {
+    const first = applyHeartbeat(undefined, beat(), T0).instance;
+    const { instance, events } = applyHeartbeat(first, beat({ stopping: true }), T0 + 1_000);
+    expect(instance.online).toBe(false);
+    expect(instance.offlineAt).toBe(T0 + 1_000);
+    expect(instance.lastSeenAt).toBe(T0);
+    expect(events).toEqual([{ type: "offline", instance, reason: "goodbye" }]);
+  });
+
+  it("goodbye on an already-offline instance emits no events", () => {
+    const first = applyHeartbeat(undefined, beat(), T0).instance;
+    const offline = applyHeartbeat(first, beat({ stopping: true }), T0 + 1_000).instance;
+    const { events } = applyHeartbeat(offline, beat({ stopping: true }), T0 + 2_000);
+    expect(events).toEqual([]);
+  });
+
+  it("goodbye from a never-seen instance emits no events", () => {
+    const { instance, events } = applyHeartbeat(undefined, beat({ stopping: true }), T0);
+    expect(instance.online).toBe(false);
+    expect(events).toEqual([]);
+  });
+});
+
+describe("expireInstances", () => {
+  it("does not expire an instance under the timeout", () => {
+    const instance = onlineInstance();
+    const { expired, events } = expireInstances([instance], T0 + OFFLINE_TIMEOUT_MS - 1);
+    expect(expired).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it("expires exactly at the timeout boundary with reason timeout", () => {
+    const instance = onlineInstance();
+    const now = T0 + OFFLINE_TIMEOUT_MS;
+    const { expired, events } = expireInstances([instance], now);
+    expect(expired).toHaveLength(1);
+    expect(expired[0]!.online).toBe(false);
+    expect(expired[0]!.offlineAt).toBe(now);
+    expect(expired[0]!.onlineSince).toBeUndefined();
+    expect(events).toEqual([{ type: "offline", instance: expired[0]!, reason: "timeout" }]);
+  });
+
+  it("skips already-offline instances", () => {
+    const offline = onlineInstance({ online: false, onlineSince: undefined, offlineAt: T0 });
+    const { expired } = expireInstances([offline], T0 + 10 * OFFLINE_TIMEOUT_MS);
+    expect(expired).toEqual([]);
+  });
+
+  it("expires only the timed-out subset", () => {
+    const stale = onlineInstance({ tag: "stale" });
+    const fresh = onlineInstance({ tag: "fresh", lastSeenAt: T0 + OFFLINE_TIMEOUT_MS - 1 });
+    const { expired } = expireInstances([stale, fresh], T0 + OFFLINE_TIMEOUT_MS);
+    expect(expired.map((i) => i.tag)).toEqual(["stale"]);
+  });
+});
+
+describe("shouldPrune", () => {
+  it("never prunes online instances", () => {
+    expect(shouldPrune(onlineInstance(), T0 + 100 * PRUNE_AFTER_MS)).toBe(false);
+  });
+
+  it("prunes offline instances after the retention window", () => {
+    const offline = onlineInstance({ online: false, offlineAt: T0 });
+    expect(shouldPrune(offline, T0 + PRUNE_AFTER_MS - 1)).toBe(false);
+    expect(shouldPrune(offline, T0 + PRUNE_AFTER_MS)).toBe(true);
+  });
+
+  it("falls back to lastSeenAt when offlineAt is missing", () => {
+    const offline = onlineInstance({ online: false, offlineAt: undefined, lastSeenAt: T0 });
+    expect(shouldPrune(offline, T0 + PRUNE_AFTER_MS)).toBe(true);
+  });
+});
+
+describe("nextAlarmTime", () => {
+  it("is null with no instances", () => {
+    expect(nextAlarmTime([])).toBeNull();
+  });
+
+  it("is the earliest expiry deadline across online instances", () => {
+    const early = onlineInstance({ tag: "a", lastSeenAt: T0 });
+    const late = onlineInstance({ tag: "b", lastSeenAt: T0 + 10_000 });
+    expect(nextAlarmTime([late, early])).toBe(T0 + OFFLINE_TIMEOUT_MS);
+  });
+
+  it("uses the prune deadline for offline instances", () => {
+    const offline = onlineInstance({ online: false, offlineAt: T0 });
+    expect(nextAlarmTime([offline])).toBe(T0 + PRUNE_AFTER_MS);
+  });
+});
+
+describe("buildSnapshot", () => {
+  it("rolls instances up per device, online if any instance is online", () => {
+    const deviceA = "11111111-2222-4333-8444-555555555555";
+    const deviceB = "99999999-2222-4333-8444-555555555555";
+    const snapshot = buildSnapshot(
+      "team-1",
+      [
+        onlineInstance({ deviceId: deviceA, tag: "default", online: false, offlineAt: T0, lastSeenAt: T0 }),
+        onlineInstance({ deviceId: deviceA, tag: "dev", lastSeenAt: T0 + 1_000, displayName: "Studio" }),
+        onlineInstance({ deviceId: deviceB, tag: "default", online: false, offlineAt: T0, lastSeenAt: T0 - 1 }),
+      ],
+      T0 + 2_000,
+    );
+    expect(snapshot.type).toBe("snapshot");
+    expect(snapshot.teamId).toBe("team-1");
+    expect(snapshot.heartbeatIntervalMs).toBe(HEARTBEAT_INTERVAL_MS);
+    expect(snapshot.devices).toHaveLength(2);
+    const [first, second] = snapshot.devices;
+    expect(first!.deviceId).toBe(deviceA);
+    expect(first!.online).toBe(true);
+    expect(first!.displayName).toBe("Studio");
+    expect(first!.lastSeenAt).toBe(T0 + 1_000);
+    expect(first!.instances.map((i) => i.tag)).toEqual(["dev", "default"]);
+    expect(second!.deviceId).toBe(deviceB);
+    expect(second!.online).toBe(false);
+  });
+});
