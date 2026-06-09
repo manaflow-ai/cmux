@@ -852,15 +852,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         let directRoute = try? Self.manualHostRoute(host: normalizedHost, port: port)
         let attemptID = beginPairingAttempt(method: "manual")
-        // Fast offline preflight: no network path means every route below would
-        // sit in NWConnection's `.waiting` state until the per-route timeouts
-        // stack into the opaque ~60s blob the reporter saw. Fail immediately with
-        // actionable guidance instead.
-        switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight") {
-        case .failedOffline, .superseded:
+        // Fast offline preflight: fail immediately with actionable guidance
+        // instead of stacking per-route timeouts into the opaque ~60s blob.
+        guard await failPairingIfOffline(attemptID: attemptID, phase: "preflight") == .proceed else {
             return
-        case .proceed:
-            break
         }
         do {
             let ticket = try await manualHostTicket(
@@ -1253,12 +1248,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // a phone with no network path fails immediately with guidance instead of
         // stacking the per-route connect timeouts into the opaque ~60s wait.
         switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight") {
-        case .failedOffline:
-            return .failed
-        case .superseded:
-            return .superseded
-        case .proceed:
-            break
+        case .failedOffline: return .failed
+        case .superseded: return .superseded
+        case .proceed: break
         }
 
         do {
@@ -1693,13 +1685,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Establishes the live connection for `ticket`.
-    ///
-    /// - Returns: `nil` on success (and on superseded-generation early exits),
-    ///   or the specific ``MobilePairingFailureCategory`` it applied when it
-    ///   returned without connecting and without throwing (currently only
-    ///   ``MobilePairingFailureCategory/noSupportedRoute``), so callers record
-    ///   the matching analytics reason instead of a generic `other`.
+    /// Establishes the live connection for `ticket`. Returns `nil` on success
+    /// (and on superseded-generation early exits), or the failure category it
+    /// applied when it returned without connecting and without throwing
+    /// (`.noSupportedRoute`), so callers record the matching analytics reason.
     @discardableResult
     private func connect(
         ticket: CmxAttachTicket,
@@ -2068,9 +2057,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// call sites because some paths (auth re-auth) also flip
     /// ``connectionRequiresReauth``.
     private func applyPairingFailure(_ category: MobilePairingFailureCategory, phase: String) {
-        // `.cancelled` is the only category with an empty message; cancellation
-        // must be handled by the `catch is CancellationError` branches before
-        // classification, never surfaced as a pairing failure.
+        // `.cancelled` (the only empty-message category) must be handled by the
+        // `catch is CancellationError` branches before classification.
         assert(!category.message.isEmpty, "applyPairingFailure must not receive .cancelled")
         if !category.message.isEmpty {
             connectionError = category.message
@@ -2088,18 +2076,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Record an `ios_pairing_failed` for a `connect()` that returned without
-    /// connecting and already set a specific ``connectionError`` (no exception
-    /// to classify). Guarantees a non-empty error is showing, then emits the
-    /// analytics reason of the category `connect()` reported (falling back to
-    /// the generic `other`) without overwriting the specific message.
+    /// connecting and already set a specific ``connectionError``: emits the
+    /// reason of the category `connect()` reported (falling back to `other`)
+    /// without overwriting the specific message.
     private func recordFailureForCurrentConnectionError(
         phase: String,
         category: MobilePairingFailureCategory? = nil
     ) {
         if connectionError == nil {
-            // Defense in depth: `connect()` should always set an error before it
-            // returns without connecting, but never leave the user with a silent
-            // revert if a future path forgets to.
+            // Defense in depth: never leave a silent revert if a future
+            // `connect()` path returns without connecting or setting an error.
             applyPairingFailure(category ?? .unknown(host: nil, port: nil), phase: phase)
             return
         }
@@ -2108,8 +2094,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Surface an operational error (a request failing on an already-live
     /// connection, e.g. create-workspace) through the same classifier as
-    /// pairing, so the headline and guidance stay consistent. Does NOT emit
-    /// `ios_pairing_failed` (no pairing attempt is in flight here).
+    /// pairing. Does NOT emit `ios_pairing_failed` (no attempt is in flight).
     private func applyOperationalError(_ error: any Error) {
         let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
         connectionError = category.message.isEmpty
@@ -2118,25 +2103,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionErrorGuidance = category.guidance
     }
 
-    /// How the reachability preflight resolved, so callers can distinguish a
-    /// real offline failure from an attempt that was superseded while the
-    /// preflight awaited the reachability actor.
+    /// How the reachability preflight resolved: proceed with the full connect,
+    /// the ``.offline`` failure was applied, or a newer attempt superseded this
+    /// one while the preflight awaited the reachability actor.
     private enum PairingPreflightOutcome {
-        /// The device has a network path; proceed with the full connect.
         case proceed
-        /// The device is offline; the ``.offline`` failure was applied.
         case failedOffline
-        /// A newer attempt superseded this one; nothing was applied.
         case superseded
     }
 
     /// Reachability preflight: when the device has no satisfied network path,
     /// short-circuit the pairing attempt with the ``.offline`` category instead
-    /// of letting the connect sit in `NWConnection`'s `.waiting` state until the
-    /// per-route timeouts stack into the opaque ~60s wait the reporter saw.
-    ///
-    /// Records a compact ``DiagnosticEventCode/pairUnreachable`` so a captured
-    /// diagnostic shows the attempt failed at the preflight (no host/secret).
+    /// of letting `NWConnection` stack per-route timeouts into an opaque ~60s
+    /// wait. Records a ``DiagnosticEventCode/pairUnreachable`` (no host/secret).
     private func failPairingIfOffline(
         attemptID: UUID,
         phase: String
@@ -3160,10 +3139,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
-        // Deliberately not `applyPairingFailure`: this path must also set
-        // `connectionRequiresReauth`, uses a fallback (not skip) policy for an
-        // empty message, and must gate its analytics on `pairingAttemptMethod`
-        // below so live-connection auth evictions never emit `ios_pairing_failed`.
+        // Not `applyPairingFailure`: this path also sets `connectionRequiresReauth`,
+        // uses fallback-if-empty, and gates analytics on `pairingAttemptMethod` so
+        // live-connection auth evictions never emit `ios_pairing_failed`.
         connectionError = category.message.isEmpty
             ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
             : category.message
