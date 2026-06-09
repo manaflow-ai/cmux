@@ -1,7 +1,6 @@
 import Foundation
 @preconcurrency import Network
 public import Observation
-import os
 
 /// An observable, push-driven view of ``TailscaleStatus`` for UI surfaces.
 ///
@@ -21,13 +20,12 @@ public final class TailscaleStatusMonitor {
 
     @ObservationIgnored private let provider: any NetworkInterfaceAddressProviding
     @ObservationIgnored private let pathMonitor: NWPathMonitor?
-    /// Allocates monotonic tickets ordering every evaluation, including the
-    /// ones taken off-main on the path-monitor queue.
-    @ObservationIgnored private let ticketAllocator = OSAllocatedUnfairLock<UInt64>(initialState: 0)
-    /// The ticket of the last published evaluation; ``apply(_:ticket:)`` drops
-    /// anything older so a slow path-queue walk cannot overwrite a fresher
-    /// foreground `refresh()`.
-    @ObservationIgnored private var lastAppliedTicket: UInt64 = 0
+    /// When the last published evaluation captured its snapshot, on the
+    /// continuous (system-wide monotonic) clock. ``apply(_:evaluatedAt:)``
+    /// drops anything older so a stale path-queue walk cannot overwrite a
+    /// fresher foreground `refresh()`. Main-actor mutable state; the off-main
+    /// path handler only reads the clock, which is not shared mutable state.
+    @ObservationIgnored private var lastEvaluatedAt: ContinuousClock.Instant = .now
 
     /// Creates a monitor and synchronously evaluates the current status.
     ///
@@ -54,13 +52,12 @@ public final class TailscaleStatusMonitor {
             // VPN), so walk the interfaces here on the monitor's utility
             // queue; only the publish hops to the main actor. Keeps the
             // syscall off the main thread during unrelated network churn.
-            // Take the ordering ticket before walking so any refresh() that
-            // starts later outranks this snapshot; apply(_:ticket:) then
-            // drops it if a fresher evaluation already published.
-            guard let self else { return }
-            let ticket = self.nextEvaluationTicket()
+            // Capture the evaluation instant before walking so any refresh()
+            // that starts later outranks this snapshot; apply(_:evaluatedAt:)
+            // then drops it if a fresher evaluation already published.
+            let evaluatedAt = ContinuousClock.now
             let next = TailscaleStatus(interfaces: provider.currentInterfaceAddresses())
-            Task { @MainActor in self.apply(next, ticket: ticket) }
+            Task { @MainActor in self?.apply(next, evaluatedAt: evaluatedAt) }
         }
         monitor.start(queue: DispatchQueue(label: "dev.cmux.tailscale-status", qos: .utility))
     }
@@ -71,18 +68,8 @@ public final class TailscaleStatusMonitor {
     /// synchronous so init and the app-foreground caller observe the result
     /// immediately instead of first painting a stale status.
     public func refresh() {
-        let ticket = nextEvaluationTicket()
-        apply(TailscaleStatus(interfaces: provider.currentInterfaceAddresses()), ticket: ticket)
-    }
-
-    /// Hands out the next evaluation ticket; callable from any context so the
-    /// path-monitor queue and main-actor `refresh()` share one ordering.
-    /// Internal (not private) so tests can stage out-of-order publishes.
-    nonisolated func nextEvaluationTicket() -> UInt64 {
-        ticketAllocator.withLock { counter in
-            counter += 1
-            return counter
-        }
+        let evaluatedAt = ContinuousClock.now
+        apply(TailscaleStatus(interfaces: provider.currentInterfaceAddresses()), evaluatedAt: evaluatedAt)
     }
 
     /// Publishes a newly evaluated status. Drops evaluations older than the
@@ -90,9 +77,9 @@ public final class TailscaleStatusMonitor {
     /// `refresh()`) and no-op updates, so SwiftUI observation is not
     /// invalidated by unrelated path churn. Internal (not private) so tests
     /// can stage out-of-order publishes.
-    func apply(_ next: TailscaleStatus, ticket: UInt64) {
-        guard ticket > lastAppliedTicket else { return }
-        lastAppliedTicket = ticket
+    func apply(_ next: TailscaleStatus, evaluatedAt: ContinuousClock.Instant) {
+        guard evaluatedAt > lastEvaluatedAt else { return }
+        lastEvaluatedAt = evaluatedAt
         if next != status {
             status = next
         }

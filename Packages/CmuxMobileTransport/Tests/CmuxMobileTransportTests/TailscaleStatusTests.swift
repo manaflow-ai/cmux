@@ -159,21 +159,21 @@ private final class FakeInterfaceProvider: NetworkInterfaceAddressProviding, @un
     let monitor = TailscaleStatusMonitor(provider: provider, monitorsPathChanges: false)
     #expect(monitor.status == .active)
 
-    // A path-change walk takes its ticket first (as the real handler does
-    // before walking), then Tailscale goes down and a foreground refresh()
-    // publishes the fresh status.
-    let staleTicket = monitor.nextEvaluationTicket()
+    // A path-change walk captures its instant first (as the real handler
+    // does before walking), then Tailscale goes down and a foreground
+    // refresh() publishes the fresh status.
+    let staleInstant = ContinuousClock.now
     provider.set([interface("en0", "192.168.1.5")])
     monitor.refresh()
     #expect(monitor.status == .inactiveOrNotInstalled)
 
     // The older snapshot arrives late on the main actor; it must be dropped,
     // not regress status back to .active.
-    monitor.apply(.active, ticket: staleTicket)
+    monitor.apply(.active, evaluatedAt: staleInstant)
     #expect(monitor.status == .inactiveOrNotInstalled)
 
     // A genuinely newer evaluation still publishes.
-    monitor.apply(.active, ticket: monitor.nextEvaluationTicket())
+    monitor.apply(.active, evaluatedAt: ContinuousClock.now)
     #expect(monitor.status == .active)
 }
 
