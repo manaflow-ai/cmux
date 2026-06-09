@@ -1463,6 +1463,23 @@
         }
       }
     },
+    "mobile.settings.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
     "mobile.settings.switchMac": {
       "extractionState": "manual",
       "localizations": {
