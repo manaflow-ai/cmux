@@ -191,7 +191,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(openAnchor["scrollbar_offset"] as? UInt64, anchor.scrollbarOffset)
     }
 
-    /// Verifies prompt-submit requests without a surface id record an anchor for the focused terminal.
+    /// Verifies prompt-submit requests without a surface id record the agent turn-start anchor.
     func testPromptSubmitWithoutSurfaceIdRecordsAnchorForFocusedTerminalNotification() async throws {
         let fixture = try makeSocketFixture(name: "prompt-submit-anchor")
         defer { fixture.cleanup() }
@@ -218,7 +218,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             body: "Done"
         )
         let notification = try XCTUnwrap(fixture.store.notifications.first)
-        XCTAssertEqual(notification.openAnchor?.scrollbarOffset, scrollbar.offset)
+        XCTAssertEqual(notification.openAnchor?.scrollbarOffset, scrollbar.total)
     }
 
     func testNotificationJumpToUnreadOpensLatestUnreadAndNoOpsWhenNoneRemain() async throws {

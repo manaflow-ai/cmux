@@ -3976,6 +3976,15 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
+    /// Verifies prompt-submit anchors point at the next terminal output row.
+    func testNotificationOpenAnchorCapturesTurnStartInsteadOfViewportTop() {
+        let surfaceView = BindingActionProbeSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        surfaceView.scrollbar = makeScrollbar(total: 240, offset: 64, len: 20)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        XCTAssertEqual(hostedView.notificationOpenAnchor()?.scrollbarOffset, 240)
+    }
+
     func testNotificationOpenAnchorConvertsAbsoluteScrollOffsetToGhosttyRow() {
         let anchor = TerminalNotificationOpenAnchor(scrollbarOffset: 80)
         let scrollbar = makeScrollbar(total: 150, offset: 130, len: 20)
