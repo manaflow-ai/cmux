@@ -1890,6 +1890,8 @@ class TerminalController {
             return v2Result(id: id, self.v2MobileTerminalCreate(params: params))
         case "mobile.terminal.input", "terminal.input":
             return v2Result(id: id, self.v2MobileTerminalInput(params: params))
+        case "mobile.terminal.paste", "terminal.paste":
+            return v2Result(id: id, self.v2MobileTerminalPaste(params: params))
         case "mobile.terminal.replay", "terminal.replay":
             return v2Result(id: id, self.v2MobileTerminalReplay(params: params))
         case "mobile.terminal.viewport", "terminal.viewport":
@@ -2429,10 +2431,12 @@ class TerminalController {
             "mobile.workspace.list",
             "mobile.terminal.create",
             "mobile.terminal.input",
+            "mobile.terminal.paste",
             "mobile.terminal.replay",
             "mobile.terminal.viewport",
             "terminal.create",
             "terminal.input",
+            "terminal.paste",
             "terminal.replay",
             "terminal.viewport",
             "auth.login",
@@ -20811,6 +20815,8 @@ class TerminalController {
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
+        case "mobile.terminal.paste", "terminal.paste":
+            result = v2MobileTerminalPaste(params: request.params)
         case "mobile.terminal.paste_image", "terminal.paste_image":
             result = v2MobileTerminalPasteImage(params: request.params)
         case "mobile.terminal.replay", "terminal.replay":
@@ -21719,6 +21725,62 @@ class TerminalController {
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": terminalPanel.id.uuidString,
             "queued": sendResult == .queued,
+        ]
+        if let seq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceId) {
+            payload["terminal_seq"] = seq
+        }
+        return .ok(payload)
+    }
+
+    /// Handle `terminal.paste`: a paired client (the iOS app) forwards a
+    /// committed block of text (system dictation, an autocorrect replacement, or
+    /// keyboard-inserted clipboard text) that should land as a *bracketed paste*.
+    ///
+    /// Unlike ``v2MobileTerminalInput(params:)`` (which routes through
+    /// `sendInputResult`, splitting control bytes and Returns into per-key
+    /// events), this routes through ``GhosttySurfaceView/sendText(_:)`` →
+    /// `ghostty_surface_text`, the same path a local clipboard paste uses. That
+    /// triggers bracketed-paste framing when the program enabled it, so embedded
+    /// newlines stay part of one paste instead of executing line-by-line.
+    private func v2MobileTerminalPaste(params: [String: Any]) -> V2CallResult {
+        guard let text = v2RawString(params, "text"), !text.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing text", data: nil)
+        }
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+
+        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+
+        // `sendText` returns false only when the surface is cold and cannot
+        // accept (or queue) the paste; a live surface always accepts. It does
+        // not distinguish queued vs sent, so report queued=false on success.
+        let accepted = terminalPanel.surface.sendText(text)
+        guard accepted else {
+            return .err(
+                code: "input_queue_full",
+                message: Self.terminalInputQueueFullMessage,
+                data: ["surface_id": surfaceId.uuidString]
+            )
+        }
+        terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPaste")
+        #if DEBUG
+        cmuxDebugLog(
+            "mobile.terminal.paste workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) chars=\(text.count)"
+        )
+        #endif
+        var payload: [String: Any] = [
+            "workspace_id": resolved.workspace.id.uuidString,
+            "surface_id": terminalPanel.id.uuidString,
+            "queued": false,
         ]
         if let seq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceId) {
             payload["terminal_seq"] = seq

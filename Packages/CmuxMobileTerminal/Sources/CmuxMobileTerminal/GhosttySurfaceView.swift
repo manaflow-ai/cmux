@@ -60,6 +60,13 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// path into the terminal so a running TUI (e.g. Claude Code) attaches it.
     /// `format` is a lowercase file-extension hint (e.g. `"png"`). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String)
+    /// Forward a committed block of text (system dictation, an autocorrect
+    /// replacement, or keyboard-inserted clipboard text) that should reach the
+    /// remote terminal as a bracketed paste rather than per-character input. The
+    /// host sends it via the `terminal.paste` RPC so embedded newlines do not
+    /// fragment into separate Returns. Defaults to the raw-input path so existing
+    /// conformers keep working. Optional.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteText text: String)
 }
 
 public extension GhosttySurfaceViewDelegate {
@@ -67,6 +74,19 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
+    /// Default bracketed-paste handler that falls back to per-character input.
+    ///
+    /// A conformer that does not implement the bracketed-paste path still
+    /// delivers the text: newlines are normalized to CR (matching the
+    /// per-keystroke input path) and the bytes are forwarded through
+    /// ``ghosttySurfaceView(_:didProduceInput:)``.
+    /// - Parameters:
+    ///   - surfaceView: The surface view that produced the committed block.
+    ///   - text: The committed block of pasted/dictated text.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteText text: String) {
+        let normalized = text.replacingOccurrences(of: "\n", with: "\r")
+        ghosttySurfaceView(surfaceView, didProduceInput: Data(normalized.utf8))
+    }
 }
 
 @MainActor
@@ -807,8 +827,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastReportedSize ?? TerminalGridSize(columns: 100, rows: 32, pixelWidth: 900, pixelHeight: 650)
     }
 
+    /// Structured diagnostic log (DEBUG dogfood builds only), property-injected
+    /// from the shell store by ``GhosttySurfaceRepresentable`` so the
+    /// hold-backspace + dictation input probes land in the blob the "Send to
+    /// agent" feedback pane exports. Forwarded to ``inputProxy`` on set. `nil` in
+    /// release and in hosts that do not wire it; every probe is then a no-op.
+    public var diagnosticLog: DiagnosticLog? {
+        didSet { inputProxy.diagnosticLog = diagnosticLog }
+    }
+
     private lazy var inputProxy: TerminalInputTextView = {
         let inputProxy = TerminalInputTextView()
+        inputProxy.diagnosticLog = diagnosticLog
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
             self.resetCursorBlink()
@@ -828,6 +858,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self.resetCursorBlink()
             // Send DEL (0x7F) directly to transport as raw byte.
             let data = Data([0x7F])
+            #if DEBUG
+            // Pairs with `inputDeleteBackward`: if N delete calls produce N
+            // emitted DEL bytes, the iOS input view is correct and the
+            // hold-backspace failure is downstream (transport/Mac/render), not in
+            // this view — redirecting the hunt instead of a 4th input-view guess.
+            self.diagnosticLog?.record(DiagnosticEvent(.inputBackspaceEmitted, ms: UInt32(data.count)))
+            #endif
             TerminalInputDebugLog.log("surface.onBackspace data=\(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
@@ -836,6 +873,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self.resetCursorBlink()
             TerminalInputDebugLog.log("surface.onEscape data=\(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
+        }
+        inputProxy.onPasteText = { [weak self] text in
+            guard let self else { return }
+            self.resetCursorBlink()
+            // Multi-character commits (dictation, autocorrect, keyboard clipboard
+            // insert) go through the bracketed-paste RPC so embedded newlines are
+            // not split into separate Returns by the remote terminal.
+            TerminalInputDebugLog.log("surface.onPasteText text=\(TerminalInputDebugLog.textSummary(text))")
+            self.delegate?.ghosttySurfaceView(self, didPasteText: text)
         }
         inputProxy.onPasteImage = { [weak self] data, format in
             guard let self else { return }
@@ -1038,6 +1084,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var autoFocusOnWindowAttach = true
 
     @objc private func handleKeyboardWillShow(_ notification: Notification) {
+        #if DEBUG
+        // Capture WHICH view owns first responder the instant the keyboard comes
+        // up — the load-bearing question for the hold-backspace + dictation hunt.
+        // Recorded before any geometry guard so it fires on every keyboard-up,
+        // even when the height is unchanged. This is the iOS analog of checking
+        // for a Mac-style `keyRepair` focus-steal: if this is not
+        // `terminalInputProxy`, the keyboard never drives the view we instrument.
+        let kbResponder = CurrentResponderProbe.current()
+        let kbIdentity = TerminalInputTextView.responderIdentity(of: kbResponder)
+        diagnosticLog?.record(DiagnosticEvent(.inputKeyboardUp, a: kbIdentity.rawValue))
+        MobileDebugLog.anchormux(
+            "input.keyboardUp identity=\(kbIdentity) class=\(TerminalInputTextView.responderClassName(kbResponder)) proxyIsFR=\(inputProxy.isFirstResponder)"
+        )
+        #endif
         guard let frameEnd = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
               let window else { return }
         let keyboardFrameInView = convert(frameEnd, from: window)

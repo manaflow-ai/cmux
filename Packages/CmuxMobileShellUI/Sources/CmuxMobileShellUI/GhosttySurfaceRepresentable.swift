@@ -44,6 +44,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             fontSize: fontSize
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        #if DEBUG
+        // Hand the surface the structured diagnostic log so the keyboard-input
+        // probes (hold-backspace + dictation evidence round) land in the blob the
+        // "Send to agent" feedback pane exports. `nil` until P1's log is wired.
+        view.diagnosticLog = store.diagnosticLog
+        #endif
         context.coordinator.attach(surfaceView: view)
         return view
     }
@@ -107,6 +113,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // running TUI (e.g. Claude Code) attaches it.
             Task { @MainActor [weak store] in
                 await store?.submitTerminalPasteImage(data, format: format)
+            }
+        }
+
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteText text: String) {
+            // A committed block of text (dictation, autocorrect, keyboard
+            // clipboard insert). Send it through the Mac's bracketed-paste RPC so
+            // newlines stay part of one paste instead of fragmenting into Returns.
+            Task { @MainActor [weak store] in
+                await store?.submitTerminalPasteText(text, surfaceID: self.surfaceID)
             }
         }
 
