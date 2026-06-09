@@ -162,6 +162,15 @@ check_no_ci_xctest_skips() {
   echo "PASS: ci.yml does not exclude XCTest methods"
 }
 
+check_no_ci_swift_package_skips() {
+  if grep -nE '(^|[[:space:]])swift[[:space:]]+test([[:space:]].*)?[[:space:]]--skip([[:space:]]|$)' "$CI_FILE"; then
+    echo "FAIL: ci.yml must not exclude Swift package tests with swift test --skip; fix or isolate the failing package test instead"
+    exit 1
+  fi
+
+  echo "PASS: ci.yml does not exclude Swift package tests"
+}
+
 check_web_db_behavior_tests() {
   local db_runner="$ROOT_DIR/web/scripts/run-db-behavior-tests.sh"
   if [[ ! -x "$db_runner" ]]; then
@@ -214,4 +223,5 @@ check_xcode_selection
 check_release_build_signal
 check_release_helper_upload_retry
 check_no_ci_xctest_skips
+check_no_ci_swift_package_skips
 check_web_db_behavior_tests
