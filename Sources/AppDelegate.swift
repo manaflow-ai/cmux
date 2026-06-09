@@ -1245,6 +1245,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
 
+        // Prewarm the shared restorable-agent index off the main thread so the first
+        // tab/workspace/window close after launch reads a warm cache instead of paying a
+        // synchronous RestorableAgentSessionIndex.load() on the main thread. See
+        // closedPanelHistoryEntry.
+        if !isRunningUnderXCTest {
+            SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
+        }
+
         claimAuthCallbackURLSchemes()
         StartupBreadcrumbLog.append("appDelegate.didFinish.authSchemes.claimed")
 
@@ -1332,8 +1340,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 #endif
                 options.sendDefaultPii = false
 
-                // Performance tracing (10% of transactions)
-                options.tracesSampleRate = 0.1
+                // Performance tracing is disabled. The auto-instrumented root
+                // `SentryTransaction.trace` serializes its `data` / `tags` /
+                // `description` into the payload *after* `beforeSend` runs, and
+                // the root tracer is not reachable through the public Sentry API,
+                // so those fields cannot be scrubbed. Disabling transactions
+                // removes that un-scrubbable egress path while keeping crash,
+                // error, and app-hang reporting (which are independent of the
+                // trace sample rate). cmux does not consume these performance
+                // traces today.
+                options.tracesSampleRate = 0.0
                 // Keep app-hang tracking enabled, but avoid reporting short main-thread stalls
                 // as hangs in normal user interaction flows.
                 options.appHangTimeoutInterval = 8.0
@@ -1341,6 +1357,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 options.attachStacktrace = true
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
+                // Redact file paths, emails, and secrets from every outgoing
+                // event, breadcrumb, and (belt-and-suspenders, if tracing is ever
+                // re-enabled) child performance span before it leaves the device.
+                let scrubber = SentryEventScrubber()
+                options.beforeSend = { event in scrubber.scrub(event) }
+                options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
+                options.beforeSendSpan = { span in scrubber.scrub(span) }
             }
             StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.complete")
         }
@@ -1908,6 +1931,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         VMClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
+        DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(
             coordinator: auth.coordinator,
             browserSignIn: auth.browserSignIn
@@ -12913,6 +12937,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if !hasFocusedAddressBarInShortcutContext,
+           shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
+               event,
+               pageURL: shortcutEventBrowserPanel(event)?.webView.url
+           ) {
+            return false
+        }
+
         if matchConfiguredShortcut(event: event, action: .commandPalette) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
@@ -15283,26 +15315,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Feed categories with inline decision buttons. Identifiers and
         // action strings are matched in `handleFeedNotificationResponse`.
-        let permissionCategory = UNNotificationCategory(
-            identifier: "CMUXFeedPermission",
-            actions: [
-                UNNotificationAction(
-                    identifier: "feed.permission.once",
-                    title: String(localized: "feed.notification.permission.allowOnce", defaultValue: "Allow Once")
-                ),
-                UNNotificationAction(
-                    identifier: "feed.permission.always",
-                    title: String(localized: "feed.notification.permission.always", defaultValue: "Always")
-                ),
-                UNNotificationAction(
-                    identifier: "feed.permission.deny",
-                    title: String(localized: "feed.notification.permission.deny", defaultValue: "Deny"),
-                    options: [.destructive]
-                ),
-            ],
-            intentIdentifiers: [],
-            options: []
+        let permissionOnceAction = UNNotificationAction(
+            identifier: "feed.permission.once",
+            title: String(localized: "feed.notification.permission.allowOnce", defaultValue: "Allow Once")
         )
+        let permissionAlwaysAction = UNNotificationAction(
+            identifier: "feed.permission.always",
+            title: String(localized: "feed.notification.permission.always", defaultValue: "Always")
+        )
+        let permissionAllAction = UNNotificationAction(
+            identifier: "feed.permission.all",
+            title: String(localized: "feed.notification.permission.all", defaultValue: "All tools")
+        )
+        let permissionDenyAction = UNNotificationAction(
+            identifier: "feed.permission.deny",
+            title: String(localized: "feed.notification.permission.deny", defaultValue: "Deny"),
+            options: [.destructive]
+        )
+        let permissionCategories = Self.feedPermissionNotificationCategoryIds().map { categoryId in
+            var actions: [UNNotificationAction] = []
+            if categoryId.contains("Once") || categoryId == "CMUXFeedPermission" {
+                actions.append(permissionOnceAction)
+            }
+            if categoryId.contains("Always") || categoryId == "CMUXFeedPermission" {
+                actions.append(permissionAlwaysAction)
+            }
+            if categoryId.contains("All") {
+                actions.append(permissionAllAction)
+            }
+            actions.append(permissionDenyAction)
+            return UNNotificationCategory(
+                identifier: categoryId,
+                actions: actions,
+                intentIdentifiers: [],
+                options: []
+            )
+        }
         let exitPlanCategory = UNNotificationCategory(
             identifier: "CMUXFeedExitPlan",
             actions: [
@@ -15336,10 +15384,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 
         let center = UNUserNotificationCenter.current()
-        center.setNotificationCategories([
-            category, permissionCategory, exitPlanCategory, questionCategory
-        ])
+        center.setNotificationCategories(Set([category, exitPlanCategory, questionCategory] + permissionCategories))
         center.delegate = self
+    }
+
+    private static func feedPermissionNotificationCategoryIds() -> [String] {
+        [
+            "CMUXFeedPermission",
+            "CMUXFeedPermissionDeny",
+            "CMUXFeedPermissionOnce",
+            "CMUXFeedPermissionAlways",
+            "CMUXFeedPermissionAll",
+            "CMUXFeedPermissionOnceAlways",
+            "CMUXFeedPermissionOnceAll",
+            "CMUXFeedPermissionAlwaysAll",
+            "CMUXFeedPermissionOnceAlwaysAll",
+        ]
     }
 
     /// Routes a notification action identifier like
@@ -15347,7 +15407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Returns `true` if the identifier was Feed-owned.
     private func handleFeedNotificationResponse(_ response: UNNotificationResponse) -> Bool {
         let categoryId = response.notification.request.content.categoryIdentifier
-        guard categoryId == "CMUXFeedPermission"
+        guard categoryId.hasPrefix("CMUXFeedPermission")
            || categoryId == "CMUXFeedExitPlan"
            || categoryId == "CMUXFeedQuestion"
         else { return false }
@@ -15358,9 +15418,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         switch response.actionIdentifier {
         case "feed.permission.once":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .permission(.once))
+            guard let decision = feedPermissionNotificationDecision(requestId: requestId, requestedMode: .once) else {
+                return true
+            }
+            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: decision)
         case "feed.permission.always":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .permission(.always))
+            guard let decision = feedPermissionNotificationDecision(requestId: requestId, requestedMode: .always) else {
+                return true
+            }
+            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: decision)
+        case "feed.permission.all":
+            guard let decision = feedPermissionNotificationDecision(requestId: requestId, requestedMode: .all) else {
+                return true
+            }
+            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: decision)
         case "feed.permission.deny":
             FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .permission(.deny))
         case "feed.exit_plan.ultraplan":
@@ -15382,6 +15453,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             break
         }
         return true
+    }
+
+    private func feedPermissionNotificationDecision(
+        requestId: String,
+        requestedMode: WorkstreamPermissionMode
+    ) -> WorkstreamDecision? {
+        guard let item = FeedCoordinator.shared.snapshot(pendingOnly: false).reversed().first(where: { item in
+            guard case .permissionRequest(let itemRequestId, _, _, _) = item.payload else { return false }
+            return itemRequestId == requestId
+        }) else {
+            return .permission(requestedMode)
+        }
+        guard case .permissionRequest(_, _, let toolInputJSON, _) = item.payload else {
+            return .permission(requestedMode)
+        }
+
+        switch requestedMode {
+        case .once:
+            guard FeedPermissionActionPolicy.supportsOncePermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ) else {
+                return nil
+            }
+            return .permission(.once)
+        case .always:
+            if FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ) {
+                return .permission(.always)
+            }
+            if FeedPermissionActionPolicy.supportsOncePermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ) {
+                return .permission(.once)
+            }
+            return nil
+        case .all:
+            guard FeedPermissionActionPolicy.supportsAllPermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ) else {
+                return nil
+            }
+            return .permission(.all)
+        default:
+            return .permission(requestedMode)
+        }
     }
 
     private func disableNativeTabbingShortcut() {
@@ -15924,10 +16045,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               !isApplyingSessionRestore else {
             return
         }
+        // Closing the last tab closes the window, recording undo history. Prefer the warm
+        // cached agent index over a synchronous `RestorableAgentSessionIndex.load()` so the
+        // close does not freeze the main thread; fall back to a fresh load only while the
+        // cache has not loaded yet (see closedPanelHistoryEntry).
         let snapshot = sessionWindowSnapshot(
             for: context,
             includeScrollback: true,
-            restorableAgentIndex: RestorableAgentSessionIndex.load()
+            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                ?? RestorableAgentSessionIndex.load()
         )
         guard !snapshot.tabManager.workspaces.isEmpty else {
             return
