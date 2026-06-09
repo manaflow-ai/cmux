@@ -1,5 +1,6 @@
 import Combine
 import CoreGraphics
+import Foundation
 
 final class SidebarState: ObservableObject {
     @Published var isVisible: Bool
