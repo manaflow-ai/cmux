@@ -2280,6 +2280,7 @@ struct ContentView: View {
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
     @AppStorage("sidebarState") private var sidebarStateSetting = SidebarStateOption.followWindow.rawValue
+    @AppStorage("showWorkspaceStatusBar") private var showWorkspaceStatusBar = true
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
 
@@ -2758,16 +2759,23 @@ struct ContentView: View {
     var body: some View {
         let appearance = windowAppearanceSnapshot
         var view = AnyView(
-            ZStack(alignment: .topLeading) {
-                WindowBackdropLayer(role: .windowRoot, snapshot: appearance)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
+            VStack(spacing: 0) {
+                ZStack(alignment: .topLeading) {
+                    WindowBackdropLayer(role: .windowRoot, snapshot: appearance)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
 
-                contentAndSidebarLayout(appearance: appearance)
+                    contentAndSidebarLayout(appearance: appearance)
 
-                if !isMinimalMode {
-                    workspaceTitlebarBand(appearance: appearance)
-                        .zIndex(100)
+                    if !isMinimalMode {
+                        workspaceTitlebarBand(appearance: appearance)
+                            .zIndex(100)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                if !isMinimalMode, showWorkspaceStatusBar, let workspace = tabManager.selectedWorkspace {
+                    WorkspaceStatusBar(workspace: workspace, appearance: appearance)
                 }
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
