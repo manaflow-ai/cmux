@@ -32,6 +32,10 @@ public enum AttachRequestError: Error, Equatable, Sendable {
     case invalidColumns(Int)
     case invalidRows(Int)
     case unsupportedVersion(Int)
+    /// `v` was present but not an integer (e.g. `"abc"`, `1.5`, `true`). A
+    /// missing `v` defaults to the current version and is not an error; a
+    /// malformed one is rejected rather than silently coerced.
+    case invalidVersion
 }
 
 public enum AttachHandshake {
@@ -63,8 +67,18 @@ public enum AttachHandshake {
         // Accept any version this host understands ([1, currentVersion]) rather
         // than only the latest, so a newer client can still attach to an older
         // host during a staged rollout. Only versions above what we know are
-        // rejected.
-        let version = intValue(params["v"]) ?? AttachRequest.currentVersion
+        // rejected. A missing `v` defaults to the current version (older clients
+        // predate the field); a present-but-non-integer `v` is malformed and is
+        // rejected rather than silently coerced to the current version.
+        let version: Int
+        if let rawVersion = params["v"] {
+            guard let parsed = intValue(rawVersion) else {
+                throw AttachRequestError.invalidVersion
+            }
+            version = parsed
+        } else {
+            version = AttachRequest.currentVersion
+        }
         guard version >= 1, version <= AttachRequest.currentVersion else {
             throw AttachRequestError.unsupportedVersion(version)
         }
@@ -83,10 +97,15 @@ public enum AttachHandshake {
     /// fractional numbers and non-numeric strings. Mirrors the port-field
     /// coercion the v2 socket contract documents.
     static func intValue(_ raw: Any?) -> Int? {
-        // A JSON boolean decodes to an NSNumber that bridges to Int (true -> 1,
-        // false -> 0), so without this guard `cols: true` would validate as a
-        // 1x1 terminal instead of being rejected. Booleans are not numeric here.
-        if raw is Bool { return nil }
+        // A JSON boolean decodes to a CFBoolean-backed NSNumber; reject it so
+        // `cols: true` / `v: true` can't validate as 1/0. Discriminate by the
+        // CoreFoundation type id rather than `is Bool`, because `NSNumber(1)
+        // as? Bool` also succeeds (the 0/1 bridging trap) and would wrongly
+        // reject the integers 0 and 1 - including version 1, the only currently
+        // valid `v`, which round-trips through JSON as an NSNumber.
+        if let number = raw as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() {
+            return nil
+        }
         switch raw {
         case let value as Int:
             return value

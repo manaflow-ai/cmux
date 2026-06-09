@@ -75,6 +75,20 @@ import Testing
         }
     }
 
+    @Test func nonIntegerVersionThrows() {
+        // A present-but-garbage `v` is malformed input, not a missing field, so
+        // it must be rejected rather than silently coerced to the current version.
+        #expect(throws: AttachRequestError.invalidVersion) {
+            try AttachHandshake.parse(params: ["surface": "a", "cols": 80, "rows": 24, "v": "abc"])
+        }
+    }
+
+    @Test func fractionalVersionThrows() {
+        #expect(throws: AttachRequestError.invalidVersion) {
+            try AttachHandshake.parse(params: ["surface": "a", "cols": 80, "rows": 24, "v": 1.5])
+        }
+    }
+
     @Test func acceptsNumericStringDimensions() throws {
         let request = try AttachHandshake.parse(params: [
             "surface": "a",
