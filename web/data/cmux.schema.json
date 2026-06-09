@@ -1061,6 +1061,21 @@
         }
       }
     },
+    "diffViewer": {
+      "title": "diffViewer",
+      "description": "Built-in diff viewer settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultLayout": {
+          "type": "string",
+          "enum": ["unified", "split"],
+          "default": "unified",
+          "description": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both.",
+          "descriptionKey": "schemaDescriptions.diffViewer.defaultLayout"
+        }
+      }
+    },
     "shortcuts": {
       "title": "shortcuts",
       "description": "Keyboard shortcut settings from Settings > Keyboard Shortcuts.",
