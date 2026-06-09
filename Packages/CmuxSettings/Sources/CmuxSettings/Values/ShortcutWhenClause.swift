@@ -13,6 +13,11 @@ import Foundation
 ///   `||` binds loosest, then `&&`, then comparisons, then `!`.
 /// - **Comparisons** against typed keys: `==`, `!=`, `=~` (regex), `<`, `<=`,
 ///   `>`, `>=`, and `in [a, b]`.
+/// - **Boolean literals**: a bare `true` parses to ``always`` and `false` to its
+///   negation, and boolean-literal equality folds onto the key itself —
+///   `key == true` ≡ `key`, `key == false` ≡ `!key` (so `key == false` also
+///   matches when the key is unset), mirroring VS Code's
+///   `ContextKeyExpr.has`/`not` normalization.
 ///
 /// An empty/whitespace clause parses to ``always``.
 ///
@@ -324,6 +329,16 @@ extension ShortcutWhenClause {
             guard let key = lhs.barewordKey else { return nil }
             _ = advance() // consume the comparison operator
             guard let operand = parseOperand(for: op) else { return nil }
+            // Boolean-literal equality folds onto the key itself, as in VS Code:
+            // `k == true` ≡ `k`, `k == false` ≡ `!k`, inverted for `!=`. Keeping
+            // the original `.atom`/`.key` node (rather than a `.compare`) lets
+            // conflict detection reason about it exactly.
+            if op == .equals || op == .notEquals,
+               case let .string(raw) = operand,
+               raw == "true" || raw == "false" {
+                let wantsKeyTrue = (raw == "true") == (op == .equals)
+                return wantsKeyTrue ? lhs : .not(lhs)
+            }
             return .compare(key: key, op: op, operand: operand)
         }
 
@@ -343,6 +358,10 @@ extension ShortcutWhenClause {
                 _ = advance()
                 return inner
             case let .identifier(name):
+                // VS Code accepts bare boolean literals: `true` is the
+                // unrestricted clause, `false` never matches.
+                if name == "true" { return .always }
+                if name == "false" { return .not(.always) }
                 if let atom = ShortcutFocusAtom(rawValue: name) {
                     return .atom(atom)
                 }

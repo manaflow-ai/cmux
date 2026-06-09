@@ -49,6 +49,43 @@ struct ShortcutWhenClauseTests {
         #expect(ShortcutWhenClause.parse("!commandPaletteVisible") == .not(.key("commandPaletteVisible")))
     }
 
+    // MARK: - Boolean literals (VS Code parity)
+
+    @Test func parsesBareBooleanLiterals() {
+        // `true` imposes no restriction; `false` never matches.
+        #expect(ShortcutWhenClause.parse("true") == .always)
+        #expect(ShortcutWhenClause.parse("false") == .not(.always))
+        #expect(ShortcutWhenClause.parse("!false") == .not(.not(.always)))
+        #expect(ShortcutWhenClause.parse("true && commandPaletteVisible")
+            == .and(.always, .key("commandPaletteVisible")))
+        let context = ShortcutContext()
+        #expect(ShortcutWhenClause.parse("true")?.evaluate(context) == true)
+        #expect(ShortcutWhenClause.parse("false")?.evaluate(context) == false)
+    }
+
+    @Test func foldsBooleanLiteralEqualityOntoTheKey() throws {
+        // `k == true` ≡ `k`, `k == false` ≡ `!k`, inverted for `!=` — VS Code's
+        // `ContextKeyExpr.has`/`not` normalization.
+        #expect(ShortcutWhenClause.parse("commandPaletteVisible == true")
+            == .key("commandPaletteVisible"))
+        #expect(ShortcutWhenClause.parse("commandPaletteVisible == false")
+            == .not(.key("commandPaletteVisible")))
+        #expect(ShortcutWhenClause.parse("commandPaletteVisible != true")
+            == .not(.key("commandPaletteVisible")))
+        #expect(ShortcutWhenClause.parse("commandPaletteVisible != false")
+            == .key("commandPaletteVisible"))
+        // Quoted literals dequote before the fold, as in VS Code.
+        #expect(ShortcutWhenClause.parse("commandPaletteVisible == 'true'")
+            == .key("commandPaletteVisible"))
+        // A focus atom keeps its `.atom` form so conflict detection stays exact.
+        #expect(ShortcutWhenClause.parse("sidebarFocus == true") == .atom(.sidebarFocus))
+        #expect(ShortcutWhenClause.parse("sidebarFocus == false") == .not(.atom(.sidebarFocus)))
+        // An absent boolean key reads as false, so `== false` matches it.
+        let context = ShortcutContext()
+        #expect(try #require(ShortcutWhenClause.parse("missingKey == false")).evaluate(context))
+        #expect(!(try #require(ShortcutWhenClause.parse("missingKey == true")).evaluate(context)))
+    }
+
     // MARK: - Comparison parsing
 
     @Test func parsesComparisons() throws {
