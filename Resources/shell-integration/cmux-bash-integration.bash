@@ -469,17 +469,41 @@ _cmux_git_head_signature() {
     [[ -n "$head_path" && -r "$head_path" ]] || return 1
     local line
     IFS= read -r line < "$head_path" || return 1
+    # See the zsh integration: git's reftable backend pins HEAD to the constant
+    # placeholder "ref: refs/heads/.invalid", so the live ref state lives in
+    # reftable/tables.list (rewritten on every ref update). Fold that into the
+    # signature so the HEAD watch still detects branch switches.
+    if [[ "$line" == "ref: refs/heads/.invalid" ]]; then
+        local reftable_list="${head_path%/*}/reftable/tables.list"
+        if [[ -r "$reftable_list" ]]; then
+            local stack=""
+            stack="$(<"$reftable_list")"
+            printf 'reftable:%s\n' "${stack//$'\n'/,}"
+            return 0
+        fi
+    fi
     printf '%s\n' "$line"
 }
 
 _cmux_git_branch_for_path() {
     local repo_path="$1"
-    local head_path="" head_line="" prefix="ref: refs/heads/"
+    local head_path="" head_line="" branch="" prefix="ref: refs/heads/"
     head_path="$(_cmux_git_resolve_head_path "$repo_path" 2>/dev/null || true)"
     [[ -n "$head_path" && -r "$head_path" ]] || return 1
-    IFS= read -r head_line < "$head_path" || return 1
-    [[ "$head_line" == "$prefix"* ]] || return 1
-    printf '%s\n' "${head_line#$prefix}"
+    IFS= read -r head_line < "$head_path" || head_line=""
+    if [[ "$head_line" == "$prefix"* ]]; then
+        branch="${head_line#$prefix}"
+        # See the zsh integration: git's reftable backend pins HEAD to the
+        # placeholder "ref: refs/heads/.invalid"; the real branch lives in the
+        # reftable stack, so fall through to git only in that case.
+        if [[ "$branch" != ".invalid" ]]; then
+            printf '%s\n' "$branch"
+            return 0
+        fi
+    fi
+    branch="$(command git -C "$repo_path" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    [[ -n "$branch" ]] || return 1
+    printf '%s\n' "$branch"
 }
 
 _cmux_set_git_active_pwd() {
@@ -896,9 +920,12 @@ _cmux_git_origin_url_read_config_file() {
         {
             line = strip_inline_comment($0)
             trimmed = trim(line)
-            if (trimmed ~ /^\[remote[[:space:]]+"origin"\][[:space:]]*$/) {
+            if (trimmed ~ /^\[remote[[:space:]]+"/) {
                 section = "remote"
                 condition = ""
+                remote_name = trimmed
+                sub(/^\[remote[[:space:]]+"/, "", remote_name)
+                sub(/"\][[:space:]]*$/, "", remote_name)
                 next
             }
             if (trimmed == "[include]") {
@@ -919,7 +946,7 @@ _cmux_git_origin_url_read_config_file() {
                 next
             }
             if (section == "remote" && line ~ /^[[:space:]]*url[[:space:]]*=/) {
-                print "remote\t" path_value(line) "\t"
+                print "remote\t" remote_name "\t" path_value(line)
             }
             if (section == "include" && line ~ /^[[:space:]]*path[[:space:]]*=/) {
                 print "include\t" path_value(line) "\t"
@@ -933,7 +960,8 @@ _cmux_git_origin_url_read_config_file() {
     while IFS=$'\t' read -r kind entry_payload entry_value; do
         case "$kind" in
             remote)
-                [[ -n "$entry_payload" ]] && _cmux_git_origin_url_result="$entry_payload" ;;
+                [[ -n "$entry_payload" && -n "$entry_value" ]] && \
+                    _cmux_git_remote_urls+="$entry_payload"$'\t'"$entry_value"$'\n' ;;
             include)
                 include_path="$(_cmux_git_config_resolve_include_path "$entry_payload" "$config_dir")"
                 [[ -r "$include_path" ]] && _cmux_git_origin_url_read_config_file "$repo_path" "$git_dir" "$common_dir" "$include_path" ;;
@@ -946,15 +974,54 @@ _cmux_git_origin_url_read_config_file() {
     done <<< "$output"
 }
 
+# Pick the best GitHub remote URL from accumulated "<name>\t<url>" lines on
+# stdin. Mirrors the app-side GitMetadataService ordering (upstream > origin >
+# other, ties broken alphabetically), keeps only github.com remotes, and takes
+# the last URL seen per remote name (git's last-one-wins). Implemented in awk so
+# the zsh and bash integrations share identical logic without associative arrays
+# (macOS /bin/bash is 3.2 and has none).
+_cmux_select_github_remote_url() {
+    awk -F'\t' '
+        function is_github(u) {
+            return (u ~ /^git@github\.com:/ ||
+                    u ~ /^ssh:\/\/git@github\.com\// ||
+                    u ~ /^https:\/\/github\.com\// ||
+                    u ~ /^http:\/\/github\.com\// ||
+                    u ~ /^git:\/\/github\.com\//)
+        }
+        function priority(name,   lower) {
+            lower = tolower(name)
+            if (lower == "upstream") return 0
+            if (lower == "origin") return 1
+            return 2
+        }
+        {
+            if ($1 == "" || $2 == "" || !is_github($2)) next
+            last_url[$1] = $2
+            seen[$1] = 1
+        }
+        END {
+            best = ""; best_priority = 99
+            for (name in seen) {
+                p = priority(name)
+                if (best == "" || p < best_priority || (p == best_priority && name < best)) {
+                    best = name; best_priority = p
+                }
+            }
+            if (best != "") print last_url[best]
+        }
+    '
+}
+
 _cmux_git_origin_url_from_config_files() {
     local repo_path="$1" git_dir="$2" common_dir="$3"
     local _cmux_git_origin_url_seen=$'\n'
     local _cmux_git_origin_url_depth=0
-    local _cmux_git_origin_url_result=""
+    local _cmux_git_remote_urls=""
 
     [[ -r "$common_dir/config" ]] && _cmux_git_origin_url_read_config_file "$repo_path" "$git_dir" "$common_dir" "$common_dir/config"
     [[ "$git_dir" != "$common_dir" && -r "$git_dir/config" ]] && _cmux_git_origin_url_read_config_file "$repo_path" "$git_dir" "$common_dir" "$git_dir/config"
-    [[ -n "$_cmux_git_origin_url_result" ]] && printf '%s\n' "$_cmux_git_origin_url_result"
+    printf '%s' "$_cmux_git_remote_urls" | _cmux_select_github_remote_url
 }
 
 _cmux_github_repo_slug_for_path() {
