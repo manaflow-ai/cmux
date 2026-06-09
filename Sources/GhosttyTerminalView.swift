@@ -1693,7 +1693,7 @@ private actor TerminalSurfaceRuntimeTeardownCoordinator {
     }
 
     private func timeoutExpired(id: UUID) {
-        timeoutTimersById.removeValue(forKey: id)
+        timeoutTimersById.removeValue(forKey: id)?.cancel()
         guard let reason = pendingReasonsById[id] else { return }
 #if DEBUG
         cmuxDebugLog(

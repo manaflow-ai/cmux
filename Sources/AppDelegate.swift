@@ -17,6 +17,9 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
+import SessionAutosave
+
+private typealias AppSessionAutosaveCoordinator = SessionAutosaveCoordinator<RestorableAgentSessionIndex>
 
 private struct MultiWindowRouteCLIResult {
     let status: String
@@ -1055,7 +1058,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
-    private let sessionAutosaveCoordinator = SessionAutosaveCoordinator()
+    private let sessionAutosaveCoordinator = AppSessionAutosaveCoordinator()
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -3985,7 +3988,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func finishSessionAutosaveTick(
         source: String,
-        runToken: SessionAutosaveCoordinator.RunToken
+        runToken: AppSessionAutosaveCoordinator.RunToken
     ) async {
 #if DEBUG
         let timingStart = CmuxTypingTiming.start()
@@ -4030,9 +4033,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return
         }
-        let restorableAgentIndex = await sessionAutosaveCoordinator.loadStaleTolerantRestorableAgentIndex()
+        let restorableAgentIndex = await sessionAutosaveCoordinator.loadSnapshot {
+            RestorableAgentSessionIndex.loadStaleTolerant()
+        }
         guard !Task.isCancelled else { return }
-        sessionAutosaveCoordinator.cacheRestorableAgentIndex(restorableAgentIndex)
+        sessionAutosaveCoordinator.cacheSnapshot(restorableAgentIndex)
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
             restorableAgentIndex: restorableAgentIndex,
@@ -4094,8 +4099,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func restorableAgentIndexForCheapSessionSnapshot(
         explicitIndex: RestorableAgentSessionIndex?
     ) -> RestorableAgentSessionIndex {
-        sessionAutosaveCoordinator.restorableAgentIndexForCheapSnapshot(
-            explicitIndex: explicitIndex,
+        sessionAutosaveCoordinator.snapshotForCheapSave(
+            explicitSnapshot: explicitIndex,
             fallbackLoader: {
                 // Seed from persisted hook metadata before the first cheap lifecycle save.
                 // This avoids an expensive live process scan while preventing an
@@ -4111,7 +4116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false
     ) -> Bool {
         let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
-        sessionAutosaveCoordinator.cacheRestorableAgentIndex(resumeIndexes.restorableAgentIndex)
+        sessionAutosaveCoordinator.cacheSnapshot(resumeIndexes.restorableAgentIndex)
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
