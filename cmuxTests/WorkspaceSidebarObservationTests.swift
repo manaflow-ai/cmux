@@ -7,6 +7,7 @@ import XCTest
 @testable import cmux
 #endif
 
+@MainActor
 final class WorkspaceSidebarObservationTests: XCTestCase {
     func testSidebarObservationPublisherEmitsForLateStatusSubscriber() {
         let workspace = Workspace()
