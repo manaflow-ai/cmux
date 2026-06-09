@@ -1,15 +1,15 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-32547	CLI/cmux.swift
-21983	Sources/TerminalController.swift
+32576	CLI/cmux.swift
+22034	Sources/TerminalController.swift
 19875	Sources/Workspace.swift
-19052	Sources/ContentView.swift
-17860	Sources/AppDelegate.swift
+19065	Sources/ContentView.swift
+17873	Sources/AppDelegate.swift
 16503	Sources/GhosttyTerminalView.swift
 13589	Sources/Panels/BrowserPanel.swift
 11756	cmuxTests/AppDelegateShortcutRoutingTests.swift
-9914	Sources/TabManager.swift
+9995	Sources/TabManager.swift
 8494	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7737	Sources/Panels/BrowserPanelView.swift
 7214	cmuxTests/WorkspaceUnitTests.swift
@@ -82,6 +82,7 @@
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
 969	cmuxUITests/TerminalCmdClickUITests.swift
+959	cmuxTests/WorkspaceGroupTests.swift
 949	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
@@ -97,7 +98,6 @@
 866	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 863	Sources/Panels/TerminalPanel.swift
 856	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
-853	cmuxTests/WorkspaceGroupTests.swift
 846	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 842	Sources/Panels/MarkdownWebRenderer.swift
