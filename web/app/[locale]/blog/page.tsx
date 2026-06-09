@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../i18n/seo";
 import { Link } from "../../../i18n/navigation";
+import { blogPosts } from "../components/blog-posts";
 
 export async function generateMetadata({
   params,
@@ -17,30 +18,6 @@ export async function generateMetadata({
   };
 }
 
-const blogSlugs = [
-  "sessionRestore",
-  "cmuxSsh",
-  "cmuxClaudeTeams",
-  "cmuxOmo",
-  "gpl",
-  "cmdShiftU",
-  "zenOfCmux",
-  "showHnLaunch",
-  "introducingCmux",
-] as const;
-
-const slugToPath: Record<string, string> = {
-  sessionRestore: "session-restore",
-  cmuxOmo: "cmux-omo",
-  cmuxClaudeTeams: "cmux-claude-teams",
-  cmuxSsh: "cmux-ssh",
-  gpl: "gpl",
-  cmdShiftU: "cmd-shift-u",
-  zenOfCmux: "zen-of-cmux",
-  showHnLaunch: "show-hn-launch",
-  introducingCmux: "introducing-cmux",
-};
-
 export default function BlogPage() {
   const t = useTranslations("blog");
 
@@ -48,20 +25,20 @@ export default function BlogPage() {
     <>
       <h1>{t("title")}</h1>
       <div className="space-y-4 mt-6">
-        {blogSlugs.map((slug) => (
-          <article key={slug}>
+        {blogPosts.map((post) => (
+          <article key={post.slug}>
             <Link
-              href={`/blog/${slugToPath[slug]}`}
+              href={`/blog/${post.slug}`}
               className="block group"
             >
               <h2 className="text-lg font-medium group-hover:underline">
-                {t(`posts.${slug}.title`)}
+                {t(`posts.${post.key}.title`)}
               </h2>
               <time className="text-sm text-muted">
-                {t(`posts.${slug}.date`)}
+                {t(`posts.${post.key}.date`)}
               </time>
               <p className="mt-1 text-muted">
-                {t(`posts.${slug}.summary`)}
+                {t(`posts.${post.key}.summary`)}
               </p>
             </Link>
           </article>

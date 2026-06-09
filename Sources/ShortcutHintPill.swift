@@ -59,3 +59,31 @@ struct ShortcutHintPill: View {
             .background(ShortcutHintPillBackground(emphasis: emphasis))
     }
 }
+
+/// Standard top-trailing sidebar overlay used by every cmd-hold hint chip
+/// in the sidebar (workspace rows, group headers, etc.) so they share font
+/// size, padding, transition, and emphasis settings. Pass `text == nil` to
+/// render nothing.
+extension View {
+    @ViewBuilder
+    func sidebarShortcutHintOverlay(
+        text: String?,
+        emphasis: Double,
+        offsetX: Double,
+        offsetY: Double,
+        fontSize: CGFloat = 10
+    ) -> some View {
+        overlay(alignment: .topTrailing) {
+            if let text {
+                ShortcutHintPill(text: text, fontSize: fontSize, emphasis: emphasis)
+                    .offset(
+                        x: ShortcutHintDebugSettings.clamped(offsetX),
+                        y: ShortcutHintDebugSettings.clamped(offsetY)
+                    )
+                    .padding(.top, 6)
+                    .padding(.trailing, 10)
+                    .shortcutHintTransition()
+            }
+        }
+    }
+}

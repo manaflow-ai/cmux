@@ -5,6 +5,16 @@ import Foundation
 final class CloudVMActionLauncher {
     static let shared = CloudVMActionLauncher()
 
+    struct Completion {
+        let terminationStatus: Int32
+        let output: String
+        let workspaceId: UUID?
+
+        var succeeded: Bool {
+            terminationStatus == 0
+        }
+    }
+
     private var processes: [Int32: Process] = [:]
     private var isShuttingDown = false
 
@@ -19,7 +29,11 @@ final class CloudVMActionLauncher {
     }
 
     @discardableResult
-    func start(socketPath: String, preferredWindow: NSWindow?) -> Bool {
+    func start(
+        socketPath: String,
+        preferredWindow: NSWindow?,
+        onCompletion: ((Completion) -> Void)? = nil
+    ) -> Bool {
         let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
         guard let cliURL,
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
@@ -40,7 +54,7 @@ final class CloudVMActionLauncher {
 
         let process = Process()
         process.executableURL = cliURL
-        process.arguments = ["--socket", socketPath, "vm", "new"]
+        process.arguments = ["--socket", socketPath, "--id-format", "uuids", "vm", "new"]
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
@@ -60,6 +74,13 @@ final class CloudVMActionLauncher {
             let terminationStatus = terminatedProcess.terminationStatus
             Task { @MainActor in
                 Self.shared.processes.removeValue(forKey: processIdentifier)
+                onCompletion?(
+                    Completion(
+                        terminationStatus: terminationStatus,
+                        output: output,
+                        workspaceId: Self.createdWorkspaceId(from: output)
+                    )
+                )
                 guard terminationStatus != 0, !Self.shared.isShuttingDown else { return }
                 let format = String(
                     localized: "command.cloudVM.failed.exit",
@@ -100,6 +121,18 @@ final class CloudVMActionLauncher {
             )
             return false
         }
+    }
+
+    private static func createdWorkspaceId(from output: String) -> UUID? {
+        for token in output.split(whereSeparator: \.isWhitespace) {
+            let string = String(token)
+            guard string.hasPrefix("workspace=") else { continue }
+            let rawValue = String(string.dropFirst("workspace=".count))
+            if let id = UUID(uuidString: rawValue) {
+                return id
+            }
+        }
+        return nil
     }
 
     private func presentStartFailure(summary: String, output: String, action: String, preferredWindow: NSWindow?) {
@@ -242,10 +275,24 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     func start() {
         stdoutHandle.readabilityHandler = { [weak self] handle in
-            self?.append(handle.availableData, to: .stdout)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                self?.append(data, to: .stdout)
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
+            }
         }
         stderrHandle.readabilityHandler = { [weak self] handle in
-            self?.append(handle.availableData, to: .stderr)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                self?.append(data, to: .stderr)
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
+            }
         }
     }
 
@@ -262,8 +309,8 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
-        append(stdoutHandle.readDataToEndOfFile(), to: .stdout)
-        append(stderrHandle.readDataToEndOfFile(), to: .stderr)
+        append(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutHandle), to: .stdout)
+        append(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrHandle), to: .stderr)
         try? stdoutHandle.close()
         try? stderrHandle.close()
 

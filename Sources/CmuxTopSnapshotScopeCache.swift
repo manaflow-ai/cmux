@@ -197,3 +197,12 @@ nonisolated extension CmuxTopProcessSnapshot {
         return process
     }
 }
+
+nonisolated extension CmuxTopProcessArguments {
+    func matchesCMUXScope(workspaceId: UUID, surfaceId: UUID) -> Bool {
+        guard let scope = CmuxTopProcessSnapshot.cmuxScope(arguments: arguments, environment: environment) else {
+            return false
+        }
+        return scope.workspaceID == workspaceId && scope.surfaceID == surfaceId
+    }
+}

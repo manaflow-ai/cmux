@@ -15,6 +15,11 @@ public enum HermesAgentHookConfig {
         }
     }
 
+    private struct EventGroup {
+        var name: String
+        var events: [Event]
+    }
+
     private static let beginMarker = "# cmux hooks hermes-agent begin"
     private static let endMarker = "# cmux hooks hermes-agent end"
     private static let restoreLineMarkerPrefix = "\(beginMarker) restore-line-base64:"
@@ -37,18 +42,18 @@ public enum HermesAgentHookConfig {
             }
             let childIndent = leadingWhitespace(lines[hooksIndex]) + "  "
             let existingEvents = directEventLineIndexes(in: lines, hooksIndex: hooksIndex)
-            var missingEvents: [Event] = []
-            var matchedEvents: [(event: Event, eventIndex: Int)] = []
+            var missingEventGroups: [EventGroup] = []
+            var matchedEventGroups: [(eventGroup: EventGroup, eventIndex: Int)] = []
 
-            for event in events {
-                guard let eventIndex = existingEvents[event.name] else {
-                    missingEvents.append(event)
+            for eventGroup in eventGroupsByNamePreservingOrder(events) {
+                guard let eventIndex = existingEvents[eventGroup.name] else {
+                    missingEventGroups.append(eventGroup)
                     continue
                 }
-                matchedEvents.append((event, eventIndex))
+                matchedEventGroups.append((eventGroup, eventIndex))
             }
 
-            for (event, eventIndex) in matchedEvents.sorted(by: { $0.eventIndex > $1.eventIndex }) {
+            for (eventGroup, eventIndex) in matchedEventGroups.sorted(by: { $0.eventIndex > $1.eventIndex }) {
                 let eventRestoreLine: String?
                 if inlineEmptyEventLine(lines[eventIndex]) {
                     let originalLine = lines[eventIndex]
@@ -59,13 +64,13 @@ public enum HermesAgentHookConfig {
                     eventRestoreLine = nil
                 }
                 let entryIndent = leadingWhitespace(lines[eventIndex]) + "  "
-                let block = hookListBlock(events: [event], itemIndent: entryIndent, restoreLine: eventRestoreLine)
+                let block = hookListBlock(events: eventGroup.events, itemIndent: entryIndent, restoreLine: eventRestoreLine)
                 lines.insert(contentsOf: block, at: eventIndex + 1)
             }
 
-            if !missingEvents.isEmpty {
+            if !missingEventGroups.isEmpty {
                 let block = eventSectionsBlock(
-                    events: missingEvents,
+                    eventGroups: missingEventGroups,
                     childIndent: childIndent,
                     restoreLine: hooksRestoreLine
                 )
@@ -110,13 +115,27 @@ public enum HermesAgentHookConfig {
         includeMarkers: Bool = true,
         restoreLine: String? = nil
     ) -> [String] {
+        eventSectionsBlock(
+            eventGroups: eventGroupsByNamePreservingOrder(events),
+            childIndent: childIndent,
+            includeMarkers: includeMarkers,
+            restoreLine: restoreLine
+        )
+    }
+
+    private static func eventSectionsBlock(
+        eventGroups: [EventGroup],
+        childIndent: String,
+        includeMarkers: Bool = true,
+        restoreLine: String? = nil
+    ) -> [String] {
         var lines: [String] = []
         if includeMarkers {
             lines.append("\(childIndent)\(beginMarkerLine(restoreLine: restoreLine))")
         }
-        for event in events {
-            lines.append("\(childIndent)\(event.name):")
-            lines.append(contentsOf: hookEntries(events: [event], itemIndent: childIndent + "  "))
+        for eventGroup in eventGroups {
+            lines.append("\(childIndent)\(eventGroup.name):")
+            lines.append(contentsOf: hookEntries(events: eventGroup.events, itemIndent: childIndent + "  "))
         }
         if includeMarkers {
             lines.append("\(childIndent)\(endMarker)")
@@ -141,6 +160,20 @@ public enum HermesAgentHookConfig {
             lines.append("\(itemIndent)  timeout: \(event.timeout)")
         }
         return lines
+    }
+
+    private static func eventGroupsByNamePreservingOrder(_ events: [Event]) -> [EventGroup] {
+        var eventGroups: [EventGroup] = []
+        var indexesByName: [String: Int] = [:]
+        for event in events {
+            if let index = indexesByName[event.name] {
+                eventGroups[index].events.append(event)
+            } else {
+                indexesByName[event.name] = eventGroups.count
+                eventGroups.append(EventGroup(name: event.name, events: [event]))
+            }
+        }
+        return eventGroups
     }
 
     private static func removingMarkedBlocks(_ lines: [String]) -> [String] {

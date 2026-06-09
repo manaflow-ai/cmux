@@ -50,7 +50,7 @@
 1001	cmuxTests/SidebarOrderingTests.swift
 987	Sources/CommandPalette/CommandPaletteSearch.swift
 976	cmuxTests/OmnibarAndToolsTests.swift
-923	Sources/DockPanelView.swift
+924	Sources/DockPanelView.swift
 908	cmuxTests/CommandPaletteSearchEngineTests.swift
 829	cmuxUITests/TerminalCmdClickUITests.swift
 820	Sources/RestorableAgentSession.swift

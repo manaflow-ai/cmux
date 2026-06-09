@@ -15,6 +15,10 @@ public struct OAuthUrlResult: Sendable {
     public let redirectUrl: String
 }
 
+struct OAuthAuthorizationLocationResponse: Decodable {
+    let location: String
+}
+
 /// Get user options
 public enum GetUserOr: Sendable {
     case returnNull
@@ -171,6 +175,10 @@ public actor StackClientApp {
     }
     
     #if canImport(AuthenticationServices) && !os(watchOS)
+    private final class WebAuthenticationSessionHolder {
+        var session: ASWebAuthenticationSession?
+    }
+
     /// Sign in with OAuth using ASWebAuthenticationSession (or native Apple Sign In for "apple" provider)
     /// - Parameters:
     ///   - provider: The OAuth provider ID (e.g., "google", "github", "apple")
@@ -193,12 +201,16 @@ public actor StackClientApp {
             redirectUrl: callbackScheme + "://success",
             errorRedirectUrl: callbackScheme + "://error"
         )
+        let providerAuthorizationUrl = try await getOAuthProviderAuthorizationUrl(oauth.url)
+        let sessionHolder = WebAuthenticationSessionHolder()
         
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let session = ASWebAuthenticationSession(
-                url: oauth.url,
+                url: providerAuthorizationUrl,
                 callbackURLScheme: callbackScheme
             ) { callbackUrl, error in
+                sessionHolder.session = nil
+
                 if let error = error {
                     if (error as NSError).code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
                         continuation.resume(throwing: StackAuthError(code: "oauth_cancelled", message: "User cancelled OAuth"))
@@ -231,10 +243,53 @@ public actor StackClientApp {
             }
             #endif
             
-            session.start()
+            sessionHolder.session = session
+            if !session.start() {
+                sessionHolder.session = nil
+                continuation.resume(throwing: OAuthError(code: "oauth_error", message: "Failed to start OAuth session"))
+            }
         }
     }
-    
+
+    private func getOAuthProviderAuthorizationUrl(_ authorizeUrl: URL) async throws -> URL {
+        guard var components = URLComponents(url: authorizeUrl, resolvingAgainstBaseURL: false) else {
+            throw StackAuthError(code: "invalid_url", message: "Failed to construct OAuth URL")
+        }
+
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll { $0.name == "stack_response_mode" }
+        queryItems.append(URLQueryItem(name: "stack_response_mode", value: "json"))
+        components.queryItems = queryItems
+
+        guard let jsonAuthorizeUrl = components.url else {
+            throw StackAuthError(code: "invalid_url", message: "Failed to construct OAuth URL")
+        }
+
+        var request = URLRequest(url: jsonAuthorizeUrl)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw OAuthError(code: "invalid_response", message: "Invalid HTTP response")
+        }
+
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw OAuthError(code: "oauth_error", message: "OAuth authorization request failed with HTTP \(httpResponse.statusCode)")
+        }
+
+        let decoded: OAuthAuthorizationLocationResponse
+        do {
+            decoded = try JSONDecoder().decode(OAuthAuthorizationLocationResponse.self, from: data)
+        } catch {
+            throw OAuthError(code: "parse_error", message: "Failed to parse OAuth authorization response")
+        }
+
+        let providerUrl = try Self.validatedOAuthProviderAuthorizationUrl(from: decoded.location)
+
+        return providerUrl
+    }
+
     /// Native Apple Sign In using ASAuthorizationController
     @MainActor
     private func signInWithAppleNative(
@@ -284,6 +339,7 @@ public actor StackClientApp {
         let url = URL(string: "\(baseUrl)/api/v1/auth/oauth/callback/apple/native")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
         request.setValue("client", forHTTPHeaderField: "x-stack-access-type")
@@ -304,9 +360,6 @@ public actor StackClientApp {
             // Check for known error in response
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let errorCode = json["code"] as? String {
-                if errorCode == "INVALID_APPLE_CREDENTIALS" {
-                    fatalError("Invalid Apple credentials")
-                }
                 let message = json["error"] as? String ?? "Apple Sign In failed"
                 throw OAuthError(code: errorCode, message: message)
             }
@@ -322,6 +375,23 @@ public actor StackClientApp {
         await client.setTokens(accessToken: accessToken, refreshToken: refreshToken)
     }
     #endif
+
+    static func validatedOAuthProviderAuthorizationUrl(from location: String) throws -> URL {
+        let invalidHostCharacters = CharacterSet.whitespacesAndNewlines
+            .union(.controlCharacters)
+            .union(CharacterSet(charactersIn: "/\\?#@%"))
+        guard let components = URLComponents(string: location),
+              components.scheme?.lowercased() == "https",
+              components.user == nil,
+              components.password == nil,
+              let host = components.host,
+              !host.isEmpty,
+              host.rangeOfCharacter(from: invalidHostCharacters) == nil,
+              let providerUrl = components.url else {
+            throw OAuthError(code: "invalid_url", message: "OAuth authorization response contained an invalid provider URL")
+        }
+        return providerUrl
+    }
     
     /// Complete the OAuth flow with the callback URL
     /// - Parameters:
@@ -343,6 +413,7 @@ public actor StackClientApp {
         let tokenUrl = URL(string: "\(baseUrl)/api/v1/auth/oauth/token")!
         var request = URLRequest(url: tokenUrl)
         request.httpMethod = "POST"
+        request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
         
@@ -766,6 +837,27 @@ public actor StackClientApp {
             return await client.getRefreshToken(tokenStoreOverride: overrideStore)
         }
         return await client.getRefreshToken()
+    }
+
+    /// Forcibly mint a new access token from the stored refresh token, bypassing
+    /// the freshness check that ``getAccessToken(tokenStore:)`` applies.
+    ///
+    /// Use this after the server has rejected the current access token: a normal
+    /// ``getAccessToken(tokenStore:)`` would hand back the same still-"fresh
+    /// enough" token and the rejection would repeat. This serializes through
+    /// `RefreshLockManager` (no overlapping refresh exchanges) and only clears
+    /// the stored tokens on a definitive server rejection (HTTP 400/401); a
+    /// transient failure preserves them and returns `nil` so the caller can
+    /// retry without being signed out.
+    ///
+    /// - Returns: a freshly minted access token, or `nil` when no new token could
+    ///   be obtained (transient failure, or the refresh token was rejected).
+    public func fetchNewAccessToken(tokenStore: TokenStoreInit? = nil) async -> String? {
+        let overrideStore = resolveTokenStore(tokenStore)
+        if let overrideStore = overrideStore {
+            return await client.fetchNewAccessToken(tokenStoreOverride: overrideStore).accessToken
+        }
+        return await client.fetchNewAccessToken().accessToken
     }
     
     public func getAuthHeaders(tokenStore: TokenStoreInit? = nil) async -> [String: String] {

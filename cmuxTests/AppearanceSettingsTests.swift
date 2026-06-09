@@ -290,6 +290,103 @@ final class AppearanceSettingsTests: XCTestCase {
         )
     }
 
+    func testSplitGhosttyThemeUsesStoredDarkModeWhenAppAppearanceIsStaleLight() {
+        let suiteName = "AppearanceSettingsTests.SplitThemeStoredDark.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(AppearanceMode.dark.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+
+        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference(
+            appAppearance: NSAppearance(named: .aqua),
+            defaults: defaults,
+            systemAppearance: .init(interfaceStyle: "Dark")
+        )
+        let resolvedTheme = GhosttyConfig.resolveThemeName(
+            from: "light:Catppuccin Latte,dark:Apple System Colors",
+            preferredColorScheme: preferredColorScheme
+        )
+
+        XCTAssertEqual(preferredColorScheme, .dark)
+        XCTAssertEqual(resolvedTheme, "Apple System Colors")
+    }
+
+    func testSplitGhosttyThemeUsesStoredLightModeWhenAppAppearanceIsStaleDark() {
+        let suiteName = "AppearanceSettingsTests.SplitThemeStoredLight.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(AppearanceMode.light.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+
+        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference(
+            appAppearance: NSAppearance(named: .darkAqua),
+            defaults: defaults,
+            systemAppearance: .init(interfaceStyle: "Dark")
+        )
+        let resolvedTheme = GhosttyConfig.resolveThemeName(
+            from: "light:Catppuccin Latte,dark:Apple System Colors",
+            preferredColorScheme: preferredColorScheme
+        )
+
+        XCTAssertEqual(preferredColorScheme, .light)
+        XCTAssertEqual(resolvedTheme, "Catppuccin Latte")
+    }
+
+    func testSplitGhosttyThemeUsesSystemLightWhenAppAppearanceIsStaleDark() {
+        let suiteName = "AppearanceSettingsTests.SplitThemeSystemLight.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(AppearanceMode.system.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        defaults.removeObject(forKey: "AppleInterfaceStyle")
+
+        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference(
+            appAppearance: NSAppearance(named: .darkAqua),
+            defaults: defaults,
+            systemAppearance: .init(interfaceStyle: nil)
+        )
+        let resolvedTheme = GhosttyConfig.resolveThemeName(
+            from: "light:Monokai Pro Light,dark:Monokai Pro Machine",
+            preferredColorScheme: preferredColorScheme
+        )
+
+        XCTAssertEqual(preferredColorScheme, .light)
+        XCTAssertEqual(resolvedTheme, "Monokai Pro Light")
+    }
+
+    func testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight() {
+        let suiteName = "AppearanceSettingsTests.SplitThemeSystemDark.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(AppearanceMode.system.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+
+        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference(
+            appAppearance: NSAppearance(named: .aqua),
+            defaults: defaults,
+            systemAppearance: .init(interfaceStyle: "Dark")
+        )
+        let resolvedTheme = GhosttyConfig.resolveThemeName(
+            from: "light:Monokai Pro Light,dark:Monokai Pro Machine",
+            preferredColorScheme: preferredColorScheme
+        )
+
+        XCTAssertEqual(preferredColorScheme, .dark)
+        XCTAssertEqual(resolvedTheme, "Monokai Pro Machine")
+    }
+
     func testColorSchemeOverrideIsExplicitOnlyForManualLightAndDarkModes() {
         XCTAssertEqual(AppearanceSettings.colorSchemeOverride(for: AppearanceMode.light.rawValue), .light)
         XCTAssertEqual(AppearanceSettings.colorSchemeOverride(for: AppearanceMode.dark.rawValue), .dark)
@@ -476,4 +573,5 @@ final class AppearanceSettingsTests: XCTestCase {
             defaults.removeObject(forKey: key)
         }
     }
+
 }

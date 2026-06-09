@@ -46,6 +46,8 @@ enum RightSidebarChromeUITestRecorder {
             payload["rightSidebarSecondaryBarWidth"] = String(format: "%.3f", Double(geometry.frame.width))
             payload["rightSidebarSecondaryBarHeight"] = String(format: "%.3f", Double(geometry.titlebarHeight))
         case .named(let keyPrefix):
+            payload["\(keyPrefix)MinX"] = String(format: "%.3f", Double(geometry.frame.minX))
+            payload["\(keyPrefix)MaxX"] = String(format: "%.3f", Double(geometry.frame.maxX))
             payload["\(keyPrefix)MinY"] = String(format: "%.3f", Double(geometry.frame.minY))
             payload["\(keyPrefix)MaxY"] = String(format: "%.3f", Double(geometry.frame.maxY))
             payload["\(keyPrefix)Width"] = String(format: "%.3f", Double(geometry.frame.width))

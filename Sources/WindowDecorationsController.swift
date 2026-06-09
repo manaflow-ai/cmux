@@ -11,7 +11,6 @@ final class WindowDecorationsController {
         keyOptions: .weakMemory,
         valueOptions: .strongMemory
     )
-    private static var trafficLightDebugFrameStateKey: UInt8 = 0
 
     deinit {
         let center = NotificationCenter.default
@@ -44,9 +43,7 @@ final class WindowDecorationsController {
         }
         let shouldHideButtons = shouldHideTrafficLights(for: window)
         hideStandardButtons(on: window, hidden: shouldHideButtons)
-        if isMainWorkspaceWindow(window) {
-            applyTrafficLightDebugOffsets(to: window)
-        }
+        // Native traffic-light frames are AppKit-owned. cmux reads them for layout but never moves them.
         applyMinimalModeSidebarTitlebarClickTarget(to: window)
     }
 
@@ -58,6 +55,9 @@ final class WindowDecorationsController {
         }
         observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main, using: handler))
         observers.append(center.addObserver(forName: NSWindow.didBecomeMainNotification, object: nil, queue: .main, using: handler))
+        for name in TitlebarWindowGeometryNotifications.names {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main, using: handler))
+        }
         observers.append(center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.applyDefaultsDrivenDecorationChangeIfNeeded()
         })
@@ -339,10 +339,10 @@ final class WindowDecorationsController {
             case .toggleSidebar:
                 _ = AppDelegate.shared?.toggleSidebarInActiveMainWindow(preferredWindow: window)
             case .showNotifications:
-                let resolvedAnchorView = anchorView ?? NotificationsAnchorRegistry.shared.closestAnchor(
+                let resolvedAnchorView = NotificationsAnchorRegistry.shared.closestAnchor(
                     in: window,
                     to: locationInWindow
-                )
+                ) ?? anchorView
                 AppDelegate.shared?.toggleNotificationsPopover(animated: true, anchorView: resolvedAnchorView)
             case .newTab:
                 let targetTabManager = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)
@@ -350,6 +350,12 @@ final class WindowDecorationsController {
                     tabManager: targetTabManager,
                     debugSource: "titlebar.minimalSidebarControl"
                 )
+            case .focusHistoryBack:
+                guard focusHistoryNavigationAvailability(preferredWindow: window).canNavigateBack else { return }
+                AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)?.navigateBack()
+            case .focusHistoryForward:
+                guard focusHistoryNavigationAvailability(preferredWindow: window).canNavigateForward else { return }
+                AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)?.navigateForward()
             }
         }
     }
@@ -411,17 +417,20 @@ final class WindowDecorationsController {
             contentView.addSubview(target, positioned: .above, relativeTo: nil)
         }
 
-        let hostHeight = MinimalModeSidebarTitlebarControlsMetrics.hostHeight
         let contentBounds = contentView.bounds
-        let topInset = MinimalModeSidebarTitlebarControlsMetrics.topInset
-        let targetY = contentView.isFlipped
-            ? contentBounds.minY + topInset
-            : max(0, contentBounds.maxY - hostHeight - topInset)
-        target.frame = NSRect(
-            x: MinimalModeSidebarTitlebarControlsMetrics.leadingInset,
-            y: targetY,
-            width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
-            height: hostHeight
+        let trafficLightFrameInContent = minimalModeTrafficLightFrameInContentCoordinates(
+            window: window,
+            contentView: contentView
+        )
+        target.frame = minimalModeSidebarTitlebarControlsFrame(
+            contentBounds: contentBounds,
+            contentViewIsFlipped: contentView.isFlipped,
+            trafficLightFrameInContent: trafficLightFrameInContent,
+            visualDownwardAdjustment: trafficLightFrameInContent == nil
+                ? 0
+                : MinimalModeSidebarTitlebarControlsMetrics.titlebarControlsOpticalYOffset(
+                    backingScaleFactor: window.backingScaleFactor
+                )
         )
 
         #if DEBUG
@@ -442,39 +451,6 @@ final class WindowDecorationsController {
         minimalModeSidebarTitlebarClickTargets.removeObject(forKey: window)
     }
 
-    private func applyTrafficLightDebugOffsets(to window: NSWindow) {
-        let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
-        let offset = NSPoint(
-            x: CGFloat(snapshot.trafficLightsXOffset),
-            y: CGFloat(snapshot.trafficLightsYOffset)
-        )
-        for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            guard let button = window.standardWindowButton(buttonType) else { continue }
-            let state = trafficLightFrameState(for: button)
-            let baseOrigin: NSPoint
-            if state.currentFrameMatchesApplied(button.frame) {
-                baseOrigin = state.baseOrigin
-            } else {
-                baseOrigin = button.frame.origin
-            }
-            let nextOrigin = NSPoint(x: baseOrigin.x + offset.x, y: baseOrigin.y + offset.y)
-            if abs(button.frame.origin.x - nextOrigin.x) > 0.25 || abs(button.frame.origin.y - nextOrigin.y) > 0.25 {
-                button.setFrameOrigin(nextOrigin)
-            }
-            state.baseOrigin = baseOrigin
-            state.appliedFrame = NSRect(origin: nextOrigin, size: button.frame.size)
-        }
-    }
-
-    private func trafficLightFrameState(for button: NSButton) -> TrafficLightDebugFrameState {
-        if let state = objc_getAssociatedObject(button, &Self.trafficLightDebugFrameStateKey) as? TrafficLightDebugFrameState {
-            return state
-        }
-        let state = TrafficLightDebugFrameState(baseOrigin: button.frame.origin, appliedFrame: button.frame)
-        objc_setAssociatedObject(button, &Self.trafficLightDebugFrameStateKey, state, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        return state
-    }
-
     private func shouldHideTrafficLights(for window: NSWindow) -> Bool {
         if window.isSheet {
             return true
@@ -486,22 +462,5 @@ final class WindowDecorationsController {
             return true
         }
         return false
-    }
-}
-
-private final class TrafficLightDebugFrameState {
-    var baseOrigin: NSPoint
-    var appliedFrame: NSRect
-
-    init(baseOrigin: NSPoint, appliedFrame: NSRect) {
-        self.baseOrigin = baseOrigin
-        self.appliedFrame = appliedFrame
-    }
-
-    func currentFrameMatchesApplied(_ frame: NSRect) -> Bool {
-        abs(frame.origin.x - appliedFrame.origin.x) < 0.25
-            && abs(frame.origin.y - appliedFrame.origin.y) < 0.25
-            && abs(frame.size.width - appliedFrame.size.width) < 0.25
-            && abs(frame.size.height - appliedFrame.size.height) < 0.25
     }
 }

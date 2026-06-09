@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -9,6 +10,22 @@ import XCTest
 final class CmuxConfigContextMenuTests: XCTestCase {
     private func decode(_ json: String) throws -> CmuxConfigFile {
         try JSONDecoder().decode(CmuxConfigFile.self, from: Data(json.utf8))
+    }
+
+    @MainActor
+    private func makePNGData(size: NSSize = NSSize(width: 2, height: 2)) throws -> Data {
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor.systemBlue.setFill()
+        NSRect(origin: .zero, size: size).fill()
+        image.unlockFocus()
+
+        guard let tiffData = image.tiffRepresentation,
+              let imageRep = NSBitmapImageRep(data: tiffData),
+              let pngData = imageRep.representation(using: .png, properties: [:]) else {
+            throw XCTSkip("Could not generate PNG data for icon test.")
+        }
+        return pngData
     }
 
     @MainActor
@@ -261,6 +278,106 @@ final class CmuxConfigContextMenuTests: XCTestCase {
             XCTFail("Expected fourth context-menu item to be an action.")
         }
         XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testNewWorkspaceContextMenuIconRendererSupportsAllIconTypes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-context-menu-icons-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let iconsDirectory = root.appendingPathComponent("icons", isDirectory: true)
+        try FileManager.default.createDirectory(at: iconsDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let iconURL = iconsDirectory.appendingPathComponent("menu.png")
+        try makePNGData().write(to: iconURL)
+
+        let json = """
+        {
+          "actions": {
+            "image-action": {
+              "type": "command",
+              "command": "echo image",
+              "title": "Image Action",
+              "icon": { "type": "image", "path": "icons/menu.png" }
+            },
+            "emoji-action": {
+              "type": "command",
+              "command": "echo emoji",
+              "title": "Emoji Action"
+            },
+            "symbol-action": {
+              "type": "command",
+              "command": "echo symbol",
+              "title": "Symbol Action"
+            }
+          },
+          "ui": {
+            "newWorkspace": {
+              "contextMenu": [
+                "image-action",
+                {
+                  "action": "emoji-action",
+                  "icon": { "type": "emoji", "value": "🚀", "scale": 1.2 }
+                },
+                {
+                  "action": "symbol-action",
+                  "icon": { "type": "symbol", "name": "hammer" }
+                }
+              ]
+            }
+          }
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let actions = store.newWorkspaceContextMenuItems.compactMap { item -> CmuxResolvedConfigMenuAction? in
+            guard case .action(let action) = item else { return nil }
+            return action
+        }
+        XCTAssertEqual(actions.count, 3)
+        XCTAssertEqual(actions.map(\.iconSourcePath), [configURL.path, configURL.path, configURL.path])
+        for action in actions {
+            XCTAssertNotNil(
+                action.icon?.contextMenuImage(
+                    configSourcePath: action.iconSourcePath,
+                    globalConfigPath: store.globalConfigPath
+                )
+            )
+        }
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testContextMenuImageAssetsAreNormalizedToMenuSize() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-context-menu-large-icon-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let iconURL = root.appendingPathComponent("large.png")
+        try makePNGData(size: NSSize(width: 512, height: 256)).write(to: iconURL)
+
+        let image = try XCTUnwrap(
+            CmuxButtonIcon.imagePath(iconURL.path).contextMenuImage(
+                configSourcePath: nil,
+                globalConfigPath: root.appendingPathComponent("missing-global.json").path
+            )
+        )
+
+        XCTAssertEqual(image.size.width, 16, accuracy: 0.001)
+        XCTAssertEqual(image.size.height, 8, accuracy: 0.001)
     }
 
     @MainActor

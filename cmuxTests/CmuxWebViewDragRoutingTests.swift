@@ -254,3 +254,197 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
         XCTAssertEqual(cmuxUnitTestWKWebViewDragLifecycleEvents, [])
     }
 }
+
+@MainActor
+final class BrowserScreenshotPipelineTests: XCTestCase {
+    private func makeTestImage(width: Int, height: Int) throws -> NSImage {
+        let rep = try XCTUnwrap(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: width,
+                pixelsHigh: height,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )
+        )
+
+        for y in 0..<height {
+            for x in 0..<width {
+                rep.setColor(
+                    NSColor(
+                        calibratedRed: CGFloat(x) / CGFloat(max(width - 1, 1)),
+                        green: CGFloat(y) / CGFloat(max(height - 1, 1)),
+                        blue: 0.5,
+                        alpha: 1.0
+                    ),
+                    atX: x,
+                    y: y
+                )
+            }
+        }
+
+        let image = NSImage(size: NSSize(width: width, height: height))
+        image.addRepresentation(rep)
+        return image
+    }
+
+    func testFullPageSnapshotWritesPNGAndTIFFToPasteboard() async throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-browser-screenshot-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let image = try makeTestImage(width: 8, height: 6)
+        let result = try await BrowserScreenshotPipeline.captureAndWrite(
+            mode: .fullPage,
+            snapshot: { image },
+            pasteboard: pasteboard
+        )
+
+        XCTAssertEqual(result.outputSize.width, 8)
+        XCTAssertEqual(result.outputSize.height, 6)
+        XCTAssertNotNil(pasteboard.data(forType: .png))
+        XCTAssertNotNil(pasteboard.data(forType: .tiff))
+    }
+
+    func testScreenshotPasteboardWriterClearsExistingContentsBeforeWriting() async throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-browser-screenshot-existing-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString("existing clipboard text", forType: .string)
+
+        let image = try makeTestImage(width: 8, height: 6)
+        _ = try await BrowserScreenshotPipeline.captureAndWrite(
+            mode: .fullPage,
+            snapshot: { image },
+            pasteboard: pasteboard
+        )
+
+        XCTAssertNil(pasteboard.string(forType: .string))
+        XCTAssertNotNil(pasteboard.data(forType: .png))
+        XCTAssertNotNil(pasteboard.data(forType: .tiff))
+    }
+
+    func testScreenshotCaptureGateRejectsNestedCaptureUntilCurrentFinishes() async throws {
+        let gate = BrowserScreenshotCaptureGate()
+        var nestedCaptureRan = false
+
+        let outerResult = try await gate.run {
+            let nestedResult = try await gate.run {
+                nestedCaptureRan = true
+                return "nested"
+            }
+            XCTAssertNil(nestedResult)
+            return "outer"
+        }
+
+        XCTAssertEqual(outerResult, "outer")
+        XCTAssertFalse(nestedCaptureRan)
+
+        let nextResult = try await gate.run {
+            "next"
+        }
+        XCTAssertEqual(nextResult, "next")
+    }
+
+    func testSectionCropMapsViewSelectionIntoSnapshotImageCoordinates() throws {
+        let cropRect = try BrowserScreenshotCrop.imageRect(
+            forSelectionInView: NSRect(x: 50, y: 25, width: 100, height: 50),
+            viewBounds: NSRect(x: 0, y: 0, width: 200, height: 150),
+            imageSize: NSSize(width: 400, height: 300)
+        )
+
+        XCTAssertEqual(cropRect.origin.x, 100, accuracy: 0.001)
+        XCTAssertEqual(cropRect.origin.y, 50, accuracy: 0.001)
+        XCTAssertEqual(cropRect.width, 200, accuracy: 0.001)
+        XCTAssertEqual(cropRect.height, 100, accuracy: 0.001)
+    }
+
+    func testSectionCropSubtractsNonZeroViewBoundsOrigin() throws {
+        let cropRect = try BrowserScreenshotCrop.imageRect(
+            forSelectionInView: NSRect(x: 150, y: 75, width: 50, height: 25),
+            viewBounds: NSRect(x: 100, y: 50, width: 200, height: 100),
+            imageSize: NSSize(width: 400, height: 200)
+        )
+
+        XCTAssertEqual(cropRect.origin.x, 100, accuracy: 0.001)
+        XCTAssertEqual(cropRect.origin.y, 50, accuracy: 0.001)
+        XCTAssertEqual(cropRect.width, 100, accuracy: 0.001)
+        XCTAssertEqual(cropRect.height, 50, accuracy: 0.001)
+    }
+
+    func testSectionSnapshotCropsSelectionBeforeWritingPasteboard() async throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-browser-screenshot-section-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let source = try makeTestImage(width: 400, height: 300)
+        let result = try await BrowserScreenshotPipeline.captureAndWrite(
+            mode: .section(
+                selectionInView: NSRect(x: 50, y: 25, width: 100, height: 50),
+                viewBounds: NSRect(x: 0, y: 0, width: 200, height: 150)
+            ),
+            snapshot: { source },
+            pasteboard: pasteboard
+        )
+
+        XCTAssertEqual(result.outputSize.width, 200)
+        XCTAssertEqual(result.outputSize.height, 100)
+
+        let pngData = try XCTUnwrap(pasteboard.data(forType: .png))
+        let croppedImage = try XCTUnwrap(NSImage(data: pngData))
+        XCTAssertEqual(croppedImage.size.width, 200)
+        XCTAssertEqual(croppedImage.size.height, 100)
+    }
+
+    func testTilePlacementUsesTopOfOversizedTileWhenClampingSourceRect() throws {
+        let rects = try XCTUnwrap(
+            BrowserScreenshotTilePlacement.drawRects(
+                tileSize: NSSize(width: 100, height: 160),
+                origin: NSPoint(x: 0, y: 100),
+                contentSize: NSSize(width: 100, height: 300),
+                viewportSize: NSSize(width: 100, height: 100)
+            )
+        )
+
+        XCTAssertEqual(rects.source.origin.x, 0, accuracy: 0.001)
+        XCTAssertEqual(rects.source.origin.y, 60, accuracy: 0.001)
+        XCTAssertEqual(rects.source.width, 100, accuracy: 0.001)
+        XCTAssertEqual(rects.source.height, 100, accuracy: 0.001)
+        XCTAssertEqual(rects.destination.origin.x, 0, accuracy: 0.001)
+        XCTAssertEqual(rects.destination.origin.y, 100, accuracy: 0.001)
+        XCTAssertEqual(rects.destination.width, 100, accuracy: 0.001)
+        XCTAssertEqual(rects.destination.height, 100, accuracy: 0.001)
+    }
+
+    func testFullPageCaptureBoundsRejectsHugePageBeforeBitmapAllocation() throws {
+        XCTAssertNoThrow(
+            try BrowserScreenshotCaptureBounds.validateFullPageSize(
+                NSSize(width: 10_000, height: 10_000)
+            )
+        )
+
+        XCTAssertThrowsError(
+            try BrowserScreenshotCaptureBounds.validateFullPageSize(
+                NSSize(width: 10_001, height: 10_000)
+            )
+        ) { error in
+            guard case BrowserScreenshotError.captureAreaTooLarge = error else {
+                XCTFail("Expected captureAreaTooLarge, got \(error)")
+                return
+            }
+        }
+
+        XCTAssertThrowsError(
+            try BrowserScreenshotCaptureBounds.validateFullPageSize(
+                NSSize(width: 10_000, height: 10_001)
+            )
+        ) { error in
+            guard case BrowserScreenshotError.captureAreaTooLarge = error else {
+                XCTFail("Expected captureAreaTooLarge, got \(error)")
+                return
+            }
+        }
+    }
+}

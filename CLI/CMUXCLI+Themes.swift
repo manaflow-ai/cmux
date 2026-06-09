@@ -2,7 +2,7 @@ import Foundation
 import Darwin
 
 extension CMUXCLI {
-    static let cmuxThemeOverrideBundleIdentifier = "com.cmuxterm.app"
+    static let cmuxThemeOverrideBundleIdentifier = CmuxGhosttyConfigPathResolver.releaseBundleIdentifier
     static let cmuxThemesBlockStart = "# cmux themes start"
     static let cmuxThemesBlockEnd = "# cmux themes end"
     static let cmuxThemesReloadNotificationName = "com.cmuxterm.themes.reload-config"
@@ -37,16 +37,19 @@ extension CMUXCLI {
 
     private func runInteractiveThemes(
         socketPath: String,
+        targetBundleIdentifier: String,
         explicitPassword: String?
     ) throws {
         guard let helperURL = bundledHelperURL(named: "ghostty") else {
             throw CLIError(message: "Bundled Ghostty theme picker helper not found")
         }
 
-        let selection = currentThemeSelection()
+        let selection = currentThemeSelection(targetBundleIdentifier: targetBundleIdentifier)
         var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_THEME_PICKER_CONFIG"] = try cmuxThemeOverrideConfigURL().path
-        environment["CMUX_THEME_PICKER_BUNDLE_ID"] = themeReloadTargetBundleIdentifier(socketPath: socketPath)
+        environment["CMUX_THEME_PICKER_CONFIG"] = try cmuxThemeOverrideConfigURL(
+            targetBundleIdentifier: targetBundleIdentifier
+        ).path
+        environment["CMUX_THEME_PICKER_BUNDLE_ID"] = targetBundleIdentifier
         environment["CMUX_THEME_PICKER_TARGET"] = defaultThemePickerTargetMode(current: selection).rawValue
         environment["CMUX_THEME_PICKER_COLOR_SCHEME"] = defaultAppearancePrefersDarkThemes() ? "dark" : "light"
         if let light = selection.light {
@@ -65,7 +68,11 @@ extension CMUXCLI {
             environment: environment
         )
         guard result == .completed else { return }
-        _ = reloadThemesIfPossible(socketPath: socketPath, explicitPassword: explicitPassword)
+        _ = reloadThemesIfPossible(
+            socketPath: socketPath,
+            targetBundleIdentifier: targetBundleIdentifier,
+            explicitPassword: explicitPassword
+        )
     }
 
     private func defaultThemePickerTargetMode(current: ThemeSelection) -> ThemePickerTargetMode {
@@ -229,17 +236,28 @@ extension CMUXCLI {
         socketPath: String,
         explicitPassword: String?
     ) throws {
+        let targetBundleIdentifier = themeTargetBundleIdentifier(socketPath: socketPath)
         if commandArgs.isEmpty {
             if shouldUseInteractiveThemePicker(jsonOutput: jsonOutput) {
-                try runInteractiveThemes(socketPath: socketPath, explicitPassword: explicitPassword)
+                try runInteractiveThemes(
+                    socketPath: socketPath,
+                    targetBundleIdentifier: targetBundleIdentifier,
+                    explicitPassword: explicitPassword
+                )
                 return
             }
-            try printThemesList(jsonOutput: jsonOutput)
+            try printThemesList(
+                jsonOutput: jsonOutput,
+                targetBundleIdentifier: targetBundleIdentifier
+            )
             return
         }
 
         guard let subcommand = commandArgs.first else {
-            try printThemesList(jsonOutput: jsonOutput)
+            try printThemesList(
+                jsonOutput: jsonOutput,
+                targetBundleIdentifier: targetBundleIdentifier
+            )
             return
         }
 
@@ -248,12 +266,16 @@ extension CMUXCLI {
             if commandArgs.count > 1 {
                 throw CLIError(message: "themes list does not take any positional arguments")
             }
-            try printThemesList(jsonOutput: jsonOutput)
+            try printThemesList(
+                jsonOutput: jsonOutput,
+                targetBundleIdentifier: targetBundleIdentifier
+            )
         case "set":
             try runThemesSet(
                 args: Array(commandArgs.dropFirst()),
                 jsonOutput: jsonOutput,
                 socketPath: socketPath,
+                targetBundleIdentifier: targetBundleIdentifier,
                 explicitPassword: explicitPassword
             )
         case "clear":
@@ -263,6 +285,7 @@ extension CMUXCLI {
             try runThemesClear(
                 jsonOutput: jsonOutput,
                 socketPath: socketPath,
+                targetBundleIdentifier: targetBundleIdentifier,
                 explicitPassword: explicitPassword
             )
         default:
@@ -274,15 +297,21 @@ extension CMUXCLI {
                 args: commandArgs,
                 jsonOutput: jsonOutput,
                 socketPath: socketPath,
+                targetBundleIdentifier: targetBundleIdentifier,
                 explicitPassword: explicitPassword
             )
         }
     }
 
-    private func printThemesList(jsonOutput: Bool) throws {
+    private func printThemesList(
+        jsonOutput: Bool,
+        targetBundleIdentifier: String
+    ) throws {
         let themes = availableThemeNames()
-        let current = currentThemeSelection()
-        let configPath = try cmuxThemeOverrideConfigURL().path
+        let current = currentThemeSelection(targetBundleIdentifier: targetBundleIdentifier)
+        let configPath = try cmuxThemeOverrideConfigURL(
+            targetBundleIdentifier: targetBundleIdentifier
+        ).path
 
         if jsonOutput {
             let currentPayload: [String: Any] = [
@@ -336,6 +365,7 @@ extension CMUXCLI {
         args: [String],
         jsonOutput: Bool,
         socketPath: String,
+        targetBundleIdentifier: String,
         explicitPassword: String?
     ) throws {
         let (lightOpt, rem0) = parseOption(args, name: "--light")
@@ -346,7 +376,7 @@ extension CMUXCLI {
         }
 
         let availableThemes = availableThemeNames()
-        let current = currentThemeSelection()
+        let current = currentThemeSelection(targetBundleIdentifier: targetBundleIdentifier)
 
         let lightTheme: String?
         let darkTheme: String?
@@ -371,9 +401,13 @@ extension CMUXCLI {
             throw CLIError(message: "themes set requires at least one theme")
         }
 
-        let configURL = try writeManagedThemeOverride(rawThemeValue: rawThemeValue)
+        let configURL = try writeManagedThemeOverride(
+            rawThemeValue: rawThemeValue,
+            targetBundleIdentifier: targetBundleIdentifier
+        )
         let reloadStatus = reloadThemesIfPossible(
             socketPath: socketPath,
+            targetBundleIdentifier: targetBundleIdentifier,
             explicitPassword: explicitPassword
         )
 
@@ -399,11 +433,13 @@ extension CMUXCLI {
     private func runThemesClear(
         jsonOutput: Bool,
         socketPath: String,
+        targetBundleIdentifier: String,
         explicitPassword: String?
     ) throws {
-        let configURL = try clearManagedThemeOverride()
+        let configURL = try clearManagedThemeOverride(targetBundleIdentifier: targetBundleIdentifier)
         let reloadStatus = reloadThemesIfPossible(
             socketPath: socketPath,
+            targetBundleIdentifier: targetBundleIdentifier,
             explicitPassword: explicitPassword
         )
 
@@ -422,11 +458,11 @@ extension CMUXCLI {
         print("OK cleared config=\(configURL.path) reload=requested")
     }
 
-    private func currentThemeSelection() -> ThemeSelection {
+    private func currentThemeSelection(targetBundleIdentifier: String) -> ThemeSelection {
         var rawValue: String?
         var sourcePath: String?
 
-        for url in themeConfigSearchURLs() {
+        for url in themeConfigSearchURLs(targetBundleIdentifier: targetBundleIdentifier) {
             guard let contents = try? String(contentsOf: url, encoding: .utf8),
                   let nextValue = lastThemeDirective(in: contents) else {
                 continue

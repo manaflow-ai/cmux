@@ -67,6 +67,16 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
         let surfaceView = hostedTerminal.surfaceView
         defer { window.orderOut(nil) }
 
+        // Headless CI runners can't initialize a Metal-backed Ghostty surface
+        // (embedded_window logs error.OutOfMemory). Skip rather than report a
+        // misleading key-forwarding failure; the same test still exercises
+        // the real path on developer machines and CI environments with a
+        // logged-in GUI session.
+        try XCTSkipUnless(
+            hostedTerminal.surface.hasLiveSurface,
+            "Ghostty surface failed to initialize on this host; Metal/embedded_window unavailable."
+        )
+
         XCTAssertTrue(window.makeFirstResponder(surfaceView), "Expected Ghostty surface view to accept first responder")
         XCTAssertNotNil(surfaceView.terminalSurface)
 

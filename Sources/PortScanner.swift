@@ -476,13 +476,13 @@ final class PortScanner: @unchecked Sendable {
             }
 
             // Close the parent's write end before reading. This is required:
-            // readDataToEndOfFile() blocks until EOF, which only occurs when every
+            // The pipe reader blocks until EOF, which only occurs when every
             // write-fd holder (parent + child) has closed its copy. Keeping the
             // parent's copy open would deadlock the read. The defer below is a
             // safety net for the error path (process.run() throws), not a
             // substitute for this explicit close.
             try? stdoutWriteHandle.close()
-            let data = stdoutReadHandle.readDataToEndOfFile()
+            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutReadHandle)
             process.waitUntilExit()
 
             guard let output = String(data: data, encoding: .utf8) else {

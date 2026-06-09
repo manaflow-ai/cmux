@@ -7,6 +7,7 @@ import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
 import Sparkle
+import CmuxUpdater
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -773,6 +774,26 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
             )
         )
     }
+
+    func testTerminalFocusTextBoxCommandRestoresTextBoxAfterPaletteDismiss() {
+        XCTAssertEqual(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalFocusTextBoxInput"),
+            .terminal(.textBoxInput)
+        )
+    }
+
+    func testTerminalAttachTextBoxFileCommandRestoresTextBoxAfterPaletteDismiss() {
+        XCTAssertEqual(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalAttachTextBoxFile"),
+            .terminal(.textBoxInput)
+        )
+    }
+
+    func testOtherCommandPaletteCommandsDoNotForcePostRunFocusRestore() {
+        XCTAssertNil(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalToggleTextBoxInput")
+        )
+    }
 }
 
 
@@ -800,6 +821,44 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
         let defaults = makeDefaults()
         defaults.set(true, forKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
         XCTAssertTrue(CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled(defaults: defaults))
+    }
+}
+
+final class CommandPaletteAuthCommandTests: XCTestCase {
+    func testSignedOutContextShowsSignInCommandOnly() {
+        var context = ContentView.CommandPaletteContextSnapshot()
+        context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, false)
+        context.setBool(ContentView.CommandPaletteContextKeys.authWorking, false)
+
+        let visibleCommandIds = visibleAuthCommandIds(context)
+
+        XCTAssertEqual(visibleCommandIds, [ContentView.commandPaletteAuthSignInCommandId])
+    }
+
+    func testSignedInContextShowsSignOutCommandOnly() {
+        var context = ContentView.CommandPaletteContextSnapshot()
+        context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, true)
+        context.setBool(ContentView.CommandPaletteContextKeys.authWorking, false)
+
+        let visibleCommandIds = visibleAuthCommandIds(context)
+
+        XCTAssertEqual(visibleCommandIds, [ContentView.commandPaletteAuthSignOutCommandId])
+    }
+
+    func testWorkingAuthContextHidesSignInAndSignOutCommands() {
+        for signedIn in [false, true] {
+            var context = ContentView.CommandPaletteContextSnapshot()
+            context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, signedIn)
+            context.setBool(ContentView.CommandPaletteContextKeys.authWorking, true)
+
+            XCTAssertTrue(visibleAuthCommandIds(context).isEmpty)
+        }
+    }
+
+    private func visibleAuthCommandIds(_ context: ContentView.CommandPaletteContextSnapshot) -> [String] {
+        ContentView.commandPaletteAuthCommandContributions()
+            .filter { $0.when(context) }
+            .map(\.commandId)
     }
 }
 
@@ -840,6 +899,19 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
 
 
 final class ShortcutHintModifierPolicyTests: XCTestCase {
+    func testTitlebarShortcutHintActionSlotsIncludeFocusHistoryNavigation() {
+        XCTAssertEqual(
+            TitlebarShortcutHintActionSlot.allCases.map(\.action),
+            [
+                .toggleSidebar,
+                .showNotifications,
+                .newTab,
+                .focusHistoryBack,
+                .focusHistoryForward,
+            ]
+        )
+    }
+
     func testTitlebarShortcutHintAlwaysShowAllowsBoundNonCommandShortcut() {
         let controlShortcut = StoredShortcut(key: "R", command: false, shift: false, option: false, control: true)
         let commandShortcut = StoredShortcut(key: "R", command: true, shift: false, option: false, control: false)
@@ -1404,8 +1476,8 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
     func testDefaultOffsetsMatchCurrentBadgePlacements() {
         XCTAssertEqual(ShortcutHintDebugSettings.defaultSidebarHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultSidebarHintY, 0.0)
-        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintX, 4.0)
-        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintY, 0.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintX, 0.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintY, -5.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintY, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultRightSidebarCloseHintX, -10.0)
@@ -1518,6 +1590,24 @@ final class ShortcutHintHorizontalPlannerTests: XCTestCase {
         let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 4)
         XCTAssertEqual(rightEdges, [12, 32, 52])
     }
+
+    func testAssignRightEdgesKeepsCrowdedHintsInsideLeadingEdge() {
+        let intervals: [ClosedRange<CGFloat>] = [-2...24, 27...50, 50...76, 78...102, 104...128]
+        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 6)
+
+        let adjustedIntervals = zip(intervals, rightEdges).map { interval, rightEdge in
+            let width = interval.upperBound - interval.lowerBound
+            return (rightEdge - width)...rightEdge
+        }
+
+        XCTAssertGreaterThanOrEqual(adjustedIntervals[0].lowerBound, 0)
+        for index in 1..<adjustedIntervals.count {
+            XCTAssertGreaterThanOrEqual(
+                adjustedIntervals[index].lowerBound - adjustedIntervals[index - 1].upperBound,
+                6
+            )
+        }
+    }
 }
 
 
@@ -1596,42 +1686,231 @@ final class QuitWarningSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
-        XCTAssertTrue(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false, defaults: defaults))
+        XCTAssertTrue(
+            QuitWarningSettings.shouldShowConfirmation(
+                isQuitWarningConfirmed: false,
+                hasDirtyWorkspaces: true,
+                buildFlavor: .stable,
+                defaults: defaults
+            )
+        )
 
-        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: true, defaults: defaults))
+        XCTAssertFalse(
+            QuitWarningSettings.shouldShowConfirmation(
+                isQuitWarningConfirmed: true,
+                hasDirtyWorkspaces: true,
+                buildFlavor: .stable,
+                defaults: defaults
+            )
+        )
 
         defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
-        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false, defaults: defaults))
-        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: true, defaults: defaults))
+        XCTAssertFalse(
+            QuitWarningSettings.shouldShowConfirmation(
+                isQuitWarningConfirmed: false,
+                hasDirtyWorkspaces: true,
+                buildFlavor: .stable,
+                defaults: defaults
+            )
+        )
+        XCTAssertFalse(
+            QuitWarningSettings.shouldShowConfirmation(
+                isQuitWarningConfirmed: true,
+                hasDirtyWorkspaces: true,
+                buildFlavor: .stable,
+                defaults: defaults
+            )
+        )
+    }
+
+    func testSetEnabledWritesConfirmQuitAndLegacyFallback() {
+        let suiteName = "QuitWarningSettingsTests.SetEnabled.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        QuitWarningSettings.setEnabled(false, defaults: defaults)
+        XCTAssertEqual(defaults.string(forKey: QuitWarningSettings.confirmQuitKey), QuitConfirmationMode.never.rawValue)
+        XCTAssertEqual(defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool, false)
+        XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .never)
+
+        QuitWarningSettings.setEnabled(true, defaults: defaults)
+        XCTAssertEqual(defaults.string(forKey: QuitWarningSettings.confirmQuitKey), QuitConfirmationMode.always.rawValue)
+        XCTAssertEqual(defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool, true)
+        XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
+    }
+}
+
+final class BuildFlavorTests: XCTestCase {
+    func testDetectsDevFromBundleName() {
+        XCTAssertEqual(
+            BuildFlavor.detect(bundleName: "cmux DEV noqdlg", bundleIdentifier: "com.cmuxterm.app"),
+            .dev
+        )
+    }
+
+    func testDetectsDevBeforeTagTextCanLookNightly() {
+        XCTAssertEqual(
+            BuildFlavor.detect(bundleName: "cmux DEV nightly", bundleIdentifier: "com.cmuxterm.app"),
+            .dev
+        )
+    }
+
+    func testDetectsNightlyFromBundleIdentifier() {
+        XCTAssertEqual(
+            BuildFlavor.detect(bundleName: "cmux", bundleIdentifier: "com.cmuxterm.app.nightly"),
+            .nightly
+        )
+    }
+
+    func testDetectsStableByDefault() {
+        XCTAssertEqual(
+            BuildFlavor.detect(bundleName: "cmux", bundleIdentifier: "com.cmuxterm.app"),
+            .stable
+        )
+    }
+}
+
+final class QuitConfirmationPolicyTests: XCTestCase {
+    func testDevAlwaysSkipsQuitConfirmation() {
+        withIsolatedDefaults { defaults in
+            defaults.set(QuitConfirmationMode.always.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .dev,
+                    defaults: defaults
+                )
+            )
+
+            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .dev,
+                    defaults: defaults
+                )
+            )
+        }
+    }
+
+    func testStableHonorsConfirmQuitModes() {
+        withIsolatedDefaults { defaults in
+            defaults.set(QuitConfirmationMode.always.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertTrue(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: false,
+                    buildFlavor: .stable,
+                    defaults: defaults
+                )
+            )
+
+            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: false,
+                    buildFlavor: .stable,
+                    defaults: defaults
+                )
+            )
+            XCTAssertTrue(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .stable,
+                    defaults: defaults
+                )
+            )
+
+            defaults.set(QuitConfirmationMode.never.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .stable,
+                    defaults: defaults
+                )
+            )
+        }
+    }
+
+    func testNightlyHonorsConfirmQuitModes() {
+        withIsolatedDefaults { defaults in
+            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: false,
+                    buildFlavor: .nightly,
+                    defaults: defaults
+                )
+            )
+            XCTAssertTrue(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .nightly,
+                    defaults: defaults
+                )
+            )
+        }
+    }
+
+    func testLegacyWarnBeforeQuitMapsWhenConfirmQuitUnset() {
+        withIsolatedDefaults { defaults in
+            defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .never)
+
+            defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
+        }
+    }
+
+    private func withIsolatedDefaults(_ body: (UserDefaults) -> Void) {
+        let suiteName = "QuitConfirmationPolicyTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        body(defaults)
     }
 }
 
 
 final class UpdateChannelSettingsTests: XCTestCase {
     func testResolvedFeedFallsBackWhenInfoFeedMissing() {
-        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: nil)
-        XCTAssertEqual(resolved.url, UpdateFeedResolver.fallbackFeedURL)
+        let resolver = UpdateFeedResolver()
+        let resolved = resolver.resolve(infoFeedURL: nil)
+        XCTAssertEqual(resolved.url, resolver.fallbackFeedURL)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }
 
     func testResolvedFeedFallsBackWhenInfoFeedEmpty() {
-        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: "")
-        XCTAssertEqual(resolved.url, UpdateFeedResolver.fallbackFeedURL)
+        let resolver = UpdateFeedResolver()
+        let resolved = resolver.resolve(infoFeedURL: "")
+        XCTAssertEqual(resolved.url, resolver.fallbackFeedURL)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }
 
     func testResolvedFeedUsesInfoFeedForStableChannel() {
         let infoFeed = "https://example.com/custom/appcast.xml"
-        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeed)
+        let resolved = UpdateFeedResolver().resolve(infoFeedURL: infoFeed)
         XCTAssertEqual(resolved.url, infoFeed)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
 
     func testResolvedFeedDetectsNightlyFromInfoFeedURL() {
-        let resolved = UpdateFeedResolver.resolvedFeedURLString(
+        let resolved = UpdateFeedResolver().resolve(
             infoFeedURL: "https://example.com/nightly/appcast.xml"
         )
         XCTAssertEqual(resolved.url, "https://example.com/nightly/appcast.xml")
@@ -1644,10 +1923,10 @@ final class UpdateChannelSettingsTests: XCTestCase {
 final class UpdateSettingsTests: XCTestCase {
     func testApplyEnablesAutomaticChecksAndDailySchedule() {
         let defaults = makeDefaults()
-        UpdateSettings.apply(to: defaults)
+        UpdateSettings().apply(to: defaults)
 
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
-        XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings.scheduledCheckInterval)
+        XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings().scheduledCheckInterval)
         XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
         XCTAssertFalse(defaults.bool(forKey: UpdateSettings.sendProfileInfoKey))
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.migrationKey))
@@ -1659,14 +1938,14 @@ final class UpdateSettingsTests: XCTestCase {
         defaults.set(0, forKey: UpdateSettings.scheduledCheckIntervalKey)
         defaults.set(true, forKey: UpdateSettings.automaticallyUpdateKey)
 
-        UpdateSettings.apply(to: defaults)
+        UpdateSettings().apply(to: defaults)
 
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
-        XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings.scheduledCheckInterval)
+        XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings().scheduledCheckInterval)
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
 
         defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
-        UpdateSettings.apply(to: defaults)
+        UpdateSettings().apply(to: defaults)
 
         XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
     }
@@ -1681,11 +1960,12 @@ final class UpdateSettingsTests: XCTestCase {
     }
 }
 
+@MainActor
 final class UpdateViewModelPresentationTests: XCTestCase {
     func testDetectedBackgroundUpdateShowsPillWhileIdle() {
-        let viewModel = UpdateViewModel()
+        let viewModel = UpdateStateModel()
 
-        viewModel.detectedUpdateVersion = "9.9.9"
+        viewModel.debugSetDetectedVersion("9.9.9")
 
         XCTAssertTrue(viewModel.showsPill)
         XCTAssertTrue(viewModel.showsDetectedBackgroundUpdate)
@@ -1694,10 +1974,10 @@ final class UpdateViewModelPresentationTests: XCTestCase {
     }
 
     func testActiveUpdateStateTakesPrecedenceOverDetectedBackgroundVersion() {
-        let viewModel = UpdateViewModel()
+        let viewModel = UpdateStateModel()
 
-        viewModel.detectedUpdateVersion = "9.9.9"
-        viewModel.state = .checking(.init(cancel: {}))
+        viewModel.debugSetDetectedVersion("9.9.9")
+        viewModel.setState(.checking(.init(cancel: {})))
 
         XCTAssertTrue(viewModel.showsPill)
         XCTAssertFalse(viewModel.showsDetectedBackgroundUpdate)
@@ -1705,15 +1985,15 @@ final class UpdateViewModelPresentationTests: XCTestCase {
     }
 
     func testDismissDetectedAvailableUpdateRepliesAndClearsState() throws {
-        let viewModel = UpdateViewModel()
+        let viewModel = UpdateStateModel()
         let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
         let recorder = UpdateChoiceRecorder()
 
         viewModel.recordDetectedUpdate(item)
-        viewModel.state = .updateAvailable(.init(
+        viewModel.setState(.updateAvailable(.init(
             appcastItem: item,
             reply: { recorder.record($0) }
-        ))
+        )))
 
         viewModel.dismissDetectedAvailableUpdate()
 
@@ -1725,15 +2005,15 @@ final class UpdateViewModelPresentationTests: XCTestCase {
     }
 
     func testCancelActiveStateForNewCheckDismissesAndClearsTransientState() throws {
-        let viewModel = UpdateViewModel()
+        let viewModel = UpdateStateModel()
         let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
         let recorder = UpdateChoiceRecorder()
 
-        viewModel.state = .updateAvailable(.init(
+        viewModel.setState(.updateAvailable(.init(
             appcastItem: item,
             reply: { recorder.record($0) }
-        ))
-        viewModel.overrideState = .checking(.init(cancel: {}))
+        )))
+        viewModel.setOverrideState(.checking(.init(cancel: {})))
 
         viewModel.cancelActiveStateForNewCheck()
 
@@ -1743,14 +2023,14 @@ final class UpdateViewModelPresentationTests: XCTestCase {
     }
 
     func testApplyDriverStateRecordsDetectedUpdateMetadata() throws {
-        let viewModel = UpdateViewModel()
+        let viewModel = UpdateStateModel()
         let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
 
         viewModel.applyDriverState(.updateAvailable(.init(
             appcastItem: item,
             reply: { _ in }
         )))
-        viewModel.state = .idle
+        viewModel.setState(.idle)
 
         XCTAssertEqual(viewModel.detectedUpdateVersion, "9.9.9")
         XCTAssertTrue(viewModel.hasCachedDetectedUpdateDetails)

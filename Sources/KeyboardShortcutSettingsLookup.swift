@@ -26,7 +26,18 @@ extension KeyboardShortcutSettings {
         guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
             return .unbound
         }
-        return shortcut(for: action)
+
+        let shortcut = shortcut(for: action)
+        switch action {
+        case .browserBack
+            where !shortcut.isUnbound && shortcut == KeyboardShortcutSettings.shortcut(for: .focusHistoryBack):
+            return .unbound
+        case .browserForward
+            where !shortcut.isUnbound && shortcut == KeyboardShortcutSettings.shortcut(for: .focusHistoryForward):
+            return .unbound
+        default:
+            return shortcut
+        }
     }
 
     static func isManagedBySettingsFile(_ action: Action) -> Bool {
