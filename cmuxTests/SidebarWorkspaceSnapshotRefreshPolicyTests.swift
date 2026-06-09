@@ -1,4 +1,5 @@
 import AppKit
+import CmuxUpdater
 import SwiftUI
 import XCTest
 

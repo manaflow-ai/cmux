@@ -392,6 +392,11 @@ jobs:
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
+            if grep -Fq "The legacy row-ID preference key must not aggregate per-row IDs" /tmp/test-output.txt \
+              || grep -Fq "The default workspace sidebar must not publish non-empty row-ID layout preferences" /tmp/test-output.txt; then
+              echo "Sidebar row-ID preference regression failed"
+              exit 1
+            fi
             SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
             if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
               echo "All failures are expected, treating as pass"

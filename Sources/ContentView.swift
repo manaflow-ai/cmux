@@ -10585,8 +10585,6 @@ struct VerticalTabsSidebar: View {
     // row sitting behind the open menu. See `SidebarShortcutHintFreezePolicy`.
     @State private var frozenShortcutHintsTabId: UUID?
     @State private var frozenShortcutHintsValue: Bool = false
-    @State private var laidOutWorkspaceRowIds: Set<UUID> = []
-    @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
@@ -10865,28 +10863,14 @@ struct VerticalTabsSidebar: View {
         return KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
     }
 
-    private func requestSelectedWorkspaceScroll(_ proxy: ScrollViewProxy, workspaceIds: [UUID]) {
+    private func scrollSelectedWorkspaceIfNeeded(_ proxy: ScrollViewProxy, workspaceIds: [UUID]) {
         guard let selectedWorkspaceId = tabManager.selectedTabId,
               workspaceIds.contains(selectedWorkspaceId) else {
-            pendingSelectedWorkspaceScrollId = nil
             return
         }
 
-        pendingSelectedWorkspaceScrollId = selectedWorkspaceId
-        flushPendingSelectedWorkspaceScroll(proxy)
-    }
-
-    private func flushPendingSelectedWorkspaceScroll(
-        _ proxy: ScrollViewProxy,
-        laidOutWorkspaceRowIds: Set<UUID>? = nil
-    ) {
-        guard let selectedWorkspaceId = pendingSelectedWorkspaceScrollId else { return }
-        let rowIds = laidOutWorkspaceRowIds ?? self.laidOutWorkspaceRowIds
-        guard rowIds.contains(selectedWorkspaceId) else { return }
-
         // No anchor means SwiftUI scrolls the minimum needed to reveal the row.
         proxy.scrollTo(selectedWorkspaceId)
-        pendingSelectedWorkspaceScrollId = nil
     }
 
     private func shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
@@ -10900,14 +10884,13 @@ struct VerticalTabsSidebar: View {
         )
     }
 
-    private func requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(_ notification: Notification) {
+    private func shouldScrollSelectedWorkspaceAfterWorkspaceOrderChange(_ notification: Notification) -> Bool {
         guard let manager = notification.object as? TabManager, manager === tabManager else {
-            return
+            return false
         }
-        guard let selectedWorkspaceId = tabManager.selectedTabId else { return }
+        guard let selectedWorkspaceId = tabManager.selectedTabId else { return false }
         let movedWorkspaceIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
-        guard movedWorkspaceIds.contains(selectedWorkspaceId) else { return }
-        pendingSelectedWorkspaceScrollId = selectedWorkspaceId
+        return movedWorkspaceIds.contains(selectedWorkspaceId)
     }
 
     struct WorkspaceListRenderContext {
@@ -11173,23 +11156,25 @@ struct VerticalTabsSidebar: View {
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
                 .onAppear {
-                    requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
+                    scrollSelectedWorkspaceIfNeeded(scrollProxy, workspaceIds: renderContext.workspaceIds)
                 }
                 .onChange(of: tabManager.selectedTabId) { _, _ in
-                    requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
+                    scrollSelectedWorkspaceIfNeeded(scrollProxy, workspaceIds: renderContext.workspaceIds)
                 }
                 .onChange(of: renderContext.workspaceIds) { oldWorkspaceIds, newWorkspaceIds in
                     guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
                         from: oldWorkspaceIds,
                         to: newWorkspaceIds
                     ) else {
-                        flushPendingSelectedWorkspaceScroll(scrollProxy)
                         return
                     }
-                    requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: newWorkspaceIds)
+                    scrollSelectedWorkspaceIfNeeded(scrollProxy, workspaceIds: newWorkspaceIds)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
-                    requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
+                    guard shouldScrollSelectedWorkspaceAfterWorkspaceOrderChange(notification) else {
+                        return
+                    }
+                    scrollSelectedWorkspaceIfNeeded(scrollProxy, workspaceIds: renderContext.workspaceIds)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .workspaceCurrentDirectoryDidChange)) { _ in
                     // Drive a revision counter that the group-header resolver
@@ -11235,10 +11220,6 @@ struct VerticalTabsSidebar: View {
                     if let index = tabManager.tabs.firstIndex(where: { $0.id == focusedId }) {
                         lastSidebarSelectionIndex = index
                     }
-                }
-                .onPreferenceChange(SidebarWorkspaceRowIdsPreferenceKey.self) { rowIds in
-                    laidOutWorkspaceRowIds = rowIds
-                    flushPendingSelectedWorkspaceScroll(scrollProxy, laidOutWorkspaceRowIds: rowIds)
                 }
             }
         }
@@ -12625,7 +12606,6 @@ struct VerticalTabsSidebar: View {
         .equatable()
         .id(tab.id)
         .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
-        .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
 
         row
             .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
@@ -12638,11 +12618,16 @@ struct VerticalTabsSidebar: View {
     }
 }
 
+/// Legacy row-ID preference key kept for regression coverage.
+///
+/// The default workspace sidebar must not emit this preference from rows: doing
+/// so forces SwiftUI to aggregate a layout-derived value across the lazy list
+/// during every transaction, which can feed a non-converging layout loop.
 struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
     static let defaultValue: Set<UUID> = []
 
     static func reduce(value: inout Set<UUID>, nextValue: () -> Set<UUID>) {
-        value.formUnion(nextValue())
+        value = []
     }
 }
 
