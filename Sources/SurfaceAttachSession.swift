@@ -243,6 +243,28 @@ private func surfaceAttachWriteAll(_ fd: Int32, _ data: Data) -> Bool {
     }
 }
 
+/// Map an attach handshake parse failure to clean, user-facing detail text for
+/// the `invalid_params` error frame. Keeps the machine-readable code intact
+/// while avoiding leaking Swift enum case identifiers (e.g. `invalidColumns(80)`)
+/// to the client. Plain English to match the sibling attach wire messages.
+private func attachRequestErrorMessage(_ error: Error) -> String {
+    guard let error = error as? AttachRequestError else {
+        return "invalid attach request"
+    }
+    switch error {
+    case .missingSurface:
+        return "a surface reference is required"
+    case .invalidColumns(let cols):
+        return "column count \(cols) is out of range (1...\(AttachHandshake.maxDimension))"
+    case .invalidRows(let rows):
+        return "row count \(rows) is out of range (1...\(AttachHandshake.maxDimension))"
+    case .unsupportedVersion(let version):
+        return "attach protocol version \(version) is not supported (max \(AttachRequest.currentVersion))"
+    case .invalidVersion:
+        return "attach protocol version must be an integer"
+    }
+}
+
 extension TerminalController {
     /// Whether a v2 line is a `surface.attach_pty` request (the long-lived
     /// bare-terminal attach), detected the same way as `events.stream`.
@@ -273,7 +295,7 @@ extension TerminalController {
         do {
             request = try AttachHandshake.parse(params: params)
         } catch {
-            _ = surfaceAttachWriteAll(socket, AttachFrame.error(code: "invalid_params", message: String(describing: error)).encodedLine())
+            _ = surfaceAttachWriteAll(socket, AttachFrame.error(code: "invalid_params", message: attachRequestErrorMessage(error)).encodedLine())
             return
         }
 
@@ -304,7 +326,14 @@ extension TerminalController {
 @MainActor
 final class TerminalSurfaceAttachBridge: SurfaceAttachBridge {
     func resolveTerminalSurface(reference: String) -> UUID? {
-        guard let id = UUID(uuidString: reference) else { return nil }
+        // Accept either a canonical surface UUID (what `list_surfaces` emits and
+        // the CLI pre-resolves to) or a v2 handle ref like `surface:3` / `tab:3`,
+        // matching the AttachRequest contract that the host resolves the ref and
+        // the resolution every other v2 surface endpoint already does. Resolve
+        // via the shared v2 handle registry, then confirm the surface still exists.
+        let id = UUID(uuidString: reference)
+            ?? TerminalController.shared.v2ResolveHandleRef(reference)
+        guard let id else { return nil }
         return TerminalSurfaceRegistry.shared.surface(id: id) != nil ? id : nil
     }
 
