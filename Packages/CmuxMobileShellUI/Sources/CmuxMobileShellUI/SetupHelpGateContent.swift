@@ -13,12 +13,6 @@ struct SetupHelpGateContent {
     let linkAccessibilityIdentifier: String
 }
 
-/// An optional inline link shown under a gate's guidance body.
-struct SetupHelpGateLink {
-    let title: String
-    let url: URL
-}
-
 /// Founders Edition page: cmux for Mac download plus TestFlight enrollment, used
 /// by the "Run cmux on your Mac" gate.
 private let setupHelpMacDownloadURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
