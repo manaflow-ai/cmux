@@ -6473,7 +6473,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         let scaleFactors = scaleFactors(for: view)
 
-        let baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
+        var baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
         var surfaceConfig = ghostty_surface_config_new()
         surfaceConfig.font_size = baseConfig.fontSize
         surfaceConfig.wait_after_command = baseConfig.waitAfterCommand
@@ -6568,10 +6568,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !KiroIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_KIRO_HOOKS_DISABLED", "1")
         }
-        setManagedEnvironmentValue(
-            "CMUX_KIRO_NOTIFICATION_LEVEL",
-            KiroIntegrationSettings.notificationLevel().rawValue
-        )
+        setManagedEnvironmentValue("CMUX_KIRO_NOTIFICATION_LEVEL", KiroIntegrationSettings.notificationLevel().rawValue)
         if !AmpIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_AMP_HOOKS_DISABLED", "1")
         }
@@ -6602,7 +6599,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
         }
 
-        // Shell integration: inject ZDOTDIR wrapper for zsh shells.
+        // Shell integration: inject startup wrappers for supported shells.
         let shellIntegrationEnabled = UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true
         if shellIntegrationEnabled,
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path {
@@ -6680,6 +6677,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
                     Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
                         .error("cmux bash bootstrap unreadable at \(bashBootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); bash shell integration will not load")
                 }
+            } else if shellName == "fish" {
+                Self.applyManagedFishStartupEnvironment(integrationDir: integrationDir, to: &env, protectedKeys: &protectedStartupEnvironmentKeys)
+                if baseConfig.command?.isEmpty != false { baseConfig.command = Self.managedFishShellCommand(shell: shell) }
             }
         }
         env = Self.mergedStartupEnvironment(
