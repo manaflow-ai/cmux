@@ -311,7 +311,12 @@ final class MobileHostService {
             "workspace.actions.v1",
         ]
         #if DEBUG
-        capabilities.append("dogfood.v1")
+        // `dogfood.v1` is the P1 umbrella (the `dogfood.feedback.submit` sink).
+        // `dogfood.checklist`/`dogfood.feedback` are the P2 verbs the floating
+        // pane gates on: a P1-only Mac advertises only `dogfood.v1`, so a newer
+        // phone skips the checklist subscribe + fetch and never eats a
+        // `method_not_found`.
+        capabilities.append(contentsOf: ["dogfood.v1", "dogfood.checklist", "dogfood.feedback"])
         #endif
         return capabilities
     }
@@ -337,6 +342,16 @@ final class MobileHostService {
     private var readinessTimeoutTask: Task<Void, Never>?
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
+    /// The current DEV dogfood checklist as opaque validated JSON (a top-level
+    /// object), set by the `dogfood_checklist_set` debug-socket command and
+    /// served to the phone via `dogfood.checklist.fetch`. The Mac never models
+    /// the schema (the phone owns the typed decode), so it stays
+    /// schema-agnostic. `nil` until the agent pushes one.
+    private var dogfoodChecklistJSON: [String: Any]?
+    /// Reject a checklist larger than this on `dogfood_checklist_set` so a hostile
+    /// or runaway client can't push a giant blob the Mac then re-serializes per
+    /// fetch.
+    nonisolated static let dogfoodChecklistMaxBytes = 65_536
     #endif
 
     private init() {}
@@ -355,6 +370,63 @@ final class MobileHostService {
         guard auth.isAuthenticated else { return nil }
         return auth.currentUser?.id
     }
+
+    #if DEBUG
+    /// The topic the DEV dogfood checklist is pushed/served on.
+    nonisolated static let dogfoodChecklistTopic = "dogfood.checklist"
+
+    /// Set the current DEV dogfood checklist from raw JSON pushed by the agent
+    /// (the `dogfood_checklist_set` debug-socket command), then push it to every
+    /// subscribed phone over the `dogfood.checklist` event topic.
+    ///
+    /// The JSON is validated as a top-level object and size-capped, but its
+    /// schema is otherwise opaque to the Mac (the phone owns the typed decode).
+    /// - Parameter rawJSON: The checklist JSON bytes.
+    /// - Returns: `true` when stored + pushed; `false` when the JSON is
+    ///   oversized, not parseable, or not a top-level object.
+    @discardableResult
+    func setDogfoodChecklist(rawJSON: Data) -> Bool {
+        guard rawJSON.count <= Self.dogfoodChecklistMaxBytes else { return false }
+        guard let object = try? JSONSerialization.jsonObject(with: rawJSON) as? [String: Any] else {
+            return false
+        }
+        dogfoodChecklistJSON = object
+        // Push to any subscribed phone. A checklist set before a device subscribes
+        // is not lost: the phone pulls via `dogfood.checklist.fetch` on connect.
+        //
+        // Auth posture (intended): the checklist push shares the SAME same-account
+        // gate as every other event topic. `mobile.events.subscribe` is itself
+        // authorization-required (only `mobile.host.status` is exempt in
+        // `requiresAuthorization`), so no unauthenticated or cross-account client
+        // ever receives this. The scoped-attach-ticket allowance for subscribe
+        // governs workspace scope, not account identity, and the checklist is
+        // agent-authored test text with no workspace scope — strictly less
+        // sensitive than the `terminal.render_grid` / `workspace.updated` live
+        // terminal content already delivered on this same channel to those
+        // clients. The more-restrictive `dogfood.checklist.fetch` gate is
+        // incidental (every RPC defaults to authorization-required), not a
+        // stronger intended gate that the push undercuts. DEBUG-only regardless.
+        emitEvent(topic: Self.dogfoodChecklistTopic, payload: object)
+        return true
+    }
+
+    /// Clear the current DEV dogfood checklist and push an empty checklist to
+    /// every subscribed phone so the pane shows its empty state instead of a
+    /// stale checklist. `dogfood.checklist.fetch` then reports no checklist.
+    func clearDogfoodChecklist() {
+        dogfoodChecklistJSON = nil
+        // Push an explicit empty checklist (an object with an empty `items`
+        // array) so a subscribed phone applies the cleared state immediately;
+        // the typed decoder reads a missing/empty `items` as an empty checklist.
+        emitEvent(topic: Self.dogfoodChecklistTopic, payload: ["items": [Any]()])
+    }
+
+    /// The current checklist JSON object, or `nil` if none is set. Served by the
+    /// `dogfood.checklist.fetch` RPC.
+    func currentDogfoodChecklist() -> [String: Any]? {
+        dogfoodChecklistJSON
+    }
+    #endif
 
     /// Fan out a server-pushed event to every connection subscribed to `topic`.
     /// Safe to call from any actor/queue.
