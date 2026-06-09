@@ -6473,7 +6473,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         let scaleFactors = scaleFactors(for: view)
 
-        let baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
+        var baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
         var surfaceConfig = ghostty_surface_config_new()
         surfaceConfig.font_size = baseConfig.fontSize
         surfaceConfig.wait_after_command = baseConfig.waitAfterCommand
@@ -6496,7 +6496,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
         var envVars: [ghostty_env_var_s] = []
         var envStorage: [(UnsafeMutablePointer<CChar>, UnsafeMutablePointer<CChar>)] = []
-        var managedFishShellCommand: String?
         defer {
             for (key, value) in envStorage {
                 free(key)
@@ -6569,10 +6568,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !KiroIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_KIRO_HOOKS_DISABLED", "1")
         }
-        setManagedEnvironmentValue(
-            "CMUX_KIRO_NOTIFICATION_LEVEL",
-            KiroIntegrationSettings.notificationLevel().rawValue
-        )
+        setManagedEnvironmentValue("CMUX_KIRO_NOTIFICATION_LEVEL", KiroIntegrationSettings.notificationLevel().rawValue)
         if !AmpIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_AMP_HOOKS_DISABLED", "1")
         }
@@ -6682,12 +6678,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
                         .error("cmux bash bootstrap unreadable at \(bashBootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); bash shell integration will not load")
                 }
             } else if shellName == "fish" {
-                Self.applyManagedFishStartupEnvironment(
-                    integrationDir: integrationDir,
-                    to: &env,
-                    protectedKeys: &protectedStartupEnvironmentKeys
-                )
-                managedFishShellCommand = Self.managedFishShellCommand(shell: shell)
+                Self.applyManagedFishStartupEnvironment(integrationDir: integrationDir, to: &env, protectedKeys: &protectedStartupEnvironmentKeys)
+                if baseConfig.command?.isEmpty != false { baseConfig.command = Self.managedFishShellCommand(shell: shell) }
             }
         }
         env = Self.mergedStartupEnvironment(
@@ -6731,10 +6723,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             if let initialCommand, !initialCommand.isEmpty {
                 return initialCommand
             }
-            if let command = baseConfig.command, !command.isEmpty {
-                return command
-            }
-            return managedFishShellCommand
+            return baseConfig.command
         }()
         let runtimeInitialInput = nextRuntimeInitialInput
         let resolvedInitialInput: String? = {
