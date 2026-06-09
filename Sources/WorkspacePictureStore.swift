@@ -163,9 +163,22 @@ final class WorkspacePictureStore {
             return nil
         }
         let hash = Self.contentHash(of: png)
+        evictCachedBytesForPreviousHash(of: workspaceID, keeping: hash)
         hashCache[workspaceID] = hash
         bytesByHash[hash] = png
         return hash
+    }
+
+    /// Drop the bytes cached under a workspace's previous hash so repeated
+    /// picture changes don't accumulate stale PNGs in the in-memory cache. If
+    /// another workspace happens to share the evicted hash, its next read is a
+    /// cheap cache miss re-served from its own file.
+    private func evictCachedBytesForPreviousHash(of workspaceID: UUID, keeping newHash: String? = nil) {
+        if case let .some(previousHash) = hashCache[workspaceID],
+           let previousHash,
+           previousHash != newHash {
+            bytesByHash.removeValue(forKey: previousHash)
+        }
     }
 
     /// Remove a workspace's picture from disk and caches.
@@ -209,6 +222,9 @@ final class WorkspacePictureStore {
             workspacePictureLog.error("failed to migrate workspace picture: \(String(describing: error), privacy: .public)")
             return nil
         }
+        // The destination's previous picture (if any) was just overwritten on
+        // disk; drop its now-stale cached bytes before re-probing.
+        evictCachedBytesForPreviousHash(of: destinationID)
         invalidateCache(for: sourceID)
         invalidateCache(for: destinationID)
         return pictureHash(for: destinationID)
