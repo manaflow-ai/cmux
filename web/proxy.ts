@@ -2,11 +2,18 @@ import { type NextRequest, NextResponse } from "next/server";
 import createMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
+import { shouldRewriteToDevbox } from "./devbox-routing";
 
 const intlMiddleware = createMiddleware(routing);
 
-export default function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
+
+  if (shouldRewriteToDevbox(host, request.nextUrl.pathname)) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/devbox";
+    return NextResponse.rewrite(url);
+  }
 
   // 301 redirect cmux.dev (and www.cmux.dev) to cmux.com, preserving path and query
   if (host === "cmux.dev" || host === "www.cmux.dev") {
@@ -18,7 +25,7 @@ export default function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // Temporary redirect: /changelog → /docs/changelog, preserving any locale prefix.
+  // Temporary redirect: /changelog -> /docs/changelog, preserving any locale prefix.
   const changelogMatch = pathname.match(/^(\/[a-z]{2}(?:-[A-Z]{2})?)?\/changelog\/?$/);
   if (changelogMatch) {
     const url = request.nextUrl.clone();
