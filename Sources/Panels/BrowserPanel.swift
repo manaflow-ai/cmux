@@ -4550,7 +4550,7 @@ final class BrowserPanel: Panel, ObservableObject {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = initialRequest.url
             shouldRenderWebView = renderInitialNavigation
-            guard renderInitialNavigation else { return }
+            guard renderInitialNavigation else { refreshWebViewLifecycleState(); return }
             if let url = initialRequest.url,
                insecureHTTPBypassHostOnce == nil,
                shouldBlockInsecureHTTPNavigation(to: url) {
@@ -4569,7 +4569,7 @@ final class BrowserPanel: Panel, ObservableObject {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = url
             shouldRenderWebView = renderInitialNavigation
-            guard renderInitialNavigation else { return }
+            guard renderInitialNavigation else { refreshWebViewLifecycleState(); return }
             navigate(to: url)
         }
     }
@@ -5273,15 +5273,12 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         webViewObservers.append(microphoneCaptureObserver)
 
-        NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
-            .sink { [weak self] notification in
-                guard let self else { return }
-                self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
-            }
+        let ghosttyBackgroundObserver = NotificationCenter.default.addObserver(forName: .ghosttyDefaultBackgroundDidChange, object: nil, queue: .main) { [weak self] notification in
+            MainActor.assumeIsolated { self?.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification)) }
+        }
+        AnyCancellable { NotificationCenter.default.removeObserver(ghosttyBackgroundObserver) }
             .store(in: &webViewCancellables)
 
-        // Apply the configured background for the freshly bound webview (covers
-        // the initial bind and every post-crash replacement).
         applyConfiguredWebViewBackground()
     }
 
@@ -6947,6 +6944,7 @@ extension BrowserPanel {
         }
 
         prepareDeveloperToolsForRevealIfNeeded(inspector)
+        if inspector.cmuxCallBool(selector: isVisibleSelector) ?? false { developerToolsDetachedOpenGraceDeadline = nil; developerToolsLastKnownVisibleAt = Date(); return true }
 
         let showSelector = NSSelectorFromString("show")
         guard inspector.responds(to: showSelector) else { return false }
@@ -7379,7 +7377,8 @@ extension BrowserPanel {
     }
 
     func requestDeveloperToolsRefreshAfterNextAttach(reason: String) {
-        guard preferredDeveloperToolsVisible else { return }
+        guard preferredDeveloperToolsVisible || developerToolsLastKnownVisibleAt != nil else { return }
+        setPreferredDeveloperToolsVisible(true)
         forceDeveloperToolsRefreshOnNextAttach = true
         #if DEBUG
         cmuxDebugLog("browser.devtools refresh.request panel=\(id.uuidString.prefix(5)) reason=\(reason) \(debugDeveloperToolsStateSummary())")
