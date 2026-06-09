@@ -964,6 +964,7 @@ jobs:
             -o /tmp/create-virtual-display scripts/create-virtual-display.m
           VDISPLAY_COMMAND=(/tmp/create-virtual-display)
           CURRENT_USER="$(id -un)"
+          CURRENT_UID="$(id -u)"
           GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
           if [ -n "$GUI_USER" ] &&
              [ "$GUI_USER" != "root" ] &&
@@ -972,6 +973,9 @@ jobs:
              sudo -n true 2>/dev/null; then
             echo "Launching virtual display helper in console GUI bootstrap for $GUI_USER ($GUI_UID); current user: $CURRENT_USER"
             VDISPLAY_COMMAND=(sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" /usr/bin/env /tmp/create-virtual-display)
+          elif launchctl print "gui/$CURRENT_UID" >/dev/null 2>&1; then
+            echo "Launching virtual display helper in current user GUI bootstrap for $CURRENT_USER ($CURRENT_UID)"
+            VDISPLAY_COMMAND=(launchctl asuser "$CURRENT_UID" /usr/bin/env /tmp/create-virtual-display)
           else
             echo "Launching virtual display helper in current bootstrap"
           fi
@@ -1523,11 +1527,16 @@ jobs:
             -framework AppKit \
             -o "$HELPER_PATH" scripts/create-virtual-display.m
           HELPER_COMMAND=("$HELPER_PATH")
+          CURRENT_USER="$(id -un)"
+          CURRENT_UID="$(id -u)"
           GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
           if [ -n "$GUI_USER" ] && [ "$GUI_USER" != "root" ] && command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
             GUI_UID="$(id -u "$GUI_USER")"
-            echo "Launching persistent display helper in console GUI bootstrap for $GUI_USER ($GUI_UID)"
+            echo "Launching persistent display helper in console GUI bootstrap for $GUI_USER ($GUI_UID); current user: $CURRENT_USER"
             HELPER_COMMAND=(sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" /usr/bin/env "$HELPER_PATH")
+          elif launchctl print "gui/$CURRENT_UID" >/dev/null 2>&1; then
+            echo "Launching persistent display helper in current user GUI bootstrap for $CURRENT_USER ($CURRENT_UID)"
+            HELPER_COMMAND=(launchctl asuser "$CURRENT_UID" /usr/bin/env "$HELPER_PATH")
           else
             echo "Launching persistent display helper in current bootstrap"
           fi

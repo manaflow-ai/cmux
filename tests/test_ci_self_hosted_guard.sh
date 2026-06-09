@@ -275,15 +275,18 @@ check_virtual_display_step_waits_for_readiness() {
     in_step && /VDISPLAY_COMMAND=\(\/tmp\/create-virtual-display\)/ { saw_command_array=1 }
     in_step && /stat -f %Su \/dev\/console/ { saw_console_user=1 }
     in_step && /launchctl asuser "\$GUI_UID"/ { saw_gui_bootstrap=1 }
+    in_step && /CURRENT_UID="\$\(id -u\)"/ { saw_current_uid=1 }
+    in_step && /launchctl print "gui\/\$CURRENT_UID"/ { saw_current_gui_probe=1 }
+    in_step && /launchctl asuser "\$CURRENT_UID"/ { saw_current_gui_bootstrap=1 }
     in_step && /"\$\{VDISPLAY_COMMAND\[@\]\}"/ { saw_command_launch=1 }
     in_step && /\[ -s "\$VDISPLAY_READY" \] && \[ -s "\$VDISPLAY_ID_PATH" \]/ { saw_ready_poll=1 }
     in_step && /Virtual display helper exited before readiness/ { saw_exit_message=1 }
     in_step && /Timed out waiting for virtual display readiness/ { saw_timeout_message=1 }
     in_step && /seq 1 900/ { saw_long_poll=1 }
     in_step && /^[[:space:]]*sleep 3$/ { saw_fixed_sleep=1 }
-    END { exit(saw_step && saw_ready_arg && saw_id_arg && saw_command_array && saw_console_user && saw_gui_bootstrap && saw_command_launch && saw_ready_poll && saw_exit_message && saw_timeout_message && saw_long_poll && !saw_fixed_sleep ? 0 : 1) }
+    END { exit(saw_step && saw_ready_arg && saw_id_arg && saw_command_array && saw_console_user && saw_gui_bootstrap && saw_current_uid && saw_current_gui_probe && saw_current_gui_bootstrap && saw_command_launch && saw_ready_poll && saw_exit_message && saw_timeout_message && saw_long_poll && !saw_fixed_sleep ? 0 : 1) }
   ' "$file"; then
-    echo "FAIL: $job in $(basename "$file") must launch the virtual display helper in the console GUI bootstrap and wait for readiness files instead of using a fixed sleep"
+    echo "FAIL: $job in $(basename "$file") must launch the virtual display helper in an available GUI bootstrap and wait for readiness files instead of using a fixed sleep"
     exit 1
   fi
 
@@ -1701,6 +1704,9 @@ check_ui_regression_budget() {
     in_step && /HELPER_COMMAND=\("\$HELPER_PATH"\)/ { saw_helper_command=1 }
     in_step && /stat -f %Su \/dev\/console/ { saw_console_user=1 }
     in_step && /launchctl asuser "\$GUI_UID"/ { saw_gui_bootstrap=1 }
+    in_step && /CURRENT_UID="\$\(id -u\)"/ { saw_current_uid=1 }
+    in_step && /launchctl print "gui\/\$CURRENT_UID"/ { saw_current_gui_probe=1 }
+    in_step && /launchctl asuser "\$CURRENT_UID"/ { saw_current_gui_bootstrap=1 }
     in_step && /"\$\{HELPER_COMMAND\[@\]\}"/ { saw_command_launch=1 }
     in_step && /Virtual display helper exited before readiness/ { saw_helper_exit_ready=1 }
     in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
@@ -1710,9 +1716,9 @@ check_ui_regression_budget() {
     in_step && after_xcode && /exit "\$xcode_status"/ { saw_xcode_exit=1 }
     in_step && after_xcode && /Attempt \$attempt failed, retrying/ { saw_post_xcode_retry=1 }
     in_step && /^[[:space:]]*sleep 3$/ { saw_fixed_retry_sleep=1 }
-    END { exit(saw_wait_pid && saw_stop_pid && saw_wait_cmux && saw_helper_command && saw_console_user && saw_gui_bootstrap && saw_command_launch && saw_helper_exit_ready && saw_nonzero_guard && saw_no_tests_message && saw_fail_closed_xcode && saw_xcode_exit && !saw_post_xcode_retry && !saw_fixed_retry_sleep ? 0 : 1) }
+    END { exit(saw_wait_pid && saw_stop_pid && saw_wait_cmux && saw_helper_command && saw_console_user && saw_gui_bootstrap && saw_current_uid && saw_current_gui_probe && saw_current_gui_bootstrap && saw_command_launch && saw_helper_exit_ready && saw_nonzero_guard && saw_no_tests_message && saw_fail_closed_xcode && saw_xcode_exit && !saw_post_xcode_retry && !saw_fixed_retry_sleep ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: ui-regressions must launch the display helper in the console GUI bootstrap, wait for app/helper cleanup, fail fast on dead display helpers, reject zero-test display regression runs, and fail closed after XCTest starts"
+    echo "FAIL: ui-regressions must launch the display helper in an available GUI bootstrap, wait for app/helper cleanup, fail fast on dead display helpers, reject zero-test display regression runs, and fail closed after XCTest starts"
     exit 1
   fi
 
