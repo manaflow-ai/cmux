@@ -39,6 +39,12 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// payload skew) degrades gracefully: the workspace renders as an ungrouped
     /// row rather than vanishing.
     ///
+    /// Non-contiguous members of an already-emitted group (possible when the
+    /// Mac's spatial order interleaves another row between members) do not
+    /// re-emit the header: the stray member renders at its own position, still
+    /// indented to mark its membership, and is still hidden while its group is
+    /// collapsed. Membership is never silently dropped.
+    ///
     /// - Parameters:
     ///   - workspaces: The workspaces in the Mac's spatial order.
     ///   - groups: The group sections, keyed by id for header lookup.

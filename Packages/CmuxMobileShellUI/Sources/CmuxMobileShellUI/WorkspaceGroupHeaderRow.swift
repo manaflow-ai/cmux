@@ -30,6 +30,10 @@ struct WorkspaceGroupHeaderRow: View {
             .frame(width: 22, height: 22)
             .contentShape(Rectangle())
 
+        // `.isButton` only when there is an actual activation action: a passive
+        // chevron (no `toggleCollapsed`) must not announce as a button VoiceOver
+        // can press to no effect. The collapsed/expanded state stays readable
+        // through the label either way.
         return Group {
             if let toggleCollapsed {
                 Button {
@@ -38,11 +42,11 @@ struct WorkspaceGroupHeaderRow: View {
                     image
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(.isButton)
             } else {
                 image
             }
         }
-        .accessibilityAddTraits(.isButton)
         .accessibilityLabel(
             group.isCollapsed
                 ? L10n.string("mobile.workspaceGroup.expand.a11y", defaultValue: "Expand group")

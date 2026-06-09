@@ -46,8 +46,9 @@ struct WorkspaceListView: View {
     /// a Pin/Unpin context-menu action and pinned workspaces sort to the top.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     /// Optional: collapse/expand a group on the Mac. When present, group headers
-    /// toggle their section. `nil` when the Mac lacks the groups capability (the
-    /// list then renders flat regardless of `groups`).
+    /// toggle their section; when `nil` the chevron renders as a passive
+    /// disclosure indicator. Grouped rendering itself is gated on `groups`, not
+    /// on this closure.
     var toggleGroupCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
@@ -58,13 +59,17 @@ struct WorkspaceListView: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Whether the list renders grouped sections. Groups are honored only when the
-    /// Mac advertises the capability (`toggleGroupCollapsed != nil`), there are
-    /// groups, and the user is not searching. A search flattens to a single
-    /// matched, pinned-first list so members can be found across groups; floating
-    /// pinned members out of their group is acceptable while filtering.
+    /// Whether the list renders grouped sections. Groups are honored whenever the
+    /// Mac actually emitted group sections and the user is not searching. The
+    /// gate is the payload itself, not `toggleGroupCollapsed`: a Mac that emits
+    /// groups also handles collapse/expand, but the capability flag arrives via a
+    /// separate `mobile.host.status` call, and a slow or failed status fetch must
+    /// not flatten sections the list already has (it would only lose the chevron
+    /// action). A search flattens to a single matched, pinned-first list so
+    /// members can be found across groups; floating pinned members out of their
+    /// group is acceptable while filtering.
     private var rendersGroupedSections: Bool {
-        toggleGroupCollapsed != nil && !groups.isEmpty && trimmedQuery.isEmpty
+        !groups.isEmpty && trimmedQuery.isEmpty
     }
 
     private func matchesQuery(_ workspace: MobileWorkspacePreview, query: String) -> Bool {

@@ -204,11 +204,15 @@ struct WorkspaceShellView: View {
         return { await store.refreshWorkspaces() }
     }
 
-    /// Group collapse/expand closure, present only when the connected Mac
-    /// advertises `workspace.groups.v1`, so the list stays flat on older Macs that
-    /// would not round-trip a collapse.
+    /// Group collapse/expand closure. Present when the Mac advertises
+    /// `workspace.groups.v1` or has actually emitted group sections: a Mac that
+    /// emits groups in the workspace list also handles collapse/expand (both
+    /// shipped together), and the capability flag arrives via a separate
+    /// `mobile.host.status` call that can lag or fail without making the
+    /// already-received groups read-only. Older Macs emit no groups, so this
+    /// stays `nil` and the list renders flat.
     private var toggleGroupCollapsedClosure: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)? {
-        guard store.supportsWorkspaceGroups else { return nil }
+        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
         let store = store
         return { id, collapsed in Task { await store.setWorkspaceGroupCollapsed(id: id, collapsed) } }
     }
