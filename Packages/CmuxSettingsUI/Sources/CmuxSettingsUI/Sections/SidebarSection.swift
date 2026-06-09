@@ -15,6 +15,9 @@ public struct SidebarSection: View {
     @State private var fontSaveFailed = false
     @State private var fontSaveTask: Task<Void, Never>?
     @State private var matchTerminal: DefaultsValueModel<Bool>
+    @State private var backgroundImagePath: DefaultsValueModel<String>
+    @State private var backgroundImageOpacity: DefaultsValueModel<Double>
+    @State private var backgroundImageFit: DefaultsValueModel<String>
     @State private var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
     @State private var showDesc: DefaultsValueModel<Bool>
@@ -39,6 +42,9 @@ public struct SidebarSection: View {
         self.hostActions = hostActions
         _sidebarFont = State(initialValue: hostActions.sidebarFontSize())
         _matchTerminal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.matchTerminalBackground))
+        _backgroundImagePath = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.backgroundImagePath))
+        _backgroundImageOpacity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.backgroundImageOpacity))
+        _backgroundImageFit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.backgroundImageFit))
         _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
         _wrapTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles))
         _showDesc = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showWorkspaceDescription))
@@ -74,6 +80,92 @@ public struct SidebarSection: View {
         fontSaveTask = Task {
             let saved = await hostActions.setSidebarFontSize(points)
             if !Task.isCancelled { fontSaveFailed = !saved }
+        }
+    }
+
+    /// Full-window background image controls: pick/Solar-Flare/clear, plus
+    /// opacity + fit when an image is set. Setting the image path drives the
+    /// renderer through `@AppStorage`; Solar Flare additionally writes the
+    /// Ghostty palette + terminal transparency via the host.
+    @ViewBuilder
+    private var backgroundImageRows: some View {
+        SettingsCardRow(
+            configurationReview: .json("sidebarAppearance.backgroundImage"),
+            String(localized: "settings.sidebarAppearance.backgroundImage", defaultValue: "Background Image"),
+            subtitle: String(localized: "settings.sidebarAppearance.backgroundImage.subtitle", defaultValue: "A full-window image behind the sidebar, terminal, and titlebar. Use a theme preset for a matching palette and terminal transparency.")
+        ) {
+            HStack(spacing: 8) {
+                let presets = hostActions.availableImageThemePresets()
+                if !presets.isEmpty {
+                    Menu(String(localized: "settings.sidebarAppearance.backgroundImage.presets", defaultValue: "Theme")) {
+                        ForEach(presets) { preset in
+                            Button(preset.name) {
+                                Task {
+                                    if let path = await hostActions.applyImageThemePreset(preset.key) {
+                                        backgroundImageOpacity.set(preset.opacity)
+                                        backgroundImageFit.set("cover")
+                                        backgroundImagePath.set(path)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .controlSize(.small)
+                }
+
+                Button(String(localized: "settings.sidebarAppearance.backgroundImage.choose", defaultValue: "Choose…")) {
+                    if let path = hostActions.chooseBackgroundImagePath() {
+                        backgroundImagePath.set(path)
+                    }
+                }
+                .controlSize(.small)
+
+                if !backgroundImagePath.current.isEmpty {
+                    Button(String(localized: "settings.sidebarAppearance.backgroundImage.clear", defaultValue: "Clear")) {
+                        Task {
+                            if await hostActions.clearBackgroundImageTheme() {
+                                backgroundImagePath.set("")
+                            }
+                        }
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+
+        if !backgroundImagePath.current.isEmpty {
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebarAppearance.backgroundImageOpacity"),
+                String(localized: "settings.sidebarAppearance.backgroundImageOpacity", defaultValue: "Image Opacity"),
+                controlWidth: 220
+            ) {
+                HStack(spacing: 8) {
+                    Slider(value: Binding(get: { backgroundImageOpacity.current }, set: { backgroundImageOpacity.set($0) }), in: 0...1)
+                        .frame(width: 150)
+                    Text(String(format: "%.0f%%", backgroundImageOpacity.current * 100))
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebarAppearance.backgroundImageFit"),
+                String(localized: "settings.sidebarAppearance.backgroundImageFit", defaultValue: "Image Fit"),
+                controlWidth: 160
+            ) {
+                Picker("", selection: Binding(get: { backgroundImageFit.current }, set: { backgroundImageFit.set($0) })) {
+                    Text(String(localized: "settings.sidebarAppearance.backgroundImageFit.cover", defaultValue: "Cover")).tag("cover")
+                    Text(String(localized: "settings.sidebarAppearance.backgroundImageFit.contain", defaultValue: "Contain")).tag("contain")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
         }
     }
 
@@ -134,6 +226,8 @@ public struct SidebarSection: View {
                 }
             }
             SettingsCardDivider()
+
+            backgroundImageRows
 
             SettingsCardRow(
                 configurationReview: .json("sidebar.hideAllDetails"),

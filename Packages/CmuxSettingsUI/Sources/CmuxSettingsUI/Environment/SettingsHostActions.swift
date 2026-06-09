@@ -137,6 +137,28 @@ public protocol SettingsHostActions: AnyObject {
     ///
     /// `async` because the availability check probes a real bind.
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult
+
+    /// Presents a native file picker for choosing a full-window background
+    /// image. Returns the chosen file path, or `nil` if the user cancelled.
+    /// The host owns the panel so the package stays Foundation-friendly.
+    func chooseBackgroundImagePath() -> String?
+
+    /// The bundled image-theme presets (Warp-derived) the host can apply.
+    /// Empty for hosts without bundled themes (previews/tests).
+    func availableImageThemePresets() -> [ImageThemePresetInfo]
+
+    /// Applies a bundled image-theme preset by key: materializes its bundled
+    /// image to a stable path, writes the preset's palette + a transparent
+    /// terminal background into the Ghostty config, and live-reloads. Disk work
+    /// runs off the main actor; returns the image path to store, or `nil` on
+    /// failure.
+    func applyImageThemePreset(_ key: String) async -> String?
+
+    /// Removes the managed image-theme block from the Ghostty config and
+    /// live-reloads, reverting palette/terminal transparency to the user's own
+    /// directives. Returns `true` on success so the caller only clears the
+    /// stored image path once the config cleanup actually succeeded.
+    func clearBackgroundImageTheme() async -> Bool
 }
 
 public extension SettingsHostActions {
@@ -180,6 +202,14 @@ public extension SettingsHostActions {
         if fraction % 10 == 0 { return "\(whole).\(fraction / 10)" }
         return "\(whole).\(fraction < 10 ? "0" : "")\(fraction)"
     }
+
+    func chooseBackgroundImagePath() -> String? { nil }
+
+    func availableImageThemePresets() -> [ImageThemePresetInfo] { [] }
+
+    func applyImageThemePreset(_ key: String) async -> String? { nil }
+
+    func clearBackgroundImageTheme() async -> Bool { true }
 }
 
 /// No-op ``SettingsHostActions`` for previews, tests, and any context

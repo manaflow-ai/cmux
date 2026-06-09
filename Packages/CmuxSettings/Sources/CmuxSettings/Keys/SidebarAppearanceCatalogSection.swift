@@ -68,5 +68,31 @@ public struct SidebarAppearanceCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarState"
     )
 
+    /// Path to the full-window background image (empty disables it). A leading
+    /// `~` is expanded. Type `String`, default `""`, persisted under
+    /// `sidebarBackgroundImagePath`.
+    public let backgroundImagePath = DefaultsKey<String>(
+        id: "sidebarAppearance.backgroundImage",
+        defaultValue: "",
+        userDefaultsKey: "sidebarBackgroundImagePath"
+    )
+
+    /// Opacity of the full-window background image, range `0...1`. Type
+    /// `Double`, default `0.2`, persisted under `sidebarBackgroundImageOpacity`.
+    public let backgroundImageOpacity = DefaultsKey<Double>(
+        id: "sidebarAppearance.backgroundImageOpacity",
+        defaultValue: 0.2,
+        userDefaultsKey: "sidebarBackgroundImageOpacity"
+    )
+
+    /// How the background image scales to fill the window: `"cover"` or
+    /// `"contain"`. Type `String`, default `"cover"`, persisted under
+    /// `sidebarBackgroundImageFit`.
+    public let backgroundImageFit = DefaultsKey<String>(
+        id: "sidebarAppearance.backgroundImageFit",
+        defaultValue: "cover",
+        userDefaultsKey: "sidebarBackgroundImageFit"
+    )
+
     public init() {}
 }

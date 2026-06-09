@@ -2287,6 +2287,10 @@ struct ContentView: View {
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
+    // Full-window background image theme
+    @AppStorage(BackgroundImageThemeDefaults.pathKey) private var backgroundImagePath = ""
+    @AppStorage(BackgroundImageThemeDefaults.opacityKey) private var backgroundImageOpacity = BackgroundImageThemeDefaults.defaultOpacity
+    @AppStorage(BackgroundImageThemeDefaults.fitKey) private var backgroundImageFit = BackgroundImageFit.cover.rawValue
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     private var windowAppearanceSnapshot: WindowAppearanceSnapshot {
@@ -2305,7 +2309,10 @@ struct ContentView: View {
             sidebarBlurOpacity: sidebarBlurOpacity,
             bgGlassEnabled: bgGlassEnabled,
             bgGlassTintHex: bgGlassTintHex,
-            bgGlassTintOpacity: bgGlassTintOpacity
+            bgGlassTintOpacity: bgGlassTintOpacity,
+            backgroundImagePath: backgroundImagePath,
+            backgroundImageOpacity: backgroundImageOpacity,
+            backgroundImageFit: backgroundImageFit
         )
     }
 
