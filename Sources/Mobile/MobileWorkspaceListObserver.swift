@@ -100,6 +100,12 @@ final class MobileWorkspaceListObserver {
                 // a pure pin toggle need not change the panel set or title, so
                 // without this the phone never learns the workspace was pinned.
                 workspace.$isPinned.map { _ in () }.eraseToAnyPublisher(),
+                // Group membership is iOS-facing (the phone nests members under
+                // their group header). Moving a workspace into or out of a group
+                // mutates only this workspace's `groupId`; it need not change the
+                // tab set, `workspaceGroups`, the panel set, or the title, so
+                // without this the phone never learns the membership changed.
+                workspace.$groupId.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
                 // Pure drag-reorders change spatial order without changing the panel

@@ -104,6 +104,11 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         case createdTerminalID = "created_terminal_id"
     }
 
+    /// Decodes a workspace-list response, defaulting `groups` to empty so a Mac
+    /// old enough not to emit the field still decodes (the grouped UI then stays
+    /// flat). `created_workspace_id` / `created_terminal_id` are optional.
+    /// - Parameter decoder: The decoder for the RPC result payload.
+    /// - Throws: A decoding error if `workspaces` is missing or malformed.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         workspaces = try container.decode([Workspace].self, forKey: .workspaces)
