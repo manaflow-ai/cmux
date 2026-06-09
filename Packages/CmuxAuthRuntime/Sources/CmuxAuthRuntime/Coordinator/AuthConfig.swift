@@ -54,8 +54,13 @@ public struct AuthConfig: Equatable, Sendable {
             callbackURL = "http://localhost:3000/auth/callback"
             defaultAPIBaseURL = "http://localhost:3000"
         case .production:
-            callbackURL = "https://cmux.dev/auth/callback"
-            defaultAPIBaseURL = "https://cmux.dev"
+            // cmux.com is the canonical production origin; cmux.dev is a legacy
+            // alias that 301-redirects everything to cmux.com. A 301 makes
+            // URLSession downgrade POST→GET, so device-token registration
+            // (POST /api/device-tokens) silently failed when pointed at cmux.dev.
+            // Point straight at cmux.com so POSTs are not redirected.
+            callbackURL = "https://cmux.com/auth/callback"
+            defaultAPIBaseURL = "https://cmux.com"
         }
 
         let override = overrides["ApiBaseURL"]
