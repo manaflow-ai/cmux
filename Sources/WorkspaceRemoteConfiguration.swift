@@ -152,7 +152,10 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             " --command-b64 \(shellQuote(Data($0.utf8).base64EncodedString()))"
         } ?? ""
         let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandB64Flag)"
-        lines += retryingAttachLines(command: attachCommand)
+        let fallbackCommand = requireExisting && !commandB64Flag.isEmpty
+            ? "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandB64Flag)"
+            : nil
+        lines += retryingAttachLines(command: attachCommand, missingSessionFallbackCommand: fallbackCommand)
         return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
     }
 
@@ -169,8 +172,11 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         )
     }
 
-    private static func retryingAttachLines(command: String) -> [String] {
-        [
+    private static func retryingAttachLines(
+        command: String,
+        missingSessionFallbackCommand: String? = nil
+    ) -> [String] {
+        var lines = [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit=20 ;; esac",
             "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
@@ -179,6 +185,17 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             "while :; do",
             "  \(command)",
             "  cmux_ssh_attach_status=$?",
+        ]
+        if let missingSessionFallbackCommand {
+            lines += [
+                "  if [ \"$cmux_ssh_attach_status\" -eq 253 ]; then",
+                "    if [ -t 2 ]; then printf '\\n\\033[33m[cmux] persisted SSH PTY session is gone; starting a new remote shell.\\033[0m\\n' >&2 || true; fi",
+                "    \(missingSessionFallbackCommand)",
+                "    exit \"$?\"",
+                "  fi",
+            ]
+        }
+        lines += [
             "  case \"$cmux_ssh_attach_status\" in 254|255) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac",
             "  if [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
@@ -186,6 +203,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             "  if [ \"$cmux_ssh_attach_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_attach_reconnect_delay\"; fi",
             "done",
         ]
+        return lines
     }
 
     private static func foregroundAuthLines(_ auth: ForegroundAuth) -> [String] {

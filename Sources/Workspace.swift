@@ -13941,7 +13941,10 @@ final class Workspace: Identifiable, ObservableObject {
         )
         return SSHPTYAttachStartupCommandBuilder.command(
             sessionID: sessionID,
-            foregroundAuth: foregroundAuth
+            foregroundAuth: foregroundAuth,
+            remoteCommand: remoteConfiguration.relayPort.map(
+                SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(relayPort:)
+            )
         )
     }
 
