@@ -2,7 +2,6 @@ import Foundation
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileSupport
-import CmuxMobileTransport
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)

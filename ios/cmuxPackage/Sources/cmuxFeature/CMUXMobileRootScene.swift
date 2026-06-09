@@ -35,10 +35,11 @@ public struct CMUXMobileRootScene: View {
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
     #endif
-    /// The app-root tailnet detector, injected into the environment so
-    /// pairing and disconnected surfaces can explain a Tailscale-off phone.
-    /// `nil` on non-iOS roots, which simply shows no Tailscale guidance.
-    private let tailscaleStatusMonitor: TailscaleStatusMonitor?
+    /// The app-root tailnet detector (behind the shell UI's read-only
+    /// observing port), injected into the environment so pairing and
+    /// disconnected surfaces can explain a Tailscale-off phone. `nil` on
+    /// non-iOS roots, which simply shows no Tailscale guidance.
+    private let tailscaleStatusMonitor: (any TailscaleStatusObserving)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
     #if DEBUG
     /// The structured diagnostic log injected into the shell store so the DEV
@@ -70,7 +71,7 @@ public struct CMUXMobileRootScene: View {
         analytics: any AnalyticsEmitting,
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
-        tailscaleStatusMonitor: TailscaleStatusMonitor,
+        tailscaleStatusMonitor: any TailscaleStatusObserving,
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.runtime = runtime
