@@ -158,6 +158,18 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
 
+        /// A name edit waiting for its target row to appear after a reload.
+        private struct PendingInlineEdit {
+            let path: String
+            /// True for a freshly created item (cancel removes it; commit may rename it).
+            let isNewItem: Bool
+            /// True when the edited item is a directory (selects the whole name vs. just the stem).
+            let isDirectory: Bool
+        }
+        private var pendingInlineEdit: PendingInlineEdit?
+        // The "edit in progress" flag lives on the store (`store.isInteractivelyEditing`) so the
+        // watcher and this reload pass share one owner; the coordinator no longer keeps its own.
+
         init(
             store: FileExplorerStore,
             state: FileExplorerState,
@@ -232,6 +244,12 @@ struct FileExplorerPanelView: NSViewRepresentable {
         func reloadIfNeeded() {
             guard let outlineView else { return }
 
+            // While the user is typing into an inline name field, do nothing: not even the
+            // visibility/layout pass below, because a relayout lets the keyboard-focus
+            // coordinator re-assert first responder onto the outline view and tear down the
+            // active field editor (this is what made create-then-rename lose focus after ~1s).
+            guard !store.isInteractivelyEditing else { return }
+
             // Update empty state vs tree visibility
             containerView?.updateVisibility(
                 hasContent: !store.rootPath.isEmpty,
@@ -251,6 +269,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 }
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
             }
+
+            beginPendingInlineEditIfPossible(in: outlineView)
         }
 
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
@@ -281,6 +301,191 @@ struct FileExplorerPanelView: NSViewRepresentable {
                         }
                     }
                 }
+            }
+        }
+
+        // MARK: - File Actions (toolbar + context menu)
+
+        /// Reloads the tree and re-fetches git status (Refresh toolbar button).
+        func refreshTree() {
+            store.reload()
+            store.refreshGitStatus()
+        }
+
+        /// Collapses every folder to the root level (Collapse Folders toolbar button).
+        func collapseAll() {
+            guard let outlineView else { return }
+            store.collapseAll()
+            withProgrammaticOutlineUpdate {
+                outlineView.collapseItem(nil, collapseChildren: true)
+            }
+        }
+
+        /// Creates a uniquely-named file or folder in `directory` (or the toolbar's default
+        /// target when nil), then begins inline editing so the user can name it.
+        func beginCreate(isDirectory: Bool, inDirectory directory: String?) {
+            guard store.canMutate else { return }
+            guard let target = directory ?? store.targetDirectoryForNewItem() else { return }
+            if target != store.rootPath {
+                store.ensureExpanded(path: target)
+            }
+            let base = isDirectory
+                ? String(localized: "fileExplorer.newFolder.defaultName", defaultValue: "untitled folder")
+                : String(localized: "fileExplorer.newFile.defaultName", defaultValue: "untitled")
+            let name = store.uniqueName(base: base, fileExtension: "", in: target)
+            let result = isDirectory
+                ? store.createDirectory(named: name, in: target)
+                : store.createFile(named: name, in: target)
+            switch result {
+            case .success(let newPath):
+                // Record the pending edit; the reload below brings the new row in, and
+                // beginInlineEdit enters editing mode (gating reloads) once the row appears.
+                pendingInlineEdit = PendingInlineEdit(path: newPath, isNewItem: true, isDirectory: isDirectory)
+                store.setSelection(path: newPath)
+                store.reload()
+            case .failure(let error):
+                presentMutationError(error)
+            }
+        }
+
+        /// Begins inline editing of an existing item's name (context-menu Rename).
+        func beginRename(node: FileExplorerNode) {
+            guard let outlineView, store.canMutate else { return }
+            beginInlineEdit(
+                context: PendingInlineEdit(path: node.path, isNewItem: false, isDirectory: node.isDirectory),
+                in: outlineView
+            )
+        }
+
+        /// Duplicates `node` next to itself and selects the copy.
+        func duplicateNode(_ node: FileExplorerNode) {
+            switch store.duplicate(path: node.path) {
+            case .success(let newPath):
+                store.setSelection(path: newPath)
+                store.reload()
+            case .failure(let error):
+                presentMutationError(error)
+            }
+        }
+
+        /// Confirms, then moves `paths` to the Trash.
+        func confirmAndDelete(paths: [String]) {
+            guard store.canMutate, !paths.isEmpty else { return }
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            if paths.count == 1 {
+                let name = (paths[0] as NSString).lastPathComponent
+                let format = String(localized: "fileExplorer.delete.confirmSingle", defaultValue: "Are you sure you want to move \"%@\" to the Trash?")
+                alert.messageText = String(format: format, name)
+            } else {
+                let format = String(localized: "fileExplorer.delete.confirmMultiple", defaultValue: "Are you sure you want to move these %lld items to the Trash?")
+                alert.messageText = String(format: format, paths.count)
+            }
+            alert.informativeText = paths.count == 1
+                ? String(localized: "fileExplorer.delete.confirmInfo.single", defaultValue: "You can restore it from the Trash.")
+                : String(localized: "fileExplorer.delete.confirmInfo.multiple", defaultValue: "You can restore them from the Trash.")
+            alert.addButton(withTitle: String(localized: "fileExplorer.delete.confirmButton", defaultValue: "Move to Trash"))
+            alert.addButton(withTitle: String(localized: "fileExplorer.dialog.cancel", defaultValue: "Cancel"))
+
+            let perform: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+                guard let self, response == .alertFirstButtonReturn else { return }
+                if case .failure(let error) = self.store.moveToTrash(paths: paths) {
+                    self.presentMutationError(error)
+                }
+                self.store.reload()
+            }
+            if let window = outlineView?.window {
+                alert.beginSheetModal(for: window, completionHandler: perform)
+            } else {
+                perform(alert.runModal())
+            }
+        }
+
+        // MARK: - Inline Editing Plumbing
+
+        /// First visible row whose node matches `path`, or nil if it isn't rendered yet.
+        private func row(forPath path: String, in outlineView: NSOutlineView) -> Int? {
+            for row in 0..<outlineView.numberOfRows {
+                if let node = outlineView.item(atRow: row) as? FileExplorerNode, node.path == path {
+                    return row
+                }
+            }
+            return nil
+        }
+
+        /// Applies a pending edit once its row exists; otherwise leaves it pending for the
+        /// next reload (e.g. while a target subfolder is still loading its children).
+        private func beginPendingInlineEditIfPossible(in outlineView: NSOutlineView) {
+            guard let pending = pendingInlineEdit else { return }
+            // Drop the pending edit if the item vanished from disk before we could focus it.
+            // (Editing mode hasn't been entered yet here, so there's nothing to unwind.)
+            if pending.isNewItem, !FileManager.default.fileExists(atPath: pending.path) {
+                pendingInlineEdit = nil
+                return
+            }
+            guard row(forPath: pending.path, in: outlineView) != nil else { return }
+            pendingInlineEdit = nil
+            beginInlineEdit(context: pending, in: outlineView)
+        }
+
+        private func beginInlineEdit(context: PendingInlineEdit, in outlineView: NSOutlineView) {
+            guard let row = row(forPath: context.path, in: outlineView) else { return }
+            store.isInteractivelyEditing = true
+            withProgrammaticOutlineUpdate {
+                outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            }
+            outlineView.scrollRowToVisible(row)
+            guard let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: true) as? FileExplorerCellView else {
+                store.isInteractivelyEditing = false
+                return
+            }
+            cell.onCommitEdit = { [weak self] newName in
+                self?.finishInlineEdit(commit: true, newName: newName, context: context)
+            }
+            cell.onCancelEdit = { [weak self] in
+                self?.finishInlineEdit(commit: false, newName: nil, context: context)
+            }
+            cell.beginEditing(selectingExtension: context.isDirectory)
+        }
+
+        private func finishInlineEdit(commit: Bool, newName: String?, context: PendingInlineEdit) {
+            let trimmed = (newName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let currentName = (context.path as NSString).lastPathComponent
+
+            // Exit editing mode (which re-enables watch reloads) and resync the tree once the
+            // mutation below has run; reload() reflects the rename/discard.
+            defer {
+                store.isInteractivelyEditing = false
+                store.reload()
+            }
+
+            // Cancel, or an empty/unchanged name: discard a brand-new item, keep an existing one.
+            if !commit || trimmed.isEmpty || trimmed == currentName {
+                if context.isNewItem, (!commit || trimmed.isEmpty) {
+                    _ = store.discardJustCreated(path: context.path)
+                }
+                return
+            }
+
+            switch store.rename(path: context.path, to: trimmed) {
+            case .success(let newPath):
+                store.setSelection(path: newPath)
+            case .failure(let error):
+                // Keep a just-created item under its default name rather than orphaning it.
+                presentMutationError(error)
+            }
+        }
+
+        private func presentMutationError(_ error: FileExplorerMutationError) {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = String(localized: "fileExplorer.mutation.errorTitle", defaultValue: "Couldn't complete the action")
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: String(localized: "fileExplorer.dialog.ok", defaultValue: "OK"))
+            if let window = outlineView?.window {
+                alert.beginSheetModal(for: window, completionHandler: nil)
+            } else {
+                alert.runModal()
             }
         }
 
@@ -495,10 +700,19 @@ struct FileExplorerPanelView: NSViewRepresentable {
             fallbackToFirstVisible: Bool,
             scroll: Bool
         ) {
-            let exactRows = store.selectedPaths.reduce(into: IndexSet()) { if let resolution = selectionResolution(for: $1, in: outlineView), resolution.isExact { $0.insert(resolution.row) } }
+            // Build path -> row once (O(V)) so multi-selection resolves in O(V + S) rather than
+            // calling selectionResolution per selected path (which rescanned all rows each time).
+            var rowForPath: [String: Int] = [:]
+            rowForPath.reserveCapacity(outlineView.numberOfRows)
+            for row in 0..<outlineView.numberOfRows {
+                if let node = outlineView.item(atRow: row) as? FileExplorerNode {
+                    rowForPath[node.path] = row
+                }
+            }
+            let exactRows = store.selectedPaths.reduce(into: IndexSet()) { if let row = rowForPath[$1] { $0.insert(row) } }
             if !exactRows.isEmpty {
                 withProgrammaticOutlineUpdate { outlineView.selectRowIndexes(exactRows, byExtendingSelection: false) }
-                let anchorRow = store.selectedPath.flatMap { selectionResolution(for: $0, in: outlineView)?.row }
+                let anchorRow = store.selectedPath.flatMap { rowForPath[$0] }
                 if scroll, let row = FileExplorerSelectionRestoration.scrollRow(anchorRow: anchorRow, exactRows: exactRows) { outlineView.scrollRowToVisible(row) }; return
             }
             if let selectedPath = store.selectedPath,
@@ -631,6 +845,28 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
             let isLocal = store.provider is LocalFileExplorerProvider
 
+            if isLocal {
+                let newFileItem = NSMenuItem(
+                    title: String(localized: "fileExplorer.contextMenu.newFile", defaultValue: "New File"),
+                    action: #selector(contextMenuNewFile(_:)),
+                    keyEquivalent: ""
+                )
+                newFileItem.target = self
+                newFileItem.representedObject = node
+                menu.addItem(newFileItem)
+
+                let newFolderItem = NSMenuItem(
+                    title: String(localized: "fileExplorer.contextMenu.newFolder", defaultValue: "New Folder"),
+                    action: #selector(contextMenuNewFolder(_:)),
+                    keyEquivalent: ""
+                )
+                newFolderItem.target = self
+                newFolderItem.representedObject = node
+                menu.addItem(newFolderItem)
+
+                menu.addItem(.separator())
+            }
+
             if !node.isDirectory && isLocal {
                 addFileExplorerExternalOpenItems(
                     to: menu,
@@ -672,6 +908,72 @@ struct FileExplorerPanelView: NSViewRepresentable {
             copyRelItem.target = self
             copyRelItem.representedObject = node
             menu.addItem(copyRelItem)
+
+            if isLocal {
+                menu.addItem(.separator())
+
+                let renameItem = NSMenuItem(
+                    title: String(localized: "fileExplorer.contextMenu.rename", defaultValue: "Rename…"),
+                    action: #selector(contextMenuRename(_:)),
+                    keyEquivalent: ""
+                )
+                renameItem.target = self
+                renameItem.representedObject = node
+                menu.addItem(renameItem)
+
+                let duplicateItem = NSMenuItem(
+                    title: String(localized: "fileExplorer.contextMenu.duplicate", defaultValue: "Duplicate"),
+                    action: #selector(contextMenuDuplicate(_:)),
+                    keyEquivalent: ""
+                )
+                duplicateItem.target = self
+                duplicateItem.representedObject = node
+                menu.addItem(duplicateItem)
+
+                let deleteItem = NSMenuItem(
+                    title: String(localized: "fileExplorer.contextMenu.delete", defaultValue: "Move to Trash"),
+                    action: #selector(contextMenuDelete(_:)),
+                    keyEquivalent: ""
+                )
+                deleteItem.target = self
+                deleteItem.representedObject = node
+                menu.addItem(deleteItem)
+            }
+        }
+
+        @objc private func contextMenuNewFile(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            beginCreate(isDirectory: false, inDirectory: directoryForCreation(relativeTo: node))
+        }
+
+        @objc private func contextMenuNewFolder(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            beginCreate(isDirectory: true, inDirectory: directoryForCreation(relativeTo: node))
+        }
+
+        @objc private func contextMenuRename(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            beginRename(node: node)
+        }
+
+        @objc private func contextMenuDuplicate(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            duplicateNode(node)
+        }
+
+        @objc private func contextMenuDelete(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            // Delete every selected item when the clicked row is part of the selection,
+            // otherwise just the clicked item.
+            let selected = store.selectedPaths
+            let paths = selected.contains(node.path) ? Array(selected) : [node.path]
+            confirmAndDelete(paths: paths)
+        }
+
+        /// New File/New Folder from a context click target a directory: the clicked folder,
+        /// or the parent of a clicked file.
+        private func directoryForCreation(relativeTo node: FileExplorerNode) -> String {
+            node.isDirectory ? node.path : (node.path as NSString).deletingLastPathComponent
         }
 
         @objc private func contextMenuOpenExternally(_ sender: NSMenuItem) {
@@ -769,6 +1071,10 @@ final class FileExplorerContainerView: NSView {
 
         // Header
         headerView.translatesAutoresizingMaskIntoConstraints = false
+        headerView.onNewFile = { [weak coordinator] in coordinator?.beginCreate(isDirectory: false, inDirectory: nil) }
+        headerView.onNewFolder = { [weak coordinator] in coordinator?.beginCreate(isDirectory: true, inDirectory: nil) }
+        headerView.onRefresh = { [weak coordinator] in coordinator?.refreshTree() }
+        headerView.onCollapseAll = { [weak coordinator] in coordinator?.collapseAll() }
         addSubview(headerView)
 
         // Search bar
@@ -1021,6 +1327,7 @@ final class FileExplorerContainerView: NSView {
         currentProviderIsLocal = nextProviderIsLocal
         currentContentRevision = nextContentRevision
         headerView.update(displayPath: store.displayRootPath)
+        headerView.setMutationActionsEnabled(store.canMutate)
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false
             refreshSearchIfNeeded()
@@ -1849,6 +2156,18 @@ final class FileExplorerHeaderView: NSView {
     private var displayPath = ""
     private var quickSearchQuery: String?
 
+    private let actionStack = NSStackView()
+    private var newFileButton: NSButton!
+    private var newFolderButton: NSButton!
+    private var refreshButton: NSButton!
+    private var collapseAllButton: NSButton!
+
+    /// Invoked by the toolbar buttons. Wired by ``FileExplorerContainerView``.
+    var onNewFile: (() -> Void)?
+    var onNewFolder: (() -> Void)?
+    var onRefresh: (() -> Void)?
+    var onCollapseAll: (() -> Void)?
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         setupViews()
@@ -1869,8 +2188,38 @@ final class FileExplorerHeaderView: NSView {
         pathLabel.maximumNumberOfLines = 1
         pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        newFileButton = makeToolbarButton(
+            symbol: "doc.badge.plus",
+            tooltip: String(localized: "fileExplorer.toolbar.newFile", defaultValue: "New File"),
+            action: #selector(handleNewFile)
+        )
+        newFolderButton = makeToolbarButton(
+            symbol: "folder.badge.plus",
+            tooltip: String(localized: "fileExplorer.toolbar.newFolder", defaultValue: "New Folder"),
+            action: #selector(handleNewFolder)
+        )
+        refreshButton = makeToolbarButton(
+            symbol: "arrow.clockwise",
+            tooltip: String(localized: "fileExplorer.toolbar.refresh", defaultValue: "Refresh Explorer"),
+            action: #selector(handleRefresh)
+        )
+        collapseAllButton = makeToolbarButton(
+            symbol: "arrow.down.right.and.arrow.up.left",
+            tooltip: String(localized: "fileExplorer.toolbar.collapseAll", defaultValue: "Collapse Folders"),
+            action: #selector(handleCollapseAll)
+        )
+
+        actionStack.translatesAutoresizingMaskIntoConstraints = false
+        actionStack.orientation = .horizontal
+        actionStack.alignment = .centerY
+        actionStack.spacing = 2
+        actionStack.setContentHuggingPriority(.required, for: .horizontal)
+        actionStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+        [newFileButton, newFolderButton, refreshButton, collapseAllButton].forEach { actionStack.addArrangedSubview($0) }
+
         addSubview(iconView)
         addSubview(pathLabel)
+        addSubview(actionStack)
 
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight),
@@ -1882,10 +2231,46 @@ final class FileExplorerHeaderView: NSView {
 
             pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
             pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            pathLabel.trailingAnchor.constraint(lessThanOrEqualTo: actionStack.leadingAnchor, constant: -8),
+
+            actionStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            actionStack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         applyHeaderState()
     }
+
+    private func makeToolbarButton(symbol: String, tooltip: String, action: Selector) -> NSButton {
+        let button = NSButton()
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.setButtonType(.momentaryChange)
+        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)?
+            .withSymbolConfiguration(config)
+        button.contentTintColor = .secondaryLabelColor
+        button.toolTip = tooltip
+        button.target = self
+        button.action = action
+        button.setAccessibilityIdentifier("FileExplorerToolbar.\(symbol)")
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 20),
+            button.heightAnchor.constraint(equalToConstant: 18),
+        ])
+        return button
+    }
+
+    /// Enables the create buttons only when the provider supports mutation. Refresh and
+    /// Collapse remain available for any root (including read-only SSH).
+    func setMutationActionsEnabled(_ enabled: Bool) {
+        newFileButton.isEnabled = enabled
+        newFolderButton.isEnabled = enabled
+    }
+
+    @objc private func handleNewFile() { onNewFile?() }
+    @objc private func handleNewFolder() { onNewFolder?() }
+    @objc private func handleRefresh() { onRefresh?() }
+    @objc private func handleCollapseAll() { onCollapseAll?() }
 
     func update(displayPath: String) {
         self.displayPath = displayPath
@@ -1911,170 +2296,6 @@ final class FileExplorerHeaderView: NSView {
             pathLabel.stringValue = displayPath
             pathLabel.toolTip = displayPath
         }
-    }
-}
-
-// MARK: - Cell View
-
-final class FileExplorerCellView: NSTableCellView {
-    private let iconView = NSImageView()
-    private let nameLabel = NSTextField(labelWithString: "")
-    private let loadingIndicator = NSProgressIndicator()
-    private var trackingArea: NSTrackingArea?
-    var onHover: ((Bool) -> Void)?
-    private var nameLabelTrailingToLoadingConstraint: NSLayoutConstraint!
-    private var nameLabelTrailingToContainerConstraint: NSLayoutConstraint!
-
-    init(identifier: NSUserInterfaceItemIdentifier) {
-        super.init(frame: .zero)
-        self.identifier = identifier
-        setupViews()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private var iconWidthConstraint: NSLayoutConstraint!
-    private var iconHeightConstraint: NSLayoutConstraint!
-    private var iconToTextConstraint: NSLayoutConstraint!
-    private var loadingWidthConstraint: NSLayoutConstraint!
-
-    private func setupViews() {
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.imageScaling = .scaleProportionallyDown
-
-        nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        nameLabel.textColor = .labelColor
-        nameLabel.lineBreakMode = .byTruncatingTail
-        nameLabel.maximumNumberOfLines = 1
-
-        loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
-        loadingIndicator.style = .spinning
-        loadingIndicator.controlSize = .small
-        loadingIndicator.isHidden = true
-        loadingIndicator.setAccessibilityIdentifier("FileExplorerLoadingIndicator")
-
-        addSubview(iconView)
-        addSubview(nameLabel)
-        addSubview(loadingIndicator)
-
-        iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: 16)
-        iconHeightConstraint = iconView.heightAnchor.constraint(equalToConstant: 16)
-        iconToTextConstraint = nameLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4)
-        loadingWidthConstraint = loadingIndicator.widthAnchor.constraint(equalToConstant: 0)
-
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconWidthConstraint,
-            iconHeightConstraint,
-
-            iconToTextConstraint,
-            nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            loadingIndicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            loadingIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
-            loadingWidthConstraint,
-            loadingIndicator.heightAnchor.constraint(equalToConstant: 12),
-        ])
-
-        nameLabelTrailingToLoadingConstraint = nameLabel.trailingAnchor.constraint(
-            equalTo: loadingIndicator.leadingAnchor,
-            constant: -2
-        )
-        nameLabelTrailingToContainerConstraint = nameLabel.trailingAnchor.constraint(
-            equalTo: trailingAnchor,
-            constant: -2
-        )
-        NSLayoutConstraint.activate([
-            nameLabelTrailingToLoadingConstraint,
-            nameLabelTrailingToContainerConstraint
-        ])
-        nameLabelTrailingToLoadingConstraint.isActive = false
-    }
-
-    func configure(with node: FileExplorerNode, gitStatus: GitFileStatus? = nil) {
-        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
-        let style = FileExplorerStyle.current
-        nameLabel.stringValue = node.name
-        nameLabel.font = style.nameFont
-        iconWidthConstraint.constant = style.iconSize
-        iconHeightConstraint.constant = style.iconSize
-        iconToTextConstraint.constant = style.iconToTextSpacing
-
-        if style == .finder {
-            if node.isDirectory {
-                let folderIcon = NSWorkspace.shared.icon(for: .folder)
-                folderIcon.size = NSSize(width: style.iconSize, height: style.iconSize)
-                iconView.image = folderIcon
-                iconView.contentTintColor = nil
-            } else {
-                let fileIcon = NSWorkspace.shared.icon(forFileType: (node.name as NSString).pathExtension)
-                fileIcon.size = NSSize(width: style.iconSize, height: style.iconSize)
-                iconView.image = fileIcon
-                iconView.contentTintColor = nil
-            }
-        } else {
-            let symbolConfig = NSImage.SymbolConfiguration(pointSize: style.iconSize, weight: style.iconWeight)
-            if node.isDirectory {
-                iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
-                    .withSymbolConfiguration(symbolConfig)
-                iconView.contentTintColor = style.folderIconTint
-            } else {
-                iconView.image = NSImage(systemSymbolName: "doc", accessibilityDescription: nil)?
-                    .withSymbolConfiguration(symbolConfig)
-                iconView.contentTintColor = style.fileIconTint
-            }
-        }
-
-        if node.isLoading {
-            loadingWidthConstraint.constant = 12
-            loadingIndicator.isHidden = false
-            loadingIndicator.startAnimation(nil)
-            nameLabelTrailingToLoadingConstraint.isActive = true
-            nameLabelTrailingToContainerConstraint.isActive = false
-        } else {
-            loadingWidthConstraint.constant = 0
-            loadingIndicator.isHidden = true
-            loadingIndicator.stopAnimation(nil)
-            nameLabelTrailingToLoadingConstraint.isActive = false
-            nameLabelTrailingToContainerConstraint.isActive = true
-        }
-
-        if let error = node.error {
-            nameLabel.textColor = .systemRed
-            nameLabel.toolTip = error
-        } else if let gitStatus {
-            nameLabel.textColor = style.gitColor(for: gitStatus)
-            nameLabel.toolTip = node.path
-        } else {
-            nameLabel.textColor = .labelColor
-            nameLabel.toolTip = node.path
-        }
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let existing = trackingArea {
-            removeTrackingArea(existing)
-        }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInActiveApp],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        onHover?(true)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        onHover?(false)
     }
 }
 

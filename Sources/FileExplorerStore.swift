@@ -5,203 +5,6 @@ import Foundation
 import QuartzCore
 import SwiftUI
 
-// MARK: - Explorer Visual Style
-
-enum FileExplorerStyle: Int, CaseIterable {
-    case liquidGlass = 0
-    case highDensity = 1
-    case terminalStealth = 2
-    case proStudio = 3
-    case finder = 4
-
-    var label: String {
-        switch self {
-        case .liquidGlass: return "Liquid Glass"
-        case .highDensity: return "High-Density IDE"
-        case .terminalStealth: return "Terminal Stealth"
-        case .proStudio: return "Pro Studio"
-        case .finder: return "Finder"
-        }
-    }
-
-    var rowHeight: CGFloat {
-        switch self {
-        case .liquidGlass: return 28
-        case .highDensity: return 20
-        case .terminalStealth: return 24
-        case .proStudio: return 32
-        case .finder: return 26
-        }
-    }
-
-    var indentation: CGFloat {
-        switch self {
-        case .liquidGlass: return 16
-        case .highDensity: return 12
-        case .terminalStealth: return 14
-        case .proStudio: return 20
-        case .finder: return 18
-        }
-    }
-
-    var iconSize: CGFloat {
-        switch self {
-        case .liquidGlass: return 16
-        case .highDensity: return 14
-        case .terminalStealth: return 12
-        case .proStudio: return 18
-        case .finder: return 18
-        }
-    }
-
-    var iconWeight: NSFont.Weight {
-        switch self {
-        case .liquidGlass: return .regular
-        case .highDensity: return .regular
-        case .terminalStealth: return .light
-        case .proStudio: return .regular
-        case .finder: return .medium
-        }
-    }
-
-    var nameFont: NSFont {
-        switch self {
-        case .liquidGlass: return .systemFont(ofSize: 13, weight: .medium)
-        case .highDensity: return .systemFont(ofSize: 11, weight: .regular)
-        case .terminalStealth: return .monospacedSystemFont(ofSize: 12, weight: .regular)
-        case .proStudio: return .systemFont(ofSize: 14, weight: .semibold)
-        case .finder: return .systemFont(ofSize: 13, weight: .regular)
-        }
-    }
-
-    var iconToTextSpacing: CGFloat {
-        switch self {
-        case .liquidGlass: return 8
-        case .highDensity: return 4
-        case .terminalStealth: return 6
-        case .proStudio: return 12
-        case .finder: return 6
-        }
-    }
-
-    var selectionInset: CGFloat {
-        switch self {
-        case .liquidGlass: return 8
-        case .highDensity: return 0
-        case .terminalStealth: return 0
-        case .proStudio: return 4
-        case .finder: return 4
-        }
-    }
-
-    var selectionRadius: CGFloat {
-        switch self {
-        case .liquidGlass: return 6
-        case .highDensity: return 0
-        case .terminalStealth: return 0
-        case .proStudio: return 8
-        case .finder: return 5
-        }
-    }
-
-    var selectionColor: NSColor {
-        switch self {
-        case .liquidGlass: return .controlAccentColor.withAlphaComponent(0.15)
-        case .highDensity: return .selectedContentBackgroundColor
-        case .terminalStealth: return .controlAccentColor
-        case .proStudio: return .controlAccentColor
-        case .finder: return .controlAccentColor.withAlphaComponent(0.15)
-        }
-    }
-
-    var hoverColor: NSColor {
-        switch self {
-        case .liquidGlass: return .labelColor.withAlphaComponent(0.05)
-        case .highDensity: return .white.withAlphaComponent(0.05)
-        case .terminalStealth: return .white.withAlphaComponent(0.03)
-        case .proStudio: return .white.withAlphaComponent(0.1)
-        case .finder: return .labelColor.withAlphaComponent(0.04)
-        }
-    }
-
-    var usesBorderSelection: Bool {
-        self == .terminalStealth
-    }
-
-    var fileIconTint: NSColor {
-        switch self {
-        case .liquidGlass: return .secondaryLabelColor
-        case .highDensity: return .secondaryLabelColor
-        case .terminalStealth: return .tertiaryLabelColor
-        case .proStudio: return .secondaryLabelColor
-        case .finder: return NSColor(white: 0.55, alpha: 1.0)
-        }
-    }
-
-    var folderIconTint: NSColor {
-        switch self {
-        case .liquidGlass: return .systemBlue
-        case .highDensity: return .secondaryLabelColor
-        case .terminalStealth: return .tertiaryLabelColor
-        case .proStudio: return .systemBlue
-        case .finder: return .systemBlue
-        }
-    }
-
-    func gitColor(for status: GitFileStatus) -> NSColor {
-        switch self {
-        case .liquidGlass:
-            switch status {
-            case .modified: return .systemOrange
-            case .added: return .systemTeal
-            case .deleted: return .systemRed
-            case .renamed: return .systemPurple
-            case .untracked: return .quaternaryLabelColor
-            }
-        case .highDensity:
-            switch status {
-            case .modified: return .systemYellow
-            case .added: return .systemGreen
-            case .deleted: return .systemRed
-            case .renamed: return .systemBlue
-            case .untracked: return .tertiaryLabelColor
-            }
-        case .terminalStealth:
-            switch status {
-            case .modified: return NSColor(red: 0.8, green: 0.7, blue: 0.4, alpha: 1.0)
-            case .added: return NSColor(red: 0.5, green: 0.8, blue: 0.5, alpha: 1.0)
-            case .deleted: return NSColor(red: 0.8, green: 0.4, blue: 0.4, alpha: 1.0)
-            case .renamed: return NSColor(red: 0.5, green: 0.7, blue: 0.9, alpha: 1.0)
-            case .untracked: return NSColor(white: 0.5, alpha: 1.0)
-            }
-        case .proStudio:
-            switch status {
-            case .modified: return .systemYellow
-            case .added: return .systemGreen
-            case .deleted: return .systemPink
-            case .renamed: return .systemCyan
-            case .untracked: return .systemGray
-            }
-        case .finder:
-            switch status {
-            case .modified: return .systemOrange
-            case .added: return .systemGreen
-            case .deleted: return .systemRed
-            case .renamed: return .systemBlue
-            case .untracked: return .tertiaryLabelColor
-            }
-        }
-    }
-
-    static var current: FileExplorerStyle {
-        let defaults = UserDefaults.standard
-        if defaults.object(forKey: "fileExplorer.style") == nil {
-            return .highDensity
-        }
-        return FileExplorerStyle(rawValue: defaults.integer(forKey: "fileExplorer.style")) ?? .highDensity
-    }
-}
-
 // MARK: - Models
 
 struct FileExplorerEntry: Sendable {
@@ -723,6 +526,36 @@ enum FileExplorerError: LocalizedError {
     }
 }
 
+// MARK: - Mutation Errors
+
+/// Failures surfaced when creating, renaming, duplicating, or trashing items in the
+/// local file explorer. SSH-backed roots do not support mutation and return
+/// ``providerUnsupported``.
+enum FileExplorerMutationError: LocalizedError {
+    /// The active provider is not the local filesystem (e.g. an SSH workspace).
+    case providerUnsupported
+    /// The supplied name was empty or contained a path separator.
+    case invalidName
+    /// An item with the requested name already exists in the destination directory.
+    case alreadyExists(name: String)
+    /// A `FileManager` operation threw; the associated value is the system message.
+    case underlying(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .providerUnsupported:
+            return String(localized: "fileExplorer.mutation.error.unsupported", defaultValue: "This action isn't available for remote folders.")
+        case .invalidName:
+            return String(localized: "fileExplorer.mutation.error.invalidName", defaultValue: "Names can't be empty or contain a slash.")
+        case .alreadyExists(let name):
+            let format = String(localized: "fileExplorer.mutation.error.alreadyExists", defaultValue: "An item named \"%@\" already exists.")
+            return String(format: format, name)
+        case .underlying(let message):
+            return message
+        }
+    }
+}
+
 // MARK: - Selection Restoration
 
 enum FileExplorerSelectionRestoration {
@@ -756,6 +589,21 @@ final class FileExplorerStore: ObservableObject {
     private var directoryWatcher: FileWatcher?
     private var directoryWatchTask: Task<Void, Never>?
     private var directoryWatchPath: String?
+
+    /// Single source of truth for "an inline name edit is in progress." While true, both the
+    /// filesystem watcher and the view's reload pass suspend reloads so the active field editor
+    /// is never torn down. Clearing it replays a single coalesced reload if any watch event was
+    /// missed in the meantime. The view reads this instead of keeping its own parallel flag, so
+    /// the reload-gating lifecycle has one owner rather than two independent mechanisms.
+    var isInteractivelyEditing = false {
+        didSet {
+            guard oldValue, !isInteractivelyEditing, pendingWatcherReload else { return }
+            pendingWatcherReload = false
+            reload()
+            refreshGitStatus()
+        }
+    }
+    private var pendingWatcherReload = false
 
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
@@ -906,6 +754,10 @@ final class FileExplorerStore: ObservableObject {
             directoryWatchTask = Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
+                    if self.isInteractivelyEditing {
+                        self.pendingWatcherReload = true
+                        continue
+                    }
                     self.reload()
                     self.refreshGitStatus()
                 }
@@ -1046,6 +898,251 @@ final class FileExplorerStore: ObservableObject {
         NSLog("[FileExplorer] hydrateExpandedNodes: \(expandedPaths.count) paths to hydrate")
         #endif
         reload()
+    }
+
+    // MARK: - Mutations (local only)
+
+    /// Whether the current provider supports filesystem mutations. Only the local
+    /// provider can create, rename, duplicate, or trash items; SSH roots are read-only.
+    var canMutate: Bool { provider is LocalFileExplorerProvider }
+
+    /// The directory a toolbar-initiated "New File"/"New Folder" should target: the
+    /// selected directory, the selected file's parent, or the root when nothing is selected.
+    /// Returns `nil` when mutation is unsupported or no root is open.
+    func targetDirectoryForNewItem() -> String? {
+        guard canMutate, !rootPath.isEmpty else { return nil }
+        guard let selectedPath else { return rootPath }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: selectedPath, isDirectory: &isDirectory) else {
+            return rootPath
+        }
+        return isDirectory.boolValue ? selectedPath : (selectedPath as NSString).deletingLastPathComponent
+    }
+
+    /// Returns a name that does not collide with an existing entry in `directory`, appending
+    /// " 2", " 3", … to `base` as needed (e.g. `untitled`, `untitled 2`).
+    func uniqueName(base: String, fileExtension ext: String, in directory: String) -> String {
+        let fm = FileManager.default
+        func compose(_ index: Int) -> String {
+            let stem = index == 0 ? base : "\(base) \(index + 1)"
+            return ext.isEmpty ? stem : "\(stem).\(ext)"
+        }
+        var index = 0
+        while fm.fileExists(atPath: (directory as NSString).appendingPathComponent(compose(index))) {
+            index += 1
+        }
+        return compose(index)
+    }
+
+    /// Marks `path` as logically expanded so a newly created child becomes visible after reload.
+    func ensureExpanded(path: String) {
+        guard canMutate else { return }
+        expandedPaths.insert(path)
+    }
+
+    /// Overrides the navigation selection by path. Survives the next reload because
+    /// the outline view mirrors `selectedPath`/`selectedPaths` during restoration.
+    func setSelection(path: String?) {
+        selectedPath = path
+        selectedPaths = path.map { [$0] } ?? []
+    }
+
+    /// Creates an empty file named `name` inside `directory`. Does not reload; the caller
+    /// drives the reload so it can coordinate inline renaming of the new item.
+    @discardableResult
+    func createFile(named name: String, in directory: String) -> Result<String, FileExplorerMutationError> {
+        guard canMutate else { return .failure(.providerUnsupported) }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("/") else { return .failure(.invalidName) }
+        let path = (directory as NSString).appendingPathComponent(trimmed)
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: path) else { return .failure(.alreadyExists(name: trimmed)) }
+        guard fm.createFile(atPath: path, contents: nil) else {
+            return .failure(.underlying(String(localized: "fileExplorer.mutation.error.createFileFailed", defaultValue: "Couldn't create the file.")))
+        }
+        return .success(path)
+    }
+
+    /// Creates a directory named `name` inside `directory`. Does not reload (see ``createFile(named:in:)``).
+    @discardableResult
+    func createDirectory(named name: String, in directory: String) -> Result<String, FileExplorerMutationError> {
+        guard canMutate else { return .failure(.providerUnsupported) }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("/") else { return .failure(.invalidName) }
+        let path = (directory as NSString).appendingPathComponent(trimmed)
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: path) else { return .failure(.alreadyExists(name: trimmed)) }
+        do {
+            try fm.createDirectory(atPath: path, withIntermediateDirectories: false)
+        } catch {
+            return .failure(operationFailure(error))
+        }
+        return .success(path)
+    }
+
+    /// Renames the item at `path` to `newName` within the same directory, returning the new path.
+    /// Re-points expansion and selection state when a directory is renamed.
+    @discardableResult
+    func rename(path: String, to newName: String) -> Result<String, FileExplorerMutationError> {
+        guard canMutate else { return .failure(.providerUnsupported) }
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("/") else { return .failure(.invalidName) }
+        let directory = (path as NSString).deletingLastPathComponent
+        let destination = (directory as NSString).appendingPathComponent(trimmed)
+        if destination == path { return .success(path) }
+        let fm = FileManager.default
+        // A case-only rename (e.g. Readme.md -> README.md) resolves to the same file on a
+        // case-insensitive volume, so fileExists(destination) is true even though it's valid.
+        let oldName = (path as NSString).lastPathComponent
+        let isCaseOnlyRename = trimmed != oldName && trimmed.lowercased() == oldName.lowercased()
+        guard isCaseOnlyRename || !fm.fileExists(atPath: destination) else {
+            return .failure(.alreadyExists(name: trimmed))
+        }
+        if isCaseOnlyRename {
+            // Case-only rename on a case-insensitive volume needs a two-step move through a
+            // unique temp name. If the second move fails, roll the item back to its original
+            // name so it's never stranded under the hidden temp path, and surface a clean
+            // message rather than one that exposes the internal temp name.
+            let tempName = uniqueName(base: ".cmux-rename", fileExtension: "", in: directory)
+            let tempPath = (directory as NSString).appendingPathComponent(tempName)
+            do {
+                try fm.moveItem(atPath: path, toPath: tempPath)
+            } catch {
+                return .failure(operationFailure(error))
+            }
+            do {
+                try fm.moveItem(atPath: tempPath, toPath: destination)
+            } catch {
+                try? fm.moveItem(atPath: tempPath, toPath: path)
+                return .failure(.underlying(String(localized: "fileExplorer.mutation.error.renameFailed", defaultValue: "Couldn't rename the item.")))
+            }
+        } else {
+            do {
+                try fm.moveItem(atPath: path, toPath: destination)
+            } catch {
+                return .failure(operationFailure(error))
+            }
+        }
+        repathState(from: path, to: destination)
+        return .success(destination)
+    }
+
+    /// Copies the item at `path` next to itself with a " copy" suffix, returning the new path.
+    @discardableResult
+    func duplicate(path: String) -> Result<String, FileExplorerMutationError> {
+        guard canMutate else { return .failure(.providerUnsupported) }
+        let fm = FileManager.default
+        let directory = (path as NSString).deletingLastPathComponent
+        let name = (path as NSString).lastPathComponent
+        let ext = (name as NSString).pathExtension
+        let stem = (name as NSString).deletingPathExtension
+        let copyBase = String(format: String(localized: "fileExplorer.mutation.copySuffix", defaultValue: "%@ copy"), stem)
+        let newName = uniqueName(base: copyBase, fileExtension: ext, in: directory)
+        let destination = (directory as NSString).appendingPathComponent(newName)
+        do {
+            try fm.copyItem(atPath: path, toPath: destination)
+        } catch {
+            return .failure(operationFailure(error))
+        }
+        return .success(destination)
+    }
+
+    /// Moves the given items to the Trash (recoverable from Finder) and clears any
+    /// expansion/selection state that referenced them.
+    @discardableResult
+    func moveToTrash(paths: [String]) -> Result<Void, FileExplorerMutationError> {
+        guard canMutate else { return .failure(.providerUnsupported) }
+        let fm = FileManager.default
+        // Drop any path nested under another selected path: trashing the ancestor already
+        // removes the descendant, whose path would then no longer exist and fail the move.
+        let roots = paths.sorted().reduce(into: [String]()) { acc, path in
+            if let ancestor = acc.last, path == ancestor || path.hasPrefix(ancestor + "/") { return }
+            acc.append(path)
+        }
+        var trashed: [String] = []
+        for path in roots {
+            do {
+                try fm.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil)
+                trashed.append(path)
+            } catch {
+                // Items before this one were already trashed — clear their state before
+                // surfacing the failure so nothing dangles pointing at removed paths.
+                clearReferences(to: trashed)
+                return .failure(operationFailure(error))
+            }
+        }
+        // Clear state for every originally-selected path, including the nested ones.
+        clearReferences(to: paths)
+        return .success(())
+    }
+
+    /// A user-safe failure for a thrown `FileManager` error. The raw error — which can carry
+    /// NSCocoa codes, errno values, or absolute paths — is logged in debug builds but never
+    /// surfaced to the user; the returned message is a generic, localized string instead.
+    private func operationFailure(_ error: Error) -> FileExplorerMutationError {
+        #if DEBUG
+        NSLog("[FileExplorer] mutation failed: \(error)")
+        #endif
+        return .underlying(String(localized: "fileExplorer.mutation.error.generic", defaultValue: "Couldn't complete the operation."))
+    }
+
+    /// Removes any expansion/selection state that points at `clearedPaths` or their descendants.
+    ///
+    /// Runs in O(N + M·d): the cleared paths go into a `Set` once (M), then each candidate is
+    /// tested by walking up its own ancestors (bounded directory depth `d`) and probing the
+    /// set — instead of scanning every cleared path for every candidate (the former O(N·M)).
+    private func clearReferences(to clearedPaths: [String]) {
+        guard !clearedPaths.isEmpty else { return }
+        let cleared = Set(clearedPaths)
+        let isClearedOrUnder: (String) -> Bool = { candidate in
+            var current = candidate
+            while true {
+                if cleared.contains(current) { return true }
+                let parent = (current as NSString).deletingLastPathComponent
+                if parent == current || parent.isEmpty { return false }
+                current = parent
+            }
+        }
+        expandedPaths = expandedPaths.filter { !isClearedOrUnder($0) }
+        selectedPaths = selectedPaths.filter { !isClearedOrUnder($0) }
+        if let selectedPath, isClearedOrUnder(selectedPath) { self.selectedPath = nil }
+    }
+
+    /// Permanently removes a just-created, still-empty item when the user cancels its
+    /// inline name editing. Unlike ``moveToTrash(paths:)`` this does not use the Trash,
+    /// because the item never existed from the user's perspective.
+    @discardableResult
+    func discardJustCreated(path: String) -> Result<Void, FileExplorerMutationError> {
+        guard canMutate else { return .failure(.providerUnsupported) }
+        do {
+            try FileManager.default.removeItem(atPath: path)
+        } catch {
+            return .failure(operationFailure(error))
+        }
+        repathState(from: path, to: nil)
+        return .success(())
+    }
+
+    /// Clears all logical expansion so the tree collapses to its root items.
+    func collapseAll() {
+        expandedPaths.removeAll()
+        pendingDescendIntoFirstChildPath = nil
+    }
+
+    /// Re-points `expandedPaths` and selection when an item moves from `old` to `new`
+    /// (a directory rename also moves its descendants). Passing `new == nil` drops the state.
+    private func repathState(from old: String, to new: String?) {
+        func remap(_ p: String) -> String? {
+            guard let new else {
+                return (p == old || p.hasPrefix(old + "/")) ? nil : p
+            }
+            if p == old { return new }
+            if p.hasPrefix(old + "/") { return new + String(p.dropFirst(old.count)) }
+            return p
+        }
+        expandedPaths = Set(expandedPaths.compactMap(remap))
+        selectedPaths = Set(selectedPaths.compactMap(remap))
+        selectedPath = selectedPath.flatMap(remap)
     }
 
     // MARK: - Private
@@ -1314,7 +1411,27 @@ final class FileExplorerStore: ObservableObject {
 // MARK: - Git Status
 
 enum GitFileStatus {
-    case modified, added, deleted, renamed, untracked
+    case modified, added, deleted, renamed, untracked, ignored
+
+    /// Single-letter badge shown on the trailing edge of a file row
+    /// (`M`/`A`/`D`/`R`/`U`), matching Cursor's status column. Ignored files
+    /// carry no badge.
+    var statusLetter: String? {
+        switch self {
+        case .modified: return "M"
+        case .added: return "A"
+        case .deleted: return "D"
+        case .renamed: return "R"
+        case .untracked: return "U"
+        case .ignored: return nil
+        }
+    }
+
+    /// Whether the file name should be rendered dimmed (reduced opacity),
+    /// matching Cursor's treatment of git-ignored and untracked files.
+    var dimsName: Bool {
+        self == .ignored || self == .untracked
+    }
 }
 
 /// Runs `git status --porcelain` and parses results into a path-to-status map.
@@ -1323,7 +1440,7 @@ enum GitStatusProvider {
     static func fetchStatus(directory: String) -> [String: GitFileStatus] {
         guard let repoRoot = gitRepoRoot(for: directory) else { return [:] }
         return parseGitStatus(
-            output: runGit(in: repoRoot, arguments: ["status", "--porcelain"]),
+            output: runGit(in: repoRoot, arguments: ["status", "--porcelain", "--ignored"]),
             repoRoot: repoRoot,
             explorerRoot: directory
         )
@@ -1334,7 +1451,7 @@ enum GitStatusProvider {
         identityFile: String?, sshOptions: [String]
     ) -> [String: GitFileStatus] {
         let escapedDir = directory.replacingOccurrences(of: "'", with: "'\\''")
-        let cmd = "cd '\(escapedDir)' 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null && echo '---GIT_STATUS---' && git status --porcelain 2>/dev/null"
+        let cmd = "cd '\(escapedDir)' 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null && echo '---GIT_STATUS---' && git status --porcelain --ignored 2>/dev/null"
         guard let output = runSSH(
             command: cmd, destination: destination,
             port: port, identityFile: identityFile, sshOptions: sshOptions
@@ -1375,6 +1492,7 @@ enum GitStatusProvider {
     }
 
     private static func parseStatusChars(index: Character, workTree: Character) -> GitFileStatus? {
+        if index == "!" && workTree == "!" { return .ignored }
         if index == "?" && workTree == "?" { return .untracked }
         if index == "A" || workTree == "A" { return .added }
         if index == "D" || workTree == "D" { return .deleted }
@@ -1387,7 +1505,12 @@ enum GitStatusProvider {
         absolutePath: String, explorerRoot: String,
         status: GitFileStatus, in map: inout [String: GitFileStatus]
     ) {
-        let dirStatus: GitFileStatus = (status == .untracked) ? .untracked : .modified
+        let dirStatus: GitFileStatus
+        switch status {
+        case .untracked: dirStatus = .untracked
+        case .ignored: dirStatus = .ignored
+        default: dirStatus = .modified
+        }
         var current = (absolutePath as NSString).deletingLastPathComponent
         while current.hasPrefix(explorerRoot) && current != explorerRoot {
             if map[current] == nil {
