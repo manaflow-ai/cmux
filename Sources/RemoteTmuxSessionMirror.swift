@@ -141,13 +141,16 @@ final class RemoteTmuxSessionMirror {
                 ) else { continue }
                 panelIdByWindow[windowId] = panel.id
                 panelIdByPane[firstPaneId] = panel.id
-                connection.capturePane(paneId: firstPaneId)
                 // Classify the pane (shell → reflow on resize; TUI/alt-screen → no
                 // reflow). One-shot first (always works) so a shell reflows even on
                 // tmux builds where the live subscription doesn't deliver, then the
                 // subscription for live re-classification (e.g. bash → node).
+                // Queued BEFORE the (3-command) capture so the classification lands
+                // first — it only matters at the next resize, and arriving early
+                // shrinks the window in which a resize hits the no-reflow default.
                 connection.requestPaneReflow(paneId: firstPaneId)
                 connection.subscribePaneReflow(paneId: firstPaneId)
+                connection.capturePane(paneId: firstPaneId)
                 // Track the pane's working directory so the tab shows the remote
                 // cwd (initial value + live `cd`) instead of staying at "~".
                 connection.requestPanePath(paneId: firstPaneId)

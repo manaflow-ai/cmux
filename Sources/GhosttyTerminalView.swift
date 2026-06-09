@@ -5483,7 +5483,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// client on attach even when `createSurface` stamped the final grid (so the
     /// post-create `updateSize` sees no size change and never reports). See
     /// ``scheduleInitialManualGridReport()``. Cancelled on teardown.
+    /// ~3s of 150ms ticks, matching `RemoteTmuxWindowMirrorView.scheduleClientSize`.
     private var manualGridReportRetryTask: Task<Void, Never>?
+    private static let manualGridReportRetryIntervalMs = 150
+    private static let manualGridReportRetryCount = 20
     /// Output delivered via ``processRemoteOutput(_:)`` before the runtime
     /// surface exists (e.g. a background remote-tmux workspace not yet hosted).
     /// Flushed into the surface once it is created so content isn't lost.
@@ -7113,7 +7116,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// leaving the remote at ssh's 80×24 and claude rendered into a sub-region.
     @discardableResult
     @MainActor
-    func reportManualGridIfNeeded() -> Bool {
+    private func reportManualGridIfNeeded() -> Bool {
         guard manualIO, let report = onManualGridResize, attachedView?.window != nil else { return false }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "reportManualGrid") else { return false }
         let grid = ghostty_surface_size(surface)
@@ -7136,15 +7139,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// is the single-pane analogue of the multi-pane mirror's `scheduleClientSize`
     /// retry. No-op for non-manual surfaces or those without a resize hook.
     @MainActor
-    func scheduleInitialManualGridReport() {
+    private func scheduleInitialManualGridReport() {
         guard manualIO, onManualGridResize != nil else { return }
         if reportManualGridIfNeeded() { return }
         manualGridReportRetryTask?.cancel()
         manualGridReportRetryTask = Task { @MainActor [weak self] in
-            // ~3s of 150ms ticks, matching RemoteTmuxWindowMirrorView.scheduleClientSize.
-            for _ in 0..<20 {
-                do { try await ContinuousClock().sleep(for: .milliseconds(150)) } catch { return }
+            for _ in 0..<Self.manualGridReportRetryCount {
+                do {
+                    try await ContinuousClock().sleep(
+                        for: .milliseconds(Self.manualGridReportRetryIntervalMs))
+                } catch { return }
                 guard let self else { return }
+                // The hook is cleared when a single-pane window is promoted to a
+                // multi-pane mirror — the report can never succeed then, so stop
+                // instead of no-op-ticking out the rest of the retry budget.
+                guard self.onManualGridResize != nil else { return }
                 if self.reportManualGridIfNeeded() { return }
             }
         }

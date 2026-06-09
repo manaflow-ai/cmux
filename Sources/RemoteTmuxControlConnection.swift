@@ -64,6 +64,14 @@ final class RemoteTmuxControlConnection {
     private var parser = RemoteTmuxControlStreamParser()
     private var ingestTask: Task<Void, Never>?
     private var pendingCommands: [CommandKind] = []
+    /// `false` until the attach command's own `%begin`/`%end` block — always the
+    /// FIRST block on each control stream, preceding every notification — has been
+    /// consumed. That first block is matched explicitly (see the `.commandResult`
+    /// dispatch) rather than by "FIFO happens to be empty", so a command that races
+    /// in early (e.g. a debounced size send on a stalled link) can never have its
+    /// result slot stolen by the attach block. Reset per spawn (each ssh re-attach
+    /// produces a fresh attach block).
+    private var attachBlockDrained = false
     private let createIfMissing: Bool
 
     /// Stateless pure decoders for control-mode message payloads (pane-state seed,
@@ -94,6 +102,12 @@ final class RemoteTmuxControlConnection {
     /// before the attach's own `%begin`/`%end` block is consumed (which would misalign
     /// the command-result FIFO).
     private var pendingReconnectReseed = false
+    /// Set on a FIRST connect whose `.enter` arrived with a grid already stored (or
+    /// not yet computed); the `refresh-client -C` re-apply is deferred to the first
+    /// `list-windows` result for the same FIFO reason as ``pendingReconnectReseed``
+    /// — `.enter` precedes the attach block, and any command queued before that
+    /// block is consumed would shift the positional result FIFO.
+    private var pendingFirstConnectSizeApply = false
 
     /// Trailing-edge debounce for `refresh-client -C`. SwiftUI layout settle makes the
     /// rendered grid oscillate (e.g. cols 154→155→156→161→…, ~15 distinct grids in
@@ -169,7 +183,8 @@ final class RemoteTmuxControlConnection {
     /// claude, python, REPLs, pagers, editors) is treated as no-reflow so an inline
     /// TUI's fixed-width frame is never rewrapped. Alt-screen apps are caught
     /// separately by `#{alternate_on}`. Login shells can be reported with a leading
-    /// dash, so the traditional/POSIX variants are listed too. Classification
+    /// dash, so the common traditional/POSIX dash variants are listed too (not every
+    /// shell has one — a missing dash variant just doesn't reflow). Classification
     /// defaults to no-reflow on anything not in this set (and on an unparseable
     /// value), which is the safe direction (worst case: a shell's scrollback doesn't
     /// reflow until reclassified) — so a login shell whose dash variant is missing
@@ -274,6 +289,7 @@ final class RemoteTmuxControlConnection {
         // FIFO are stale and must not bleed into the new %begin/%end correlation.
         parser = RemoteTmuxControlStreamParser()
         pendingCommands.removeAll()
+        attachBlockDrained = false
         stderrBuffer = ""
         enterReceived = false
 
@@ -401,6 +417,9 @@ final class RemoteTmuxControlConnection {
             }
             guard let self, self.connectionState == .connected, let size = self.lastClientSize else { return }
             self.send("refresh-client -C \(size.columns)x\(size.rows)")
+            // This send already applied the stored grid — the deferred first-connect
+            // apply would only duplicate it.
+            self.pendingFirstConnectSizeApply = false
             // Do NOT re-capture here. A re-capture would run capture-pane before the
             // remote app (claude) finishes its post-SIGWINCH redraw, snapshotting the
             // stale pre-resize frame and clobbering the correct redraw — the exact
@@ -689,6 +708,8 @@ final class RemoteTmuxControlConnection {
         clientSizeDebounceTask = nil
         attachRedrawKickTask?.cancel()
         attachRedrawKickTask = nil
+        pendingAttachRedrawKick = false
+        pendingFirstConnectSizeApply = false
         teardownProcessHandles()
     }
 
@@ -858,11 +879,15 @@ final class RemoteTmuxControlConnection {
         for window in windowsByID.values {
             for paneId in window.paneIDsInOrder {
                 observers.emitPaneOutput(paneId, Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8))
+                // Reflow classification first so it lands before the (3-command)
+                // capture seed; the flag only matters at the next resize, and the
+                // earlier it arrives the smaller the window in which a resize hits
+                // the conservative no-reflow default on a slow link.
+                requestPaneReflow(paneId: paneId)
+                subscribePaneReflow(paneId: paneId)
                 capturePane(paneId: paneId)
                 requestPanePath(paneId: paneId)
                 subscribePanePath(paneId: paneId)
-                requestPaneReflow(paneId: paneId)
-                subscribePaneReflow(paneId: paneId)
             }
         }
     }
@@ -879,7 +904,8 @@ final class RemoteTmuxControlConnection {
                 // Arm the one-shot attach redraw kick: if the upcoming size apply is
                 // a no-op (window already at our size), a running TUI gets no SIGWINCH
                 // and would keep showing its stale pre-attach frame. Consumed by the
-                // first size apply (debounced send or reconnect re-seed).
+                // first size apply (debounced send, reconnect re-seed, or the
+                // first-connect list-windows result).
                 pendingAttachRedrawKick = true
                 reconnectAttemptCount = 0
                 reconnectTask?.cancel()
@@ -893,15 +919,18 @@ final class RemoteTmuxControlConnection {
                 // mirror seeds new tabs itself).
                 if wasReconnecting {
                     pendingReconnectReseed = true
-                } else if let size = lastClientSize {
+                } else {
                     // First connect: if a surface already computed its grid before we
                     // reached `.connected`, setClientSize stored it but dropped the
                     // send (no live stdin yet) and nothing re-applies it on first
-                    // connect — so the remote would stay at ssh's 80×24. Re-emit it
-                    // now. SAFE to send here (unlike the reseed): `refresh-client -C`
-                    // is UNCORRELATED (kind .other, no %begin/%end result block), so
-                    // it does not touch the command-result FIFO the attach block uses.
-                    send("refresh-client -C \(size.columns)x\(size.rows)")
+                    // connect — so the remote would stay at ssh's 80×24. Do NOT send
+                    // it from here: `.enter` is emitted BEFORE the attach's own
+                    // %begin/%end block is consumed, and EVERY send (even kind
+                    // `.other`) joins the positional result FIFO — a command queued
+                    // now would be popped by the attach block and shift every later
+                    // result one slot. Defer to the first list-windows result (attach
+                    // block drained), exactly like the reconnect re-seed above.
+                    pendingFirstConnectSizeApply = true
                 }
             }
         case let .exit(reason):
@@ -915,6 +944,8 @@ final class RemoteTmuxControlConnection {
             clientSizeDebounceTask = nil
             attachRedrawKickTask?.cancel()
             attachRedrawKickTask = nil
+            pendingAttachRedrawKick = false
+            pendingFirstConnectSizeApply = false
             observers.notifyExit()
         case let .output(paneId, data):
             paneOutputByteCounts[paneId, default: 0] += data.count
@@ -976,15 +1007,23 @@ final class RemoteTmuxControlConnection {
                 classifyAndEmitReflow(paneId: paneId, rawValue: value, source: "sub")
             }
         case let .commandResult(_, lines, isError):
-            handleCommandResult(lines: lines, isError: isError)
+            // The first block on each control stream is the attach command's own —
+            // consume it explicitly so it can never pop a queued command's slot off
+            // the positional FIFO (see ``attachBlockDrained``).
+            if !attachBlockDrained {
+                attachBlockDrained = true
+            } else {
+                handleCommandResult(lines: lines, isError: isError)
+            }
         case .ignoredNotification, .unparsed:
             break
         }
     }
 
     private func handleCommandResult(lines: [String], isError: Bool) {
-        // The attach command's own block arrives before we queue anything; only
-        // correlate results once we have an outstanding command.
+        // The attach block was already consumed upstream (`attachBlockDrained`);
+        // an empty FIFO here means an unsolicited block — drop it rather than
+        // misalign the positional correlation.
         guard !pendingCommands.isEmpty else { return }
         let kind = pendingCommands.removeFirst()
         guard !isError else { return }
@@ -1034,12 +1073,25 @@ final class RemoteTmuxControlConnection {
                     pendingReconnectReseed = false
                     reseedAfterReconnect()
                 }
+                // First connect: apply the grid that was stored before `.enter` (the
+                // attach block is drained here, so the send's result block correlates
+                // cleanly — see `pendingFirstConnectSizeApply`). A surface that hasn't
+                // computed a grid yet is covered by the debounced `setClientSize`.
+                if pendingFirstConnectSizeApply {
+                    pendingFirstConnectSizeApply = false
+                    if let size = lastClientSize {
+                        send("refresh-client -C \(size.columns)x\(size.rows)")
+                    }
+                }
                 // First-connect coverage for the attach redraw kick: if the grid was
-                // computed (and size sent) before `.enter`, no post-connect
-                // `setClientSize` may ever fire (layout settled + same-size dedupe
-                // upstream), so the debounced-send consumer never runs. This is the
-                // earliest point where the topology is populated; a no-op when the
-                // kick was already consumed (or when reseedAfterReconnect just ran it).
+                // computed before `.enter`, no post-connect `setClientSize` may ever
+                // fire (layout settled + same-size dedupe upstream), so the
+                // debounced-send consumer never runs. This is the earliest point with
+                // populated topology — and `windowsByID` was parsed from THIS
+                // list-windows reply, generated before tmux processed the size apply
+                // just queued above, so the at-target check sees the true pre-apply
+                // geometry. No-op when the kick was already consumed (or when
+                // reseedAfterReconnect just ran it).
                 scheduleAttachRedrawKickIfNeeded()
             }
         case let .capturePane(paneId):
