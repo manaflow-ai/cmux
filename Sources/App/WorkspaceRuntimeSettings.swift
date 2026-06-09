@@ -1,3 +1,4 @@
+import CmuxSettings
 import Darwin
 import Foundation
 
@@ -102,6 +103,30 @@ enum TerminalScrollBarSettings {
             return defaultShowScrollBar
         }
         return defaults.bool(forKey: showScrollBarKey)
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
+enum TerminalScrollSpeedSettings {
+    static let multiplierKey = "terminal.scrollSpeed"
+    static let defaultMultiplier = TerminalCatalogSection.scrollSpeedDefault
+    static let minimumMultiplier = TerminalCatalogSection.scrollSpeedMinimum
+    static let maximumMultiplier = TerminalCatalogSection.scrollSpeedMaximum
+    static let didChangeNotification = Notification.Name("cmux.terminalScrollSpeedSettingsDidChange")
+
+    static func multiplier(defaults: UserDefaults = .standard) -> Double {
+        if defaults.object(forKey: multiplierKey) == nil {
+            return defaultMultiplier
+        }
+        return sanitizedMultiplier(defaults.double(forKey: multiplierKey))
+    }
+
+    static func sanitizedMultiplier(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultMultiplier }
+        return min(max(value, minimumMultiplier), maximumMultiplier)
     }
 
     static func notifyDidChange(notificationCenter: NotificationCenter = .default) {

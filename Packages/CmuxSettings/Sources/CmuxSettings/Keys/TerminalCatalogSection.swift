@@ -2,6 +2,13 @@ import Foundation
 
 /// Settings under the dotted-id prefix `terminal.*`.
 public struct TerminalCatalogSection: SettingCatalogSection {
+    /// Canonical bounds for the terminal scroll-speed multiplier. Shared by the
+    /// app-side `TerminalScrollSpeedSettings` reader/clamp and the settings UI
+    /// slider so both agree on a single source of truth.
+    public static let scrollSpeedDefault = 1.0
+    public static let scrollSpeedMinimum = 0.25
+    public static let scrollSpeedMaximum = 3.0
+
     public let showScrollBar = DefaultsKey<Bool>(
         id: "terminal.showScrollBar",
         defaultValue: true,
@@ -59,6 +66,12 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     public let resumeCommands = JSONKey<[String]>(
         id: "terminal.resumeCommands",
         defaultValue: []
+    )
+
+    public let scrollSpeed = DefaultsKey<Double>(
+        id: "terminal.scrollSpeed",
+        defaultValue: TerminalCatalogSection.scrollSpeedDefault,
+        userDefaultsKey: "terminal.scrollSpeed"
     )
 
     public init() {}
