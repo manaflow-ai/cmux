@@ -6,7 +6,13 @@ import SwiftUI
 /// list rows (preview line, status color, avatar, timestamp/detail summaries).
 extension MobileWorkspacePreview {
     var previewLine: String {
-        terminals.first?.name ?? name
+        // Prefer the Mac's last-activity preview (latest notification text). Fall
+        // back to the first terminal's name (or the workspace name) when the Mac
+        // has no activity to preview or is old enough not to emit one.
+        if let previewText, !previewText.isEmpty {
+            return previewText
+        }
+        return terminals.first?.name ?? name
     }
 
     func statusColor(connectionStatus: MobileMacConnectionStatus) -> Color {
@@ -39,14 +45,29 @@ extension MobileWorkspacePreview {
         if connectionStatus != .connected {
             return connectionStatus.label
         }
+        return relativeActivityLabel(now: Date())
+    }
+
+    /// Compact relative time for the row's trailing slot, like a messaging list:
+    /// "now" under a minute, otherwise an abbreviated localized relative time
+    /// ("2m", "1h", "3d"). Falls back to a localized month/day for older activity
+    /// and an empty string when there is no real activity timestamp. `now` is
+    /// injected so the formatting is deterministic in tests.
+    func relativeActivityLabel(now: Date) -> String {
         let date = latestActivityDate
-        // A healthy connection shows no host name here; without a real activity
-        // timestamp the trailing slot stays empty rather than echoing the Mac.
+        // Without a real activity timestamp the trailing slot stays empty rather
+        // than echoing the Mac.
         guard date.timeIntervalSince1970 > 1 else {
             return ""
         }
-        if Calendar.current.isDateInToday(date) {
-            return date.formatted(date: .omitted, time: .shortened)
+        let interval = now.timeIntervalSince(date)
+        if interval < 60 {
+            return L10n.string("mobile.workspace.preview.justNow", defaultValue: "now")
+        }
+        // Within a week, an abbreviated relative time reads like iMessage. Past a
+        // week, a month/day date is more useful than "5 weeks ago".
+        if interval < 7 * 24 * 60 * 60 {
+            return date.formatted(.relative(presentation: .numeric, unitsStyle: .narrow))
         }
         return date.formatted(.dateTime.month(.defaultDigits).day(.defaultDigits))
     }
@@ -66,9 +87,9 @@ extension MobileWorkspacePreview {
         return "\(previewLine), \(connectionStatus.label), \(detail)"
     }
 
-    private var latestActivityDate: Date { .distantPast }
+    private var latestActivityDate: Date { previewAt ?? .distantPast }
 
-private var stableAvatarSeed: Int {
+    private var stableAvatarSeed: Int {
         id.rawValue.unicodeScalars.reduce(0) { partialResult, scalar in
             partialResult + Int(scalar.value)
         }

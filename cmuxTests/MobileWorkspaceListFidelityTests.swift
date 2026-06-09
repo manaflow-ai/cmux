@@ -139,4 +139,86 @@ struct MobileWorkspaceListFidelityTests {
         )
         #expect(before != after, "a workspace rename must change the mobile summary hash")
     }
+
+    /// A pure group-membership move (a workspace's `groupId` changes while the tab
+    /// set, group list, panels, title, and pin state stay put) must change the
+    /// mobile summary hash so the observer re-emits `workspace.updated`. The phone
+    /// nests members under their group header keyed by `group_id`, so a stale hash
+    /// here would leave the mobile sidebar showing the workspace in the wrong
+    /// section. Guards the per-workspace `$groupId` subscription that drives it.
+    @Test func movingWorkspaceBetweenGroupsChangesObserverHash() throws {
+        let manager = TabManager()
+        let member = try #require(manager.selectedWorkspace)
+        // A real group with its own anchor; the member starts ungrouped.
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Group A"))
+        #expect(member.groupId == nil)
+
+        let before = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+
+        // Move the workspace into the group: only `groupId` changes.
+        member.groupId = groupId
+
+        let after = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(before != after, "a pure group-membership move must change the mobile summary hash")
+    }
+
+    /// A new notification (or clearing the latest one) changes only a workspace's
+    /// preview signature, not the tab set, groups, panels, title, or pin state.
+    /// The signature must be folded into the summary hash so the observer
+    /// re-emits and the phone refreshes the row's preview line + relative time.
+    @Test func previewSignatureChangeChangesObserverHash() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+
+        let before = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId,
+            previewSignatures: [:]
+        )
+        let after = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId,
+            previewSignatures: [workspace.id: 42]
+        )
+        #expect(before != after, "a preview-signature change must change the mobile summary hash")
+
+        let changed = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId,
+            previewSignatures: [workspace.id: 43]
+        )
+        #expect(after != changed, "a newer notification must change the mobile summary hash")
+    }
+
+    /// The mobile preview line must flatten arbitrary notification text into one
+    /// short plain-text line: ANSI escapes stripped, control characters and
+    /// newlines collapsed, whitespace runs joined, length capped with an ellipsis,
+    /// and whitespace-only input dropped entirely.
+    @Test func mobilePreviewSanitizeFlattensAndCaps() throws {
+        // ANSI SGR + OSC sequences are stripped without leaking payload bytes.
+        #expect(
+            TerminalController.mobilePreviewSanitize("\u{001B}[31mbuild\u{001B}[0m \u{001B}]0;title\u{0007}done") ==
+                "build done"
+        )
+        // Newlines, tabs, and runs of spaces collapse to single spaces.
+        #expect(TerminalController.mobilePreviewSanitize("line one\n\n  line\ttwo   ") == "line one line two")
+        // Whitespace-only input yields nil so the row shows no preview.
+        #expect(TerminalController.mobilePreviewSanitize(" \n\t ") == nil)
+        // Long input is capped with a trailing ellipsis at the documented limit.
+        let long = String(repeating: "a", count: 500)
+        let capped = try #require(TerminalController.mobilePreviewSanitize(long))
+        #expect(capped.count == TerminalController.mobilePreviewMaxLength)
+        #expect(capped.hasSuffix("\u{2026}"))
+    }
 }

@@ -20823,6 +20823,10 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+        case "workspace.group.collapse":
+            result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: true)
+        case "workspace.group.expand":
+            result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: false)
 #if DEBUG
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
@@ -21054,6 +21058,24 @@ class TerminalController {
         return v2WorkspaceAction(params: params)
     }
 
+    /// Mobile-gated collapse/expand of a workspace group. P1 group support on
+    /// iOS is display-only: the phone renders collapsible group sections and can
+    /// toggle a section open/closed, but cannot create, rename, or restructure
+    /// groups. This requires an explicit, resolvable `group_id` (it must never
+    /// fall back to the Mac's selected group) and delegates to the same
+    /// `v2WorkspaceGroupSetCollapsed` the CLI and sidebar use, so the mutation
+    /// path stays shared. `v2ResolveTabManager` routes by `group_id` to the
+    /// owning window even in the multi-window case.
+    private func v2MobileWorkspaceGroupSetCollapsed(params: [String: Any], isCollapsed: Bool) -> V2CallResult {
+        guard v2HasNonNullParam(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        guard v2UUID(params, "group_id") != nil else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        return v2WorkspaceGroupSetCollapsed(params: params, isCollapsed: isCollapsed)
+    }
+
     private func mobileHostResult(_ result: V2CallResult) -> MobileHostRPCResult {
         switch result {
         case let .ok(payload):
@@ -21251,9 +21273,22 @@ class TerminalController {
             : AppDelegate.shared?.currentScriptableMainWindow()?.tabManager.selectedTabId
 
         let workspaces: [[String: Any]]
+        // Group sections shown on the phone. Aggregated alongside the workspace
+        // list so the iOS client can fold contiguous same-group workspaces under a
+        // collapsible header that mirrors the Mac sidebar.
+        var groups: [[String: Any]] = []
         if scopeToSingleWindow {
             guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
                 return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
+            }
+            // Only include groups when listing the whole window. A request scoped
+            // to one workspace or terminal is a targeted lookup (create/refresh of
+            // a single entry), not a sidebar render, so it omits group sections to
+            // keep the response minimal. The phone always lists the full window.
+            if requestedWorkspaceID == nil, requestedTerminalID == nil {
+                groups = tabManager.workspaceGroups.map {
+                    mobileWorkspaceGroupPayload($0, tabs: tabManager.tabs)
+                }
             }
             let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
                 tabManager.tabs.filter { $0.id == workspaceID }
@@ -21294,9 +21329,18 @@ class TerminalController {
             // workspace lives in exactly one window, and ids are globally unique.
             var seenWindowIDs: Set<UUID> = []
             var seenWorkspaceIDs: Set<UUID> = []
+            // Groups are per-TabManager (per window). Aggregate them in the same
+            // window-iteration order the workspaces are flattened in, so a group's
+            // header lands at its first member's position in the combined list.
+            var aggregatedGroups: [[String: Any]] = []
             for summary in app.listMainWindowSummaries() {
                 guard seenWindowIDs.insert(summary.windowId).inserted else { continue }
                 guard let windowTabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+                for group in windowTabManager.workspaceGroups {
+                    aggregatedGroups.append(
+                        mobileWorkspaceGroupPayload(group, tabs: windowTabManager.tabs)
+                    )
+                }
                 for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
                     flattened.append(
                         mobileWorkspacePayload(
@@ -21308,10 +21352,12 @@ class TerminalController {
                 }
             }
             workspaces = flattened
+            groups = aggregatedGroups
         }
 
         var payload: [String: Any] = [
-            "workspaces": workspaces
+            "workspaces": workspaces,
+            "groups": groups
         ]
         if let createdWorkspaceID {
             payload["created_workspace_id"] = createdWorkspaceID
@@ -21352,13 +21398,93 @@ class TerminalController {
             ]
         }
 
+        let preview = mobileWorkspacePreview(workspace: workspace)
         return [
             "id": workspace.id.uuidString,
             "title": workspace.title,
             "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
             "is_selected": isSelected,
             "is_pinned": workspace.isPinned,
+            // Group membership so the phone can fold contiguous same-group
+            // workspaces under their group header. nil for ungrouped workspaces.
+            "group_id": v2OrNull(workspace.groupId?.uuidString),
+            // iMessage-style last-activity preview: a one-line, plain-text summary
+            // of the most recent notification (agent/terminal activity), with its
+            // timestamp, so the phone can show a preview + relative time per row.
+            // nil when the workspace has no activity yet.
+            "preview": v2OrNull(preview?.text),
+            "preview_at": v2OrNull(preview?.epochSeconds),
             "terminals": terminals
+        ]
+    }
+
+    /// The most recent activity line shown under a workspace row on the phone.
+    ///
+    /// Sourced from the same `latestNotification(forTabId:)` the Mac sidebar uses
+    /// for its subtitle (body, falling back to title), so the phone mirrors the
+    /// desktop. The text is flattened to a single line, has control/ANSI bytes
+    /// stripped, collapses runs of whitespace, and is length-capped so a noisy
+    /// notification can never bloat the list payload or wrap the row. `nil` when
+    /// the workspace has no notification yet (the row then shows no preview).
+    private func mobileWorkspacePreview(workspace: Workspace) -> (text: String, epochSeconds: Double)? {
+        guard let notification = AppDelegate.shared?.notificationStore?
+            .latestNotification(forTabId: workspace.id) else {
+            return nil
+        }
+        let raw = notification.body.isEmpty ? notification.title : notification.body
+        guard let text = Self.mobilePreviewSanitize(raw) else { return nil }
+        return (text, notification.createdAt.timeIntervalSince1970)
+    }
+
+    /// Maximum characters in a mobile workspace preview line. Long enough for a
+    /// useful summary, short enough that the row never wraps and the payload stays
+    /// small for big workspace lists.
+    nonisolated static let mobilePreviewMaxLength = 140
+
+    /// Flattens arbitrary notification text into a single plain-text preview line:
+    /// strips ANSI escape sequences and other control characters, collapses
+    /// whitespace runs (including newlines) to single spaces, trims, and caps the
+    /// length with an ellipsis. Returns `nil` for empty/whitespace-only input.
+    nonisolated static func mobilePreviewSanitize(_ raw: String) -> String? {
+        // Drop ANSI/OSC escape sequences first so their payload bytes don't leak
+        // into the preview as stray characters once the ESC is removed.
+        let withoutEscapes = raw.replacingOccurrences(
+            of: "\u{001B}\\[[0-9;?]*[ -/]*[@-~]|\u{001B}\\][^\u{0007}\u{001B}]*(?:\u{0007}|\u{001B}\\\\)|\u{001B}[@-Z\\\\-_]",
+            with: "",
+            options: .regularExpression
+        )
+        // Replace any remaining control character (including newlines/tabs) and
+        // collapse whitespace runs into single spaces.
+        let scalars = withoutEscapes.unicodeScalars.map { scalar -> Character in
+            (CharacterSet.controlCharacters.contains(scalar) || CharacterSet.whitespacesAndNewlines.contains(scalar))
+                ? " "
+                : Character(scalar)
+        }
+        let collapsed = String(scalars)
+            .split(separator: " ", omittingEmptySubsequences: true)
+            .joined(separator: " ")
+        let trimmed = collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.count <= mobilePreviewMaxLength {
+            return trimmed
+        }
+        return String(trimmed.prefix(mobilePreviewMaxLength - 1)) + "\u{2026}"
+    }
+
+    /// Serializes one workspace group into the iOS-facing mobile shape.
+    ///
+    /// A subset of `v2WorkspaceGroupPayload` carrying only what the phone needs to
+    /// render collapsible sections (no v2 handle refs, color, or icon). Member ids
+    /// are taken in `tabs` spatial order so the phone's grouping matches the Mac.
+    private func mobileWorkspaceGroupPayload(_ group: WorkspaceGroup, tabs: [Workspace]) -> [String: Any] {
+        let memberIds = tabs.compactMap { $0.groupId == group.id ? $0.id.uuidString : nil }
+        return [
+            "id": group.id.uuidString,
+            "name": group.name,
+            "is_collapsed": group.isCollapsed,
+            "is_pinned": group.isPinned,
+            "anchor_workspace_id": group.anchorWorkspaceId.uuidString,
+            "member_workspace_ids": memberIds
         ]
     }
 

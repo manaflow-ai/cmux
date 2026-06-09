@@ -160,6 +160,41 @@ import Testing
         #expect(workspace.terminals.first?.isReady == true)
     }
 
+    /// The Mac emits an optional per-workspace `preview` + `preview_at` (latest
+    /// notification text + epoch seconds) for the iMessage-style row preview.
+    /// Both must decode when present and stay `nil` when an older Mac omits them.
+    @Test func workspaceListResponseDecodesOptionalActivityPreview() throws {
+        let json = Data("""
+        {
+          "workspaces": [
+            {
+              "id": "ws-1",
+              "title": "cmux",
+              "is_selected": true,
+              "preview": "Build finished in 12s",
+              "preview_at": 1765000000.5,
+              "terminals": []
+            },
+            {
+              "id": "ws-2",
+              "title": "older-mac",
+              "is_selected": false,
+              "terminals": []
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        #expect(response.workspaces.count == 2)
+        let withPreview = try #require(response.workspaces.first)
+        #expect(withPreview.preview == "Build finished in 12s")
+        #expect(withPreview.previewAt == 1765000000.5)
+        let withoutPreview = try #require(response.workspaces.last)
+        #expect(withoutPreview.preview == nil)
+        #expect(withoutPreview.previewAt == nil)
+    }
+
     @Test func attachTicketInputDecodesAttachURL() throws {
         let route = try CmxAttachRoute(
             id: "tailscale",
