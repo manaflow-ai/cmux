@@ -128,6 +128,7 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: Ordered, de-duplicated GitHub slugs; empty when there is no
     ///   repository or no GitHub remote.
+    @concurrent
     public nonisolated func repositorySlugs(forDirectory directory: String) async -> [String] {
         guard let repository = Self.resolveGitRepository(containing: directory),
               let output = Self.gitRemoteVOutput(repository: repository) else {

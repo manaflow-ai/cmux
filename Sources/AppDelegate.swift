@@ -15536,7 +15536,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ])
 
             if registerStatus != noErr {
+#if DEBUG
                 NSLog("LaunchServices registration failed (status: \(registerStatus)) for \(normalizedURL.path)")
+#endif
             }
         }
     }

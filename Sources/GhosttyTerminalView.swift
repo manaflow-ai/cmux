@@ -1615,22 +1615,25 @@ private struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
 
 private actor TerminalSurfaceRuntimeTeardownCoordinator {
     static let shared = TerminalSurfaceRuntimeTeardownCoordinator()
+    private static let timeoutQueue = DispatchQueue(
+        label: "com.cmux.terminalSurfaceRuntimeTeardown.timeout",
+        qos: .utility
+    )
 
-    private let timeout: Duration = .seconds(5)
+    private let timeoutSeconds: TimeInterval = 5
     private var pendingReasonsById: [UUID: String] = [:]
+    private var timeoutTimersById: [UUID: DispatchSourceTimer] = [:]
     private var queuedRequests: [TerminalSurfaceRuntimeTeardownRequest] = []
     private var isWorkerRunning = false
 
     func enqueue(_ request: TerminalSurfaceRuntimeTeardownRequest) {
         pendingReasonsById[request.id] = request.reason
+        scheduleTimeout(id: request.id)
         queuedRequests.append(request)
         if !isWorkerRunning {
             isWorkerRunning = true
             Task.detached(priority: .utility) {
                 while let request = await self.nextRequestForWorker() {
-                    Task {
-                        await self.observeTimeout(id: request.id)
-                    }
                     await Self.free(request)
                     await self.complete(id: request.id)
                 }
@@ -1668,16 +1671,29 @@ private actor TerminalSurfaceRuntimeTeardownCoordinator {
     }
 
     private func complete(id: UUID) {
+        cancelTimeout(id: id)
         pendingReasonsById.removeValue(forKey: id)
     }
 
-    private func observeTimeout(id: UUID) async {
-        do {
-            // Genuine teardown deadline: report a stuck native free without blocking close.
-            try await Task.sleep(for: timeout)
-        } catch {
-            return
+    private func scheduleTimeout(id: UUID) {
+        cancelTimeout(id: id)
+        let timer = DispatchSource.makeTimerSource(queue: Self.timeoutQueue)
+        timer.schedule(deadline: .now() + timeoutSeconds, leeway: .milliseconds(250))
+        timer.setEventHandler { [weak self] in
+            Task {
+                await self?.timeoutExpired(id: id)
+            }
         }
+        timeoutTimersById[id] = timer
+        timer.resume()
+    }
+
+    private func cancelTimeout(id: UUID) {
+        timeoutTimersById.removeValue(forKey: id)?.cancel()
+    }
+
+    private func timeoutExpired(id: UUID) {
+        timeoutTimersById.removeValue(forKey: id)
         guard let reason = pendingReasonsById[id] else { return }
 #if DEBUG
         cmuxDebugLog(
