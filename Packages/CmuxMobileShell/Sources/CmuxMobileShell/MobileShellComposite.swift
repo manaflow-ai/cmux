@@ -3074,15 +3074,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspacePictureHashLRU.append(hash)
         }
         workspacePictureBytesByHash[hash] = data
-        while workspacePictureHashLRU.count > Self.maxCachedWorkspacePictures {
-            let evicted = workspacePictureHashLRU.removeFirst()
-            // Never evict a hash still referenced by a live workspace.
-            if workspaces.contains(where: { $0.pictureHash == evicted }) {
-                workspacePictureHashLRU.append(evicted)
-                continue
+        guard workspacePictureHashLRU.count > Self.maxCachedWorkspacePictures else { return }
+        // Single bounded pass, oldest first: evict unreferenced hashes until the
+        // cache fits. A hash still referenced by a live workspace is never
+        // evicted, so when every cached avatar is live the cache simply stays
+        // over budget for this round (bounded by the live workspace count).
+        let liveHashes = Set(workspaces.compactMap(\.pictureHash))
+        var overflow = workspacePictureHashLRU.count - Self.maxCachedWorkspacePictures
+        var retained: [String] = []
+        retained.reserveCapacity(workspacePictureHashLRU.count)
+        for candidate in workspacePictureHashLRU {
+            if overflow > 0, !liveHashes.contains(candidate) {
+                workspacePictureBytesByHash.removeValue(forKey: candidate)
+                overflow -= 1
+            } else {
+                retained.append(candidate)
             }
-            workspacePictureBytesByHash.removeValue(forKey: evicted)
         }
+        workspacePictureHashLRU = retained
     }
 
     /// Re-stamp `pictureData` on each workspace from the cache (after a fetch
