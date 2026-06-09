@@ -2107,11 +2107,9 @@ struct ContentView: View {
         isSidebarVisible: Bool
     ) -> FullscreenControlsPlacement? {
         guard isFullScreen else { return nil }
-        // BUG: placement still depends on sidebar visibility, so toggling the
-        // sidebar nudges the controls left/up. Fixed in the following commit.
-        return isSidebarVisible
-            ? FullscreenControlsPlacement(leadingPadding: 10, topPadding: 4)
-            : FullscreenControlsPlacement(leadingPadding: 8, topPadding: 2)
+        // Placement is intentionally independent of sidebar visibility so toggling
+        // the sidebar in fullscreen never shifts the accessory bar.
+        return FullscreenControlsPlacement(leadingPadding: 10, topPadding: 4)
     }
 
     private func terminalContent(appearance: WindowAppearanceSnapshot) -> some View {
