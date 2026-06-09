@@ -15,6 +15,7 @@ extension MobileWorkspacePreview {
             previewAt: remote.previewAt.map { Date(timeIntervalSince1970: $0) },
             lastActivityAt: remote.lastActivityAt.map { Date(timeIntervalSince1970: $0) },
             hasUnread: remote.hasUnread ?? false,
+            pictureHash: remote.pictureHash,
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
             }

@@ -54,6 +54,16 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// sidebar's workspace unread badge). Drives the iMessage-style unread dot.
     /// `false` when connected to a Mac old enough not to emit it.
     public var hasUnread: Bool
+    /// Content hash of the workspace picture (iMessage-style avatar) reported by
+    /// the Mac, or `nil` when the workspace has no picture. The avatar bytes are
+    /// fetched on demand keyed by this hash and stamped into ``pictureData``; the
+    /// hash itself is what drives a refetch when the picture changes.
+    public var pictureHash: String?
+    /// Resolved avatar image bytes (a small PNG) once fetched and cached by hash,
+    /// or `nil` until fetched (or when the workspace has no picture). Carried in
+    /// the value snapshot so list rows can render the avatar without holding the
+    /// shell store (snapshot-boundary rule).
+    public var pictureData: Data?
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
 
@@ -68,6 +78,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - previewAt: When the preview's activity happened. Defaults to `nil`.
     ///   - lastActivityAt: When the workspace last had activity. Defaults to `nil`.
     ///   - hasUnread: Whether the workspace has unread activity. Defaults to `false`.
+    ///   - pictureHash: Content hash of the workspace picture, or `nil` for none.
+    ///   - pictureData: Resolved avatar bytes once fetched, or `nil`.
     ///   - terminals: The terminals contained in the workspace, in display order.
     public init(
         id: ID,
@@ -79,6 +91,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         previewAt: Date? = nil,
         lastActivityAt: Date? = nil,
         hasUnread: Bool = false,
+        pictureHash: String? = nil,
+        pictureData: Data? = nil,
         terminals: [MobileTerminalPreview]
     ) {
         self.id = id
@@ -90,6 +104,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.previewAt = previewAt
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
+        self.pictureHash = pictureHash
+        self.pictureData = pictureData
         self.terminals = terminals
     }
 }

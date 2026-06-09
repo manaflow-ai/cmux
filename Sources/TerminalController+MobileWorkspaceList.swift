@@ -237,6 +237,11 @@ extension TerminalController {
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
+            // Content hash of the workspace picture (iMessage-style avatar), or
+            // null when it has none. The phone caches the avatar bytes by hash and
+            // fetches them on demand via `mobile.workspace.picture.get`, so the
+            // list payload stays tiny and never base64-bloats `workspace.updated`.
+            "picture_hash": v2OrNull(mobileNonEmpty(workspace.pictureHash)),
             "terminals": terminals
         ]
     }

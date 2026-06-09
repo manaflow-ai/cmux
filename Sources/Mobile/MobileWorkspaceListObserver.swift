@@ -183,6 +183,10 @@ final class MobileWorkspaceListObserver {
                 // tab set, `workspaceGroups`, the panel set, or the title, so
                 // without this the phone never learns the membership changed.
                 workspace.$groupId.map { _ in () }.eraseToAnyPublisher(),
+                // The picture (iMessage-style avatar) is iOS-facing: a set/change/
+                // remove must push `workspace.updated` so the phone refetches the
+                // avatar by its new hash. The hash, not the bytes, rides the list.
+                workspace.$pictureHash.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
                 // Pure drag-reorders change spatial order without changing the panel
@@ -268,6 +272,8 @@ final class MobileWorkspaceListObserver {
             // from the notification store (not the TabManager graph), so it is
             // folded in here as a precomputed signature.
             hasher.combine(previewSignatures[workspace.id])
+            // Picture-hash change must re-emit so the phone refetches the avatar.
+            hasher.combine(workspace.pictureHash)
             // Spatial order is significant: hash the ordered id sequence so a
             // reorder of the same panel set changes the hash.
             let panelIDs = workspace.orderedPanelIds

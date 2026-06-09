@@ -39,6 +39,10 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         /// Whether the workspace has unread activity on the Mac. `nil` on Macs
         /// old enough not to emit it (the row then shows no unread dot).
         public let hasUnread: Bool?
+        /// Content hash of the workspace picture (iMessage-style avatar), or `nil`
+        /// when the workspace has no picture or the Mac is old enough not to emit
+        /// `picture_hash`. The bytes are fetched on demand keyed by this hash.
+        public let pictureHash: String?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
 
@@ -54,6 +58,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case previewAt = "preview_at"
             case lastActivityAt = "last_activity_at"
             case hasUnread = "has_unread"
+            case pictureHash = "picture_hash"
             case terminals
         }
     }

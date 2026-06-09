@@ -1704,6 +1704,22 @@ class TabManager: ObservableObject {
         tab.setCustomColor(color)
     }
 
+    /// Shared set/change path for a workspace picture (iMessage-style avatar).
+    /// Routes every entrypoint (context menu, paste, future CLI/phone) through the
+    /// one `Workspace.setPicture` mutation, which persists the downscaled image and
+    /// publishes the new hash. Returns `false` if the image can't be encoded.
+    @discardableResult
+    func setWorkspacePicture(tabId: UUID, image: NSImage) -> Bool {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+        return tab.setPicture(image)
+    }
+
+    /// Shared remove path for a workspace picture.
+    func removeWorkspacePicture(tabId: UUID) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.clearPicture()
+    }
+
     func applyWorkspaceColor(_ color: String?, toWorkspaceIds workspaceIds: [UUID]) {
         guard !workspaceIds.isEmpty else { return }
         if workspaceIds.count == 1, let workspaceId = workspaceIds.first {
