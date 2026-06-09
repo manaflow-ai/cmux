@@ -62,18 +62,27 @@ struct MobilePairingView: View {
     }
 
     private var signInRow: some View {
-        requirementRow(
+        let status = model.signInRequirement
+        return requirementRow(
+            status: status,
             title: String(localized: "mobile.pairing.req.signIn.title", defaultValue: "Signed in to cmux"),
             subtitle: model.signedInEmail
                 ?? String(localized: "mobile.pairing.req.signIn.subtitle", defaultValue: "Sign in to authorize this Mac for pairing.")
         ) {
-            EmptyView()
+            if status == .needsAction {
+                Button(String(localized: "mobile.pairing.signIn.button", defaultValue: "Sign In")) {
+                    model.signIn()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
         }
     }
 
     private var tailscaleRow: some View {
         let reachable = tailscaleReachable
         return requirementRow(
+            status: model.tailscaleRequirement,
             title: String(localized: "mobile.pairing.req.tailscale.title", defaultValue: "Tailscale"),
             subtitle: tailscaleSubtitle(reachable: reachable)
         ) {
@@ -109,11 +118,13 @@ struct MobilePairingView: View {
     }
 
     private func requirementRow<Trailing: View>(
+        status: MobilePairingModel.RequirementStatus,
         title: String,
         subtitle: String,
         @ViewBuilder trailing: () -> Trailing
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
+            RequirementStatusBadge(status: status)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.callout.weight(.medium))
                 Text(subtitle)
@@ -320,5 +331,48 @@ struct MobilePairingView: View {
     private func centered<C: View>(@ViewBuilder _ content: () -> C) -> some View {
         HStack(spacing: 10) { content() }
             .frame(maxWidth: .infinity, minHeight: 200)
+    }
+}
+
+/// The one status indicator used by every requirements-checklist row, so the
+/// checklist's visual language stays consistent. Meaning is carried by both
+/// the symbol shape and its color (never color alone): red exclamation for a
+/// blocking step, green check for a completed one, a neutral dashed circle
+/// while the step can't be evaluated yet.
+private struct RequirementStatusBadge: View {
+    let status: MobilePairingModel.RequirementStatus
+
+    var body: some View {
+        Image(systemName: symbolName)
+            .foregroundStyle(tint)
+            .frame(width: 18)
+            .accessibilityLabel(label)
+    }
+
+    private var symbolName: String {
+        switch status {
+        case .complete: return "checkmark.circle.fill"
+        case .needsAction: return "exclamationmark.circle.fill"
+        case .pending: return "circle.dashed"
+        }
+    }
+
+    private var tint: Color {
+        switch status {
+        case .complete: return .green
+        case .needsAction: return .red
+        case .pending: return .secondary
+        }
+    }
+
+    private var label: String {
+        switch status {
+        case .complete:
+            return String(localized: "mobile.pairing.req.status.done", defaultValue: "Done")
+        case .needsAction:
+            return String(localized: "mobile.pairing.req.status.needsAttention", defaultValue: "Needs attention")
+        case .pending:
+            return String(localized: "mobile.pairing.req.status.checking", defaultValue: "Checking")
+        }
     }
 }
