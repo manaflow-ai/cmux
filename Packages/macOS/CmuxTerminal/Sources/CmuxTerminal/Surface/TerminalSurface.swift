@@ -115,6 +115,19 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// rejected and quarantined.
     public var hasLiveSurface: Bool { surface != nil && portalLifecycleState == .live }
 
+    /// The live PTY device name (e.g. `/dev/ttys003`) backing this surface.
+    ///
+    /// Used to detect `ssh` sessions for the Files panel's remote-root tracking.
+    /// Prefer this over shell-integration-reported TTY names, which can be stale
+    /// (they may capture the launching terminal's TTY).
+    public var ttyName: String? {
+        guard let surface else { return nil }
+        let str = ghostty_surface_tty_name(surface)
+        defer { ghostty_string_free(str) }
+        guard let ptr = str.ptr, str.len > 0 else { return nil }
+        return String(decoding: UnsafeRawBufferPointer(start: ptr, count: Int(str.len)), as: UTF8.self)
+    }
+
     /// Whether the terminal surface view is currently attached to a window.
     ///
     /// Use the hosted view rather than the inner surface view, since the surface can be
