@@ -2091,6 +2091,29 @@ struct ContentView: View {
         return max(titlebarLeadingInset, visibleSidebarTitleInset)
     }
 
+    /// Where the always-visible fullscreen titlebar controls (sidebar toggle,
+    /// history, new tab, notifications) are anchored inside the titlebar band.
+    struct FullscreenControlsPlacement: Equatable {
+        var leadingPadding: CGFloat
+        var topPadding: CGFloat
+    }
+
+    /// Resolves the placement for the fullscreen titlebar controls, or `nil` when
+    /// they should not be shown. The controls are mounted in a single overlay
+    /// anchor driven by this function so their on-screen position never depends on
+    /// sidebar visibility; toggling the sidebar must not shift the accessory bar.
+    nonisolated static func fullscreenControlsPlacement(
+        isFullScreen: Bool,
+        isSidebarVisible: Bool
+    ) -> FullscreenControlsPlacement? {
+        guard isFullScreen else { return nil }
+        // BUG: placement still depends on sidebar visibility, so toggling the
+        // sidebar nudges the controls left/up. Fixed in the following commit.
+        return isSidebarVisible
+            ? FullscreenControlsPlacement(leadingPadding: 10, topPadding: 4)
+            : FullscreenControlsPlacement(leadingPadding: 8, topPadding: 2)
+    }
+
     private func terminalContent(appearance: WindowAppearanceSnapshot) -> some View {
         let mountedWorkspaceIdSet = Set(mountedWorkspaceIds)
         let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
@@ -2347,6 +2370,14 @@ struct ContentView: View {
         .offset(y: -TitlebarControlsVisualMetrics.verticalLift)
     }
 
+    /// Intrinsic width of ``fullscreenControls`` for the current controls style.
+    /// Used to reserve space in the title row so the title flows to the right of
+    /// the controls, which are themselves mounted once in the band overlay.
+    private var fullscreenControlsWidth: CGFloat {
+        let style = TitlebarControlsStyle(rawValue: titlebarControlsStyleRawValue) ?? .classic
+        return TitlebarControlsLayoutMetrics.contentSize(config: style.config).width
+    }
+
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
         MinimalModeTitlebarDebugSnapshot(
             leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
@@ -2387,7 +2418,13 @@ struct ContentView: View {
 
             HStack(spacing: 8) {
                 if isFullScreen && !sidebarState.isVisible {
-                    fullscreenControls
+                    // Reserve the controls' width so the title flows to their right.
+                    // The visible controls are rendered once in the band overlay (see
+                    // `workspaceTitlebarBand`) so their position never depends on
+                    // sidebar visibility.
+                    Color.clear
+                        .frame(width: fullscreenControlsWidth, height: titlebarContentHeight)
+                        .allowsHitTesting(false)
                 }
 
                 // Draggable folder icon + focused command name
@@ -2448,11 +2485,19 @@ struct ContentView: View {
                     .animation(nil, value: rightSidebarWidth)
             }
             .overlay(alignment: .topLeading) {
-                if isFullScreen && sidebarState.isVisible {
+                if let placement = Self.fullscreenControlsPlacement(
+                    isFullScreen: isFullScreen,
+                    isSidebarVisible: sidebarState.isVisible
+                ) {
                     fullscreenControls
-                        .environment(\.colorScheme, appearance.sidebarContentColorScheme)
-                        .padding(.leading, 10)
-                        .padding(.top, 4)
+                        .environment(
+                            \.colorScheme,
+                            sidebarState.isVisible
+                                ? appearance.sidebarContentColorScheme
+                                : appearance.chromeColorScheme
+                        )
+                        .padding(.leading, placement.leadingPadding)
+                        .padding(.top, placement.topPadding)
                 }
             }
     }

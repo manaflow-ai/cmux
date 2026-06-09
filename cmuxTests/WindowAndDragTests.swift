@@ -2073,6 +2073,43 @@ struct CustomTitlebarLeadingPaddingTests {
 }
 
 
+@Suite("Fullscreen titlebar controls placement")
+struct FullscreenControlsPlacementTests {
+    @Test func notShownOutsideFullscreen() {
+        #expect(
+            ContentView.fullscreenControlsPlacement(
+                isFullScreen: false,
+                isSidebarVisible: true
+            ) == nil
+        )
+        #expect(
+            ContentView.fullscreenControlsPlacement(
+                isFullScreen: false,
+                isSidebarVisible: false
+            ) == nil
+        )
+    }
+
+    // Regression: in fullscreen, toggling the sidebar used to shift the accessory
+    // bar a few pixels left and up because the controls were mounted in two
+    // anchors with different padding. Placement must be identical regardless of
+    // sidebar visibility.
+    @Test func placementIsIndependentOfSidebarVisibility() {
+        let visible = ContentView.fullscreenControlsPlacement(
+            isFullScreen: true,
+            isSidebarVisible: true
+        )
+        let hidden = ContentView.fullscreenControlsPlacement(
+            isFullScreen: true,
+            isSidebarVisible: false
+        )
+
+        #expect(visible != nil)
+        #expect(visible == hidden)
+    }
+}
+
+
 @MainActor
 final class FolderWindowMoveSuppressionTests: XCTestCase {
     private func makeWindow() -> NSWindow {
