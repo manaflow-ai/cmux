@@ -2259,9 +2259,16 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredInitialCommand.contains(restoredForegroundAuthToken), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("--require-existing"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("254|255"), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains("\"$cmux_ssh_attach_status\" -eq 253"), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains("persisted SSH PTY session is gone"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains(expectedSessionID), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("CMUX_SURFACE_ID"), restoredInitialCommand)
-        XCTAssertFalse(restoredInitialCommand.contains("--command-b64 "), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains("--command-b64 "), restoredInitialCommand)
+        let restoredInitialRemoteCommand = try XCTUnwrap(Self.decodedSSHPTYCommandB64(in: restoredInitialCommand))
+        XCTAssertTrue(
+            restoredInitialRemoteCommand.contains("export CMUX_SOCKET_PATH=127.0.0.1:64003"),
+            restoredInitialRemoteCommand
+        )
 
         let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
         XCTAssertEqual(roundTrip.remote?.preserveAfterTerminalExit, true)
@@ -2334,7 +2341,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             let command = try XCTUnwrap(panel.surface.debugInitialCommand())
             XCTAssertTrue(command.contains("ssh-pty-attach"), command)
             XCTAssertTrue(command.contains("--require-existing"), command)
-            XCTAssertFalse(command.contains("--command-b64 "), command)
+            XCTAssertTrue(command.contains("--command-b64 "), command)
+            XCTAssertTrue(command.contains("\"$cmux_ssh_attach_status\" -eq 253"), command)
             XCTAssertTrue(
                 expectedSessionIDs.contains { command.contains($0) },
                 command

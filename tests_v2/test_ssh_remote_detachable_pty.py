@@ -112,6 +112,25 @@ def _resolve_workspace_id(client: cmux, payload: dict, *, before_workspace_ids: 
     raise cmuxError(f"Unable to resolve workspace_id from payload: {payload}")
 
 
+def _resolve_surface_id(client: cmux, workspace_id: str, payload: dict, *, before_surface_ids: set[str]) -> str:
+    surface_id = str(payload.get("surface_id") or "")
+    if surface_id:
+        return surface_id
+
+    surface_ref = str(payload.get("surface_ref") or "")
+    current_surfaces = client.list_surfaces(workspace_id)
+    if surface_ref.startswith("surface:"):
+        for index, resolved_surface_id, _focused in current_surfaces:
+            if f"surface:{index}" == surface_ref:
+                return resolved_surface_id
+
+    new_ids = sorted({surface_id for _index, surface_id, _focused in current_surfaces} - before_surface_ids)
+    if len(new_ids) == 1:
+        return new_ids[0]
+
+    raise cmuxError(f"Unable to resolve surface_id from payload: {payload}")
+
+
 def _workspace_row(client: cmux, workspace_id: str) -> dict:
     rows = (client._call("workspace.list", {}) or {}).get("workspaces") or []
     for row in rows:
@@ -233,12 +252,19 @@ def main() -> int:
                 f"detached session should keep bounded scrollback metadata: {row_after_detach}",
             )
 
+            before_attach_surface_ids = {
+                surface_id for _index, surface_id, _focused in client.list_surfaces(workspace_id)
+            }
             attach_payload = _run_cli_json(
                 cli,
                 ["ssh-session-attach", "--workspace", workspace_id, "--session-id", session_id],
             )
-            reattached_surface = str(attach_payload.get("surface_id") or "")
-            _must(reattached_surface, f"ssh-session-attach output missing surface_id: {attach_payload}")
+            reattached_surface = _resolve_surface_id(
+                client,
+                workspace_id,
+                attach_payload,
+                before_surface_ids=before_attach_surface_ids,
+            )
 
             second_probe = _run_surface_probe(
                 client,
