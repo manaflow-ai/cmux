@@ -10785,6 +10785,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if case .builtIn(let builtInAction) = button.action,
            includeBonsplitHandledBuiltIns || builtInAction.bonsplitAction == nil || !menuItems.isEmpty {
+            guard builtInAction != .more || !menuItems.isEmpty else {
+                return nil
+            }
             return SurfaceTabBarExecutableButton(
                 button: button,
                 builtInAction: builtInAction,

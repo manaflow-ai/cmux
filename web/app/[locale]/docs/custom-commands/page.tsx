@@ -185,18 +185,18 @@ export default function CustomCommandsPage() {
         })}
       </p>
 
-      <DocsHeading level={3} id="surface-tab-bar-buttons">Surface tab bar buttons and More menu</DocsHeading>
+      <DocsHeading level={3} id="surface-tab-bar-buttons">{t("surfaceTabBarButtons")}</DocsHeading>
       <p>
-        <code>ui.surfaceTabBar.buttons</code> controls the buttons at the end of each pane tab
-        bar. Put it in <code>~/.config/cmux/cmux.json</code> for a global default, or in a
-        project <code>.cmux/cmux.json</code> to override the buttons for workspaces whose
-        current directory is inside that project. The project file wins for the button list, while
-        actions and commands can still fall back to global definitions.
+        {t.rich("surfaceTabBarButtonsDesc", {
+          buttons: (chunks) => <code>{chunks}</code>,
+          globalConfig: (chunks) => <code>{chunks}</code>,
+          projectConfig: (chunks) => <code>{chunks}</code>,
+        })}
       </p>
       <p>
-        cmux always appends the built-in More button unless <code>hideMoreButton</code> is true.
-        A configured More menu should contain pane-relevant actions, for example opening Vault,
-        Files, Find, Diffs, Finder, or this customization documentation.
+        {t.rich("surfaceTabBarMoreDesc", {
+          hideMoreButton: (chunks) => <code>{chunks}</code>,
+        })}
       </p>
       <CodeBlock title=".cmux/cmux.json" lang="json">{`{
   "ui": {
@@ -226,12 +226,12 @@ export default function CustomCommandsPage() {
   }
 }`}</CodeBlock>
       <ul>
-        <li><code>cmux.vaultPane</code>: open Vault as a pane.</li>
-        <li><code>cmux.filesPane</code>: open Files as a pane.</li>
-        <li><code>cmux.findPane</code>: open Find as a pane.</li>
-        <li><code>cmux.diffViewer</code>: open Diffs for the active workspace directory.</li>
-        <li><code>cmux.revealCurrentDirectoryInFinder</code>: reveal the active pane directory in Finder.</li>
-        <li><code>cmux.customizeSurfaceTabBar</code>: open Settings to cmux.json.</li>
+        <li><code>cmux.vaultPane</code>: {t("surfaceTabBarVaultPane")}</li>
+        <li><code>cmux.filesPane</code>: {t("surfaceTabBarFilesPane")}</li>
+        <li><code>cmux.findPane</code>: {t("surfaceTabBarFindPane")}</li>
+        <li><code>cmux.diffViewer</code>: {t("surfaceTabBarDiffViewer")}</li>
+        <li><code>cmux.revealCurrentDirectoryInFinder</code>: {t("surfaceTabBarRevealInFinder")}</li>
+        <li><code>cmux.customizeSurfaceTabBar</code>: {t("surfaceTabBarCustomize")}</li>
       </ul>
 
       <DocsHeading level={2} id="custom-actions">{t("customActions")}</DocsHeading>

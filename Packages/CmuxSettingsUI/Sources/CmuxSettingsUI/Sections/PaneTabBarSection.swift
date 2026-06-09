@@ -7,6 +7,10 @@ public struct PaneTabBarSection: View {
     private let jsonStore: JSONConfigStore
     private let hostActions: SettingsHostActions
 
+    /// Creates a pane tab bar settings section backed by the JSON config store and host actions.
+    /// - Parameters:
+    ///   - jsonStore: Store that reads and writes the user's cmux JSON configuration.
+    ///   - hostActions: Callbacks for opening config files and documentation from settings.
     public init(jsonStore: JSONConfigStore, hostActions: SettingsHostActions) {
         self.jsonStore = jsonStore
         self.hostActions = hostActions

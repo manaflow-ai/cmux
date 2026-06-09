@@ -37,32 +37,66 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .splitRight
         case "cmux.splitDown", "splitDown":
             self = .splitDown
-        case "cmux.more", "more":
+        case "cmux.more":
             self = .more
-        case "cmux.rightSidebar.files", "rightSidebar.files", "sidebar.files", "files":
+        case "cmux.rightSidebar.files":
             self = .rightSidebarFiles
-        case "cmux.rightSidebar.find", "rightSidebar.find", "sidebar.find", "find":
+        case "cmux.rightSidebar.find":
             self = .rightSidebarFind
-        case "cmux.rightSidebar.vault", "cmux.rightSidebar.sessions", "rightSidebar.vault",
-             "rightSidebar.sessions", "sidebar.vault", "sidebar.sessions", "vault", "sessions":
+        case "cmux.rightSidebar.vault", "cmux.rightSidebar.sessions":
             self = .rightSidebarVault
-        case "cmux.rightSidebar.feed", "rightSidebar.feed", "sidebar.feed", "feed":
+        case "cmux.rightSidebar.feed":
             self = .rightSidebarFeed
-        case "cmux.rightSidebar.dock", "rightSidebar.dock", "sidebar.dock", "dock":
+        case "cmux.rightSidebar.dock":
             self = .rightSidebarDock
-        case "cmux.filesPane", "filesPane", "openFilesPane":
+        case "cmux.filesPane":
             self = .filesPane
-        case "cmux.findPane", "findPane", "openFindPane":
+        case "cmux.findPane":
             self = .findPane
-        case "cmux.vaultPane", "vaultPane", "sessionsPane", "openVaultPane":
+        case "cmux.vaultPane":
             self = .vaultPane
-        case "cmux.diffViewer", "diffViewer", "diff", "diffs":
+        case "cmux.diffViewer":
             self = .diffViewer
-        case "cmux.revealCurrentDirectoryInFinder", "revealCurrentDirectoryInFinder",
-             "openCurrentDirectoryInFinder", "finder":
+        case "cmux.revealCurrentDirectoryInFinder":
             self = .revealCurrentDirectoryInFinder
-        case "cmux.customizeSurfaceTabBar", "customizeSurfaceTabBar", "customizeTabBar",
-             "customize":
+        case "cmux.customizeSurfaceTabBar":
+            self = .customizeSurfaceTabBar
+        default:
+            return nil
+        }
+    }
+
+    init?(builtinID: String) {
+        if let action = Self(configID: builtinID) {
+            self = action
+            return
+        }
+
+        switch builtinID {
+        case "more":
+            self = .more
+        case "rightSidebar.files", "sidebar.files", "files":
+            self = .rightSidebarFiles
+        case "rightSidebar.find", "sidebar.find", "find":
+            self = .rightSidebarFind
+        case "rightSidebar.vault", "rightSidebar.sessions", "sidebar.vault",
+             "sidebar.sessions", "vault", "sessions":
+            self = .rightSidebarVault
+        case "rightSidebar.feed", "sidebar.feed", "feed":
+            self = .rightSidebarFeed
+        case "rightSidebar.dock", "sidebar.dock", "dock":
+            self = .rightSidebarDock
+        case "filesPane", "openFilesPane":
+            self = .filesPane
+        case "findPane", "openFindPane":
+            self = .findPane
+        case "vaultPane", "sessionsPane", "openVaultPane":
+            self = .vaultPane
+        case "diffViewer", "diff", "diffs":
+            self = .diffViewer
+        case "revealCurrentDirectoryInFinder", "openCurrentDirectoryInFinder", "finder":
+            self = .revealCurrentDirectoryInFinder
+        case "customizeSurfaceTabBar", "customizeTabBar", "customize":
             self = .customizeSurfaceTabBar
         default:
             return nil
