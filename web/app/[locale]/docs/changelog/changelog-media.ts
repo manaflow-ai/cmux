@@ -26,6 +26,68 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.14": {
+    title:
+      "iPhone Companion App (Beta), Cross-Window Workspace Drag, Out-of-Process Custom Sidebars",
+    features: [
+      {
+        title: "iPhone Companion App (Beta)",
+        description:
+          "Pair an iPhone with your Mac from the new Mobile Connect window and attach to your terminals from your phone, with opt-in forwarding of terminal notifications. The iOS beta ships on TestFlight as cmux BETA.",
+      },
+      {
+        title: "Cross-Window Workspace Drag",
+        description:
+          "Drag a workspace out of one window's sidebar and drop it into another window's sidebar to move it, including grouped workspaces.",
+      },
+      {
+        title: "Out-of-Process Custom Sidebars",
+        description:
+          "Custom sidebar extensions now run in their own process with an isolated interpreter, so a broken sidebar can't hang or crash cmux, and the interpreter covers a broader set of SwiftUI primitives.",
+      },
+      {
+        title: "Browser Polish",
+        description:
+          "The omnibar selects the whole URL on the first focusing click (Chrome parity), browser chrome scales with the tab bar font size, a typing beachball with large histories is fixed, and hidden panes no longer stop actively-playing audio or video.",
+      },
+      {
+        title: "Agent Session Fixes",
+        description:
+          "Claude resume keeps cmux hooks attached so notifications and status tracking survive resumes, Agent Hibernation works for node-backed Claude sessions, and Codex resume preserves CODEX_HOME and pane order.",
+      },
+    ],
+  },
+  "0.64.13": {
+    title:
+      "Browser Focus Mode, SSH Agent Forwarding, Custom Sidebars (Beta), Major Stability Fixes",
+    features: [
+      {
+        title: "Browser Focus Mode",
+        description:
+          "Browser panes get a focus mode that strips away the surrounding chrome so a single page can take over the pane while you read or work in it.",
+      },
+      {
+        title: "SSH Agent Forwarding",
+        description:
+          "`cmux ssh` now forwards your local SSH agent, so remote sessions can use your local keys for git pushes and further hops without copying private keys onto the remote.",
+      },
+      {
+        title: "Vibe-Codable Custom Sidebars (Beta)",
+        description:
+          "Build your own sidebar with a runtime Swift interpreter, behind the Beta Features flag. Edit the sidebar source, validate it from the CLI, and reload it live without rebuilding the app.",
+      },
+      {
+        title: "Browser Mouse Back & Forward",
+        description:
+          "The browser now responds to the dedicated back and forward buttons on a mouse, so side-button navigation works the way it does in a normal browser.",
+      },
+      {
+        title: "Major Stability & Performance Fixes",
+        description:
+          "Fixed a settings-observation leak that grew the app to 4.4 GB over a day, a browser render loop burning ~39% of the main thread on every CoreAnimation commit, a WebKit crash after sleep/wake, a 100% CPU hang in the Markdown and file-preview editor, and child processes launching under Rosetta on Apple Silicon.",
+      },
+    ],
+  },
   "0.64.12": {
     title:
       "Diff Viewer Shortcut, Markdown Zoom, Prompt & Remote SSH Fixes",

@@ -75,7 +75,7 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: codexPolicy)
         case "grok":
             return preserveOptions(args, policy: grokPolicy)
-        case "pi":
+        case "pi", "omp":
             return preserveOptions(args, policy: piPolicy)
         case "amp":
             // Strip the `threads continue <id>` resume sub-subcommand if the

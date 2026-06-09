@@ -107,10 +107,30 @@ public actor SecretFileStore {
     ///
     /// The first element is the current value; subsequent elements arrive when
     /// ``didChangeNotification`` fires for this key. Buffering is
-    /// `.bufferingNewest(1)`. Cancelling the consuming `Task` ends the stream.
+    /// `.bufferingNewest(1)`. Cancelling the consuming `Task` removes the
+    /// observer token, cancels the bounded drain task, and ends the stream.
     public nonisolated func values(for key: SecretFileKey) -> AsyncStream<String> {
         AsyncStream<String>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let task = Task { [weak self] in
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+
+            let observer = NotificationObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: SecretFileStore.didChangeNotification,
+                    object: nil,
+                    queue: nil
+                ) { [weak self] note in
+                    if let changedID = note.userInfo?[SecretFileStore.changedKeyIDKey] as? String,
+                       changedID != key.id {
+                        return
+                    }
+                    guard self != nil else { return }
+                    signalContinuation.yield(())
+                }
+            )
+
+            let drainTask = Task { [weak self] in
                 guard let self else {
                     continuation.finish()
                     return
@@ -118,15 +138,8 @@ public actor SecretFileStore {
                 var lastYielded = (try? await self.value(for: key)) ?? key.defaultValue
                 continuation.yield(lastYielded)
 
-                let notifications = NotificationCenter.default.notifications(
-                    named: SecretFileStore.didChangeNotification
-                )
-                for await note in notifications {
+                for await _ in signals {
                     if Task.isCancelled { break }
-                    if let changedID = note.userInfo?[SecretFileStore.changedKeyIDKey] as? String,
-                       changedID != key.id {
-                        continue
-                    }
                     let current = (try? await self.value(for: key)) ?? key.defaultValue
                     if current != lastYielded {
                         lastYielded = current
@@ -135,7 +148,12 @@ public actor SecretFileStore {
                 }
                 continuation.finish()
             }
-            continuation.onTermination = { _ in task.cancel() }
+
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
         }
     }
 

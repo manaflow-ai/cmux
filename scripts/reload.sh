@@ -52,6 +52,36 @@ write_dev_cli_shim() {
 set -euo pipefail
 
 CLI_PATH_FILE="/tmp/cmux-last-cli-path"
+SOCKET_ARG=""
+EXPECT_SOCKET_VALUE=0
+for arg in "\$@"; do
+  if [[ "\$EXPECT_SOCKET_VALUE" == "1" ]]; then
+    SOCKET_ARG="\$arg"
+    EXPECT_SOCKET_VALUE=0
+    continue
+  fi
+  case "\$arg" in
+    --socket)
+      EXPECT_SOCKET_VALUE=1
+      ;;
+    --socket=*)
+      SOCKET_ARG="\${arg#--socket=}"
+      ;;
+  esac
+done
+if [[ -n "\$SOCKET_ARG" ]]; then
+  SOCKET_NAME="\$(basename "\$SOCKET_ARG")"
+  if [[ "\$SOCKET_NAME" == cmux-debug-*.sock ]]; then
+    TAG="\${SOCKET_NAME#cmux-debug-}"
+    TAG="\${TAG%.sock}"
+    if [[ "\$TAG" =~ ^[A-Za-z0-9_-]+$ ]]; then
+      TAG_CLI="\$HOME/Library/Developer/Xcode/DerivedData/cmux-\$TAG/Build/Products/Debug/cmux DEV \$TAG.app/Contents/Resources/bin/cmux"
+      if [[ -x "\$TAG_CLI" ]] && [[ "\$TAG_CLI" != "\$0" ]]; then
+        exec "\$TAG_CLI" "\$@"
+      fi
+    fi
+  fi
+fi
 if [[ -n "\${CMUX_BUNDLED_CLI_PATH:-}" ]] && [[ -f "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ -x "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ "\$CMUX_BUNDLED_CLI_PATH" != "\$0" ]]; then
   exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
 fi
@@ -1015,6 +1045,13 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     -u XDG_DATA_DIRS
   )
 
+  # DEBUG dogfood auto-sign-in needs no env injection here: the in-app resolver
+  # reads ~/.secrets/cmuxterm-dev.env (then ~/.secrets/cmux.env) directly on
+  # launch, which fires for every launch method including Finder / the CMUX Tag
+  # Opener that this script's TAG_LAUNCH_ENV never reaches. Exporting the Stack
+  # password into the long-lived GUI process environment would leak it to every
+  # child terminal/CLI it spawns, for zero added coverage, so we deliberately do
+  # not set CMUX_UITEST_STACK_* here.
   TAG_LAUNCH_ENV=(
     CMUX_TAG="${TAG_SLUG:-}"
     CMUX_BUNDLE_ID="$BUNDLE_ID"

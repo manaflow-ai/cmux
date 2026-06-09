@@ -79,22 +79,35 @@ enum SidebarWorkspaceScrollLayout {
         return max(0, viewportHeight - insets.total)
     }
 
+    /// Height of the empty drop/tap area placed below the last workspace row.
+    ///
+    /// The area fills the remaining viewport (so the content fills the visible
+    /// height when the rows fit) but is clamped to `0` once the rows already
+    /// reach or exceed `contentMinHeight`. Sizing it to this finite remainder —
+    /// rather than `maxHeight: .infinity` — is what keeps the document view
+    /// from perpetually overflowing, so the overlay scroller stays hidden when
+    /// there is nothing to scroll
+    /// (https://github.com/manaflow-ai/cmux/issues/3241).
+    ///
+    /// - Parameters:
+    ///   - contentMinHeight: The viewport height available to the scroll content.
+    ///   - rowsHeight: The measured height of the laid-out rows, or `nil` when
+    ///     no measurement is available yet (in which case the area collapses to
+    ///     `0` and the content's `minHeight` frame still fills the viewport).
+    /// - Returns: The non-negative height for the empty area.
     nonisolated static func emptyAreaHeight(
         contentMinHeight: CGFloat,
-        rowsHeight: CGFloat?,
-        rowsLayoutCompleteness: SidebarWorkspaceRowsLayoutCompleteness = .complete
+        rowsHeight: CGFloat?
     ) -> CGFloat {
-        switch rowsLayoutCompleteness {
-        case .empty:
-            return max(0, contentMinHeight - max(0, rowsHeight ?? 0))
-        case .unmeasured, .partial:
-            return 0
-        case .complete:
-            guard let rowsHeight, rowsHeight > 0 else { return 0 }
-            return max(0, contentMinHeight - rowsHeight)
-        }
+        guard let rowsHeight, rowsHeight > 0 else { return 0 }
+        return max(0, contentMinHeight - rowsHeight)
     }
 
+    /// Whether `contentHeight` exceeds `viewportHeight` by more than `tolerance`.
+    ///
+    /// Used to decide `NSScrollView.hasVerticalScroller` from the live document
+    /// and content bounds, keeping scroller visibility off the SwiftUI
+    /// re-render path.
     nonisolated static func contentOverflows(
         contentHeight: CGFloat,
         viewportHeight: CGFloat,
@@ -102,47 +115,6 @@ enum SidebarWorkspaceScrollLayout {
     ) -> Bool {
         contentHeight > viewportHeight + tolerance
     }
-
-    nonisolated static func rowsOverflow(
-        rowsHeight: CGFloat?,
-        contentMinHeight: CGFloat,
-        rowsLayoutCompleteness: SidebarWorkspaceRowsLayoutCompleteness = .complete,
-        tolerance: CGFloat = 1
-    ) -> Bool {
-        switch rowsLayoutCompleteness {
-        case .empty:
-            return false
-        case .unmeasured:
-            return false
-        case .partial:
-            return true
-        case .complete:
-            break
-        }
-        guard let rowsHeight else { return false }
-        guard rowsHeight > 0 else { return true }
-        return contentOverflows(
-            contentHeight: rowsHeight,
-            viewportHeight: contentMinHeight,
-            tolerance: tolerance
-        )
-    }
-
-    nonisolated static func rowsLayoutCompleteness<ID: Hashable>(
-        laidOutRowIds: Set<ID>,
-        workspaceIds: [ID]
-    ) -> SidebarWorkspaceRowsLayoutCompleteness {
-        guard !workspaceIds.isEmpty else { return .empty }
-        guard !laidOutRowIds.isEmpty else { return .unmeasured }
-        return laidOutRowIds.isSuperset(of: workspaceIds) ? .complete : .partial
-    }
-}
-
-enum SidebarWorkspaceRowsLayoutCompleteness: Equatable {
-    case empty
-    case unmeasured
-    case partial
-    case complete
 }
 
 struct SidebarWorkspaceRowsMeasurement<ID: Equatable>: Equatable {

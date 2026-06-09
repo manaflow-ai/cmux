@@ -659,6 +659,10 @@ private struct VaultObservedAgentProcess: Sendable {
         return arguments[index]
     }
 
+    var piCompatibleSessionID: String? {
+        arguments.piCompatibleSessionID(startingAt: piCompatibleSessionArgumentStartIndex)
+    }
+
     var openCodeExecutableArgumentIndex: Int? {
         if let first = arguments.first,
            Self.argumentLooksLikeOpenCode(first) {
@@ -671,6 +675,17 @@ private struct VaultObservedAgentProcess: Sendable {
             return nil
         }
         return Self.argumentLooksLikeOpenCode(arguments[scriptIndex]) ? scriptIndex : nil
+    }
+
+    private var piCompatibleSessionArgumentStartIndex: Int {
+        guard !arguments.isEmpty else { return 0 }
+        if let scriptIndex = Self.javaScriptRuntimeScriptArgumentIndex(arguments) {
+            return min(scriptIndex + 1, arguments.endIndex)
+        }
+        if arguments[arguments.startIndex].hasPrefix("-") {
+            return arguments.startIndex
+        }
+        return min(arguments.startIndex + 1, arguments.endIndex)
     }
 
     private var processIdentityLooksLikeOpenCode: Bool {
@@ -705,6 +720,15 @@ private struct VaultObservedAgentProcess: Sendable {
         TmuxResumeParser.argumentLooksLikeTmuxServerProcessTitle(argument)
     }
 
+    private static func wrapperLooksLikeJavaScriptRuntime(_ basename: String) -> Bool {
+        switch basename.lowercased() {
+        case "node", "bun", "deno", "tsx", "ts-node":
+            return true
+        default:
+            return false
+        }
+    }
+
     private static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {
         switch basename.lowercased() {
         case "node":
@@ -712,6 +736,30 @@ private struct VaultObservedAgentProcess: Sendable {
         default:
             return false
         }
+    }
+
+    private static func javaScriptRuntimeScriptArgumentIndex(_ arguments: [String]) -> Int? {
+        guard let first = arguments.first else { return nil }
+        guard wrapperLooksLikeJavaScriptRuntime((first as NSString).lastPathComponent) else {
+            return nil
+        }
+        var index = 1
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                let nextIndex = index + 1
+                return nextIndex < arguments.count ? nextIndex : nil
+            }
+            if argument.hasPrefix("-") {
+                if nodeOptionConsumesScript(argument) {
+                    return nil
+                }
+                index += 1 + nodeOptionValueCount(argument)
+                continue
+            }
+            return index
+        }
+        return nil
     }
 
     private static func nodeScriptArgumentIndex(_ arguments: [String]) -> Int? {
@@ -769,22 +817,33 @@ private extension CmuxVaultAgentDetectRule {
         if let processName {
             expectedNames.append(processName)
         }
-        guard !expectedNames.isEmpty || !argvContains.isEmpty else { return false }
+        guard !expectedNames.isEmpty || !argvContains.isEmpty || !alternateArgvContains.isEmpty else {
+            return false
+        }
         let processNameMatch = expectedNames.isEmpty || expectedNames.contains { expected in
             process.executableBasenames.contains { candidate in
                 candidate.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
             }
         }
-        let argvContainsMatch = argvContains.isEmpty || argvContains.allSatisfy { needle in
+        let argvContainsMatch = argvContains.isEmpty || process.argumentsContainAll(argvContains)
+        let alternateArgvContainsMatch = !alternateArgvContains.isEmpty
+            && process.argumentsContainAll(alternateArgvContains)
+        return (processNameMatch && argvContainsMatch) || alternateArgvContainsMatch
+    }
+}
+
+private extension VaultObservedAgentProcess {
+    func argumentsContainAll(_ needles: [String]) -> Bool {
+        needles.allSatisfy { needle in
             if needle.contains(" ") {
-                let joinedArguments = process.arguments.joined(separator: " ")
+                let joinedArguments = arguments.joined(separator: " ")
                 return joinedArguments.range(of: needle, options: [.caseInsensitive, .literal]) != nil
             }
             if needle.contains("/") {
-                let joinedArguments = process.arguments.joined(separator: "\u{0}")
+                let joinedArguments = arguments.joined(separator: "\u{0}")
                 return joinedArguments.range(of: needle, options: [.caseInsensitive, .literal]) != nil
             }
-            return process.arguments.contains { argument in
+            return arguments.contains { argument in
                 argument.range(of: needle, options: [.caseInsensitive, .literal]) != nil
                     || (argument as NSString).lastPathComponent.range(
                         of: needle,
@@ -792,7 +851,6 @@ private extension CmuxVaultAgentDetectRule {
                     ) != nil
             }
         }
-        return processNameMatch && argvContainsMatch
     }
 }
 
@@ -806,7 +864,7 @@ private extension CmuxVaultAgentSessionIDSource {
         case .argvOption(let option):
             return process.arguments.nonOptionValue(afterOption: option)
         case .piSessionFile:
-            if let session = process.arguments.nonOptionValue(afterOption: "--session") {
+            if let session = process.piCompatibleSessionID {
                 return PiSessionLocator.resolvedSessionPath(
                     session,
                     for: process,
@@ -875,6 +933,39 @@ private extension Array where Element == String {
             return nil
         }
         return value
+    }
+
+    func piCompatibleSessionID(startingAt startIndex: Int) -> String? {
+        guard startIndex < endIndex else { return nil }
+        for index in indices where index >= startIndex {
+            let argument = self[index]
+            if argument == "--session" || argument == "--resume" || argument == "-r" {
+                let nextIndex = self.index(after: index)
+                guard nextIndex < endIndex else { continue }
+                if let value = normalizedNonOptionValue(self[nextIndex]) {
+                    return value
+                }
+                continue
+            }
+            if argument.hasPrefix("--session="),
+               let value = normalizedNonOptionValue(String(argument.dropFirst("--session=".count))) {
+                return value
+            }
+            if argument.hasPrefix("--resume="),
+               let value = normalizedNonOptionValue(String(argument.dropFirst("--resume=".count))) {
+                return value
+            }
+            if argument.hasPrefix("-r="),
+               let value = normalizedNonOptionValue(String(argument.dropFirst("-r=".count))) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private func normalizedNonOptionValue(_ rawValue: String) -> String? {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !value.isEmpty && !value.hasPrefix("-") ? value : nil
     }
 
     var grokResumeSessionID: String? {
@@ -953,16 +1044,22 @@ enum PiSessionLocator {
             return nil
         }
 
-        var newest: (url: URL, modified: Date)?
+        var exactNewest: (url: URL, modified: Date)?
+        var partialNewest: (url: URL, modified: Date)?
         for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            guard url.deletingPathExtension().lastPathComponent.contains(trimmed) else { continue }
+            let basename = url.deletingPathExtension().lastPathComponent
+            guard basename == trimmed || basename.contains(trimmed) else { continue }
             let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
             guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
-            if newest == nil || modified > newest!.modified {
-                newest = (url, modified)
+            if basename == trimmed {
+                if exactNewest == nil || modified > exactNewest!.modified {
+                    exactNewest = (url, modified)
+                }
+            } else if partialNewest == nil || modified > partialNewest!.modified {
+                partialNewest = (url, modified)
             }
         }
-        return newest?.url.path
+        return exactNewest?.url.path ?? partialNewest?.url.path
     }
 
     private static func candidateSessionDirectory(
@@ -971,6 +1068,8 @@ enum PiSessionLocator {
     ) -> String {
         let sessionRoot = process.arguments.value(afterOption: "--session-dir")
             ?? process.environment["PI_CODING_AGENT_SESSION_DIR"]
+            ?? configuredSessionDirectory(for: registration)
+            ?? ompAgentSessionsRoot(for: process, registration: registration)
             ?? registration.sessionDirectory
             ?? defaultSessionsRoot()
         let expandedRoot = (sessionRoot as NSString).expandingTildeInPath
@@ -979,6 +1078,45 @@ enum PiSessionLocator {
             return (expandedRoot as NSString).appendingPathComponent(projectDirectory)
         }
         return expandedRoot
+    }
+
+    private static func ompAgentSessionsRoot(
+        for process: VaultObservedAgentProcess,
+        registration: CmuxVaultAgentRegistration
+    ) -> String? {
+        guard registration.id == "omp" else { return nil }
+        if let agentRoot = nonEmptyEnvironmentValue("PI_CODING_AGENT_DIR", in: process.environment) {
+            let expandedAgentRoot = NSString(string: agentRoot).expandingTildeInPath
+            return (expandedAgentRoot as NSString).appendingPathComponent("sessions")
+        }
+        guard let configDir = nonEmptyEnvironmentValue("PI_CONFIG_DIR", in: process.environment) else {
+            return nil
+        }
+        let home = nonEmptyEnvironmentValue("HOME", in: process.environment) ?? NSHomeDirectory()
+        let expandedConfigDir = NSString(string: configDir).expandingTildeInPath
+        let configRoot: String
+        if (expandedConfigDir as NSString).isAbsolutePath {
+            configRoot = expandedConfigDir
+        } else {
+            configRoot = ((NSString(string: home).expandingTildeInPath) as NSString)
+                .appendingPathComponent(configDir)
+        }
+        let agentRoot = (configRoot as NSString).appendingPathComponent("agent")
+        return (agentRoot as NSString).appendingPathComponent("sessions")
+    }
+
+    private static func configuredSessionDirectory(for registration: CmuxVaultAgentRegistration) -> String? {
+        guard let sessionDirectory = registration.sessionDirectory else { return nil }
+        if registration.id == "omp",
+           sessionDirectory == CmuxVaultAgentRegistration.builtInOmp.sessionDirectory {
+            return nil
+        }
+        return sessionDirectory
+    }
+
+    private static func nonEmptyEnvironmentValue(_ name: String, in environment: [String: String]) -> String? {
+        let trimmed = environment[name]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     static func newestJSONLFile(in directory: String, fileManager: FileManager = .default) -> URL? {

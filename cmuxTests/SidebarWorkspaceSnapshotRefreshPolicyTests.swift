@@ -206,23 +206,69 @@ final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testScrollTargetIsSelfWithoutGroup() {
+        let workspaceId = UUID()
+        XCTAssertEqual(
+            SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+                selectedWorkspaceId: workspaceId,
+                group: nil
+            ),
+            workspaceId
+        )
+    }
+
+    func testScrollTargetIsSelfInExpandedGroup() {
+        let workspaceId = UUID()
+        XCTAssertEqual(
+            SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+                selectedWorkspaceId: workspaceId,
+                group: makeGroup(isCollapsed: false, anchorWorkspaceId: UUID())
+            ),
+            workspaceId
+        )
+    }
+
+    func testScrollTargetIsGroupAnchorWhenGroupIsCollapsed() {
+        let anchorId = UUID()
+        XCTAssertEqual(
+            SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+                selectedWorkspaceId: UUID(),
+                group: makeGroup(isCollapsed: true, anchorWorkspaceId: anchorId)
+            ),
+            anchorId
+        )
+    }
+
+    private func makeGroup(isCollapsed: Bool, anchorWorkspaceId: UUID) -> WorkspaceGroup {
+        WorkspaceGroup(
+            id: UUID(),
+            name: "group",
+            isCollapsed: isCollapsed,
+            isPinned: false,
+            anchorWorkspaceId: anchorWorkspaceId,
+            customColor: nil,
+            iconSymbol: nil
+        )
+    }
 }
 
 final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
-    func testUnmeasuredRowsDoNotCreateInitialOverflow() {
+    func testUnmeasuredRowsCollapseEmptyAreaWithoutForcingOverflow() {
+        // Before a measurement arrives, the empty area collapses to 0. The
+        // content's `minHeight` frame still fills the viewport, so the document
+        // view does not overflow and the overlay scroller stays hidden.
         let contentMinHeight: CGFloat = 480
         let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
             contentMinHeight: contentMinHeight,
-            rowsHeight: nil,
-            rowsLayoutCompleteness: .unmeasured
+            rowsHeight: nil
         )
 
         XCTAssertEqual(emptyAreaHeight, 0, accuracy: 0.001)
         XCTAssertFalse(
-            SidebarWorkspaceScrollLayout.rowsOverflow(
-                rowsHeight: nil,
-                contentMinHeight: contentMinHeight,
-                rowsLayoutCompleteness: .unmeasured
+            SidebarWorkspaceScrollLayout.contentOverflows(
+                contentHeight: contentMinHeight,
+                viewportHeight: contentMinHeight
             )
         )
     }
@@ -237,123 +283,19 @@ final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
         XCTAssertEqual(measurement.rowsHeight(for: ["a", "b"]) ?? -1, 240, accuracy: 0.001)
     }
 
-    func testPartialLazyRowsForceOverflowAfterRowsMeasure() {
-        let contentMinHeight: CGFloat = 480
+    func testRowsMeasurementDedupesSubPixelJitterForSameWorkspaceIds() {
+        // The livelock-safety invariant: the single whole-content measurement
+        // is deduped so sub-pixel height jitter from constant agent-driven row
+        // re-renders does NOT write @State, so it cannot re-feed a
+        // preference/layout transaction cycle (the #2586 class of bug).
+        let base = SidebarWorkspaceRowsMeasurement(workspaceIds: ["a", "b"], rowsHeight: 240)
+        let jittered = SidebarWorkspaceRowsMeasurement(workspaceIds: ["a", "b"], rowsHeight: 240.3)
+        let moved = SidebarWorkspaceRowsMeasurement(workspaceIds: ["a", "b"], rowsHeight: 256)
+        let differentRows = SidebarWorkspaceRowsMeasurement(workspaceIds: ["a"], rowsHeight: 240)
 
-        XCTAssertEqual(
-            SidebarWorkspaceScrollLayout.emptyAreaHeight(
-                contentMinHeight: contentMinHeight,
-                rowsHeight: 240,
-                rowsLayoutCompleteness: .partial
-            ),
-            0,
-            accuracy: 0.001
-        )
-        XCTAssertTrue(
-            SidebarWorkspaceScrollLayout.rowsOverflow(
-                rowsHeight: 240,
-                contentMinHeight: contentMinHeight,
-                rowsLayoutCompleteness: .partial
-            )
-        )
-    }
-
-    func testRowsLayoutCompletenessTracksUnmeasuredPartialAndCompleteRows() {
-        XCTAssertEqual(
-            SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
-                laidOutRowIds: Set<String>(),
-                workspaceIds: []
-            ),
-            .empty
-        )
-        XCTAssertEqual(
-            SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
-                laidOutRowIds: Set<String>(),
-                workspaceIds: ["a"]
-            ),
-            .unmeasured
-        )
-        XCTAssertEqual(
-            SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
-                laidOutRowIds: Set(["a", "b"]),
-                workspaceIds: ["a", "b", "c"]
-            ),
-            .partial
-        )
-        XCTAssertEqual(
-            SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
-                laidOutRowIds: Set(["a", "b", "c"]),
-                workspaceIds: ["a", "b"]
-            ),
-            .complete
-        )
-    }
-
-    func testRowsLayoutCompletenessIgnoresCollapsedGroupMembersWhenGivenVisibleRows() {
-        let groupAnchor = "group-anchor"
-        let looseWorkspace = "loose"
-
-        XCTAssertEqual(
-            SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
-                laidOutRowIds: Set([groupAnchor, looseWorkspace]),
-                workspaceIds: [groupAnchor, looseWorkspace]
-            ),
-            .complete
-        )
-    }
-
-    func testZeroHeightCompleteRowsCollapseEmptyAreaAndShowScroller() {
-        let contentMinHeight: CGFloat = 480
-
-        XCTAssertEqual(
-            SidebarWorkspaceScrollLayout.emptyAreaHeight(
-                contentMinHeight: contentMinHeight,
-                rowsHeight: 0,
-                rowsLayoutCompleteness: .complete
-            ),
-            0,
-            accuracy: 0.001
-        )
-        XCTAssertTrue(
-            SidebarWorkspaceScrollLayout.rowsOverflow(
-                rowsHeight: 0,
-                contentMinHeight: contentMinHeight,
-                rowsLayoutCompleteness: .complete
-            )
-        )
-    }
-
-    func testCompleteRowsWithoutHeightDoNotShowTransientScroller() {
-        let contentMinHeight: CGFloat = 480
-
-        XCTAssertFalse(
-            SidebarWorkspaceScrollLayout.rowsOverflow(
-                rowsHeight: nil,
-                contentMinHeight: contentMinHeight,
-                rowsLayoutCompleteness: .complete
-            )
-        )
-    }
-
-    func testEmptyWorkspaceRowsCanFillAvailableSidebarSpace() {
-        let contentMinHeight: CGFloat = 480
-
-        XCTAssertEqual(
-            SidebarWorkspaceScrollLayout.emptyAreaHeight(
-                contentMinHeight: contentMinHeight,
-                rowsHeight: 0,
-                rowsLayoutCompleteness: .empty
-            ),
-            contentMinHeight,
-            accuracy: 0.001
-        )
-        XCTAssertFalse(
-            SidebarWorkspaceScrollLayout.rowsOverflow(
-                rowsHeight: 0,
-                contentMinHeight: contentMinHeight,
-                rowsLayoutCompleteness: .empty
-            )
-        )
+        XCTAssertTrue(base.isEquivalent(to: jittered))
+        XCTAssertFalse(base.isEquivalent(to: moved))
+        XCTAssertFalse(base.isEquivalent(to: differentRows))
     }
 
     func testEmptyAreaFillsOnlyRemainingViewportSpaceWhenRowsFit() {
