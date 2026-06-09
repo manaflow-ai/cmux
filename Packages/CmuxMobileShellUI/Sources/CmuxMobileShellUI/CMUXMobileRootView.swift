@@ -132,7 +132,10 @@ struct CMUXMobileRootView: View {
             }
         } else if store.connectionState != .connected {
             DisconnectedWorkspaceShellView(
+                state: disconnectedShellState,
+                macName: store.activeMacDisplayName,
                 showAddDevice: showAddDevice,
+                reconnect: store.retryMobileConnection,
                 signOut: signOut
             )
             .sheet(isPresented: $isShowingAddDeviceSheet) {
@@ -154,11 +157,42 @@ struct CMUXMobileRootView: View {
                 #endif
             }
             .onAppear {
-                showAddDevice()
+                // Auto-open the pairing sheet only when there is no Mac on record:
+                // a never-paired device should land straight in pairing. A
+                // known-but-offline Mac instead sees the offline screen with
+                // explicit Reconnect / Pair-another controls, so popping the sheet
+                // over it would be wrong. Load the paired Macs so the offline copy
+                // can name the unreachable Mac.
+                if disconnectedShellState == .neverPaired {
+                    showAddDevice()
+                } else {
+                    isShowingAddDeviceSheet = false
+                    Task { await store.loadPairedMacs() }
+                }
             }
         } else {
             WorkspaceShellView(store: store, signOut: signOut)
         }
+    }
+
+    /// The reason the disconnected screen is showing (never paired, known Mac
+    /// offline, or actively reconnecting), classified from the store's signals.
+    ///
+    /// In practice the primary reconnecting indicator is the full-screen
+    /// ``RestoringSessionView`` shown one branch up: a stored-Mac reconnect sets
+    /// ``CMUXMobileShellStore/isReconnectingStoredMac``, which routes there
+    /// (bounded by the store's reconnect deadline) before this branch renders. The
+    /// ``DisconnectedShellState/reconnecting`` case here covers the brief window
+    /// where a user-initiated retry has set ``isRecoveringConnection`` but the
+    /// stored-Mac reconnect has not yet flipped its flag, so the offline screen
+    /// shows a bounded reconnect indicator instead of a contradicting offline
+    /// message. The never-paired and offline cases are this view's main job.
+    private var disconnectedShellState: DisconnectedShellState {
+        DisconnectedShellPolicy.state(
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            isReconnectingStoredMac: store.isReconnectingStoredMac,
+            isRecoveringConnection: store.isRecoveringConnection
+        )
     }
 
     private var isAuthenticated: Bool {

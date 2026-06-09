@@ -1065,6 +1065,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Display name of the currently-active paired Mac, when one is loaded.
+    ///
+    /// Used by the disconnected screen to name the offline/asleep Mac. Falls back
+    /// to `connectedHostName` (set during the last live connection) when the
+    /// paired-Mac list has not been loaded yet, and is `nil` only when neither is
+    /// available so the view shows generic offline copy. Reading the active row's
+    /// `displayName` keeps it correct after a host switch.
+    public var activeMacDisplayName: String? {
+        if let active = pairedMacs.first(where: { $0.isActive }),
+           let name = active.displayName,
+           !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return name
+        }
+        let trimmed = connectedHostName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     /// Reload ``pairedMacs`` from the store, scoped to the signed-in Stack user.
     ///
     /// A missing current Stack user id yields no pairings rather than falling
