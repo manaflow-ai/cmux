@@ -3517,6 +3517,473 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    /// Characterization: resume-latest is intentionally PRESERVED for a stopped/finished prior
+    /// session. When the session previously on a surface has exited (dead pid), a fresh codex
+    /// session-start SHOULD publish its own resume binding and take over the surface. This is the
+    /// common single-terminal case (the prior process is gone before the next starts), and the
+    /// live-binding guard must not change it. Stays GREEN before and after the fix.
+    func testCodexSessionStartPublishesWhenPriorSessionOnSurfaceIsStopped() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-stopped")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-stopped-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionA = "codex-stopped-session-aaaa"   // finished prior thread on the surface
+        let sessionB = "codex-stopped-session-bbbb"   // fresh codex taking over the surface
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        // A definitely-exited pid: the prior session is finished, so it must NOT block takeover
+        // (`hasRunningSession(requireLiveProcess:)` self-heals a dead-pid record).
+        let deadHelper = Process()
+        deadHelper.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try deadHelper.run()
+        deadHelper.waitUntilExit()
+        let deadPID = Int(deadHelper.processIdentifier)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let now = Date().timeIntervalSince1970
+        let seededStore: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionA: [
+                    "sessionId": sessionA,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": root.path,
+                    "pid": deadPID,
+                    "runtimeStatus": "running",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: seededStore, options: [.prettyPrinted])
+            .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "debug.terminals":
+                return self.v2Response(id: id, ok: true, result: ["terminals": []])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: true, result: [:])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(["/usr/local/bin/codex"])
+        environment.removeValue(forKey: "CMUX_CLI_TTY_NAME")
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionB)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let resumeSets = state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else { return nil }
+            return payload["params"] as? [String: Any]
+        }
+        let publishedByB = resumeSets.contains {
+            ($0["checkpoint_id"] as? String) == sessionB && ($0["surface_id"] as? String) == surfaceId
+        }
+        XCTAssertTrue(
+            publishedByB,
+            """
+            a fresh codex session-start must take over a surface whose prior session has exited \
+            (resume-latest preserved); the live-binding guard must not block this. \
+            resumeSets=\(resumeSets)
+            """
+        )
+    }
+
+    /// Regression (the uncontested live-clobber defect): a fresh codex session-start must NOT displace
+    /// the resume binding of a DIFFERENT session that is still LIVE on the same surface.
+    ///
+    /// In the common single-terminal flow this cannot happen — the prior process is dead before a new
+    /// one starts in the same TTY, and `hasRunningSession(requireLiveProcess:)` self-heals the stale
+    /// record. It bites in the remote/SSH slice that #5333's PID/TTY override explicitly punts on:
+    /// when no controlling TTY is available, a leaked `CMUX_SURFACE_ID` routes a fresh session onto a
+    /// genuinely-live session's pane. Overwriting that live session's binding orphans the running
+    /// thread across reload. This models exactly that slice: A is seeded live + running, no TTY truth
+    /// is available, and the env surface id points at A's pane.
+    ///
+    /// RED before the fix (the hook publishes B's binding unconditionally), GREEN after.
+    func testCodexSessionStartDoesNotDisplaceLiveDifferentSessionWithoutTTYTruth() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-live")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-live-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"   // A's pane; leaked into B's env
+        let sessionA = "codex-live-session-aaaa"   // still running on the surface
+        let sessionB = "codex-live-session-bbbb"   // a fresh codex misrouted onto A's pane
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        // A genuinely-live process so the surface still has a live agent (`processExists(pid)`).
+        let liveHelper = Process()
+        liveHelper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        liveHelper.arguments = ["600"]
+        try liveHelper.run()
+        let livePID = Int(liveHelper.processIdentifier)
+
+        defer {
+            liveHelper.terminate()
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        // Seed A as live + running, bound to the surface.
+        let now = Date().timeIntervalSince1970
+        let seededStore: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionA: [
+                    "sessionId": sessionA,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": root.path,
+                    "pid": livePID,
+                    "runtimeStatus": "running",
+                    "startedAt": now - 60,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: seededStore, options: [.prettyPrinted])
+            .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "debug.terminals":
+                // No controlling TTY is known, so there is no PID/TTY ground truth to override the
+                // leaked env surface (the remote/SSH slice #5333 punts on).
+                return self.v2Response(id: id, ok: true, result: ["terminals": []])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: true, result: [:])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId   // leaked: points at A's live pane
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(["/usr/local/bin/codex"])
+        // No controlling TTY: ensure the PID/TTY override has nothing to work with.
+        environment.removeValue(forKey: "CMUX_CLI_TTY_NAME")
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionB)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let resumeSets = state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else { return nil }
+            return payload["params"] as? [String: Any]
+        }
+        let displacedByB = resumeSets.contains { ($0["checkpoint_id"] as? String) == sessionB }
+        XCTAssertFalse(
+            displacedByB,
+            """
+            a fresh codex session-start must not displace a LIVE different session's resume binding \
+            (remote/no-TTY slice). session B published a binding for surface \(surfaceId), orphaning \
+            the still-running session A. resumeSets=\(resumeSets)
+            """
+        )
+    }
+
+    /// Regression for the same live-clobber defect when the live prior session is paused on an
+    /// approval prompt. A waiting agent is persisted as `runtimeStatus == needsInput`, not `running`,
+    /// while its process and resume binding are still valid. The guard must key off the live PID, not
+    /// the runtime status, or it would still orphan a session that is merely waiting for input.
+    ///
+    /// RED if the guard only checks `runtimeStatus == .running`; GREEN once it checks a live PID.
+    func testCodexSessionStartDoesNotDisplaceLiveNeedsInputSessionWithoutTTYTruth() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-needsinput")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-needsinput-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"   // A's pane; leaked into B's env
+        let sessionA = "codex-ni-session-aaaa"   // live, paused on an approval prompt
+        let sessionB = "codex-ni-session-bbbb"   // a fresh codex misrouted onto A's pane
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        // A genuinely-live process: the agent is alive but waiting for input, not running a turn.
+        let liveHelper = Process()
+        liveHelper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        liveHelper.arguments = ["600"]
+        try liveHelper.run()
+        let livePID = Int(liveHelper.processIdentifier)
+
+        defer {
+            liveHelper.terminate()
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        // Seed A as live but in needsInput (paused on an approval prompt), bound to the surface.
+        let now = Date().timeIntervalSince1970
+        let seededStore: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionA: [
+                    "sessionId": sessionA,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": root.path,
+                    "pid": livePID,
+                    "runtimeStatus": "needsInput",
+                    "startedAt": now - 60,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: seededStore, options: [.prettyPrinted])
+            .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "debug.terminals":
+                return self.v2Response(id: id, ok: true, result: ["terminals": []])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: true, result: [:])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId   // leaked: points at A's live pane
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(["/usr/local/bin/codex"])
+        environment.removeValue(forKey: "CMUX_CLI_TTY_NAME")
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionB)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let resumeSets = state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else { return nil }
+            return payload["params"] as? [String: Any]
+        }
+        let displacedByB = resumeSets.contains { ($0["checkpoint_id"] as? String) == sessionB }
+        XCTAssertFalse(
+            displacedByB,
+            """
+            a fresh codex session-start must not displace a LIVE different session that is waiting \
+            for input (needsInput). session B published a binding for surface \(surfaceId), orphaning \
+            the still-live session A. resumeSets=\(resumeSets)
+            """
+        )
+    }
+
+    /// Resume-latest must still work when a prior session's record lingers with a PID that has been
+    /// recycled by an unrelated live process (e.g. the agent crashed without a session-end). A bare
+    /// `kill(pid, 0)` would treat the recycled PID as the live agent and wrongly suppress the fresh
+    /// session's binding. The guard compares the process start time to the record's last activity, so
+    /// a process that started long after the record is not mistaken for the original agent.
+    ///
+    /// RED if the guard keys off PID existence alone; GREEN once it validates the process start time.
+    func testCodexSessionStartTakesOverWhenPriorRecordPidWasRecycled() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-reuse")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-reuse-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionA = "codex-reuse-session-aaaa"   // finished long ago; its PID was recycled
+        let sessionB = "codex-reuse-session-bbbb"   // fresh codex taking over the surface
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        // A live, unrelated process standing in for the recycled PID: it started "now", but the
+        // seeded session's last activity is an hour ago, so it cannot be the original agent.
+        let recycler = Process()
+        recycler.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        recycler.arguments = ["600"]
+        try recycler.run()
+        let recycledPID = Int(recycler.processIdentifier)
+
+        defer {
+            recycler.terminate()
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let staleActivity = Date().timeIntervalSince1970 - 3600
+        let seededStore: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionA: [
+                    "sessionId": sessionA,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": root.path,
+                    "pid": recycledPID,
+                    "runtimeStatus": "running",
+                    "startedAt": staleActivity,
+                    "updatedAt": staleActivity,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: seededStore, options: [.prettyPrinted])
+            .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "debug.terminals":
+                return self.v2Response(id: id, ok: true, result: ["terminals": []])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: true, result: [:])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(["/usr/local/bin/codex"])
+        environment.removeValue(forKey: "CMUX_CLI_TTY_NAME")
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionB)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let resumeSets = state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else { return nil }
+            return payload["params"] as? [String: Any]
+        }
+        let publishedByB = resumeSets.contains {
+            ($0["checkpoint_id"] as? String) == sessionB && ($0["surface_id"] as? String) == surfaceId
+        }
+        XCTAssertTrue(
+            publishedByB,
+            """
+            a recycled PID on a stale session record must not be mistaken for a live agent: the fresh \
+            session must still publish its resume binding (resume-latest takeover). resumeSets=\(resumeSets)
+            """
+        )
+    }
+
     /// G3 stale-env variant (https://github.com/manaflow-ai/cmux/issues/5333): when the ambient
     /// CMUX_SURFACE_ID is stale/invalid (the surface was closed, or belongs to another workspace) it no
     /// longer resolves to an accessible surface. That must NOT abort hook routing — the agent's own
