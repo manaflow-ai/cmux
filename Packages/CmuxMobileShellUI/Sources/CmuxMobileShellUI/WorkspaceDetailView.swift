@@ -93,7 +93,12 @@ struct WorkspaceDetailView: View {
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
+                    // While the composer is open it owns the keyboard, so a
+                    // surface re-create from switching terminals must not let the
+                    // hidden terminal input proxy grab first responder back.
                     autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
+                        && !store.isComposerPresented,
+                    isComposerActive: store.isComposerPresented
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -127,7 +132,29 @@ struct WorkspaceDetailView: View {
                 .padding(.top, 10)
                 .padding(.leading, 10)
         }
+        #if os(iOS) && DEBUG
+        // Store-side composer seam (DEBUG/UI-test only): exposes the source-of-truth
+        // store flags that drive the surface's composer mirror, so a UI test can assert
+        // the store and surface agree across repeated open/close cycles and that the
+        // draft (`terminalInputText`) survives. Zero-size + read live on every query;
+        // never compiled into a shipping build. Pairs with `MobileComposerDockProbe`
+        // on the surface side.
+        .overlay {
+            ComposerStoreProbe(
+                isComposerPresented: store.isComposerPresented,
+                composerFocusRequest: store.composerFocusRequest,
+                draftLength: store.terminalInputText.count
+            )
+        }
+        #endif
         #if os(iOS)
+        // The whole bottom dock (terminal grid / composer band / accessory toolbar /
+        // keyboard) is owned by `GhosttySurfaceView` in one coordinate system. The
+        // iMessage composer is mounted INTO the surface's composer band by
+        // `GhosttySurfaceRepresentable` (a `UIHostingController`), not added here as a
+        // `safeAreaInset`. There is no second layout system reaching into the
+        // surface's bottom, so the accessory toolbar can never be reparented out (its
+        // buttons can never disappear) and a composer-grow pushes only the terminal up.
         .mobileTerminalSafeAreaExpansion(
             context: safeAreaContext,
             includesBottom: true
@@ -454,3 +481,34 @@ struct WorkspaceDetailView: View {
         UIApplication.shared.dismissMobileKeyboard()
     }
 }
+
+#if os(iOS) && DEBUG
+/// Zero-impact store-side composer seam for UI tests (DEBUG only).
+///
+/// Carries the composer source-of-truth store flags as a stable, parseable
+/// `accessibilityValue` (`isComposerPresented=…;composerFocusRequest=…;draftLength=…`)
+/// on an element identified by `MobileComposerStoreProbe`, so a UI test can assert the
+/// store and the surface's mirror (`MobileComposerDockProbe`) agree across repeated
+/// open/close cycles and that the draft survives. Rendered as a 1×1 clear element so it
+/// never perturbs layout or intercepts touches. Never compiled into a shipping build.
+private struct ComposerStoreProbe: View {
+    let isComposerPresented: Bool
+    let composerFocusRequest: Int
+    let draftLength: Int
+
+    var body: some View {
+        Color.clear
+            .frame(width: 1, height: 1)
+            .allowsHitTesting(false)
+            .accessibilityElement()
+            .accessibilityIdentifier("MobileComposerStoreProbe")
+            .accessibilityValue(
+                [
+                    "isComposerPresented=\(isComposerPresented ? 1 : 0)",
+                    "composerFocusRequest=\(composerFocusRequest)",
+                    "draftLength=\(draftLength)",
+                ].joined(separator: ";")
+            )
+    }
+}
+#endif

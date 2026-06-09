@@ -55,27 +55,18 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// The user tapped the "customize" button at the end of the input-accessory
     /// bar; the host should present the toolbar shortcuts editor. Optional.
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView)
-    /// The user tapped the attachments button on the input-accessory bar; the host
-    /// should present the iOS photo/file picker and route any picked image through
-    /// the existing image-attach path (``ghosttySurfaceView(_:didPasteImage:format:)``).
-    /// Optional.
-    func ghosttySurfaceViewDidRequestAttachment(_ surfaceView: GhosttySurfaceView)
     /// Forward an image the user pasted from the system clipboard. The host
     /// uploads `data` to the Mac, which materializes a temp file and injects its
     /// path into the terminal so a running TUI (e.g. Claude Code) attaches it.
     /// `format` is a lowercase file-extension hint (e.g. `"png"`). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String)
-    /// The user pasted an image that is too large to send even after trying a
-    /// compressed JPEG, so nothing was uploaded. The host should surface a
-    /// user-visible "too large" notice. Optional.
-    func ghosttySurfaceViewDidFailToPasteImageTooLarge(_ surfaceView: GhosttySurfaceView)
     /// The composer accessory button was tapped; the host should toggle the
     /// iMessage-style composer above the terminal. Optional.
     ///
-    /// Round 8: the composer is dismissed ONLY by its own chevron or this toggle. The
-    /// keyboard collapsing no longer dismisses the composer (it survives a keyboard-down
+    /// The composer is dismissed ONLY by its own chevron or this toggle. The
+    /// keyboard collapsing does not dismiss the composer (it survives a keyboard-down
     /// and the toolbar stays visible), so there is no separate collapse/dismiss
-    /// delegate hook anymore.
+    /// delegate hook.
     func ghosttySurfaceViewDidRequestComposerToggle(_ surfaceView: GhosttySurfaceView)
     /// The surface needs the iMessage-style composer presented (if it is not already)
     /// and its field re-focused, without dismissing it. The host ensures the composer
@@ -83,43 +74,15 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// reveal-after-hide and the present-while-suppressed paths so the draft and its
     /// focus return together. Optional.
     func ghosttySurfaceViewDidRequestComposerFocus(_ surfaceView: GhosttySurfaceView)
-    /// Forward a committed block of text (system dictation, an autocorrect
-    /// replacement, or keyboard-inserted clipboard text) that should reach the
-    /// remote terminal as a bracketed paste rather than per-character input. The
-    /// host sends it via the `terminal.paste` RPC so embedded newlines do not
-    /// fragment into separate Returns. Defaults to the raw-input path so existing
-    /// conformers keep working. Optional.
-    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteText text: String)
-    /// The user tapped the floating jump-to-bottom button; the host should ask
-    /// the Mac's real surface to scroll all the way to the live bottom (out of
-    /// scrollback). The mirror has no local scrollback, so this cannot be done
-    /// on-device. Optional.
-    func ghosttySurfaceViewDidRequestScrollToBottom(_ surfaceView: GhosttySurfaceView)
 }
 
 public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
-    func ghosttySurfaceViewDidRequestAttachment(_ surfaceView: GhosttySurfaceView) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
-    func ghosttySurfaceViewDidFailToPasteImageTooLarge(_ surfaceView: GhosttySurfaceView) {}
     func ghosttySurfaceViewDidRequestComposerToggle(_ surfaceView: GhosttySurfaceView) {}
     func ghosttySurfaceViewDidRequestComposerFocus(_ surfaceView: GhosttySurfaceView) {}
-    func ghosttySurfaceViewDidRequestScrollToBottom(_ surfaceView: GhosttySurfaceView) {}
-    /// Default bracketed-paste handler that falls back to per-character input.
-    ///
-    /// A conformer that does not implement the bracketed-paste path still
-    /// delivers the text: newlines are normalized to CR (matching the
-    /// per-keystroke input path) and the bytes are forwarded through
-    /// ``ghosttySurfaceView(_:didProduceInput:)``.
-    /// - Parameters:
-    ///   - surfaceView: The surface view that produced the committed block.
-    ///   - text: The committed block of pasted/dictated text.
-    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteText text: String) {
-        let normalized = text.replacingOccurrences(of: "\n", with: "\r")
-        ghosttySurfaceView(surfaceView, didProduceInput: Data(normalized.utf8))
-    }
 }
 
 @MainActor
@@ -435,14 +398,6 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
         case .composer:
             return String(localized: "terminal.input_accessory.composer", defaultValue: "Composer")
-        case .upArrow:
-            return String(localized: "terminal.input_accessory.up_arrow", defaultValue: "Up Arrow")
-        case .downArrow:
-            return String(localized: "terminal.input_accessory.down_arrow", defaultValue: "Down Arrow")
-        case .leftArrow:
-            return String(localized: "terminal.input_accessory.left_arrow", defaultValue: "Left Arrow")
-        case .rightArrow:
-            return String(localized: "terminal.input_accessory.right_arrow", defaultValue: "Right Arrow")
         default:
             return nil
         }
@@ -458,14 +413,6 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return "doc.on.clipboard"
         case .composer:
             return "square.and.pencil"
-        case .upArrow:
-            return "arrow.up"
-        case .downArrow:
-            return "arrow.down"
-        case .leftArrow:
-            return "arrow.left"
-        case .rightArrow:
-            return "arrow.right"
         default:
             return nil
         }
@@ -730,15 +677,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// GPU is available so any in-flight render drains — and gate dispatch so
     /// no `render_now` is sent into the background.
     private var renderingSuspended: Bool = false
-    /// Set when a foreground transition (`didBecomeActive` / `willEnterForeground`)
-    /// reached this view but could not finish resuming the render loop because the
-    /// view was momentarily off-window or surfaceless. The next ``didMoveToWindow``
-    /// (window non-nil) completes the resume so the terminal repaints. Without
-    /// this, a foreground that races the SwiftUI representable re-attach would
-    /// clear suspension but never restart the display link, leaving the terminal
-    /// frozen on stale content while input (a separate RPC) still worked — the
-    /// home-button background→foreground render-freeze.
-    private var pendingForegroundResume: Bool = false
     #if DEBUG
     /// Last time the display-link heartbeat logged (DEBUG diagnostic). The
     /// per-frame callback runs on the main thread, so a steady heartbeat proves
@@ -749,19 +687,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Time of the most recent applied render-grid output, for the heartbeat's
     /// `sinceOutput` field (ties an idle blank to a stream gap).
     private var lastOutputAppliedTime: CFTimeInterval = 0
-    /// Time-gate stamp for the ``DiagnosticEventCode/renderFrameApplied`` heartbeat so
-    /// it records ≈1/s instead of per output chunk (RENDER: frame-apply).
-    private var lastRenderFrameDiagTime: CFTimeInterval = 0
-    /// Time-gate stamp for the ``DiagnosticEventCode/renderBusySkipped`` event so a
-    /// continuous render-coalesce burst records ≈1/s, not per skipped frame.
-    private var lastRenderBusyDiagTime: CFTimeInterval = 0
-    /// Media time the in-flight `render_now` was enqueued, for the busy/duration
-    /// RENDER: events. 0 when no render is in flight.
-    private var renderInFlightStart: CFTimeInterval = 0
-    /// Only a `render_now` slower than this (ms) records a
-    /// ``DiagnosticEventCode/renderCompleted`` event, so the bounded diagnostic ring is
-    /// not flooded by normal fast renders at 120fps.
-    private static let renderCompletedSlowThresholdMs: Double = 50
     #endif
     /// Set by any geometry trigger (resize/zoom/keyboard/effective-grid pin);
     /// the display link applies geometry at most once per frame. Coalescing
@@ -978,16 +903,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Structured diagnostic log (DEBUG dogfood builds only), property-injected
     /// from the shell store by ``GhosttySurfaceRepresentable`` so the
-    /// hold-backspace + dictation input probes land in the blob the "Send to
-    /// agent" feedback pane exports. Forwarded to ``inputProxy`` on set. `nil` in
-    /// release and in hosts that do not wire it; every probe is then a no-op.
-    public var diagnosticLog: DiagnosticLog? {
-        didSet { inputProxy.diagnosticLog = diagnosticLog }
-    }
+    /// composer-dock probes land in the blob the diagnostic export captures.
+    /// `nil` in release and in hosts that do not wire it; every probe is then a
+    /// no-op.
+    public var diagnosticLog: DiagnosticLog?
 
     private lazy var inputProxy: TerminalInputTextView = {
         let inputProxy = TerminalInputTextView()
-        inputProxy.diagnosticLog = diagnosticLog
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
             self.resetCursorBlink()
@@ -1007,13 +929,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self.resetCursorBlink()
             // Send DEL (0x7F) directly to transport as raw byte.
             let data = Data([0x7F])
-            #if DEBUG
-            // Pairs with `inputDeleteBackward`: if N delete calls produce N
-            // emitted DEL bytes, the iOS input view is correct and the
-            // hold-backspace failure is downstream (transport/Mac/render), not in
-            // this view — redirecting the hunt instead of a 4th input-view guess.
-            self.diagnosticLog?.record(DiagnosticEvent(.inputBackspaceEmitted, ms: UInt32(data.count)))
-            #endif
             TerminalInputDebugLog.log("surface.onBackspace data=\(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
@@ -1023,24 +938,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             TerminalInputDebugLog.log("surface.onEscape data=\(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
-        inputProxy.onPasteText = { [weak self] text in
-            guard let self else { return }
-            self.resetCursorBlink()
-            // Multi-character commits (dictation, autocorrect, keyboard clipboard
-            // insert) go through the bracketed-paste RPC so embedded newlines are
-            // not split into separate Returns by the remote terminal.
-            TerminalInputDebugLog.log("surface.onPasteText text=\(TerminalInputDebugLog.textSummary(text))")
-            self.delegate?.ghosttySurfaceView(self, didPasteText: text)
-        }
         inputProxy.onPasteImage = { [weak self] data, format in
             guard let self else { return }
             TerminalInputDebugLog.log("surface.onPasteImage bytes=\(data.count) format=\(format)")
             self.delegate?.ghosttySurfaceView(self, didPasteImage: data, format: format)
-        }
-        inputProxy.onPasteImageTooLarge = { [weak self] in
-            guard let self else { return }
-            TerminalInputDebugLog.log("surface.onPasteImageTooLarge")
-            self.delegate?.ghosttySurfaceViewDidFailToPasteImageTooLarge(self)
         }
         inputProxy.onZoom = { [weak self] direction in
             self?.performFontZoom(direction)
@@ -1087,10 +988,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         inputProxy.onOpenToolbarSettings = { [weak self] in
             guard let self else { return }
             self.delegate?.ghosttySurfaceViewDidRequestToolbarSettings(self)
-        }
-        inputProxy.onOpenAttachments = { [weak self] in
-            guard let self else { return }
-            self.delegate?.ghosttySurfaceViewDidRequestAttachment(self)
         }
         inputProxy.accessoryLayoutInsetsProvider = { [weak self] in
             guard let self,
@@ -1203,13 +1100,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @objc private func handleAppWillEnterForeground() {
-        // `willEnterForeground` fires before `didBecomeActive` on every foreground
-        // (including the home-button case), so resume the render loop here too,
-        // not only from `didBecomeActive`. `resumeRendering` is idempotent and, if
-        // the view is momentarily off-window, arms `pendingForegroundResume` so
-        // `didMoveToWindow` completes the resume — the terminal repaints regardless
-        // of how the foreground notifications and the SwiftUI re-attach interleave.
-        resumeRendering()
         guard surface != nil, window != nil else { return }
         // The Mac drops this device's sticky viewport pin a few seconds after the
         // connection backgrounds, so on reconnect it reverts to its own (often
@@ -1237,53 +1127,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Resume the render loop once the app is active again.
     ///
-    /// Called from both `willEnterForeground` and `didBecomeActive` (and indirectly
-    /// from `didMoveToWindow` via the pending-resume completion), so it must be
-    /// idempotent: the in-flight render gate is reset only on the suspended→active
-    /// transition, never on a second call while already running. Resetting it
-    /// unconditionally would race a `render_now` that a display-link tick enqueued
-    /// between the two foreground notifications — marking it not-in-flight defeats
-    /// the coalescing guard and lets extra renders pile on `outputQueue`.
+    /// A `render_now` in flight at suspend either drained (the GPU was still
+    /// available before background) or never dispatched, and its main-thread
+    /// completion may have been deferred while the queue was suspended — so clear
+    /// the in-flight flag to guarantee the first foreground frame can dispatch,
+    /// re-mark the surface visible, and restart the frame pump. Idempotent.
     private func resumeRendering() {
-        let wasSuspended = renderingSuspended
         renderingSuspended = false
-        if wasSuspended {
-            // A `render_now` in flight at suspend either drained (the GPU was
-            // still available before background) or never dispatched, and its
-            // main-thread completion may have been deferred while the queue was
-            // suspended — clear the in-flight flag so the first foreground frame
-            // can dispatch. Safe here because no live render can be enqueued while
-            // suspended (`requestRender` early-returns on `renderingSuspended`).
-            renderInFlight = false
-            needsAnotherRender = false
-        }
-        guard let surface, window != nil else {
-            // The foreground notification reached this view before it was back
-            // on-window (a SwiftUI representable re-attach can race the scene
-            // becoming active). Suspension is already cleared, but the display
-            // link can't restart while detached — arm a pending resume so the
-            // next `didMoveToWindow` (window non-nil) finishes the job and the
-            // terminal repaints instead of staying frozen on stale content.
-            pendingForegroundResume = true
-            MobileDebugLog.anchormux("resume.skip hasSurface=\(surface != nil) win=\(window != nil) armedPending")
-            return
-        }
-        pendingForegroundResume = false
-        MobileDebugLog.anchormux("resume.enter restartingDisplayLink")
-        // Re-assert occlusion against the current view state (not unconditionally
-        // visible): a still-hidden/zero-size surface stays occluded so a stale
-        // present can't flash. `syncSurfaceVisibility` updates the cursor overlay.
-        syncSurfaceVisibility()
+        renderInFlight = false
+        needsAnotherRender = false
+        guard let surface, window != nil else { return }
+        ghostty_surface_set_occlusion(surface, true)  // true = visible
         setFocus(true)
-        // Force a fresh repaint at the correct size: the IOSurface may have lost
-        // its backing while backgrounded, so a single stale-size draw can land
-        // blank. Clearing `lastReportedSize` forces the natural grid to re-report
-        // even if it is unchanged (the Mac drops the sticky viewport pin while
-        // backgrounded), and the geometry resync guarantees the first foreground
-        // frame is sized and drawn from current content.
-        lastReportedSize = nil
         needsDraw = true
-        setNeedsGeometrySync(reassertNaturalSize: true)
         startDisplayLink()
     }
 
@@ -1309,15 +1165,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// flush with the grid bottom (no gap) and its bottom rests on the keyboard
     /// edge (up) or above the home indicator (down).
     private weak var dockedToolbar: UIView?
-    /// The floating jump-to-bottom button. Installed lazily alongside the docked
-    /// toolbar, positioned bottom-right just above the toolbar/composer/keyboard
-    /// reserve in ``layoutBottomDock()``, and shown only while ``scrolledUp`` is
-    /// true (the Mac reported the viewport is scrolled up into scrollback).
-    private weak var scrollToBottomButton: ScrollToBottomButton?
-    /// Whether the terminal is scrolled up (has room to jump to the live bottom),
-    /// pushed down from the render-grid producer's authoritative position via
-    /// ``setScrolledUp(_:)``. Drives ``scrollToBottomButton`` visibility.
-    private var scrolledUp = false
     /// Whether the iMessage-style composer is currently open. The surface owns the
     /// whole bottom dock (terminal grid / composer band / toolbar / keyboard) in ONE
     /// coordinate system, so `composerActive` only drives the first-responder
@@ -1354,20 +1201,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var autoFocusOnWindowAttach = true
 
     @objc private func handleKeyboardWillShow(_ notification: Notification) {
-        #if DEBUG
-        // Capture WHICH view owns first responder the instant the keyboard comes
-        // up — the load-bearing question for the hold-backspace + dictation hunt.
-        // Recorded before any geometry guard so it fires on every keyboard-up,
-        // even when the height is unchanged. This is the iOS analog of checking
-        // for a Mac-style `keyRepair` focus-steal: if this is not
-        // `terminalInputProxy`, the keyboard never drives the view we instrument.
-        let kbResponder = CurrentResponderProbe.current()
-        let kbIdentity = TerminalInputTextView.responderIdentity(of: kbResponder)
-        diagnosticLog?.record(DiagnosticEvent(.inputKeyboardUp, a: kbIdentity.rawValue))
-        MobileDebugLog.anchormux(
-            "input.keyboardUp identity=\(kbIdentity) class=\(TerminalInputTextView.responderClassName(kbResponder)) proxyIsFR=\(inputProxy.isFirstResponder)"
-        )
-        #endif
         guard let frameEnd = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
               let window else { return }
         let keyboardFrameInView = convert(frameEnd, from: window)
@@ -1469,71 +1302,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // is visible above the strip.
         toolbar.layer.zPosition = Self.bottomChromeZPosition
         toolbar.clipsToBounds = false
-        installScrollToBottomButton()
         updateDockedToolbarVisibility()
         layoutBottomDock()
-    }
-
-    /// Install the floating jump-to-bottom button as a sibling of the docked
-    /// toolbar. It shares the bottom-chrome `zPosition` so the lifted glass is
-    /// not clipped by the Ghostty render sublayer (item 6), and starts hidden
-    /// until ``setScrolledUp(_:)`` reports the viewport is scrolled up. Tapping
-    /// it routes to the surface delegate, which asks the Mac to scroll to bottom.
-    private func installScrollToBottomButton() {
-        guard scrollToBottomButton == nil else { return }
-        let button = ScrollToBottomButton()
-        button.layer.zPosition = Self.bottomChromeZPosition
-        button.alpha = 0
-        button.isHidden = true
-        button.onTap = { [weak self] in
-            guard let self else { return }
-            self.delegate?.ghosttySurfaceViewDidRequestScrollToBottom(self)
-        }
-        addSubview(button)
-        scrollToBottomButton = button
-    }
-
-    /// Update whether the terminal is scrolled up and animate the floating
-    /// jump-to-bottom button in or out to match.
-    ///
-    /// Driven by the render-grid producer's authoritative viewport position
-    /// (pushed down from the shell store through the representable). Idempotent:
-    /// an unchanged value is a no-op so the steady stream of at-bottom frames
-    /// does not thrash the button. Hiding the bottom chrome (HIDE button) also
-    /// suppresses the floating button via ``layoutBottomDock``.
-    public func setScrolledUp(_ value: Bool) {
-        guard scrolledUp != value else { return }
-        scrolledUp = value
-        layoutBottomDock()
-        updateScrollToBottomButtonVisibility(animated: true)
-    }
-
-    /// Whether the floating jump-to-bottom button should currently be on screen:
-    /// the terminal is scrolled up AND the bottom chrome is not suppressed.
-    private var scrollToBottomButtonShouldBeVisible: Bool {
-        scrolledUp && !chromeHidden
-    }
-
-    /// Reconcile the floating button's visibility with the scrolled-up + chrome
-    /// state, optionally on the keyboard animation curve.
-    private func updateScrollToBottomButtonVisibility(animated: Bool) {
-        guard let button = scrollToBottomButton else { return }
-        let shouldShow = scrollToBottomButtonShouldBeVisible
-        let targetAlpha: CGFloat = shouldShow ? 1 : 0
-        guard button.alpha != targetAlpha || button.isHidden == shouldShow else { return }
-        if shouldShow { button.isHidden = false }
-        let apply = {
-            button.alpha = targetAlpha
-        }
-        let finish: (Bool) -> Void = { _ in
-            if !shouldShow { button.isHidden = true }
-        }
-        if animated {
-            UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseInOut], animations: apply, completion: finish)
-        } else {
-            apply()
-            finish(true)
-        }
     }
 
     /// Layer `zPosition` for the bottom chrome (toolbar + composer band), placing it
@@ -1638,9 +1408,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // double-animate against the keyboard rise.
             layoutBottomDock()
         }
-        // The floating jump-to-bottom button rides with the chrome: HIDE suppresses
-        // it, and a re-show restores it if the terminal is still scrolled up.
-        updateScrollToBottomButtonVisibility(animated: true)
         setNeedsGeometrySync()
     }
 
@@ -1954,29 +1721,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let frames = bottomDockFrames()
         composerContainer.frame = frames.composer
         dockedToolbar?.frame = frames.toolbar
-        layoutScrollToBottomButton(aboveDockTop: frames.toolbar.minY)
-    }
-
-    /// Spacing (points) between the floating jump-to-bottom button and the dock
-    /// above which it floats, and the trailing edge.
-    private static let scrollToBottomButtonMargin: CGFloat = 12
-
-    /// Pin the floating jump-to-bottom button to the bottom-right, floating just
-    /// above the bottom dock (the toolbar top, which already rides above the
-    /// composer band, keyboard, and home-indicator reserve). Reuses the dock's
-    /// own computed top edge so the button tracks the toolbar/composer/keyboard
-    /// as they show and hide instead of a hardcoded offset.
-    private func layoutScrollToBottomButton(aboveDockTop dockTop: CGFloat) {
-        guard let button = scrollToBottomButton else { return }
-        let size = ScrollToBottomButton.diameter
-        let margin = Self.scrollToBottomButtonMargin
-        // When the chrome is suppressed the dock collapses to the bottom edge;
-        // float the button above the bottom safe area instead so HIDE does not
-        // shove it under the home indicator (it is hidden in that state anyway).
-        let referenceTop = chromeHidden ? bounds.height - safeAreaInsetsBottom : dockTop
-        let x = bounds.width - size - margin
-        let y = referenceTop - size - margin
-        button.frame = CGRect(x: x, y: max(0, y), width: size, height: size)
     }
 
     /// Animate the whole bottom dock (composer band + toolbar) in lockstep with a
@@ -2341,24 +2085,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             #if DEBUG
             debugAccessibilityProxy.isAccessibilityElement = true
             #endif
+            setNeedsGeometrySync()
             setFocus(true)
             if autoFocusOnWindowAttach {
                 focusInput()
             }
-            // Complete a foreground resume that arrived while the view was still
-            // off-window. `resumeRendering` (now back on-window) clears suspension
-            // — otherwise `requestRender` early-returns on every tick and the loop
-            // never paints again — and forces the full repaint (occlusion,
-            // viewport reassert, geometry resync, display link). For a normal
-            // attach (no pending resume) keep the lighter geometry sync + link
-            // restart so an unrelated reattach does not force a viewport re-report.
-            if pendingForegroundResume {
-                MobileDebugLog.anchormux("resume.completeOnAttach")
-                resumeRendering()
-            } else {
-                setNeedsGeometrySync()
-                startDisplayLink()
-            }
+            startDisplayLink()
         } else {
             prepareForReuseAfterDetach()
         }
@@ -2426,24 +2158,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     self.updateCursorOverlay()
                 }
                 #if DEBUG
-                // RENDER: frame-apply heartbeat. Time-gated to ≈1/s so it is a
-                // heartbeat, not a per-chunk flood, on the lock-free diagnostic sink.
-                // `ms` = gap since the previous applied chunk; `a` = this chunk's byte
-                // length. A growing gap or this event ceasing while input still works
-                // localizes a stalled render-grid consumer.
-                let applyNow = CACurrentMediaTime()
-                if applyNow - self.lastRenderFrameDiagTime >= 1.0 {
-                    let gapMs = self.lastOutputAppliedTime > 0
-                        ? UInt32(min(Double(UInt32.max), max(0, (applyNow - self.lastOutputAppliedTime) * 1000)))
-                        : 0
-                    self.diagnosticLog?.record(DiagnosticEvent(
-                        .renderFrameApplied,
-                        ms: gapMs,
-                        a: forwarded.count
-                    ))
-                    self.lastRenderFrameDiagTime = applyNow
-                }
-                self.lastOutputAppliedTime = applyNow
+                self.lastOutputAppliedTime = CACurrentMediaTime()
                 #endif
                 if !self.surfaceHasReceivedOutput {
                     self.surfaceHasReceivedOutput = true
@@ -2905,64 +2620,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // (Called on main from the display link.)
         if renderInFlight {
             needsAnotherRender = true
-            #if DEBUG
-            // RENDER: render busy / snapshot skipped. A render is already in flight, so
-            // this frame's render is coalesced away. Time-gated to ≈1/s; `a` = how long
-            // the in-flight render has been running so far (ms). A long, climbing value
-            // with a frozen screen is the wedged-render-queue signal while input still
-            // works.
-            let busyNow = CACurrentMediaTime()
-            if busyNow - lastRenderBusyDiagTime >= 1.0 {
-                lastRenderBusyDiagTime = busyNow
-                let inFlightMs = renderInFlightStart > 0
-                    ? UInt32(min(Double(UInt32.max), max(0, (busyNow - renderInFlightStart) * 1000)))
-                    : 0
-                diagnosticLog?.record(DiagnosticEvent(.renderBusySkipped, a: Int(inFlightMs)))
-            }
-            #endif
             return
         }
         renderInFlight = true
         let enqueuedAt = CACurrentMediaTime()
-        #if DEBUG
-        renderInFlightStart = enqueuedAt
-        #endif
         Self.outputQueue.async { [weak self] in
             // Queue LAG = how long this render waited behind other ops. If this
             // climbs into hundreds of ms the queue is backlogged (the freeze).
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
-            if lagMs > 150 {
-                MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms")
-                #if DEBUG
-                // RENDER: the render queue lagged — this render waited a long time
-                // behind other ops before running. `ms` = the measured wait.
-                self?.diagnosticLog?.record(DiagnosticEvent(
-                    .renderGridLag,
-                    ms: UInt32(min(Double(UInt32.max), lagMs))
-                ))
-                #endif
-            }
+            if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
             ghostty_surface_render_now(surface)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.renderInFlight = false
-                #if DEBUG
-                // RENDER: render-busy duration — enqueue → completion, in ms. Recorded
-                // ONLY for a slow render (> `renderCompletedSlowThresholdMs`); a normal
-                // few-ms render at 120fps would flood the bounded ring and evict every
-                // other event. A spike here with a frozen screen confirms `render_now`
-                // itself (GPU/swap-chain) stalled rather than the stream drying up.
-                let completedMs = self.renderInFlightStart > 0
-                    ? max(0, (CACurrentMediaTime() - self.renderInFlightStart) * 1000)
-                    : 0
-                if completedMs > Self.renderCompletedSlowThresholdMs {
-                    self.diagnosticLog?.record(DiagnosticEvent(
-                        .renderCompleted,
-                        ms: UInt32(min(Double(UInt32.max), completedMs))
-                    ))
-                }
-                self.renderInFlightStart = 0
-                #endif
                 guard !self.isDismantled else {
                     self.needsAnotherRender = false
                     return
