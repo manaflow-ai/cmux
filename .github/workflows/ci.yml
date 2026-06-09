@@ -334,67 +334,9 @@ jobs:
       - name: Run unit tests
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          run_unit_tests() {
-            # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
-            # intermittently crash inside XCTest's post-test memory checker or
-            # leave native display/WebKit work alive on GitHub macOS runners.
-            # When that happens, Swift's crash/backtrace handling or the stale
-            # app-host process keeps xcodebuild alive until the job-level timeout,
-            # hiding the actual unit test summary.
-            scripts/ci/xcodebuild_noninteractive.py \
-              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -disableAutomaticPackageResolution \
-              -destination "platform=macOS" \
-              CMUX_SKIP_ZIG_BUILD=1 \
-              test 2>&1 &
-            local xcodebuild_pid=$!
-            local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-1800}"
-            local deadline=$((SECONDS + timeout_seconds))
-            while kill -0 "$xcodebuild_pid" 2>/dev/null; do
-              if [ "$SECONDS" -ge "$deadline" ]; then
-                echo "xcodebuild unit test timeout after ${timeout_seconds}s; terminating"
-                kill -TERM "$xcodebuild_pid" 2>/dev/null || true
-                sleep 5
-                kill -KILL "$xcodebuild_pid" 2>/dev/null || true
-                wait "$xcodebuild_pid" 2>/dev/null || true
-                return 124
-              fi
-              sleep 5
-            done
-            wait "$xcodebuild_pid"
-          }
-
-          # Stream output via tee so CI logs are visible in real time while
-          # preserving the xcodebuild exit status for the failure gate.
-          set +e
-          run_unit_tests | tee /tmp/test-output.txt
-          EXIT_CODE=${PIPESTATUS[0]}
-          OUTPUT=$(cat /tmp/test-output.txt)
-          set -e
-
-          # SwiftPM binary artifact resolution can occasionally fail on ephemeral
-          # runners with "Could not resolve package dependencies". Retry once after
-          # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
-            echo "SwiftPM package resolution failed, clearing caches and retrying once"
-            rm -rf ~/Library/Caches/org.swift.swiftpm
-            mkdir -p ~/Library/Caches/org.swift.swiftpm
-            rm -rf "$CMUX_DERIVED_DATA_PATH"
-            mkdir -p "$CMUX_DERIVED_DATA_PATH"
-            set +e
-            run_unit_tests | tee /tmp/test-output.txt
-            EXIT_CODE=${PIPESTATUS[0]}
-            OUTPUT=$(cat /tmp/test-output.txt)
-            set -e
-          fi
-
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            echo "Unit tests failed"
-            exit "$EXIT_CODE"
-          fi
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            scripts/ci/run-unit-tests-with-failure-gate.sh
 
       - name: Run bundled Ghostty theme picker helper regression
         run: |
