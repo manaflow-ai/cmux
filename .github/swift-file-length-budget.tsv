@@ -4,7 +4,7 @@
 32547	CLI/cmux.swift
 21983	Sources/TerminalController.swift
 19875	Sources/Workspace.swift
-19052	Sources/ContentView.swift
+19155	Sources/ContentView.swift
 17860	Sources/AppDelegate.swift
 16503	Sources/GhosttyTerminalView.swift
 13589	Sources/Panels/BrowserPanel.swift
@@ -97,7 +97,7 @@
 866	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 863	Sources/Panels/TerminalPanel.swift
 856	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
-853	cmuxTests/WorkspaceGroupTests.swift
+860	cmuxTests/WorkspaceGroupTests.swift
 846	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 842	Sources/Panels/MarkdownWebRenderer.swift
@@ -156,6 +156,7 @@
 562	cmuxTests/AgentExecutableResolverTests.swift
 560	cmuxTests/GhosttyConfigPathResolverTests.swift
 558	Packages/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
+557	cmuxTests/SidebarWorkspaceSnapshotRefreshPolicyTests.swift
 554	Sources/Panels/BrowserAutomation.swift
 551	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
 548	cmuxTests/CLINotifyProcessTestSupport.swift

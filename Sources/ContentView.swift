@@ -11301,21 +11301,11 @@ struct VerticalTabsSidebar: View {
         }
     }
 
-    /// Applies the sidebar's stable scroller configuration.
-    ///
-    /// The configuration never changes after it is applied: an overlay,
-    /// auto-hiding vertical scroller. This is deliberate — toggling
-    /// `hasVerticalScroller` (or restyling the scroller) in response to
-    /// SwiftUI re-renders, which fire constantly while agents update workspace
-    /// rows, re-adds the scroller and re-flashes the overlay knob, so it never
-    /// reaches its idle fade. With a stable overlay + autohide configuration,
-    /// AppKit alone decides visibility: the knob appears on scroll or real
-    /// overflow and fades when idle, and stays hidden entirely when the content
-    /// fits (which the finite empty-area height guarantees — see
-    /// ``SidebarWorkspaceScrollLayout/emptyAreaHeight(contentMinHeight:rowsHeight:)``
-    /// and https://github.com/manaflow-ai/cmux/issues/3241). Forcing
-    /// `.overlay` also overrides a "always show scroll bars" system setting, so
-    /// no permanent track is reserved regardless of the user's preference.
+    // Applies one stable overlay/autohide scroller config and never toggles it.
+    // Toggling `hasVerticalScroller`/style from SwiftUI re-renders (constant
+    // while agents update rows) re-flashes the overlay knob so it never reaches
+    // its idle fade; a stable config lets AppKit own appear/scroll/fade and the
+    // finite empty-area height keeps it hidden when content fits (#3241).
     private func configureSidebarScrollView(_ scrollView: NSScrollView?) {
         guard let scrollView else { return }
 
