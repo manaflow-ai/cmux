@@ -32,9 +32,13 @@ The sidebar layout, top to bottom:
 
 Select two or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu).
 
-With a single focused workspace (no multi-selection), `⌘⇧G` **turns that workspace into a group in place** (the workspace becomes the anchor, named after itself). `⌘⇧G` collides with React Grab's default, so the group handler defers to React Grab whenever React Grab would act on the current focus (a browser is focused, or a single browser panel is reachable from the focused terminal). In a plain terminal workspace — where `⌘⇧G` would otherwise just beep — it promotes the workspace instead. Rebind in Settings → Keyboard if you'd rather the two not share a key.
+With a single focused workspace (no multi-selection), `⌘⇧G` **toggles** that workspace into and out of a group in place: the first press turns the workspace into a single-member group (the workspace becomes the anchor, named after itself), and pressing `⌘⇧G` again on that solo group ungroups it back into a normal workspace. A workspace that is part of a multi-member group (its anchor or a child) is left untouched, so the toggle never dissolves a group that has other members. `⌘⇧G` collides with React Grab's default, so the group handler defers to React Grab whenever React Grab would act on the current focus (a browser is focused, or a single browser panel is reachable from the focused terminal). Rebind in Settings → Keyboard if you'd rather the two not share a key.
 
 You can also turn a single workspace into a group from the workspace context menu's **New Group from Workspace** entry, which works regardless of focus.
+
+### Renaming from the keyboard
+
+When the focused workspace is in a group, `⌘⇧P` opens the group rename prompt (it shares the chord with the command palette's previous-selection navigation, which only applies while the palette is open). `⌘⇧R` renames the focused workspace; when that workspace is a **group anchor**, it renames both the workspace and its group, since the group name is what the header displays. Both are rebindable in Settings → Keyboard.
 
 ### From a workspace context menu
 

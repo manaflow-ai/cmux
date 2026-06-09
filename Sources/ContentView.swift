@@ -9772,6 +9772,13 @@ struct ContentView: View {
         switch target.kind {
         case .workspace(let workspaceId):
             tabManager.setCustomTitle(tabId: workspaceId, title: normalizedName)
+            // A group anchor's displayed name IS its group's name, so renaming
+            // a "group workspace" must rename the group too or the header
+            // wouldn't change. Skip on clear (groups can't be unnamed).
+            if let normalizedName,
+               let anchoredGroup = tabManager.workspaceGroups.first(where: { $0.anchorWorkspaceId == workspaceId }) {
+                tabManager.renameWorkspaceGroup(groupId: anchoredGroup.id, name: normalizedName)
+            }
         case .tab(let workspaceId, let panelId):
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
                 NSSound.beep()

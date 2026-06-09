@@ -4,8 +4,8 @@
 32576	CLI/cmux.swift
 22034	Sources/TerminalController.swift
 19875	Sources/Workspace.swift
-19065	Sources/ContentView.swift
-17873	Sources/AppDelegate.swift
+19072	Sources/ContentView.swift
+17919	Sources/AppDelegate.swift
 16503	Sources/GhosttyTerminalView.swift
 13589	Sources/Panels/BrowserPanel.swift
 11756	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -38,7 +38,7 @@
 2654	Sources/Panels/CmuxWebView.swift
 2545	cmuxTests/WorkspaceManualUnreadTests.swift
 2513	cmuxTests/CommandPaletteSearchEngineTests.swift
-2491	Sources/KeyboardShortcutSettings.swift
+2500	Sources/KeyboardShortcutSettings.swift
 2378	Sources/TerminalNotificationStore.swift
 2327	cmuxTests/CJKIMEInputTests.swift
 2290	Sources/FileExplorerView.swift

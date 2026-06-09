@@ -13215,6 +13215,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        if matchConfiguredShortcut(event: event, action: .renameFocusedWorkspaceGroup) {
+            // Only consume when the focused workspace is actually in a group.
+            // Otherwise fall through (the default chord is shared with
+            // commandPalettePrevious, which is handled earlier while the
+            // palette is open).
+            if handleRenameFocusedWorkspaceGroupShortcut(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            ) {
+                return true
+            }
+        }
+
         if matchConfiguredShortcut(event: event, action: .editWorkspaceDescription) {
 #if DEBUG
             cmuxDebugLog(
@@ -14509,6 +14521,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func handleRenameFocusedWorkspaceGroupShortcut(preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let resolvedTabManager: TabManager? = contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
+        guard let tabManager = resolvedTabManager else { return false }
+        guard let focusedId = tabManager.selectedTabId,
+              let groupId = tabManager.tabs.first(where: { $0.id == focusedId })?.groupId,
+              let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
+            // Focused workspace isn't in a group — let the chord propagate.
+            return false
+        }
+        presentSidebarWorkspaceGroupRenamePrompt(
+            tabManager: tabManager,
+            groupId: group.id,
+            currentName: group.name
+        )
+        return true
+    }
+
+    @discardableResult
     func handleGroupSelectedWorkspacesShortcut(preferredWindow: NSWindow? = nil) -> Bool {
         // Resolve the TabManager for the preferred/key/main window first so
         // multi-window users get the group created in the window they were
@@ -14536,13 +14567,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // workspace (a singleton after keyboard nav), so ≤ 1 is treated as
         // "no multi-selection."
         guard orderedSelectedIds.count >= 2 else {
+            // Single focused workspace. React Grab keeps ⌘⇧G in browser
+            // contexts; everything below is terminal-context only.
             guard !tabManager.reactGrabWouldHandleCurrentFocus(),
                   let focusedId = tabManager.selectedTabId,
-                  let focused = tabManager.tabs.first(where: { $0.id == focusedId }),
-                  focused.groupId == nil else {
+                  let focused = tabManager.tabs.first(where: { $0.id == focusedId }) else {
                 return false
             }
-            return tabManager.makeWorkspaceGroupFromWorkspace(anchorWorkspaceId: focusedId) != nil
+            // Ungrouped → turn it into a single-member group.
+            if focused.groupId == nil {
+                return tabManager.makeWorkspaceGroupFromWorkspace(anchorWorkspaceId: focusedId) != nil
+            }
+            // Already grouped: ⌘⇧G toggles OFF only when this workspace is the
+            // anchor of a SOLO group (itself, no other members), so the chord
+            // round-trips create<->ungroup. A workspace inside a multi-member
+            // group (its anchor or a child) is left untouched — consume the
+            // chord so it doesn't beep or fall through to React Grab.
+            if let group = tabManager.workspaceGroups.first(where: { $0.id == focused.groupId }),
+               group.anchorWorkspaceId == focusedId,
+               tabManager.tabs.filter({ $0.groupId == group.id }).count == 1 {
+                tabManager.ungroupWorkspaceGroup(groupId: group.id)
+            }
+            return true
         }
         let candidateIds: [UUID] = orderedSelectedIds
         // Match the workspace context-menu eligibility filter so the shortcut

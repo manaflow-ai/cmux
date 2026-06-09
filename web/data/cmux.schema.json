@@ -1132,6 +1132,7 @@
               "closeWorkspace",
               "groupSelectedWorkspaces",
               "toggleFocusedWorkspaceGroupCollapsed",
+              "renameFocusedWorkspaceGroup",
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
