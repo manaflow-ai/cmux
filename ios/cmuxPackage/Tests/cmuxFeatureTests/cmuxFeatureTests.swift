@@ -645,6 +645,7 @@ final class TerminalOutputCollector {
     // cause (Mac asleep / off Tailscale) instead of wrongly blaming the host
     // app, and carries an actionable guidance line.
     #expect(store.connectionError == "No response from work-mac.tailnet.ts.net:58465. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network.")
+    #expect(store.connectionErrorGuidance != nil)
 }
 
 @MainActor
