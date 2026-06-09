@@ -79,6 +79,10 @@ final class RemoteTmuxWindowMirror {
             panelsByPaneId[paneId] = panel
             syntheticPaneIds[paneId] = PaneID()
             connection?.capturePane(paneId: paneId)
+            // One-shot reflow classification (always works) + live subscription, so a
+            // shell pane reflows on resize even where the subscription doesn't deliver.
+            connection?.requestPaneReflow(paneId: paneId)
+            connection?.subscribePaneReflow(paneId: paneId)
             // Track this pane's working directory (initial + live) so the window
             // tab reflects the remote cwd. The session mirror's cwd observer maps
             // the pane back to this window's tab.
@@ -91,6 +95,7 @@ final class RemoteTmuxWindowMirror {
             // dereferenced by a later Core Animation commit.
             panel.close()
             connection?.unsubscribePanePath(paneId: paneId)
+            connection?.unsubscribePaneReflow(paneId: paneId)
             panelsByPaneId[paneId] = nil
             syntheticPaneIds[paneId] = nil
             if activePaneId == paneId { activePaneId = nil }
@@ -153,6 +158,7 @@ final class RemoteTmuxWindowMirror {
         // outlives the tab keeps streaming pane_current_path updates into a dead mirror.
         for paneId in panelsByPaneId.keys {
             connection?.unsubscribePanePath(paneId: paneId)
+            connection?.unsubscribePaneReflow(paneId: paneId)
         }
         for panel in panelsByPaneId.values { panel.close() }
         panelsByPaneId.removeAll()

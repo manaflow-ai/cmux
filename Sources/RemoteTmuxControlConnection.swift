@@ -95,6 +95,14 @@ final class RemoteTmuxControlConnection {
     /// the command-result FIFO).
     private var pendingReconnectReseed = false
 
+    /// Trailing-edge debounce for `refresh-client -C`. SwiftUI layout settle makes the
+    /// rendered grid oscillate (e.g. cols 154→155→156→161→… in ~1s), and each distinct
+    /// value would otherwise send its own `refresh-client -C` → a SIGWINCH/redraw storm
+    /// on the remote per attach. ``setClientSize`` stores the size immediately but
+    /// defers the send to one shot after the size stops changing.
+    private var clientSizeDebounceTask: Task<Void, Never>?
+    private static let clientSizeDebounceMs = 180
+
     /// Base reconnect backoff (seconds); doubled each attempt up to ``reconnectMaxDelaySeconds``.
     private static let reconnectBaseDelaySeconds: Double = 1
     /// Cap on the reconnect backoff (seconds). Retries continue indefinitely at this
@@ -104,7 +112,7 @@ final class RemoteTmuxControlConnection {
     private static let maxStderrBytes = 8 * 1024
 
     private enum CommandKind: Equatable {
-        case listWindows, capturePane(Int), paneState(Int), panePath(Int), paneAltScreen(Int), other
+        case listWindows, capturePane(Int), paneState(Int), panePath(Int), paneReflow(Int), paneAltScreen(Int), other
     }
 
     /// The lifecycle phase of a control connection.
@@ -129,6 +137,36 @@ final class RemoteTmuxControlConnection {
     /// The tmux pane id is appended so an inbound `%subscription-changed` can be
     /// routed back to its pane; defined once so the writer and reader can't drift.
     private static let cwdSubscriptionPrefix = "cmux_cwd_"
+
+    /// Subscription-name prefix for per-pane reflow classification
+    /// (`refresh-client -B`). The subscribed format is
+    /// `#{alternate_on}<sep>#{pane_current_command}`; tmux emits it on subscribe
+    /// and on every change, so launching/exiting an app (bash → node when claude
+    /// starts) re-classifies the pane live. The tmux pane id is appended for
+    /// routing, mirroring ``cwdSubscriptionPrefix``.
+    private static let reflowSubscriptionPrefix = "cmux_reflow_"
+
+    /// Field separator inside the reflow subscription value
+    /// (`#{alternate_on}|#{pane_current_command}`). A pipe never appears in a tmux
+    /// `alternate_on` flag (0/1) and is not part of a process's `comm` name.
+    private static let reflowFieldSeparator: Character = "|"
+
+    /// Foreground commands (`#{pane_current_command}`) whose primary-screen
+    /// scrollback is safe to reflow on resize — i.e. plain interactive shells that
+    /// keep their history as ordinary soft-wrapped text. Anything else (node for
+    /// claude, python, REPLs, pagers, editors) is treated as no-reflow so an inline
+    /// TUI's fixed-width frame is never rewrapped. Alt-screen apps are caught
+    /// separately by `#{alternate_on}`. Login shells can be reported with a leading
+    /// dash, so the traditional/POSIX variants are listed too. Classification
+    /// defaults to no-reflow on anything not in this set (and on an unparseable
+    /// value), which is the safe direction (worst case: a shell's scrollback doesn't
+    /// reflow until reclassified) — so a login shell whose dash variant is missing
+    /// here simply doesn't reflow, never breaks.
+    private static let reflowSafeShellCommands: Set<String> = [
+        "bash", "zsh", "fish", "sh", "dash", "ksh", "tcsh", "csh", "ash",
+        "mksh", "pdksh", "elvish", "nu", "xonsh", "pwsh", "powershell", "oil", "osh",
+        "-bash", "-zsh", "-fish", "-sh", "-dash", "-ksh", "-tcsh", "-csh", "-ash",
+    ]
 
     /// `ESC[?1049h` — enter the alternate screen, emitted to a mirror surface when
     /// the remote pane is on the alternate screen (see ``capturePane(paneId:)``).
@@ -162,6 +200,10 @@ final class RemoteTmuxControlConnection {
     ///   - onPaneCwd: receives a pane's working directory (`pane_current_path`),
     ///     both the initial value and live changes (see ``requestPanePath(paneId:)``
     ///     and ``subscribePanePath(paneId:)``).
+    ///   - onPaneReflow: receives a pane's reflow classification (`true` = suppress
+    ///     reflow on resize for alt-screen / inline-TUI panes like claude; `false`
+    ///     = a plain shell whose primary-screen scrollback may reflow), both the
+    ///     initial value and live changes (see ``subscribePaneReflow(paneId:)``).
     ///   - onActivePaneChanged: fires when a window's active pane changes
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
@@ -176,6 +218,7 @@ final class RemoteTmuxControlConnection {
     func addObserver(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)? = nil,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)? = nil,
+        onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)? = nil,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
         onTopologyChanged: (() -> Void)? = nil,
         onExit: (() -> Void)? = nil,
@@ -184,6 +227,7 @@ final class RemoteTmuxControlConnection {
         observers.add(
             onPaneOutput: onPaneOutput,
             onPaneCwd: onPaneCwd,
+            onPaneReflow: onPaneReflow,
             onActivePaneChanged: onActivePaneChanged,
             onTopologyChanged: onTopologyChanged,
             onExit: onExit,
@@ -333,7 +377,20 @@ final class RemoteTmuxControlConnection {
         // silently drop); `reseedAfterReconnect` re-applies the stored size.
         lastClientSize = (columns, rows)
         guard connectionState == .connected else { return }
-        send("refresh-client -C \(columns)x\(rows)")
+        // Coalesce the layout-settle oscillation (the rendered grid can flap through
+        // several distinct sizes as SwiftUI layout settles) into a single send:
+        // (re)arm a short trailing timer; only the last size in a burst goes out, so
+        // the remote sees one resize/SIGWINCH instead of a storm.
+        clientSizeDebounceTask?.cancel()
+        clientSizeDebounceTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(for: .milliseconds(Self.clientSizeDebounceMs))
+            } catch {
+                return
+            }
+            guard let self, self.connectionState == .connected, let size = self.lastClientSize else { return }
+            self.send("refresh-client -C \(size.columns)x\(size.rows)")
+        }
     }
 
     /// Requests the current window list + layouts (used to (re)build topology).
@@ -392,6 +449,15 @@ final class RemoteTmuxControlConnection {
         // mirrored tab is scrollable immediately on attach/reconnect. On an
         // alternate-screen pane there is no history, so tmux clamps to the visible
         // alt screen — harmless.
+        //
+        // NOTE: do NOT add `-J` (join wrapped lines) here. It was tried to make a
+        // shell pane's PRE-ATTACH scrollback rejoin cleanly on grow, but it rewrites
+        // an inline/alt-screen TUI's captured rows into different logical lines, so
+        // the seed paints shifted on reattach (claude's input line lands a row off
+        // and the frame doubles) and scatters on resize. The reflow win for shells
+        // comes from LIVE %output (which already carries real soft-wraps), not from
+        // the seed — so `-J`'s only upside (pre-attach rejoin-on-grow) isn't worth
+        // corrupting every TUI seed. Capture faithful visual rows instead.
         sendInternal("capture-pane -p -e -S -\(Self.scrollbackCaptureLines) -t %\(paneId)", kind: .capturePane(paneId))
         // Query the pane's terminal STATE; tmux exposes it all as formats. Sent
         // after capture-pane so it applies on top of the painted rows (the seed
@@ -438,6 +504,70 @@ final class RemoteTmuxControlConnection {
         send("refresh-client -B \(Self.cwdSubscriptionPrefix)\(paneId)")
     }
 
+    /// One-shot query of a pane's reflow classification (`#{alternate_on}` +
+    /// `#{pane_current_command}`), delivered to the reflow observers. This is the
+    /// REQUIRED initial classifier — `subscribePaneReflow` only guarantees *live*
+    /// updates, and on tmux builds where the `-B` subscription doesn't deliver this
+    /// combined value the surface would otherwise stay at its safe no-reflow default
+    /// forever (shells never reflow). Mirrors ``requestPanePath(paneId:)`` exactly
+    /// (a `display-message` always works where a subscription might not).
+    func requestPaneReflow(paneId: Int) {
+        #if DEBUG
+        cmuxDebugLog("remote.reflow.request pane=\(paneId)")
+        #endif
+        sendInternal(
+            "display-message -p -t %\(paneId) -F \""
+                + "#{alternate_on}\(Self.reflowFieldSeparator)#{pane_current_command}\"",
+            kind: .paneReflow(paneId)
+        )
+    }
+
+    /// Classifies a raw `#{alternate_on}|#{pane_current_command}` value (from the
+    /// one-shot query or a live subscription) and emits the no-reflow decision.
+    /// No-reflow when on the alternate screen OR the foreground command isn't a known
+    /// plain shell; defaults to no-reflow on an empty/unparseable value (safe).
+    private func classifyAndEmitReflow(paneId: Int, rawValue: String, source: String) {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(
+            separator: Self.reflowFieldSeparator, maxSplits: 1, omittingEmptySubsequences: false
+        )
+        let altOn = parts.first.map(String.init) == "1"
+        let command = parts.count > 1
+            ? String(parts[1]).trimmingCharacters(in: .whitespaces)
+            : ""
+        let noReflow = altOn || !Self.reflowSafeShellCommands.contains(command)
+        #if DEBUG
+        cmuxDebugLog(
+            "remote.reflow.classify pane=\(paneId) src=\(source) raw=\"\(trimmed)\" "
+                + "alt=\(altOn ? 1 : 0) cmd=\"\(command)\" noReflow=\(noReflow ? 1 : 0)"
+        )
+        #endif
+        observers.emitPaneReflow(paneId, noReflow)
+    }
+
+    /// Subscribes to live reflow-classification changes for `paneId` via tmux
+    /// control-mode `refresh-client -B`. The subscribed value is
+    /// `#{alternate_on}|#{pane_current_command}`; tmux emits it once on subscribe
+    /// and again whenever it changes, so a pane that switches between a plain shell
+    /// and an inline TUI (e.g. bash → node when claude launches) is reclassified
+    /// without polling. The mirror surface uses this to decide whether to reflow its
+    /// primary screen on resize (shells reflow; alt-screen / inline-TUI panes do
+    /// not). Best-effort: on tmux builds without subscriptions this is a no-op and
+    /// the surface keeps its safe no-reflow default. See ``subscriptionChanged``
+    /// handling for the parse, and ``reflowSafeShellCommands`` for the policy.
+    func subscribePaneReflow(paneId: Int) {
+        send(
+            "refresh-client -B \(Self.reflowSubscriptionPrefix)\(paneId):%\(paneId):"
+                + "#{alternate_on}\(Self.reflowFieldSeparator)#{pane_current_command}"
+        )
+    }
+
+    /// Removes the live reflow-classification subscription for `paneId` (issued once
+    /// the pane is gone), mirroring ``unsubscribePanePath(paneId:)``.
+    func unsubscribePaneReflow(paneId: Int) {
+        send("refresh-client -B \(Self.reflowSubscriptionPrefix)\(paneId)")
+    }
+
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),
     /// which is binary-safe and needs no shell quoting.
     func sendKeys(paneId: Int, data: Data) {
@@ -472,6 +602,8 @@ final class RemoteTmuxControlConnection {
         connectionState = .ended
         reconnectTask?.cancel()
         reconnectTask = nil
+        clientSizeDebounceTask?.cancel()
+        clientSizeDebounceTask = nil
         teardownProcessHandles()
     }
 
@@ -639,6 +771,8 @@ final class RemoteTmuxControlConnection {
                 capturePane(paneId: paneId)
                 requestPanePath(paneId: paneId)
                 subscribePanePath(paneId: paneId)
+                requestPaneReflow(paneId: paneId)
+                subscribePaneReflow(paneId: paneId)
             }
         }
     }
@@ -657,12 +791,23 @@ final class RemoteTmuxControlConnection {
                 reconnectTask = nil
                 // Resync the surfaces after a reconnect (a fresh client lost the
                 // screen/subscriptions). DON'T reseed here: the attach's own
-                // %begin/%end block hasn't been consumed yet, so queuing commands now
-                // would misalign the %end correlation FIFO. Defer until the first
-                // post-reconnect list-windows result (attach block drained,
+                // %begin/%end block hasn't been consumed yet, so queuing CORRELATED
+                // commands now would misalign the %end correlation FIFO. Defer until
+                // the first post-reconnect list-windows result (attach block drained,
                 // windowsByID freshly repopulated). Skipped on the first connect (the
                 // mirror seeds new tabs itself).
-                if wasReconnecting { pendingReconnectReseed = true }
+                if wasReconnecting {
+                    pendingReconnectReseed = true
+                } else if let size = lastClientSize {
+                    // First connect: if a surface already computed its grid before we
+                    // reached `.connected`, setClientSize stored it but dropped the
+                    // send (no live stdin yet) and nothing re-applies it on first
+                    // connect — so the remote would stay at ssh's 80×24. Re-emit it
+                    // now. SAFE to send here (unlike the reseed): `refresh-client -C`
+                    // is UNCORRELATED (kind .other, no %begin/%end result block), so
+                    // it does not touch the command-result FIFO the attach block uses.
+                    send("refresh-client -C \(size.columns)x\(size.rows)")
+                }
             }
         case let .exit(reason):
             record("exit\(reason.map { " " + $0 } ?? "")")
@@ -671,6 +816,8 @@ final class RemoteTmuxControlConnection {
             connectionState = .ended
             reconnectTask?.cancel()
             reconnectTask = nil
+            clientSizeDebounceTask?.cancel()
+            clientSizeDebounceTask = nil
             observers.notifyExit()
         case let .output(paneId, data):
             paneOutputByteCounts[paneId, default: 0] += data.count
@@ -726,6 +873,10 @@ final class RemoteTmuxControlConnection {
                let paneId = Int(name.dropFirst(Self.cwdSubscriptionPrefix.count)) {
                 let path = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !path.isEmpty { observers.emitPaneCwd(paneId, path) }
+            } else if name.hasPrefix(Self.reflowSubscriptionPrefix),
+                      let paneId = Int(name.dropFirst(Self.reflowSubscriptionPrefix.count)) {
+                // Reflow classification: "<alternate_on>|<pane_current_command>".
+                classifyAndEmitReflow(paneId: paneId, rawValue: value, source: "sub")
             }
         case let .commandResult(_, lines, isError):
             handleCommandResult(lines: lines, isError: isError)
@@ -814,6 +965,10 @@ final class RemoteTmuxControlConnection {
             if let path = lines.first?.trimmingCharacters(in: .whitespaces), !path.isEmpty {
                 observers.emitPaneCwd(paneId, path)
             }
+        case let .paneReflow(paneId):
+            // One-shot reflow classification result (see requestPaneReflow). Empty
+            // lines → classifyAndEmitReflow defaults to no-reflow (safe).
+            classifyAndEmitReflow(paneId: paneId, rawValue: lines.first ?? "", source: "oneshot")
         case let .paneAltScreen(paneId):
             // Match the mirror surface to the remote pane's screen (alt = no reflow on
             // resize). Emitted before the capture paint that follows in the FIFO, so the

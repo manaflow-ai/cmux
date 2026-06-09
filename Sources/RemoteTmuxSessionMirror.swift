@@ -51,6 +51,9 @@ final class RemoteTmuxSessionMirror {
             onPaneCwd: { [weak self] paneId, path in
                 self?.handlePaneCwd(paneId: paneId, path: path)
             },
+            onPaneReflow: { [weak self] paneId, noReflow in
+                self?.routeNoReflow(paneId: paneId, noReflow: noReflow)
+            },
             onActivePaneChanged: { [weak self] windowId, paneId in
                 self?.handleActivePaneChanged(windowId: windowId, paneId: paneId)
             },
@@ -139,6 +142,12 @@ final class RemoteTmuxSessionMirror {
                 panelIdByWindow[windowId] = panel.id
                 panelIdByPane[firstPaneId] = panel.id
                 connection.capturePane(paneId: firstPaneId)
+                // Classify the pane (shell → reflow on resize; TUI/alt-screen → no
+                // reflow). One-shot first (always works) so a shell reflows even on
+                // tmux builds where the live subscription doesn't deliver, then the
+                // subscription for live re-classification (e.g. bash → node).
+                connection.requestPaneReflow(paneId: firstPaneId)
+                connection.subscribePaneReflow(paneId: firstPaneId)
                 // Track the pane's working directory so the tab shows the remote
                 // cwd (initial value + live `cd`) instead of staying at "~".
                 connection.requestPanePath(paneId: firstPaneId)
@@ -289,6 +298,22 @@ final class RemoteTmuxSessionMirror {
               let panelId = panelIdByPane[paneId],
               let panel = workspace.panels[panelId] as? TerminalPanel else { return }
         panel.surface.processRemoteOutput(data)
+    }
+
+    /// Applies a pane's reflow classification to its mirror surface (suppress
+    /// reflow on resize for alt-screen / inline-TUI panes; allow it for shells).
+    /// Routes exactly like ``routeOutput(paneId:data:)`` — multi-pane windows own
+    /// their pane surfaces, single-pane windows use the tab's panel surface.
+    private func routeNoReflow(paneId: Int, noReflow: Bool) {
+        if let windowId = windowIdContaining(pane: paneId),
+           let mirror = windowMirrorByWindowId[windowId] {
+            mirror.surface(forPane: paneId)?.setManualIONoReflow(noReflow)
+            return
+        }
+        guard let workspace,
+              let panelId = panelIdByPane[paneId],
+              let panel = workspace.panels[panelId] as? TerminalPanel else { return }
+        panel.surface.setManualIONoReflow(noReflow)
     }
 
     /// Routes a split of a mirror window-tab (by its panel id) to tmux

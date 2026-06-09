@@ -16,6 +16,7 @@ final class RemoteTmuxConnectionObservers {
 
     private var paneOutputObservers: [Token: (_ paneId: Int, _ data: Data) -> Void] = [:]
     private var paneCwdObservers: [Token: (_ paneId: Int, _ path: String) -> Void] = [:]
+    private var paneReflowObservers: [Token: (_ paneId: Int, _ noReflow: Bool) -> Void] = [:]
     private var activePaneObservers: [Token: (_ windowId: Int, _ paneId: Int) -> Void] = [:]
     private var topologyObservers: [Token: () -> Void] = [:]
     private var exitObservers: [Token: () -> Void] = [:]
@@ -32,6 +33,10 @@ final class RemoteTmuxConnectionObservers {
     ///   - onPaneOutput: receives every `%output` (raw, octal-unescaped bytes).
     ///   - onPaneCwd: receives a pane's working directory (`pane_current_path`),
     ///     both the initial value and live changes.
+    ///   - onPaneReflow: receives a pane's reflow classification (`true` =
+    ///     suppress reflow on resize, for alt-screen / inline-TUI panes like
+    ///     claude; `false` = a plain shell whose primary-screen scrollback may
+    ///     reflow), both the initial value and live changes.
     ///   - onActivePaneChanged: fires when a window's active pane changes
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
@@ -46,6 +51,7 @@ final class RemoteTmuxConnectionObservers {
     func add(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)?,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)?,
+        onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)?,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?,
         onTopologyChanged: (() -> Void)?,
         onExit: (() -> Void)?,
@@ -54,6 +60,7 @@ final class RemoteTmuxConnectionObservers {
         let token = Token()
         if let onPaneOutput { paneOutputObservers[token] = onPaneOutput }
         if let onPaneCwd { paneCwdObservers[token] = onPaneCwd }
+        if let onPaneReflow { paneReflowObservers[token] = onPaneReflow }
         if let onActivePaneChanged { activePaneObservers[token] = onActivePaneChanged }
         if let onTopologyChanged { topologyObservers[token] = onTopologyChanged }
         if let onExit { exitObservers[token] = onExit }
@@ -65,6 +72,7 @@ final class RemoteTmuxConnectionObservers {
     func remove(_ token: Token) {
         paneOutputObservers[token] = nil
         paneCwdObservers[token] = nil
+        paneReflowObservers[token] = nil
         activePaneObservers[token] = nil
         topologyObservers[token] = nil
         exitObservers[token] = nil
@@ -81,6 +89,11 @@ final class RemoteTmuxConnectionObservers {
     /// Fans a pane's working directory out to every cwd observer.
     func emitPaneCwd(_ paneId: Int, _ path: String) {
         for callback in Array(paneCwdObservers.values) { callback(paneId, path) }
+    }
+
+    /// Fans a pane's reflow classification out to every reflow observer.
+    func emitPaneReflow(_ paneId: Int, _ noReflow: Bool) {
+        for callback in Array(paneReflowObservers.values) { callback(paneId, noReflow) }
     }
 
     /// Fans a window's new active pane out to every active-pane observer.
