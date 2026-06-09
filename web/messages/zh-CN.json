@@ -584,6 +584,18 @@
         "工作区未读"
       ]
     },
+    "cmuxClaudeTeams": {
+      "metaTitle": "Claude Code 队友代理作为原生 cmux 窗格",
+      "metaDescription": "Claude Code 的队友模式需要 tmux。cmux 模拟它，让队友成为带有侧边栏元数据和通知的原生拆分。"
+    },
+    "cmuxSsh": {
+      "metaTitle": "cmux SSH",
+      "metaDescription": "一条命令即可获得持久的远程会话、能访问远程端口的浏览器窗格，以及能回到本地的代理通知。"
+    },
+    "cmuxOmo": {
+      "metaTitle": "oh-my-openagent 子代理作为原生 cmux 窗格",
+      "metaDescription": "oh-my-openagent（前身为 oh-my-opencode）跨 Claude、GPT 和 Gemini 编排并行专业代理。cmux omo 将它们的 tmux 窗格变成原生拆分。"
+    },
     "cmuxHistory": {
       "metaTitle": "cmux history：重新打开已关闭的终端和会话",
       "metaDescription": "cmux 会记录你关闭和聚焦过的内容。用 Cmd+Shift+T 重新打开已关闭的终端、浏览器、工作区，以及 Claude Code、Codex 和 OpenCode 会话，并用 Cmd+[ 和 Cmd+] 在聚焦之间前后切换。"
@@ -1115,15 +1127,15 @@
       "skillHeader": "技能",
       "useHeader": "用途",
       "commandHeader": "常用命令",
-      "cmuxName": "cmux Core",
-      "cmuxDescription": "通过 cmux CLI 控制窗口、工作区、面板、界面、焦点、移动、重排和路由。",
-      "cmuxUse": "当代理需要在多面板 cmux 布局中进行确定性的放置或导航时使用。",
-      "browserName": "cmux Browser",
-      "browserDescription": "使用 snapshot 引用、DOM 操作、等待、截图和会话状态来自动化 cmux webview 界面。",
-      "browserUse": "用于应在 cmux 内运行的浏览器任务，而不是使用单独的浏览器自动化工具。",
-      "markdownName": "cmux Markdown Viewer",
-      "markdownDescription": "在带实时重载的格式化 cmux 面板中打开 Markdown 文件。",
-      "markdownUse": "用于在工作时把计划、文档、笔记和任务列表显示在终端旁边。",
+      "cmuxName": "cmux 核心",
+      "cmuxDescription": "控制窗口、工作区、窗格、标签、焦点、移动、重排序和路由的 cmux 核心 CLI。",
+      "cmuxUse": "当代理需要确定性地放置或导航多窗格 cmux 布局时使用。",
+      "browserName": "cmux 浏览器",
+      "browserDescription": "使用快照引用、DOM 操作、等待、截图和会话状态对 cmux WebView 标签进行浏览器自动化。",
+      "browserUse": "当需要在 cmux 内而不是单独的浏览器自动化工具中执行浏览器任务时使用。",
+      "markdownName": "cmux Markdown 查看器",
+      "markdownDescription": "在格式化的 cmux 面板中打开 Markdown 文件，支持实时重载。",
+      "markdownUse": "当需要在终端旁显示计划、文档、笔记和任务列表，同时文件发生变化时使用。",
       "debugWindowsName": "cmux Debug Windows",
       "debugWindowsDescription": "管理 Sidebar Debug、Background Debug、Menu Bar Extra Debug 和可复制的调试 snapshot。",
       "debugWindowsUse": "在迭代调试窗口 UI 或从带标签的构建收集调试配置时使用。",
