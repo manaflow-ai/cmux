@@ -33,6 +33,7 @@ public struct CMUXMobileRootScene: View {
     private let analytics: any AnalyticsEmitting
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
+    private let displaySettings: MobileDisplaySettings
     #endif
     private let pairedMacStore: (any MobilePairedMacStoring)?
     #if DEBUG
@@ -52,6 +53,8 @@ public struct CMUXMobileRootScene: View {
     ///   - analytics: The app-root analytics emitter, injected into the store.
     ///   - pushCoordinator: The app-root push coordinator (shared with the app
     ///     delegate) injected into the environment.
+    ///   - displaySettings: The app-root mobile display settings injected into
+    ///     the environment (drives workspace-title wrapping).
     ///   - diagnosticLog: The structured diagnostic log (DEBUG builds only),
     ///     injected into the shell store for the DEV feedback round-trip.
     public init(
@@ -60,6 +63,7 @@ public struct CMUXMobileRootScene: View {
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
         pushCoordinator: MobilePushCoordinator,
+        displaySettings: MobileDisplaySettings,
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.runtime = runtime
@@ -67,6 +71,7 @@ public struct CMUXMobileRootScene: View {
         self.reachability = reachability
         self.analytics = analytics
         self.pushCoordinator = pushCoordinator
+        self.displaySettings = displaySettings
         self.pairedMacStore = Self.openPairedMacStore()
         #if DEBUG
         self.diagnosticLog = diagnosticLog
@@ -102,12 +107,35 @@ public struct CMUXMobileRootScene: View {
         }
     }
 
+    /// Build the team-scoped device-registry client over the auth coordinator.
+    ///
+    /// Tokens and the target team are read live through the coordinator so the
+    /// registry call always uses the current session and selected team. The
+    /// service is failure-tolerant, so a missing API base URL or a registry
+    /// outage simply means reconnect falls back to local paired-Mac routes.
+    @MainActor
+    private func makeDeviceRegistry() -> DeviceRegistryService? {
+        let baseURL = auth.config.apiBaseURL
+        guard !baseURL.isEmpty else { return nil }
+        let coordinator = auth.coordinator
+        return DeviceRegistryService(
+            apiBaseURL: baseURL,
+            deviceID: DeviceRegistryService.deviceID(),
+            tokenSource: DeviceRegistryService.TokenSource(
+                accessToken: { try? await coordinator.accessToken() },
+                refreshToken: { await coordinator.refreshToken() }
+            ),
+            teamIDProvider: { await coordinator.resolvedTeamID }
+        )
+    }
+
     public var body: some View {
         content
             .environment(auth.coordinator)
             .analytics(analytics)
             #if os(iOS)
             .environment(pushCoordinator)
+            .environment(displaySettings)
             #endif
     }
 
@@ -127,10 +155,12 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     private func makeStore() -> CMUXMobileShellStore {
         let identityProvider = AuthCoordinatorIdentityProvider(coordinator: auth.coordinator)
+        let deviceRegistry = makeDeviceRegistry()
         #if DEBUG
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: pairedMacStore,
+            deviceRegistry: deviceRegistry,
             identityProvider: identityProvider,
             reachability: reachability,
             analytics: analytics,
@@ -140,6 +170,7 @@ public struct CMUXMobileRootScene: View {
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: pairedMacStore,
+            deviceRegistry: deviceRegistry,
             identityProvider: identityProvider,
             reachability: reachability,
             analytics: analytics

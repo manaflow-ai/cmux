@@ -49,6 +49,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let hasKnownPairedMacDefaultsKey = "cmux.mobile.hasKnownPairedMac"
 
+    /// Max seconds the launch reconnect may keep the restoring gate
+    /// (``RestoringSessionView``) on screen before resolving to the
+    /// disconnected/add-device UI. A stored Mac whose route went stale makes the
+    /// connect hang on a slow timeout; this caps the visible "Restoring session…"
+    /// window so a returning user is never stuck on it. The connect keeps trying
+    /// in the background, so a later success still flips to the workspaces.
+    private static let storedMacReconnectRestoringDeadlineSeconds: Double = 6
+
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
@@ -192,6 +200,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private let runtime: (any MobileSyncRuntime)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
+    /// Best-effort, team-scoped lookup of fresher attach routes from the device
+    /// registry. Optional and failure-tolerant: when `nil` or unreachable,
+    /// reconnect uses the locally persisted paired-Mac routes, so pairing
+    /// survives the cloud registry being down.
+    private let deviceRegistry: (any DeviceRegistryRefreshing)?
     private let identityProvider: (any MobileIdentityProviding)?
     private let reachability: any ReachabilityProviding
     private let pairingHintDefaults: UserDefaults
@@ -315,6 +328,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairingCode: String = "",
         workspaces: [MobileWorkspacePreview] = [],
         pairedMacStore: (any MobilePairedMacStoring)? = nil,
+        deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
         reachability: any ReachabilityProviding = ReachabilityService(),
@@ -324,6 +338,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) {
         self.runtime = runtime
         self.pairedMacStore = pairedMacStore
+        self.deviceRegistry = deviceRegistry
         self.identityProvider = identityProvider
         self.reachability = reachability
         self.pairingHintDefaults = pairingHintDefaults
@@ -907,6 +922,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
+        // Kick off a best-effort registry refresh for this Mac in the background.
+        // It does NOT block the connect below: the common case (fresh local
+        // routes) reconnects immediately with no network round-trip. If the Mac
+        // moved networks / changed port, the refreshed routes land in the store
+        // and the next reconnect trigger (network change or Retry) uses them.
+        refreshRoutesFromRegistry(for: mac, stackUserID: stackUserID)
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
             mac.routes,
@@ -923,7 +944,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard generation == storedMacReconnectGeneration else { return false }
         setHasKnownPairedMac(true, generation: generation)
         isReconnectingStoredMac = true
+        // Cap how long the restoring gate stays up: a stored Mac whose route went
+        // stale (Tailscale address changed, or it's offline) makes connectManualHost
+        // hang on a slow connect timeout, and the gate shows RestoringSessionView for
+        // that whole time. After the deadline, resolve the gate so the user reaches
+        // add-device quickly; the connect keeps trying, so a later success still
+        // flips connectionState to .connected and shows the workspaces.
+        let restoringDeadline = Task { [weak self] in
+            // Bounded, cancellable deadline (not a poll) — cancelled the instant the
+            // connect resolves; only caps the restoring-gate window.
+            try? await ContinuousClock().sleep(
+                for: .seconds(Self.storedMacReconnectRestoringDeadlineSeconds)
+            )
+            guard let self, !Task.isCancelled,
+                  generation == self.storedMacReconnectGeneration,
+                  self.connectionState != .connected else { return }
+            self.isReconnectingStoredMac = false
+            self.didFinishStoredMacReconnectAttempt = true
+        }
         await connectManualHost(name: mac.displayName ?? host, host: host, port: port)
+        restoringDeadline.cancel()
         // A newer attempt may have started during the connect; it now owns the flags.
         guard generation == storedMacReconnectGeneration else { return false }
         isReconnectingStoredMac = false
@@ -951,6 +991,63 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard generation == storedMacReconnectGeneration else { return }
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = true
+    }
+
+    /// Best-effort, non-blocking registry refresh for the active paired Mac.
+    ///
+    /// Runs detached so it never adds latency to the in-flight reconnect (which
+    /// connects on the locally persisted routes). When the registry returns
+    /// usable, *different* routes for this Mac, they are written back into the
+    /// store so the next reconnect trigger (network change / Retry) reaches the
+    /// Mac at its current address after it moved networks or changed port. A
+    /// missing registry, an unauthorized call, or no-change routes are no-ops, so
+    /// a registry outage never disturbs the locally stored routes.
+    private func refreshRoutesFromRegistry(for mac: MobilePairedMac, stackUserID: String?) {
+        guard let deviceRegistry, let pairedMacStore else { return }
+        let macDeviceID = mac.macDeviceID
+        let localRoutes = mac.routes
+        let displayName = mac.displayName
+        Task { [weak self] in
+            let registryRoutes = await deviceRegistry.freshRoutes(forMacDeviceID: macDeviceID)
+            guard let updated = DeviceRegistryService.selectReconnectRoutes(
+                local: localRoutes,
+                registry: registryRoutes
+            ) else { return }
+            guard let self else { return }
+            // The network await above suspended; the user may have signed out,
+            // switched accounts, forgotten this Mac, or switched the active Mac
+            // meanwhile. Re-evaluate against the *current* store/identity before
+            // the `markActive: true` upsert, so a stale refresh can never
+            // resurrect or reactivate a pairing the user removed. Mirrors the
+            // user-switch guard in `loadPairedMacs`.
+            let activeMacID: String?
+            do {
+                activeMacID = try await pairedMacStore.activeMac(stackUserID: stackUserID)?.macDeviceID
+            } catch {
+                mobileShellLog.debug("registry refresh active-mac recheck failed: \(String(describing: error), privacy: .public)")
+                return
+            }
+            guard DeviceRegistryService.shouldApplyRegistryRefresh(
+                isSignedIn: self.isSignedIn,
+                capturedUserID: stackUserID,
+                currentUserID: self.identityProvider?.currentUserID,
+                activeMacID: activeMacID,
+                targetMacID: macDeviceID
+            ) else { return }
+            do {
+                try await pairedMacStore.upsert(
+                    macDeviceID: macDeviceID,
+                    displayName: displayName,
+                    routes: updated,
+                    markActive: true,
+                    stackUserID: stackUserID
+                )
+            } catch {
+                mobileShellLog.debug("registry route refresh upsert failed: \(String(describing: error), privacy: .public)")
+                return
+            }
+            await self.loadPairedMacs()
+        }
     }
 
     // MARK: - Paired Mac switching

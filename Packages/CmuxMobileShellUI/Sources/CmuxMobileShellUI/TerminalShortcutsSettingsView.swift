@@ -4,11 +4,11 @@ import CmuxMobileTerminal
 import CmuxMobileTerminalKit
 import SwiftUI
 
-/// Editor for the terminal input-accessory shortcut bar: toggle which shortcuts
-/// appear, drag to reorder them, and add/edit/delete custom actions. The
-/// modifier keys (⌃ ⌥ ⌘) and zoom controls are structural and not listed here.
-/// Backed by ``TerminalAccessoryConfiguration``, so edits apply to the live bar
-/// immediately.
+/// Editor for the terminal input-accessory shortcut bar: toggle which buttons
+/// appear, drag to reorder them, and add/edit/delete custom actions. Every bar
+/// button is listed, including the modifier keys (⌃ ⌥ ⌘), zoom, and paste, so
+/// their position is customizable too. Backed by ``TerminalAccessoryConfiguration``,
+/// so edits apply to the live bar immediately.
 struct TerminalShortcutsSettingsView: View {
     // TRANSITIONAL: TerminalAccessoryConfiguration.shared is also read by the
     // off-limits typing-latency render path (TerminalInputTextView); inverting it
@@ -33,7 +33,7 @@ struct TerminalShortcutsSettingsView: View {
                 } footer: {
                     Text(L10n.string(
                         "mobile.shortcuts.footer",
-                        defaultValue: "Choose which buttons appear on the terminal keyboard bar, and drag to reorder them. Swipe a custom action to edit or delete it. The modifier keys and zoom controls are always shown."
+                        defaultValue: "Choose which buttons appear on the terminal keyboard bar, and drag to reorder them. The modifier keys, zoom, and paste can be moved or hidden along with the shortcuts. Swipe a custom action to edit or delete it."
                     ))
                 }
 
