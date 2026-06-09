@@ -233,5 +233,17 @@ struct MobileWorkspaceListFidelityTests {
         // An OSC sequence left unterminated (e.g. cut by the input cap) is
         // stripped wholly rather than leaking its payload bytes.
         #expect(TerminalController.mobilePreviewSanitize("\u{001B}]0;unterminated title") == nil)
+        // The input bound must hold in unicode scalars, not Characters: a single
+        // crafted grapheme cluster carrying a huge run of combining marks is one
+        // Character, so a Character-counted cap never truncates it and the whole
+        // cluster leaks into the preview (and gets fully scanned on the
+        // main-actor list path). The sanitized output must stay scalar-bounded.
+        let combiningBomb = "a" + String(
+            repeating: "\u{0301}",
+            count: TerminalController.mobilePreviewInputCap * 8
+        )
+        let boundedCluster = try #require(TerminalController.mobilePreviewSanitize(combiningBomb))
+        #expect(boundedCluster.unicodeScalars.count <= TerminalController.mobilePreviewInputCap + 1)
+        #expect(boundedCluster.hasSuffix("\u{2026}"))
     }
 }
