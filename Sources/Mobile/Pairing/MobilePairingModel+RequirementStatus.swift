@@ -31,7 +31,7 @@ extension MobilePairingModel {
     /// `.signedOut` turns the row red; resolving states (and a failure before
     /// auth ever resolved) stay neutral. Pure, so the mapping is unit tested
     /// without a live coordinator.
-    static func signInRequirementStatus(for state: State, signedIn: Bool) -> RequirementStatus {
+    nonisolated static func signInRequirementStatus(for state: State, signedIn: Bool) -> RequirementStatus {
         if signedIn { return .complete }
         switch state {
         case .signedOut:
@@ -45,7 +45,7 @@ extension MobilePairingModel {
     /// we know the phone has no route (`.needsTailscale`, or a ticket minted
     /// without a Tailscale route); neutral while loading, signed out, or
     /// failed, where reachability hasn't been evaluated. Pure for unit tests.
-    static func tailscaleRequirementStatus(for state: State) -> RequirementStatus {
+    nonisolated static func tailscaleRequirementStatus(for state: State) -> RequirementStatus {
         switch state {
         case .needsTailscale:
             return .needsAction
