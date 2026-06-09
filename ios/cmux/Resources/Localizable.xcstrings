@@ -15,6 +15,12 @@
             "state": "translated",
             "value": "Apple でのサインインはまだ利用できません。別のサインイン方法を使用してください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 登录暂不可用，请使用其他登录方式。"
+          }
         }
       }
     },
@@ -31,6 +37,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コードの有効期限が切れました。新しいコードをリクエストしてください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "验证码已过期，请重新获取。"
           }
         }
       }
@@ -49,6 +61,12 @@
             "state": "translated",
             "value": "サインインは一時的に利用できません。しばらくしてからもう一度お試しください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录暂时不可用，请稍后再试。"
+          }
         }
       }
     },
@@ -65,6 +83,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このメールのアカウントはすでに存在します。サインインを試してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此邮箱已注册账户，请改用登录。"
           }
         }
       }
@@ -83,6 +107,12 @@
             "state": "translated",
             "value": "問題が発生しました。もう一度お試しください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出了点问题，请重试。"
+          }
         }
       }
     },
@@ -99,6 +129,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コードが無効です。確認してもう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "验证码无效，请检查后重试。"
           }
         }
       }
@@ -117,6 +153,12 @@
             "state": "translated",
             "value": "コードが無効です。もう一度お試しください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "验证码无效，请重试。"
+          }
         }
       }
     },
@@ -133,6 +175,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "有効なメールアドレスを入力してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入有效的邮箱地址。"
           }
         }
       }
@@ -151,6 +199,12 @@
             "state": "translated",
             "value": "確認コードが正しくありません。もう一度お試しください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "验证码不正确，请重试。"
+          }
         }
       }
     },
@@ -167,6 +221,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サーバーに接続できませんでした。インターネット接続を確認してもう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接到服务器。请检查网络连接后重试。"
           }
         }
       }
@@ -185,6 +245,12 @@
             "state": "translated",
             "value": "ネットワークエラーです。接続を確認してください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络错误，请检查你的网络连接。"
+          }
         }
       }
     },
@@ -201,6 +267,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアカウントは別のサインイン方法にすでにリンクされています。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账户已关联到另一种登录方式。"
           }
         }
       }
@@ -219,6 +291,12 @@
             "state": "translated",
             "value": "パスキー認証に失敗しました。もう一度お試しください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通行密钥认证失败，请重试。"
+          }
         }
       }
     },
@@ -235,6 +313,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "試行回数が多すぎます。少し待ってからもう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尝试次数过多，请稍候片刻后重试。"
           }
         }
       }
@@ -253,6 +337,12 @@
             "state": "translated",
             "value": "問題が発生しました。もう一度お試しください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出了点问题，请重试。"
+          }
         }
       }
     },
@@ -269,6 +359,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "セッションの有効期限が切れました。もう一度サインインしてください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话已过期，请重新登录。"
           }
         }
       }
@@ -287,6 +383,12 @@
             "state": "translated",
             "value": "このメールのアカウントは見つかりません。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到使用此邮箱的账户。"
+          }
         }
       }
     },
@@ -303,6 +405,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "メールまたはパスワードが正しくありません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邮箱或密码不正确。"
           }
         }
       }
@@ -321,6 +429,12 @@
             "state": "translated",
             "value": "手動ペアリングではこのアカウントを使用します。Mac と一致しない場合は、Mac から QR/リンクをスキャンしてください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动配对会使用此账户。如果它与该 Mac 上的账户不一致，请扫描 Mac 上的二维码/链接。"
+          }
         }
       }
     },
@@ -337,6 +451,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このデバイス"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备"
           }
         }
       }
@@ -355,6 +475,12 @@
             "state": "translated",
             "value": "デバイス追加フォーム"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加设备表单"
+          }
         }
       }
     },
@@ -371,6 +497,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tailscale、LAN、またはローカルのホストとポートを入力してください。そのコンピュータからの QR/リンクでのペアリングが最も安全な設定方法です。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入 Tailscale、局域网或本地主机和端口。从那台电脑扫描二维码/链接配对仍是最安全的设置方式。"
           }
         }
       }
@@ -389,6 +521,12 @@
             "state": "translated",
             "value": "ホスト"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机"
+          }
         }
       }
     },
@@ -402,6 +540,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "your-mac.tailnet.ts.net"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "your-mac.tailnet.ts.net"
@@ -423,6 +567,12 @@
             "state": "translated",
             "value": "スペースや URL パスを含めず、ホストまたは IP アドレスを入力してください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入主机或 IP 地址，不要包含空格或 URL 路径。"
+          }
         }
       }
     },
@@ -439,6 +589,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "1 から 65535 までのポートを入力してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入 1 到 65535 之间的端口。"
           }
         }
       }
@@ -457,6 +613,12 @@
             "state": "translated",
             "value": "そのアドレスへ直接接続します。信頼できる LAN、VPN、または管理しているデバイスでのみ使用してください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这将直接连接到该地址。请仅在受信任的局域网、VPN 或你掌控的设备上使用。"
+          }
         }
       }
     },
@@ -473,6 +635,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "名前"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称"
           }
         }
       }
@@ -491,6 +659,12 @@
             "state": "translated",
             "value": "仕事用 Mac"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作 Mac"
+          }
         }
       }
     },
@@ -507,6 +681,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このデバイスではサインインしていません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备上未登录。"
           }
         }
       }
@@ -525,6 +705,12 @@
             "state": "translated",
             "value": "ペアリング"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对"
+          }
         }
       }
     },
@@ -542,6 +728,12 @@
             "state": "translated",
             "value": "ポート"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口"
+          }
         }
       }
     },
@@ -555,6 +747,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "58465"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "58465"
@@ -576,6 +774,12 @@
             "state": "translated",
             "value": "%@ としてサインイン中"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登录为 %@"
+          }
         }
       }
     },
@@ -592,6 +796,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サインイン済みですが、メールアドレスを取得できません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登录，邮箱不可用。"
           }
         }
       }
@@ -610,6 +820,12 @@
             "state": "translated",
             "value": "デバイスを追加"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加设备"
+          }
         }
       }
     },
@@ -626,6 +842,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "キャンセル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
           }
         }
       }
@@ -660,6 +882,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "完了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
           }
         }
       }
@@ -712,6 +940,12 @@
             "state": "translated",
             "value": "接続済み"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接"
+          }
         }
       }
     },
@@ -728,6 +962,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ライブターミナル同期が有効です。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时终端同步已启用。"
           }
         }
       }
@@ -746,6 +986,12 @@
             "state": "translated",
             "value": "再接続中"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重新连接"
+          }
         }
       }
     },
@@ -762,6 +1008,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mac アプリに接続しようとしています。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在尝试连接 Mac 应用。"
           }
         }
       }
@@ -780,6 +1032,12 @@
             "state": "translated",
             "value": "Mac はオフライン"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 离线"
+          }
         }
       }
     },
@@ -796,6 +1054,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mac で cmux を開くか、コンピュータのスリープを解除してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在 Mac 上打开 cmux 或唤醒电脑。"
           }
         }
       }
@@ -814,6 +1078,12 @@
             "state": "translated",
             "value": "Mac を追加してターミナルワークスペースの同期を開始します。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加一台 Mac 以开始同步终端工作区。"
+          }
         }
       }
     },
@@ -830,6 +1100,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "デバイスがありません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无设备"
           }
         }
       }
@@ -967,6 +1243,12 @@
             "state": "translated",
             "value": "このペアリングリンクの有効期限が切れました。そのコンピュータの新しい QR/リンクでペアリングしてください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此配对链接已过期。请用那台电脑上新的二维码/链接重新配对。"
+          }
         }
       }
     },
@@ -983,6 +1265,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "この Mac でアカウントを確認できませんでした。両方のデバイスで同じ cmux アカウントと一致するビルド（どちらもリリース版、またはどちらも開発版）を使用していることを確認してから、もう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在这台 Mac 上验证你的账户。请确认两台设备使用同一 cmux 账户，且构建版本匹配（都是正式版，或都是开发版），然后重试。"
           }
         }
       }
@@ -1001,6 +1289,12 @@
             "state": "translated",
             "value": "カメラへのアクセスが必要です"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要相机访问权限"
+          }
         }
       }
     },
@@ -1017,6 +1311,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "カメラを使用できません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相机不可用"
           }
         }
       }
@@ -1035,6 +1335,12 @@
             "state": "translated",
             "value": "ペアリングコード"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对码"
+          }
         }
       }
     },
@@ -1051,6 +1357,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接"
           }
         }
       }
@@ -1069,6 +1381,12 @@
             "state": "translated",
             "value": "%@:%d に接続しましたが、ホストが接続を閉じました。ホストアプリがまだ実行中であることを確認してください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接到 %@:%d，但主机关闭了连接。请检查主机应用是否仍在运行。"
+          }
         }
       }
     },
@@ -1085,6 +1403,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@:%d に到達できませんでした。ホストが Tailscale または LAN 経由で到達可能で、ポートが正しいことを確認してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接到 %@:%d。请检查主机是否可通过 Tailscale 或局域网访问，以及端口是否正确。"
           }
         }
       }
@@ -1103,6 +1427,12 @@
             "state": "translated",
             "value": "%@:%d から応答がありません。ホストアプリが開いていて、モバイル接続を受け入れていることを確認してください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@:%d 无响应。请确认主机应用已打开并接受移动设备连接。"
+          }
         }
       }
     },
@@ -1119,6 +1449,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペアリングコードが無効です。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对码无效。"
           }
         }
       }
@@ -1137,6 +1473,12 @@
             "state": "translated",
             "value": "ペアリング"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对"
+          }
         }
       }
     },
@@ -1153,6 +1495,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータが応答しませんでした。ホストとポートを確認して、もう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑未响应。请检查主机和端口，然后重试。"
           }
         }
       }
@@ -1171,6 +1519,12 @@
             "state": "translated",
             "value": "コンピュータに接続できませんでした。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接到你的电脑。"
+          }
         }
       }
     },
@@ -1187,6 +1541,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "QR コードをスキャン"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扫描二维码"
           }
         }
       }
@@ -1205,6 +1565,12 @@
             "state": "translated",
             "value": "キャンセル"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
         }
       }
     },
@@ -1221,6 +1587,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "QR コードをスキャン"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扫描二维码"
           }
         }
       }
@@ -1239,6 +1611,12 @@
             "state": "translated",
             "value": "このペアリング経路は信頼できません。そのコンピュータの新しい QR/リンクで再度ペアリングしてください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此配对路由不受信任。请用那台电脑上新的二维码/链接重新配对。"
+          }
         }
       }
     },
@@ -1255,6 +1633,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータで同じアカウントにサインインしてから、もう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在你的电脑上用同一账户登录，然后重试。"
           }
         }
       }
@@ -1273,6 +1657,12 @@
             "state": "translated",
             "value": "コンピュータに表示された QR コードをスキャンするか、ペアリングコードを入力してください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扫描电脑上显示的二维码，或输入配对码。"
+          }
         }
       }
     },
@@ -1289,6 +1679,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータとペアリング"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与电脑配对"
           }
         }
       }
@@ -1307,6 +1703,12 @@
             "state": "translated",
             "value": "このペアリングコードには対応していません。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不支持此配对码。"
+          }
         }
       }
     },
@@ -1323,6 +1725,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続済みターミナル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接终端"
           }
         }
       }
@@ -1341,6 +1749,12 @@
             "state": "translated",
             "value": "接続済みワークスペース"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接工作区"
+          }
         }
       }
     },
@@ -1357,6 +1771,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナル %d"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端 %d"
           }
         }
       }
@@ -1375,6 +1795,12 @@
             "state": "translated",
             "value": "ワークスペース %d"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区 %d"
+          }
         }
       }
     },
@@ -1391,6 +1817,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続が切れました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接已断开"
           }
         }
       }
@@ -1409,6 +1841,12 @@
             "state": "translated",
             "value": "再接続中…"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重新连接…"
+          }
         }
       }
     },
@@ -1425,6 +1863,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "再試行"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
           }
         }
       }
@@ -1613,6 +2057,12 @@
             "state": "translated",
             "value": "Apple でサインイン"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过 Apple 登录"
+          }
         }
       }
     },
@@ -1629,6 +2079,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サインイン"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录"
           }
         }
       }
@@ -1647,6 +2103,12 @@
             "state": "translated",
             "value": "メールを確認してください"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看你的邮箱"
+          }
         }
       }
     },
@@ -1664,6 +2126,12 @@
             "state": "translated",
             "value": "メールに届いた 6 桁のコードを入力してください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入邮件中的 6 位验证码。"
+          }
         }
       }
     },
@@ -1677,6 +2145,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "000000"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "000000"
@@ -1698,6 +2172,12 @@
             "state": "translated",
             "value": "コードをメールで受け取る"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向我发送验证码"
+          }
         }
       }
     },
@@ -1714,6 +2194,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "またはメールで続行"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或使用邮箱继续"
           }
         }
       }
@@ -1732,6 +2218,12 @@
             "state": "translated",
             "value": "有効なメールアドレスを入力してください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入有效的邮箱地址。"
+          }
         }
       }
     },
@@ -1748,6 +2240,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "メールアドレス"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邮箱地址"
           }
         }
       }
@@ -1766,6 +2264,12 @@
             "state": "translated",
             "value": "Google でサインイン"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过 Google 登录"
+          }
         }
       }
     },
@@ -1782,6 +2286,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "セッションを復元しています"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在恢复会话"
           }
         }
       }
@@ -1800,6 +2310,12 @@
             "state": "translated",
             "value": "%@ にコードを送信しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我们已向 %@ 发送验证码"
+          }
         }
       }
     },
@@ -1817,6 +2333,12 @@
             "state": "translated",
             "value": "サインインして Mac のワークスペースに接続します。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录以连接到你的 Mac 工作区。"
+          }
         }
       }
     },
@@ -1830,6 +2352,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux"
@@ -1851,6 +2379,12 @@
             "state": "translated",
             "value": "別のメールを使用"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用其他邮箱"
+          }
         }
       }
     },
@@ -1867,6 +2401,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コードを確認"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "验证验证码"
           }
         }
       }
@@ -1885,6 +2425,12 @@
             "state": "translated",
             "value": "サインアウト"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出登录"
+          }
         }
       }
     },
@@ -1898,6 +2444,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "Alt"
@@ -1919,6 +2471,12 @@
             "state": "translated",
             "value": "Alt"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt"
+          }
         }
       }
     },
@@ -1932,6 +2490,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "Claude"
@@ -1953,6 +2517,12 @@
             "state": "translated",
             "value": "Claude コマンドを挿入"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "插入 Claude 命令"
+          }
         }
       }
     },
@@ -1966,6 +2536,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "Codex"
@@ -1987,6 +2563,12 @@
             "state": "translated",
             "value": "Codex コマンドを挿入"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "插入 Codex 命令"
+          }
         }
       }
     },
@@ -2000,6 +2582,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "⌘"
@@ -2021,6 +2609,12 @@
             "state": "translated",
             "value": "Command"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command"
+          }
         }
       }
     },
@@ -2034,6 +2628,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ctrl"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "Ctrl"
@@ -2055,6 +2655,12 @@
             "state": "translated",
             "value": "Control"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control"
+          }
         }
       }
     },
@@ -2068,6 +2674,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^C"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "^C"
@@ -2089,6 +2701,12 @@
             "state": "translated",
             "value": "Control C"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control C"
+          }
         }
       }
     },
@@ -2102,6 +2720,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^D"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "^D"
@@ -2123,6 +2747,12 @@
             "state": "translated",
             "value": "Control D"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control D"
+          }
         }
       }
     },
@@ -2136,6 +2766,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^L"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "^L"
@@ -2157,6 +2793,12 @@
             "state": "translated",
             "value": "Control L"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control L"
+          }
         }
       }
     },
@@ -2170,6 +2812,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^Z"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "^Z"
@@ -2191,6 +2839,12 @@
             "state": "translated",
             "value": "Control Z"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control Z"
+          }
         }
       }
     },
@@ -2204,6 +2858,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↓"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "↓"
@@ -2225,6 +2885,12 @@
             "state": "translated",
             "value": "下矢印"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下箭头"
+          }
         }
       }
     },
@@ -2238,6 +2904,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "End"
@@ -2259,6 +2931,12 @@
             "state": "translated",
             "value": "End"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End"
+          }
         }
       }
     },
@@ -2272,6 +2950,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "Esc"
@@ -2293,6 +2977,12 @@
             "state": "translated",
             "value": "Escape"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escape"
+          }
         }
       }
     },
@@ -2309,6 +2999,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "キーボードを隠す"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏键盘"
           }
         }
       }
@@ -2327,6 +3023,12 @@
             "state": "translated",
             "value": "ホーム"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home"
+          }
         }
       }
     },
@@ -2344,6 +3046,12 @@
             "state": "translated",
             "value": "ホーム"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home"
+          }
         }
       }
     },
@@ -2357,6 +3065,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "←"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "←"
@@ -2378,6 +3092,12 @@
             "state": "translated",
             "value": "左矢印"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左箭头"
+          }
         }
       }
     },
@@ -2391,6 +3111,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PgDn"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "PgDn"
@@ -2412,6 +3138,12 @@
             "state": "translated",
             "value": "Page Down"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向下翻页"
+          }
         }
       }
     },
@@ -2425,6 +3157,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PgUp"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "PgUp"
@@ -2446,6 +3184,12 @@
             "state": "translated",
             "value": "Page Up"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向上翻页"
+          }
         }
       }
     },
@@ -2459,6 +3203,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "|"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "|"
@@ -2480,6 +3230,12 @@
             "state": "translated",
             "value": "パイプ"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "竖线"
+          }
         }
       }
     },
@@ -2493,6 +3249,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "Return"
@@ -2514,6 +3276,12 @@
             "state": "translated",
             "value": "Return"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return"
+          }
         }
       }
     },
@@ -2527,6 +3295,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "→"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "→"
@@ -2548,6 +3322,12 @@
             "state": "translated",
             "value": "右矢印"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右箭头"
+          }
         }
       }
     },
@@ -2561,6 +3341,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⇧"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "⇧"
@@ -2582,6 +3368,12 @@
             "state": "translated",
             "value": "Shift"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift"
+          }
         }
       }
     },
@@ -2595,6 +3387,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "Tab"
@@ -2616,6 +3414,12 @@
             "state": "translated",
             "value": "Tab"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab"
+          }
         }
       }
     },
@@ -2629,6 +3433,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "~"
@@ -2650,6 +3460,12 @@
             "state": "translated",
             "value": "チルダ"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "波浪号"
+          }
         }
       }
     },
@@ -2663,6 +3479,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↑"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "↑"
@@ -2684,6 +3506,12 @@
             "state": "translated",
             "value": "上矢印"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上箭头"
+          }
         }
       }
     },
@@ -2700,6 +3528,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "拡大"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放大"
           }
         }
       }
@@ -2718,6 +3552,12 @@
             "state": "translated",
             "value": "縮小"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缩小"
+          }
         }
       }
     },
@@ -2734,6 +3574,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "矢印パッド"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方向键盘"
           }
         }
       }
@@ -2752,6 +3598,12 @@
             "state": "translated",
             "value": "ターミナルに送信"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送到终端"
+          }
         }
       }
     },
@@ -2768,6 +3620,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナル入力"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端输入"
           }
         }
       }
@@ -2786,6 +3644,12 @@
             "state": "translated",
             "value": "ターミナルは現在これ以上の入力を受け付けられません。しばらくしてから再試行するか、利用できない状態が続く場合はターミナルを開き直してください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端目前无法接收更多输入。请稍候重试，若一直不可用，请重新打开终端。"
+          }
         }
       }
     },
@@ -2802,6 +3666,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 固定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已锁定"
           }
         }
       }
@@ -2820,6 +3690,12 @@
             "state": "translated",
             "value": "新規ターミナル"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建终端"
+          }
         }
       }
     },
@@ -2836,6 +3712,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端"
           }
         }
       }
@@ -2854,6 +3736,12 @@
             "state": "translated",
             "value": "ターミナル"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端"
+          }
         }
       }
     },
@@ -2871,6 +3759,12 @@
             "state": "translated",
             "value": "送信"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送"
+          }
         }
       }
     },
@@ -2887,6 +3781,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナル画面を起動しています。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端 Surface 仍在启动中。"
           }
         }
       }
@@ -3092,6 +3992,12 @@
             "state": "translated",
             "value": "ワークスペースなし"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无工作区"
+          }
         }
       }
     },
@@ -3108,6 +4014,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "新規ワークスペース"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建工作区"
           }
         }
       }
@@ -3194,6 +4106,12 @@
             "state": "translated",
             "value": "1 個のターミナル"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 个终端"
+          }
         }
       }
     },
@@ -3210,6 +4128,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d 個のターミナル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 个终端"
           }
         }
       }
@@ -3245,6 +4169,12 @@
             "state": "translated",
             "value": "ワークスペース"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区"
+          }
         }
       }
     },
@@ -3279,6 +4209,12 @@
             "state": "translated",
             "value": "キーボードを隠す"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏键盘"
+          }
         }
       }
     },
@@ -3296,6 +4232,12 @@
             "state": "translated",
             "value": "キーボードを表示"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示键盘"
+          }
         }
       }
     },
@@ -3309,6 +4251,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "Alt"
@@ -3347,6 +4295,12 @@
             "state": "translated",
             "value": "Ctrl"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ctrl"
+          }
         }
       }
     },
@@ -3360,6 +4314,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "End"
@@ -3381,6 +4341,12 @@
             "state": "translated",
             "value": "Esc"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc"
+          }
         }
       }
     },
@@ -3394,6 +4360,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "Home"
@@ -3415,6 +4387,12 @@
             "state": "translated",
             "value": "Tab"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab"
+          }
         }
       }
     },
@@ -3432,6 +4410,12 @@
             "state": "translated",
             "value": "拡大"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放大"
+          }
         }
       }
     },
@@ -3448,6 +4432,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "縮小"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缩小"
           }
         }
       }
@@ -3534,6 +4524,12 @@
             "state": "translated",
             "value": "%lld pt"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld pt"
+          }
         }
       }
     },
@@ -3550,6 +4546,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "デフォルトに戻す"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复默认值"
           }
         }
       }
@@ -3568,6 +4570,12 @@
             "state": "translated",
             "value": "標準に戻す"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复内置值"
+          }
         }
       }
     },
@@ -3585,6 +4593,12 @@
             "state": "translated",
             "value": "デフォルトに設定"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设为默认"
+          }
         }
       }
     },
@@ -3601,6 +4615,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "エージェント通知を受け取る"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过 TestFlight 下载"
           }
         }
       }
@@ -3635,6 +4655,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペースト"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TestFlight 目前仅限邀请。获取 Founders Edition 即可加入，并下载 Mac 版 cmux。"
           }
         }
       }
