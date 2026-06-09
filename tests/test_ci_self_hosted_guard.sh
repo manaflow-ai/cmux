@@ -13,6 +13,7 @@ CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
+TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
 
 check_macos_runner() {
   local file="$1" job="$2"
@@ -202,6 +203,26 @@ check_web_db_behavior_tests() {
   echo "PASS: web DB behavior tests run through the discovery runner"
 }
 
+check_tmux_terminal_nightly_isolation() {
+  check_macos_runner "$TMUX_CORPUS_FILE" "terminal-nightly"
+
+  if ! awk '
+    /^  terminal-nightly:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /CMUX_DERIVED_DATA_PATH/ { saw_env=1 }
+    in_job && /-derivedDataPath "\$CMUX_DERIVED_DATA_PATH"/ { saw_flag=1 }
+    in_job && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_noninteractive=1 }
+    in_job && /SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"/ { saw_backtrace=1 }
+    in_job && /All failures are expected, treating as pass/ { saw_expected_failure_handling=1 }
+    END { exit !(saw_env && saw_flag && saw_noninteractive && saw_backtrace && saw_expected_failure_handling) }
+  ' "$TMUX_CORPUS_FILE"; then
+    echo "FAIL: tmux corpus terminal-nightly must use isolated DerivedData, the noninteractive xcodebuild wrapper, and expected-failure handling"
+    exit 1
+  fi
+
+  echo "PASS: tmux corpus terminal-nightly uses isolated DerivedData, noninteractive xcodebuild, and expected-failure handling"
+}
+
 # ci.yml jobs
 check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
@@ -225,3 +246,4 @@ check_release_helper_upload_retry
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
+check_tmux_terminal_nightly_isolation
