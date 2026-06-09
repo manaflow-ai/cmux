@@ -761,18 +761,10 @@ extension Workspace {
                 anchorPanelId: fallbackAnchorPanelId
             )
         }
-        // Prefer the warm cached agent index over a synchronous
-        // `RestorableAgentSessionIndex.load()` (sysctl-per-record + disk, ~350ms-1.8s on
-        // machines with large agent history) so closing a tab does not freeze the main
-        // thread. Fall back to a fresh load only when the cache has not loaded yet (the
-        // brief window after launch before the first refresh completes; the cache is
-        // prewarmed at launch so this is rare). A cached entry at most one refresh stale
-        // is acceptable here because restore prefers the always-fresh in-memory
-        // resumeBinding and only consults this agent snapshot when no binding exists, so
-        // cmux-launched agents reopen correctly regardless of cache freshness.
-        let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            ?? RestorableAgentSessionIndex.load()
-        let restorableAgent = agentIndex.snapshot(workspaceId: id, panelId: panelId)
+        // Closed-panel history is best effort; a cold cache starts a refresh and the close
+        // stays immediate instead of paying the synchronous agent-index load.
+        let restorableAgent = SharedLiveAgentIndex.shared.cachedSnapshotForPersistence()?
+            .snapshot(workspaceId: id, panelId: panelId)
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
@@ -10357,6 +10349,38 @@ final class SharedLiveAgentIndex: ObservableObject {
     func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex? {
         scheduleRefreshIfStale()
         return index
+    }
+
+    /// Returns a fresh enough index for persistence, or starts a refresh and reports
+    /// that persistence should wait or skip rather than writing an incomplete snapshot.
+    func cachedSnapshotForPersistence() -> RestorableAgentSessionIndex? {
+        guard let index,
+              let loadedAt,
+              Date().timeIntervalSince(loadedAt) < Self.cacheTTL else {
+            scheduleRefreshIfStale()
+            return nil
+        }
+        return index
+    }
+
+    /// Loads the restorable-agent index off the main actor for persistence paths that
+    /// can defer until authoritative resume metadata is available.
+    func loadSnapshotForPersistence() async -> RestorableAgentSessionIndex {
+        if let cachedSnapshot = cachedSnapshotForPersistence() {
+            return cachedSnapshot
+        }
+        if let refreshTask {
+            await refreshTask.value
+            if let cachedSnapshot = cachedSnapshotForPersistence() {
+                return cachedSnapshot
+            }
+        }
+        let newIndex = await Task.detached(priority: .utility) {
+            RestorableAgentSessionIndex.loadStaleTolerant()
+        }.value
+        index = newIndex
+        loadedAt = Date()
+        return newIndex
     }
 
     /// Ensure the hook-store watcher is running and refresh if the cache has aged past the

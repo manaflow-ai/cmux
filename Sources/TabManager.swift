@@ -5308,18 +5308,20 @@ class TabManager: ObservableObject {
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
            let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            let sharedAgentIndex = SharedLiveAgentIndex.shared
-            sharedAgentIndex.scheduleRefreshIfStale()
-            let snapshot = workspace.sessionSnapshot(
-                includeScrollback: true,
-                restorableAgentIndex: sharedAgentIndex.index ?? .empty
-            )
-            ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
-                workspaceId: workspace.id,
-                windowId: AppDelegate.shared?.windowId(for: self),
-                workspaceIndex: index,
-                snapshot: snapshot
-            )))
+            // Closed-workspace history is best effort; a cold cache starts a refresh
+            // and the close stays immediate instead of writing incomplete agent state.
+            if let restorableAgentIndex = SharedLiveAgentIndex.shared.cachedSnapshotForPersistence() {
+                let snapshot = workspace.sessionSnapshot(
+                    includeScrollback: true,
+                    restorableAgentIndex: restorableAgentIndex
+                )
+                ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: workspace.id,
+                    windowId: AppDelegate.shared?.windowId(for: self),
+                    workspaceIndex: index,
+                    snapshot: snapshot
+                )))
+            }
         }
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         clearWorkspacePullRequestTracking(workspaceId: workspace.id)
