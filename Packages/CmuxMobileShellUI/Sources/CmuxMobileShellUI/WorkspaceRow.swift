@@ -1,6 +1,11 @@
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
+#if os(iOS)
+@preconcurrency import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 struct WorkspaceRow: View {
     let workspace: MobileWorkspacePreview
@@ -71,14 +76,37 @@ struct WorkspaceAvatar: View {
 
     var body: some View {
         ZStack {
-            Circle()
-                .fill(workspace.avatarGradient)
-                .frame(width: 48, height: 48)
+            if let pictureImage {
+                pictureImage
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 48, height: 48)
+                    .clipShape(Circle())
+            } else {
+                Circle()
+                    .fill(workspace.avatarGradient)
+                    .frame(width: 48, height: 48)
 
-            Image(systemName: workspace.avatarSymbolName)
-                .font(.headline)
-                .foregroundStyle(.white)
-                .accessibilityHidden(true)
+                Image(systemName: workspace.avatarSymbolName)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .accessibilityHidden(true)
+            }
         }
+    }
+
+    /// Resolved avatar image when the workspace has a fetched picture, else nil
+    /// so the gradient + symbol fallback renders.
+    private var pictureImage: Image? {
+        guard let data = workspace.pictureData else { return nil }
+        #if os(iOS)
+        guard let uiImage = UIImage(data: data) else { return nil }
+        return Image(uiImage: uiImage)
+        #elseif os(macOS)
+        guard let nsImage = NSImage(data: data) else { return nil }
+        return Image(nsImage: nsImage)
+        #else
+        return nil
+        #endif
     }
 }

@@ -240,6 +240,7 @@ extension Workspace {
             customTitle: customTitle,
             customDescription: customDescription,
             customColor: customColor,
+            pictureHash: pictureHash,
             isPinned: isPinned,
             groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
@@ -323,6 +324,20 @@ extension Workspace {
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
+
+        // The picture file is named by workspace id, but restore rebuilds this
+        // workspace under a fresh UUID, so re-home the original id's picture onto
+        // the new id. Fall back to re-deriving from disk so a snapshot hash with
+        // no backing file resolves to no avatar instead of a dangling hash.
+        if let originalWorkspaceId = snapshot.workspaceId,
+           let migratedHash = WorkspacePictureStore.shared.migratePicture(
+               from: originalWorkspaceId,
+               to: id
+           ) {
+            pictureHash = migratedHash
+        } else {
+            reloadPictureHashFromStore()
+        }
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -10495,6 +10510,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    /// Content hash of this workspace's picture (iMessage-style avatar), or nil if
+    /// it has none. The image bytes live on disk in `WorkspacePictureStore`; only
+    /// this small hash is `@Published`/persisted, so a picture change pushes
+    /// `workspace.updated` to the phone and the phone caches the avatar by hash.
+    @Published var pictureHash: String?
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
     @Published private(set) var terminalScrollBarHidden: Bool = false
@@ -10788,6 +10808,7 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($customDescription),
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
+            sidebarObservationSignal($pictureHash),
             sidebarObservationSignal($latestConversationMessage),
             sidebarObservationSignal($latestSubmittedMessage),
             sidebarObservationSignal($latestSubmittedAt),
@@ -12334,6 +12355,32 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             customColor = nil
         }
+    }
+
+    /// Set this workspace's picture from an image, persisting the downscaled PNG
+    /// via `WorkspacePictureStore` and publishing the new content hash. Returns
+    /// `false` when the image can't be encoded. The `@Published` hash change is
+    /// what drives the sidebar avatar and the mobile-list push.
+    @discardableResult
+    func setPicture(_ image: NSImage) -> Bool {
+        guard let hash = WorkspacePictureStore.shared.setPicture(image, for: id) else {
+            return false
+        }
+        pictureHash = hash
+        return true
+    }
+
+    /// Remove this workspace's picture from disk and clear the published hash.
+    func clearPicture() {
+        WorkspacePictureStore.shared.removePicture(for: id)
+        pictureHash = nil
+    }
+
+    /// Re-derive the published picture hash from disk (used on restore so a
+    /// persisted hash that no longer has a backing file falls back to no avatar).
+    func reloadPictureHashFromStore() {
+        WorkspacePictureStore.shared.invalidateCache(for: id)
+        pictureHash = WorkspacePictureStore.shared.pictureHash(for: id)
     }
 
     func setTerminalScrollBarHidden(_ hidden: Bool) {

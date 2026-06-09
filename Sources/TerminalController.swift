@@ -20805,6 +20805,8 @@ class TerminalController {
             result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":
             result = v2MobileWorkspaceList(params: request.params)
+        case "mobile.workspace.picture.get", "workspace.picture.get":
+            result = v2MobileWorkspacePicture(params: request.params)
         case "workspace.create":
             result = v2MobileWorkspaceCreate(params: request.params)
         case "mobile.terminal.create", "terminal.create":
@@ -21358,8 +21360,52 @@ class TerminalController {
             "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
             "is_selected": isSelected,
             "is_pinned": workspace.isPinned,
+            // Content hash of the workspace picture (iMessage-style avatar), or
+            // null when it has none. The phone caches the avatar bytes by hash and
+            // fetches them on demand via `mobile.workspace.picture.get`, so the
+            // list payload stays tiny and never base64-bloats `workspace.updated`.
+            "picture_hash": v2OrNull(mobileNonEmpty(workspace.pictureHash)),
             "terminals": terminals
         ]
+    }
+
+    /// Fetch-on-demand handler for a workspace picture (iMessage-style avatar).
+    ///
+    /// The phone learns a picture's content hash from the workspace-list payload
+    /// and asks for the bytes once per hash, caching the result. Keeping the bytes
+    /// out of the list payload (and out of the per-frame render-grid stream) means
+    /// `workspace.updated` stays tiny and an unchanged avatar is never re-sent.
+    ///
+    /// Params: `workspace_id` (required) and `hash` (required, the hash the phone
+    /// saw in the list). The hash is matched against the workspace's current
+    /// picture before any bytes are returned, so a stale request gets `null`
+    /// rather than a different avatar. The PNG is small (downscaled to 256px and
+    /// hard-capped by `WorkspacePictureStore.maxStoredPictureBytes`) and cached in
+    /// memory by hash, so the synchronous read + base64 here is cheap and bounded.
+    private func v2MobileWorkspacePicture(params: [String: Any]) -> V2CallResult {
+        guard let workspaceID = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let requestedHash = mobileNonEmpty(v2RawString(params, "hash")) else {
+            return .err(code: "invalid_params", message: "Missing or invalid hash", data: nil)
+        }
+        // Hash-gated lookup against the authoritative on-disk store. Returns nil
+        // when the workspace has no picture or its hash no longer matches.
+        guard let png = WorkspacePictureStore.shared.pictureData(
+            for: workspaceID,
+            matchingHash: requestedHash
+        ) else {
+            return .ok([
+                "workspace_id": workspaceID.uuidString,
+                "hash": requestedHash,
+                "image_base64": v2OrNull(nil),
+            ])
+        }
+        return .ok([
+            "workspace_id": workspaceID.uuidString,
+            "hash": requestedHash,
+            "image_base64": png.base64EncodedString(),
+        ])
     }
 
     private enum MobileTerminalAliasUUID {
