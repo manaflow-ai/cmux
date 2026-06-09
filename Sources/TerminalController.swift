@@ -104,8 +104,7 @@ class TerminalController {
     // The package-owned listener: path/bind/lock lifecycle, accept source,
     // backoff/rearm recovery, and the generation-counted state machine.
     nonisolated let socketServer: SocketControlServer
-    // Lifetime anchor for the accepted-connection consumer; the controller is
-    // an app-lifetime singleton, so the loop runs until process exit.
+    // Accepted-connection consumer; runs until process exit (singleton).
     private nonisolated let socketConnectionsTask: Task<Void, Never>
     // Per-surface dedupe for high-frequency report_* socket telemetry.
     private nonisolated let socketFastPathState = SocketFastPathState()
@@ -273,20 +272,16 @@ class TerminalController {
             events: Self.makeSocketServerEvents(target: serverEventTarget)
         )
         self.socketServer = socketServer
-        // The single consumer of the server's accepted-connection stream.
-        // Each connection still gets a dedicated thread: the command bodies
-        // block (main-thread sync hops, semaphore waits on async work), which
-        // must never run on the cooperative thread pool.
+        // Single consumer of the accepted-connection stream. Each connection
+        // still gets a dedicated thread: command bodies block (main-thread
+        // sync hops, semaphore waits), so never the cooperative pool.
         self.socketConnectionsTask = Task.detached {
             for await connection in socketServer.connections {
                 guard let controller = serverEventTarget.controller else {
                     close(connection.socket)
                     continue
                 }
-                controller.spawnClientHandler(
-                    socket: connection.socket,
-                    peerPid: connection.peerProcessID
-                )
+                controller.spawnClientHandler(socket: connection.socket, peerPid: connection.peerProcessID)
             }
         }
         serverEventTarget.controller = self
@@ -666,9 +661,8 @@ class TerminalController {
                 sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
             },
             listenerDidStart: { path, _ in
-                // Fires on the server's listener queue (the actor's
-                // executor); the notification + PortScanner wiring are
-                // main-actor state, so hop asynchronously.
+                // Fires on the listener queue (the actor's executor); the
+                // notification + PortScanner wiring are main-actor state.
                 Task { @MainActor in
                     target.controller?.socketListenerDidStart(path: path)
                 }
@@ -709,21 +703,14 @@ class TerminalController {
     ) {
         self.tabManager = tabManager
         _ = socketServer.performSync {
-            $0.start(
-                socketPath: socketPath,
-                accessMode: accessMode,
-                preserveAcceptFailureStreak: preserveAcceptFailureStreak
-            )
+            $0.start(socketPath: socketPath, accessMode: accessMode, preserveAcceptFailureStreak: preserveAcceptFailureStreak)
         }
     }
 
     /// Invoked at the lifecycle point the legacy `start` posted
-    /// `.socketListenerDidStart` (running-state commit), reached through an
-    /// async main-actor hop because the server now emits the event from its
-    /// listener-queue executor. The notification therefore posts just after
-    /// the synchronous `start` facade returns instead of during it; observers
-    /// already received it via the main queue, so ordering is unchanged for
-    /// them.
+    /// `.socketListenerDidStart`, via an async main-actor hop (the server
+    /// emits from its listener-queue executor), so the notification posts
+    /// just after the start facade returns instead of during it.
     private func socketListenerDidStart(path: String) {
         NotificationCenter.default.post(
             name: .socketListenerDidStart,
@@ -786,8 +773,7 @@ class TerminalController {
     }
 
     nonisolated func stop() {
-        // Synchronous by contract: applicationWillTerminate and the updater's
-        // relaunch hook need the unlink + lock release to finish before exit.
+        // Synchronous by contract: termination needs the unlink before exit.
         socketServer.performSync { $0.stop() }
     }
 
@@ -1092,12 +1078,7 @@ class TerminalController {
             MainActor.assumeIsolated {
                 guard let tabManager = self.tabManager else { return }
                 guard let restartPath = self.socketServer.performSync({
-                    $0.claimPendingRearm(
-                        generation: generation,
-                        errnoCode: errnoCode,
-                        consecutiveFailures: consecutiveFailures,
-                        delayMs: delayMs
-                    )
+                    $0.claimPendingRearm(generation: generation, errnoCode: errnoCode, consecutiveFailures: consecutiveFailures, delayMs: delayMs)
                 }) else { return }
 
                 let restartMode = self.socketServer.accessMode
