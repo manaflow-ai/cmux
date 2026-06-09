@@ -22,10 +22,13 @@ public final class MobileNotificationsStore {
 
     /// How many recent notifications the feed keeps. Matches the Mac-side cap so
     /// a refetch (replace) and the live feed agree on the visible window.
-    public static let recentLimit = 200
+    /// `nonisolated` so the file-scope `normalizedNotifications` helper can read
+    /// it without hopping to the main actor.
+    public nonisolated static let recentLimit = 200
 
+    /// Create a store seeded with `notifications` (sorted newest-first + capped).
     public init(notifications: [MobileNotificationPreview] = []) {
-        self.notifications = Self.normalized(notifications)
+        self.notifications = normalizedNotifications(notifications)
     }
 
     /// Total number of unread notifications. Drives the Notifications tab badge.
@@ -58,7 +61,7 @@ public final class MobileNotificationsStore {
     /// Mac's store is authoritative, so the latest snapshot wins outright. Items
     /// older than ``recentLimit`` drop off; pagination is future work.
     public func apply(_ snapshot: [MobileNotificationPreview]) {
-        notifications = Self.normalized(snapshot)
+        notifications = normalizedNotifications(snapshot)
     }
 
     /// Optimistically flip one notification to read so its badge clears
@@ -84,17 +87,19 @@ public final class MobileNotificationsStore {
         }
         _ = didChange
     }
+}
 
-    /// Sort newest-first and cap to the recent window. Centralized so `init` and
-    /// `apply` agree on ordering and the cap.
-    private static func normalized(_ input: [MobileNotificationPreview]) -> [MobileNotificationPreview] {
-        let sorted = input.sorted { lhs, rhs in
-            if lhs.createdAt != rhs.createdAt {
-                return lhs.createdAt > rhs.createdAt
-            }
-            // Stable tiebreak so equal timestamps keep a deterministic order.
-            return lhs.id > rhs.id
+/// Sort newest-first and cap to the recent window. File-scope so `init` and
+/// `apply` agree on ordering and the cap.
+private func normalizedNotifications(
+    _ input: [MobileNotificationPreview]
+) -> [MobileNotificationPreview] {
+    let sorted = input.sorted { lhs, rhs in
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt > rhs.createdAt
         }
-        return Array(sorted.prefix(recentLimit))
+        // Stable tiebreak so equal timestamps keep a deterministic order.
+        return lhs.id > rhs.id
     }
+    return Array(sorted.prefix(MobileNotificationsStore.recentLimit))
 }

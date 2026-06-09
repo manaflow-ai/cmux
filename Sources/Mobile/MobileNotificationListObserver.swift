@@ -16,8 +16,18 @@ private let mobileNotificationObserverLog = Logger(subsystem: "dev.cmux", catego
 /// via the RPC, mark-all-read) syncs automatically, without per-call emit hooks.
 /// `markRead` replaces the array, so read-state changes are covered by this one
 /// publisher.
+///
+/// Uses Combine (`$notifications` + `throttle`) deliberately, to stay
+/// byte-for-byte consistent with its sibling `MobileWorkspaceListObserver`: the
+/// underlying `TerminalNotificationStore` is a Combine `ObservableObject` whose
+/// `@Published` array is the only change signal, and the throttle/`latest`
+/// burst-collapse behavior is the same one the workspace observer relies on.
 @MainActor
 final class MobileNotificationListObserver {
+    /// How many recent notifications the Mac sends and the observer hashes. Kept
+    /// in sync with the phone-side `MobileNotificationsStore.recentLimit`.
+    static let recentLimit = 200
+
     private let store: TerminalNotificationStore
     private var cancellable: AnyCancellable?
     private var lastSummaryHash: Int = 0
@@ -63,7 +73,7 @@ final class MobileNotificationListObserver {
         var hasher = Hasher()
         let recent = notifications
             .sorted { $0.createdAt > $1.createdAt }
-            .prefix(MobileNotificationListPayload.recentLimit)
+            .prefix(recentLimit)
         hasher.combine(recent.count)
         for notification in recent {
             hasher.combine(notification.id)
@@ -71,11 +81,4 @@ final class MobileNotificationListObserver {
         }
         return hasher.finalize()
     }
-}
-
-/// Shared constants for the mobile notification list payload.
-enum MobileNotificationListPayload {
-    /// How many recent notifications the Mac sends and the observer hashes. Kept
-    /// in sync with the phone-side `MobileNotificationsStore.recentLimit`.
-    static let recentLimit = 200
 }

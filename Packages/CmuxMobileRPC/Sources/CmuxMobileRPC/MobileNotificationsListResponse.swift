@@ -7,6 +7,7 @@ public import Foundation
 /// (no reference to any store) so it can cross the `List`/`ForEach` snapshot
 /// boundary safely.
 public struct MobileNotificationPreview: Identifiable, Equatable, Sendable {
+    /// Stable notification identifier (the Mac notification's UUID string).
     public let id: String
     /// The workspace this notification belongs to. Equals the Mac's
     /// `TerminalNotification.tabId` and the `MobileWorkspacePreview.ID` raw
@@ -14,12 +15,18 @@ public struct MobileNotificationPreview: Identifiable, Equatable, Sendable {
     public let workspaceID: String
     /// The terminal surface, when the notification was scoped to one.
     public let surfaceID: String?
+    /// The notification title shown as the row's primary line.
     public let title: String
+    /// The notification subtitle, shown under the title when non-empty.
     public let subtitle: String
+    /// The notification body text.
     public let body: String
+    /// When the notification fired (drives reverse-chron order + relative time).
     public let createdAt: Date
+    /// Whether the user has read this notification (drives the unread badges).
     public var isRead: Bool
 
+    /// Create a notification preview value.
     public init(
         id: String,
         workspaceID: String,
@@ -49,14 +56,21 @@ public struct MobileNotificationPreview: Identifiable, Equatable, Sendable {
 public struct MobileNotificationsListResponse: Decodable, Sendable {
     /// One notification row on the wire.
     public struct Notification: Decodable, Sendable {
+        /// Stable notification identifier.
         public let id: String
+        /// The owning workspace's id (the Mac's `tabId`).
         public let workspaceID: String
+        /// The terminal surface id, when scoped to one; otherwise `nil`.
         public let surfaceID: String?
+        /// The notification title.
         public let title: String
+        /// The notification subtitle.
         public let subtitle: String
+        /// The notification body.
         public let body: String
         /// Creation time as Unix epoch seconds.
         public let createdAt: Double
+        /// Whether the notification has been read.
         public let isRead: Bool
 
         private enum CodingKeys: String, CodingKey {
@@ -71,6 +85,7 @@ public struct MobileNotificationsListResponse: Decodable, Sendable {
         }
     }
 
+    /// The recent notifications, newest-first as produced by the Mac.
     public let notifications: [Notification]
 
     private enum CodingKeys: String, CodingKey {
