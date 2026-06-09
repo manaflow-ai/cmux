@@ -1259,7 +1259,7 @@ func textBoxCommandShortcutKey(
     return normalizedCharacters(event).lowercased()
 }
 
-private enum TextBoxAgentDetection: CaseIterable {
+enum TextBoxAgentDetection: CaseIterable {
     case claudeCode
     case codex
     case opencode

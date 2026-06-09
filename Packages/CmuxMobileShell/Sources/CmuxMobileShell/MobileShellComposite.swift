@@ -189,13 +189,99 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// route falls back to email rather than failing with `method_not_found`
     /// under client/server version skew.
     public private(set) var supportsDogfoodFeedback: Bool = false
-    public var terminalInputText: String
+    public var terminalInputText: String {
+        didSet {
+            #if DEBUG
+            // COMPOSER: record every draft change so a captured trace shows whether
+            // the draft was cleared at the store (b == 1) during a keyboard-dismiss
+            // cycle, vs. only disappearing from the view. `didSet` does not fire on
+            // the `init` assignment, so this is safe to read `diagnosticLog`.
+            diagnosticLog?.record(DiagnosticEvent(
+                .composerInputTextChanged,
+                a: terminalInputText.utf8.count,
+                b: terminalInputText.isEmpty ? 1 : 0
+            ))
+            #endif
+            // Persist the live edit under the CURRENT terminal so it survives a
+            // terminal switch. Skipped while a draft is being loaded (the load is
+            // the saved value, re-saving it is redundant and would race the
+            // per-terminal key swap) and when the value is unchanged.
+            guard !isLoadingDraft, terminalInputText != oldValue else { return }
+            persistCurrentDraft()
+        }
+    }
+    /// Whether the iMessage-style composer is shown above the terminal. Toggled
+    /// from the input accessory bar's composer button and observed by the
+    /// terminal screen to present ``terminalInputText`` for multi-line editing.
+    public var isComposerPresented: Bool = false {
+        didSet {
+            #if DEBUG
+            // COMPOSER: record every flag change (mutated by `toggleComposer`,
+            // `dismissComposer`, and `presentAndFocusComposer`). An unexpected
+            // `a == 0` during a bare keyboard dismiss is the "flag toggled off"
+            // cause of the disappearing draft.
+            diagnosticLog?.record(DiagnosticEvent(
+                .composerPresentedChanged,
+                a: isComposerPresented ? 1 : 0
+            ))
+            #endif
+        }
+    }
+    /// Monotonic focus-request token for the iMessage-style composer field.
+    ///
+    /// The composer's text field owns its first responder via SwiftUI `@FocusState`,
+    /// which neither the terminal surface nor the representable coordinator can set
+    /// directly. When the surface needs the field re-focused without re-presenting the
+    /// composer — the reveal-after-hide case, where the chrome and draft are already
+    /// back but the terminal proxy stole first responder — it bumps this token through
+    /// ``presentAndFocusComposer()``. ``TerminalComposerView`` observes the change and
+    /// drives `isFieldFocused = true`, keeping `@FocusState` the single source of truth
+    /// for who holds the keyboard.
+    public private(set) var composerFocusRequest: Int = 0
+    /// Guards ``submitComposerInput()`` against re-entrancy. A quick double tap
+    /// on Send would otherwise start two sends that both capture the same text
+    /// (the field is cleared only on ack), pasting the message to the agent
+    /// twice. Not observed: it gates an async flow, not view state.
+    @ObservationIgnored private var isSubmittingComposerInput = false
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
         }
     }
-    public var selectedTerminalID: MobileTerminalPreview.ID?
+    public var selectedTerminalID: MobileTerminalPreview.ID? {
+        willSet {
+            // Capture the draft of the terminal we are leaving BEFORE the new id
+            // lands, so `swapDraft(from:to:)` can persist it under the correct
+            // (old) key. A no-op when the id is unchanged.
+            guard newValue != selectedTerminalID else { return }
+            draftedOutgoingTerminalID = selectedTerminalID
+            draftedOutgoingText = terminalInputText
+        }
+        didSet {
+            guard selectedTerminalID != oldValue else { return }
+            swapDraft(from: draftedOutgoingTerminalID, outgoingText: draftedOutgoingText, to: selectedTerminalID)
+            draftedOutgoingTerminalID = nil
+            draftedOutgoingText = ""
+        }
+    }
+
+    /// The per-terminal composer-draft seam. `nil` in previews/tests that do not
+    /// exercise drafts; every draft hook is then a no-op and the in-memory
+    /// ``terminalInputText`` behaves exactly as before. Injected from the app
+    /// composition root.
+    private let draftStore: (any TerminalDraftStoring)?
+
+    /// True while a saved draft is being loaded INTO ``terminalInputText``, so
+    /// its `didSet` does not immediately re-save the just-loaded value (which
+    /// would also race the key swap). Not observed: it gates a write, not view
+    /// state.
+    @ObservationIgnored private var isLoadingDraft = false
+    /// The terminal id we are switching away from, captured in
+    /// ``selectedTerminalID``'s `willSet` so its draft is saved under the right key.
+    @ObservationIgnored private var draftedOutgoingTerminalID: MobileTerminalPreview.ID?
+    /// The draft text of the terminal we are switching away from, captured with
+    /// ``draftedOutgoingTerminalID``.
+    @ObservationIgnored private var draftedOutgoingText: String = ""
 
     /// Surface IDs whose next window attach must NOT grab the keyboard.
     ///
@@ -359,9 +445,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
-        feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp }
+        feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
+        draftStore: (any TerminalDraftStoring)? = nil
     ) {
         self.runtime = runtime
+        self.draftStore = draftStore
         self.pairedMacStore = pairedMacStore
         self.deviceRegistry = deviceRegistry
         self.identityProvider = identityProvider
@@ -468,7 +556,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .unavailable
         connectedHostName = ""
         pairingCode = ""
+        // Wipe every saved draft so the next account never sees the previous
+        // user's unsent text. Guard the in-memory clear (and the selection resets
+        // below) so the per-terminal draft hooks do not write partial state into a
+        // store we are about to empty wholesale.
+        isLoadingDraft = true
         terminalInputText = ""
+        draftStore.map { store in Task { await store.clearAllDrafts() } }
         clearPairingError()
         activeTicket = nil
         activeRoute = nil
@@ -492,6 +586,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaces = PreviewMobileHost.workspaces
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
+        // Selection resets above are done; allow draft saving again so a
+        // subsequent sign-in restores drafts normally.
+        isLoadingDraft = false
     }
 
     public func resumeForegroundRefresh() {
@@ -1971,6 +2068,64 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await sendRemoteTerminalInput(text + "\r")
     }
 
+    /// Show or hide the iMessage-style composer from the input accessory bar.
+    public func toggleComposer() {
+        isComposerPresented.toggle()
+    }
+
+    /// Ensure the composer is presented and ask its field to take focus, without ever
+    /// dismissing it.
+    ///
+    /// Drives the reveal-and-focus path: the surface invokes this when the user taps
+    /// the compose button (or reveals the chrome) while a composer is already
+    /// logically presented but suppressed or unfocused. `isComposerPresented` is only
+    /// set to `true` (never toggled off here), so a still-presented composer and its
+    /// draft are preserved; the focus token is always bumped so the field re-focuses
+    /// even when the presented flag did not change.
+    public func presentAndFocusComposer() {
+        if !isComposerPresented {
+            isComposerPresented = true
+        }
+        composerFocusRequest &+= 1
+    }
+
+    /// Dismiss the iMessage-style composer if it is open. Used when the user hides
+    /// the keyboard while composing, so the composer can never be left presented
+    /// with the keyboard down. Idempotent: a no-op when the composer is already
+    /// closed.
+    public func dismissComposer() {
+        guard isComposerPresented else { return }
+        isComposerPresented = false
+    }
+
+    /// Submit the composer's text to the selected terminal as a bracketed paste
+    /// plus a single Return, then clear the field while keeping the composer
+    /// open. Unlike ``submitTerminalInput()``, this delivers a multi-line block
+    /// as one paste + one submit (via `terminal.paste`) so interior newlines do
+    /// not fragment into multiple submissions in a TUI agent.
+    ///
+    /// The field is cleared only after the Mac acknowledges the paste. If the
+    /// send fails (no connection, or an older host that does not implement
+    /// `terminal.paste` and answers `method_not_found`), the composed text is
+    /// kept so the user can retry instead of silently losing the message.
+    public func submitComposerInput() async {
+        let text = terminalInputText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard remoteClient != nil else { return }
+        // Reject a re-entrant send (e.g. a double tap on Send) so the same text
+        // is not pasted twice. The flag is set/cleared on the main actor around
+        // the await, so no second call can slip past it.
+        guard !isSubmittingComposerInput else { return }
+        isSubmittingComposerInput = true
+        defer { isSubmittingComposerInput = false }
+        let sent = await sendRemoteTerminalPaste(text, submitKey: "return")
+        // Only clear if the field still holds exactly what we sent, so a value
+        // the user typed while the send was in flight is not discarded.
+        if sent, terminalInputText == text {
+            terminalInputText = ""
+        }
+    }
+
     public func sendTerminalRawInput(_ text: String) {
         #if DEBUG
         mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
@@ -2601,6 +2756,71 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = selectedWorkspace.preferredTerminal?.id
     }
 
+    // MARK: - Per-terminal composer drafts
+
+    /// Save the live ``terminalInputText`` under the currently selected
+    /// terminal. Called from the field's `didSet`. A no-op when there is no
+    /// selected terminal (nothing to key the draft to) or no draft store wired.
+    private func persistCurrentDraft() {
+        guard let draftStore, let terminalID = selectedTerminalID?.rawValue else { return }
+        let text = terminalInputText
+        Task { await draftStore.saveDraft(text, forTerminalID: terminalID) }
+    }
+
+    /// Swap the composer draft when the selected terminal changes: save the
+    /// outgoing terminal's text under its own key, then load the incoming
+    /// terminal's saved draft into ``terminalInputText``.
+    ///
+    /// The load is guarded by ``isLoadingDraft`` so the field's `didSet` does not
+    /// re-save the just-loaded value (and so the load can't race the key swap).
+    /// While the incoming draft is fetched asynchronously the field is cleared, so
+    /// the previous terminal's text never bleeds into a terminal that has no draft.
+    /// - Parameters:
+    ///   - outgoingID: The terminal being switched away from, or `nil`.
+    ///   - outgoingText: That terminal's draft text at the moment of the switch.
+    ///   - incomingID: The terminal being switched to, or `nil`.
+    private func swapDraft(
+        from outgoingID: MobileTerminalPreview.ID?,
+        outgoingText: String,
+        to incomingID: MobileTerminalPreview.ID?
+    ) {
+        guard let draftStore else { return }
+        // Clear the field synchronously so the old terminal's text is not briefly
+        // shown under the new terminal while its draft loads. Guarded so this
+        // clear is not itself saved.
+        if !terminalInputText.isEmpty {
+            isLoadingDraft = true
+            terminalInputText = ""
+            isLoadingDraft = false
+        }
+        Task { [weak self] in
+            if let outgoingID {
+                await draftStore.saveDraft(outgoingText, forTerminalID: outgoingID.rawValue)
+            }
+            guard let incomingID else { return }
+            let restored = await draftStore.draft(forTerminalID: incomingID.rawValue) ?? ""
+            await self?.applyLoadedDraft(restored, forTerminalID: incomingID)
+        }
+    }
+
+    /// Apply a draft fetched off the main actor back into ``terminalInputText``.
+    ///
+    /// Applied only if the terminal it was loaded for is still selected (a fast
+    /// re-switch could otherwise drop a stale draft into the wrong terminal) AND the
+    /// field is still empty — i.e. the user has not started typing into the
+    /// freshly-cleared field during the (tiny) async load window. A non-empty field
+    /// means the user is already composing for this terminal, and that live input
+    /// (saved on its own) must win over the stored copy. The restore write is
+    /// guarded so it is not re-saved. An empty restored draft is a no-op.
+    private func applyLoadedDraft(_ draft: String, forTerminalID terminalID: MobileTerminalPreview.ID) {
+        guard selectedTerminalID == terminalID,
+              terminalInputText.isEmpty,
+              !draft.isEmpty else { return }
+        isLoadingDraft = true
+        terminalInputText = draft
+        isLoadingDraft = false
+    }
+
     private func viewportKey(
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
@@ -2720,6 +2940,78 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             markMacConnectionUnavailableIfNeeded(after: error)
             applyOperationalError(error)
+        }
+    }
+
+    /// - Returns: `true` when the Mac acknowledged the paste, `false` when there
+    ///   is no selected workspace/terminal or the send failed.
+    @discardableResult
+    private func sendRemoteTerminalPaste(_ text: String, submitKey: String) async -> Bool {
+        guard let workspaceID = selectedWorkspace?.id,
+              let terminalID = selectedTerminalID else {
+            #if DEBUG
+            mobileShellLog.info("skip remote terminal paste selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
+            #endif
+            return false
+        }
+        return await sendRemoteTerminalPaste(text, submitKey: submitKey, workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    /// Deliver a composed block to the Mac surface via `terminal.paste`: a
+    /// bracketed paste (so multi-line text is inserted as one literal block)
+    /// followed by an optional submit key. Mirrors ``sendRemoteTerminalInput(_:workspaceID:terminalID:)``
+    /// but takes the dedicated paste path instead of the raw `terminal.input`
+    /// path, which rewrites newlines to carriage returns.
+    ///
+    /// - Returns: `true` when the Mac acknowledged the paste, `false` on any
+    ///   failure (no client, a stale generation, or an RPC error such as
+    ///   `method_not_found` from an older host). Callers use this to keep the
+    ///   composer text on failure instead of clearing it optimistically.
+    @discardableResult
+    private func sendRemoteTerminalPaste(
+        _ text: String,
+        submitKey: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async -> Bool {
+        guard let client = remoteClient else {
+            #if DEBUG
+            mobileShellLog.info("skip remote terminal paste remoteClient=0")
+            #endif
+            return false
+        }
+        let generation = connectionGeneration
+        do {
+            #if DEBUG
+            mobileShellLog.debug("send remote terminal paste byteCount=\(text.utf8.count, privacy: .public) submit=\(submitKey, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
+            #endif
+            let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
+            var params: [String: Any] = [
+                "workspace_id": workspaceID.rawValue,
+                "surface_id": terminalID.rawValue,
+                "text": text,
+                "submit_key": submitKey,
+                "client_id": clientID,
+            ]
+            if let viewportSize = reportedViewportSizesByTerminalKey[key] {
+                params["viewport_columns"] = viewportSize.columns
+                params["viewport_rows"] = viewportSize.rows
+            }
+            let responseData = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "terminal.paste",
+                    params: params
+                )
+            )
+            guard isCurrentRemoteOperation(client: client, generation: generation) else { return false }
+            handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
+            return true
+        } catch {
+            guard generation == connectionGeneration else { return false }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
+            markMacConnectionUnavailableIfNeeded(after: error)
+            connectionError = Self.localizedConnectionError(for: error)
+            return false
         }
     }
 
