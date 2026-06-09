@@ -12259,12 +12259,16 @@ enum BrowserDataImporter {
     // represented unambiguously in a header (so the caller keeps the exact value via
     // the properties path instead).
     private static func httpOnlyCookieViaHeader(_ p: SafariBinaryCookiesParser.ParsedCookie) -> HTTPCookie? {
-        // Any ";"/"," in a field would be misparsed as an attribute/cookie boundary
-        // by the Set-Cookie parser, and "=" in the name would corrupt the name=value
-        // split. Bail to the caller's properties path for those (rare) cookies.
-        guard !p.value.contains(";"), !p.value.contains(","),
-              !p.name.contains(";"), !p.name.contains(","), !p.name.contains("="),
-              !p.path.contains(";"), !p.path.contains(",") else { return nil }
+        // Bail to the caller's properties path for any field that can't be safely
+        // represented in a Set-Cookie header. ";"/"," are attribute/cookie separators;
+        // a quote or ASCII control character can make the parser reinterpret the cookie
+        // (and the post-parse check below only verifies name/value, not path/scope);
+        // "=" in the name would corrupt the name=value split.
+        let disallowedInField = CharacterSet(charactersIn: ";,\"").union(.controlCharacters)
+        let disallowedInName = disallowedInField.union(CharacterSet(charactersIn: "="))
+        guard p.value.rangeOfCharacter(from: disallowedInField) == nil,
+              p.path.rangeOfCharacter(from: disallowedInField) == nil,
+              p.name.rangeOfCharacter(from: disallowedInName) == nil else { return nil }
         let scheme = p.isSecure ? "https" : "http"
         let host = p.domain.hasPrefix(".") ? String(p.domain.dropFirst()) : p.domain
         guard let url = URL(string: "\(scheme)://\(host)/") else { return nil }
