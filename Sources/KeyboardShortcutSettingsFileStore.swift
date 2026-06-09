@@ -952,17 +952,6 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[BrowserThemeSettings.modeKey] = .string(mode.rawValue)
         }
-        if let value = jsonDouble(section["pageZoom"]) {
-            guard BrowserPageZoomSettings.isSupported(value) else {
-                logInvalid("browser.pageZoom", sourcePath: sourcePath)
-                return
-            }
-            snapshot.managedUserDefaults[BrowserPageZoomSettings.key] = .double(
-                BrowserPageZoomSettings.clamp(value)
-            )
-        } else if section.keys.contains("pageZoom") {
-            logInvalid("browser.pageZoom", sourcePath: sourcePath)
-        }
         if let value = jsonBool(section["discardHiddenWebViews"]) {
             snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.enabledKey] = .bool(value)
         }

@@ -952,14 +952,6 @@
           "default": "system",
           "description": "Embedded browser theme."
         },
-        "pageZoom": {
-          "type": "number",
-          "minimum": 0.25,
-          "maximum": 5,
-          "default": 1,
-          "descriptionKey": "schemaDescriptions.browser.pageZoom",
-          "description": "Default page zoom for newly opened browser panes. Browser zoom shortcuts update this value automatically."
-        },
         "discardHiddenWebViews": {
           "type": "boolean",
           "default": true,

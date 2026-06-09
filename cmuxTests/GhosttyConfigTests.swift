@@ -2296,44 +2296,6 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
 @MainActor
 final class BrowserDefaultsNormalizationTests: XCTestCase {
-    private func withSavedStandardPageZoom(_ body: (UserDefaults) throws -> Void) rethrows {
-        let defaults = UserDefaults.standard
-        let previous = defaults.object(forKey: BrowserPageZoomSettings.key)
-        defer {
-            if let previous {
-                defaults.set(previous, forKey: BrowserPageZoomSettings.key)
-            } else {
-                defaults.removeObject(forKey: BrowserPageZoomSettings.key)
-            }
-        }
-        try body(defaults)
-    }
-
-    func testPageZoomSettingsClampResolvedDefaultPersistedReadbackAndFallback() throws {
-        let suiteName = "cmux.browserPageZoomSettingsTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        XCTAssertEqual(BrowserPageZoomSettings.clamp(0.1), BrowserPageZoomSettings.minimumPageZoom)
-        XCTAssertEqual(BrowserPageZoomSettings.clamp(10), BrowserPageZoomSettings.maximumPageZoom)
-        XCTAssertEqual(BrowserPageZoomSettings.clamp(0.8), 0.8)
-        XCTAssertEqual(BrowserPageZoomSettings.resolvedDefault(defaults: defaults), BrowserPageZoomSettings.defaultPageZoom)
-
-        BrowserPageZoomSettings.setDefault(0.8, defaults: defaults)
-        XCTAssertEqual(defaults.double(forKey: BrowserPageZoomSettings.key), 0.8, accuracy: 0.0001)
-        XCTAssertEqual(BrowserPageZoomSettings.resolvedDefault(defaults: defaults), 0.8, accuracy: 0.0001)
-
-        defaults.set(10.0, forKey: BrowserPageZoomSettings.key)
-        XCTAssertEqual(
-            BrowserPageZoomSettings.resolvedDefault(defaults: defaults),
-            BrowserPageZoomSettings.maximumPageZoom,
-            accuracy: 0.0001
-        )
-
-        defaults.set("invalid", forKey: BrowserPageZoomSettings.key)
-        XCTAssertEqual(BrowserPageZoomSettings.resolvedDefault(defaults: defaults), BrowserPageZoomSettings.defaultPageZoom)
-    }
-
     /// Moving default registration + settings normalization out of
     /// `BrowserPanelView.onAppear` into the model bootstrap (issue #5303) keeps the
     /// canonicalization behavior: an out-of-range or legacy raw value stored in
@@ -2350,7 +2312,6 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         defaults.set(999, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
         defaults.set(999.0, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
         defaults.set(-5.0, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
-        defaults.set(10.0, forKey: BrowserPageZoomSettings.key)
 
         BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
 
@@ -2359,7 +2320,6 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing)
         XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey), BrowserProfilePopoverDebugSettings.defaultHorizontalPadding, accuracy: 0.0001)
         XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey), BrowserProfilePopoverDebugSettings.defaultVerticalPadding, accuracy: 0.0001)
-        XCTAssertEqual(defaults.double(forKey: BrowserPageZoomSettings.key), BrowserPageZoomSettings.maximumPageZoom, accuracy: 0.0001)
 
         // Registered fallbacks are available for keys that were never set.
         XCTAssertEqual(defaults.string(forKey: BrowserSearchSettings.searchEngineKey), BrowserSearchSettings.defaultSearchEngine.rawValue)
@@ -2379,41 +2339,11 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         let validThemeRaw = BrowserThemeSettings.mode(for: "dark").rawValue
         defaults.set(validThemeRaw, forKey: BrowserThemeSettings.modeKey)
         defaults.set(validSpacing, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
-        defaults.set(0.8, forKey: BrowserPageZoomSettings.key)
 
         BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
 
         XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), validThemeRaw)
         XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), validSpacing)
-        XCTAssertEqual(defaults.double(forKey: BrowserPageZoomSettings.key), 0.8, accuracy: 0.0001)
-    }
-
-    func testNewBrowserPanelUsesPersistedDefaultPageZoom() throws {
-        try withSavedStandardPageZoom { defaults in
-            BrowserPageZoomSettings.setDefault(0.8, defaults: defaults)
-
-            let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
-
-            XCTAssertEqual(panel.currentPageZoomFactor(), 0.8, accuracy: 0.0001)
-        }
-    }
-
-    func testZoomMutationsPersistDefaultButSessionRestoreDoesNot() throws {
-        try withSavedStandardPageZoom { defaults in
-            BrowserPageZoomSettings.setDefault(1.0, defaults: defaults)
-            let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
-
-            XCTAssertTrue(panel.zoomOut())
-            XCTAssertEqual(panel.currentPageZoomFactor(), 0.9, accuracy: 0.0001)
-            XCTAssertEqual(BrowserPageZoomSettings.resolvedDefault(defaults: defaults), 0.9, accuracy: 0.0001)
-
-            XCTAssertTrue(panel.restorePageZoomFactor(1.2))
-            XCTAssertEqual(panel.currentPageZoomFactor(), 1.2, accuracy: 0.0001)
-            XCTAssertEqual(BrowserPageZoomSettings.resolvedDefault(defaults: defaults), 0.9, accuracy: 0.0001)
-
-            XCTAssertTrue(panel.resetZoom())
-            XCTAssertEqual(BrowserPageZoomSettings.resolvedDefault(defaults: defaults), 1.0, accuracy: 0.0001)
-        }
     }
 }
 
