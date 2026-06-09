@@ -52,6 +52,9 @@ jobs:
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
 
+      - name: Validate release attestation retry guard
+        run: ./tests/test_ci_attestation_retry.sh
+
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 
@@ -76,14 +79,8 @@ jobs:
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
 
-      # Paused: stale-base merge races (two PRs each fitting the budget can
-      # overshoot when merged back-to-back without rebasing). CodeRabbit and
-      # Greptile already flag large-file growth on PRs. Re-enable by uncommenting
-      # this step (and refresh the budget tsv first):
-      #   python3 scripts/swift_file_length_budget.py \
-      #     --budget .github/swift-file-length-budget.tsv --write-budget
-      # - name: Validate Swift file length budget
-      #   run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
+      - name: Validate Swift file length budget
+        run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
 
   remote-daemon-tests:
     runs-on: ubuntu-latest
@@ -204,10 +201,7 @@ jobs:
           CMUX_DB_TEST: "1"
           DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: |
-          bun test tests/db-schema.test.ts
-          bun test tests/drizzle-effect.test.ts
-          bun test tests/vm-db-read-model.test.ts
+        run: bun run test:db:behavior
 
   tests:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
@@ -349,7 +343,6 @@ jobs:
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
-              -skip-testing:cmuxTests/FileExplorerStoreTests/testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath \
               test 2>&1 &
             local xcodebuild_pid=$!
             local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
@@ -431,16 +424,9 @@ jobs:
             CmuxSocketControl
             CMUXAgentLaunch
           )
-          # Pre-existing failure unrelated to package correctness: the catalog
-          # intentionally reuses some UserDefaults keys across sections (e.g. a
-          # toggle surfaced under both automation.* and integrations.*), which
-          # userDefaultsStorageKeysAreUnique flags. Skip just that assertion so
-          # the package suites still gate CI. Remove the skip if the catalog is
-          # de-duplicated.
           for pkg in "${PACKAGES[@]}"; do
             echo "::group::swift test Packages/$pkg"
-            swift test --package-path "Packages/$pkg" \
-              --skip userDefaultsStorageKeysAreUnique
+            swift test --package-path "Packages/$pkg"
             echo "::endgroup::"
           done
 
@@ -727,11 +713,22 @@ jobs:
           lipo ghostty-cli-helper/ghostty -verify_arch arm64 x86_64
 
       - name: Upload universal Ghostty CLI helper
+        id: upload-ghostty-cli-helper
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-ghostty-cli-helper
           path: ghostty-cli-helper/ghostty
           if-no-files-found: error
+
+      - name: Retry universal Ghostty CLI helper upload
+        if: steps.upload-ghostty-cli-helper.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-ghostty-cli-helper
+          path: ghostty-cli-helper/ghostty
+          if-no-files-found: error
+          overwrite: true
 
   release-build:
     needs: release-ghostty-cli-helper

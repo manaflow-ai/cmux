@@ -123,6 +123,85 @@ check_release_build_signal() {
   echo "PASS: release-build keeps universal artifact verification"
 }
 
+check_release_helper_upload_retry() {
+  if ! awk '
+    /^  release-ghostty-cli-helper:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /- name: Upload universal Ghostty CLI helper/ { in_upload=1; next }
+    in_upload && /^[[:space:]]*- name:/ { in_upload=0 }
+    in_upload && /id:[[:space:]]*upload-ghostty-cli-helper/ { upload_id=1 }
+    in_upload && /continue-on-error:[[:space:]]*true/ { upload_continue=1 }
+    in_upload && /uses: actions\/upload-artifact@/ { upload_action=1 }
+    in_upload && /if-no-files-found:[[:space:]]*error/ { upload_required=1 }
+
+    in_job && /- name: Retry universal Ghostty CLI helper upload/ { in_retry=1; retry_step=1; next }
+    in_retry && /^[[:space:]]*- name:/ { in_retry=0 }
+    in_retry && index($0, "steps.upload-ghostty-cli-helper.outcome == '\''failure'\''") { retry_if=1 }
+    in_retry && /uses: actions\/upload-artifact@/ { retry_action=1 }
+    in_retry && /if-no-files-found:[[:space:]]*error/ { retry_required=1 }
+    in_retry && /overwrite:[[:space:]]*true/ { retry_overwrite=1 }
+
+    END {
+      exit !(upload_id && upload_continue && upload_action && upload_required && retry_step && retry_if && retry_action && retry_required && retry_overwrite)
+    }
+  ' "$CI_FILE"; then
+    echo "FAIL: release-ghostty-cli-helper must retry required Ghostty helper artifact uploads instead of failing on a single transient upload error"
+    exit 1
+  fi
+
+  echo "PASS: release-ghostty-cli-helper retries required Ghostty helper artifact uploads"
+}
+
+check_no_ci_xctest_skips() {
+  if grep -nE '(^|[[:space:]])-skip-testing:' "$CI_FILE"; then
+    echo "FAIL: ci.yml must not exclude individual XCTest methods with -skip-testing; fix or isolate the flaky test instead"
+    exit 1
+  fi
+
+  echo "PASS: ci.yml does not exclude XCTest methods"
+}
+
+check_no_ci_swift_package_skips() {
+  if grep -nE '(^|[[:space:]])swift[[:space:]]+test([[:space:]].*)?[[:space:]]--skip([[:space:]]|$)' "$CI_FILE"; then
+    echo "FAIL: ci.yml must not exclude Swift package tests with swift test --skip; fix or isolate the failing package test instead"
+    exit 1
+  fi
+
+  echo "PASS: ci.yml does not exclude Swift package tests"
+}
+
+check_web_db_behavior_tests() {
+  local db_runner="$ROOT_DIR/web/scripts/run-db-behavior-tests.sh"
+  if [[ ! -x "$db_runner" ]]; then
+    echo "FAIL: web DB behavior runner must exist and be executable"
+    exit 1
+  fi
+
+  if ! grep -Fq '"test:db:behavior": "bash scripts/run-db-behavior-tests.sh"' "$ROOT_DIR/web/package.json"; then
+    echo "FAIL: web/package.json must expose test:db:behavior for DB-gated web tests"
+    exit 1
+  fi
+
+  if ! awk '
+    /- name: Database behavior tests/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /CMUX_DB_TEST:[[:space:]]*"1"/ { saw_env=1 }
+    in_step && /bun run test:db:behavior/ { saw_runner=1 }
+    END { exit !(saw_env && saw_runner) }
+  ' "$CI_FILE"; then
+    echo "FAIL: ci.yml must run the DB behavior test discovery runner with CMUX_DB_TEST=1"
+    exit 1
+  fi
+
+  if ! grep -Fq 'grep -q "process\\.env\\.CMUX_DB_TEST"' "$db_runner"; then
+    echo "FAIL: DB behavior runner must discover CMUX_DB_TEST-gated files instead of hard-coding a subset"
+    exit 1
+  fi
+
+  echo "PASS: web DB behavior tests run through the discovery runner"
+}
+
 # ci.yml jobs
 check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
@@ -142,3 +221,7 @@ check_e2e_runner_fallbacks
 
 check_xcode_selection
 check_release_build_signal
+check_release_helper_upload_retry
+check_no_ci_xctest_skips
+check_no_ci_swift_package_skips
+check_web_db_behavior_tests

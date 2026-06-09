@@ -5308,14 +5308,45 @@ final class BrowserPanel: Panel, ObservableObject {
             webView.underPageBackgroundColor = .clear
             webView.layer?.isOpaque = false
             webView.layer?.backgroundColor = NSColor.clear.cgColor
+            portalAnchorView.wantsLayer = true
+            portalAnchorView.layer?.isOpaque = false
+            portalAnchorView.layer?.backgroundColor = NSColor.clear.cgColor
             return
         }
-        // Restore opaque drawing in case a transparent theme previously made
-        // this webview clear before the user switched to an opaque theme.
+        if usesTransparentBackground {
+            // Transparent-background internal surface (the diff viewer, and future
+            // app-bundled cmux panels) on an OPAQUE theme. The page keeps its body
+            // transparent, and the pane behind it is a plain gray window backdrop,
+            // not the terminal color. With WebKit drawing its own background the
+            // webview flashes white during navigation (blank document) and any
+            // transparent page region (loading skeleton, empty/error state) shows
+            // gray. So instead of letting WebKit draw, paint the webview and its
+            // portal anchor with the theme color directly (clear-draw + themed
+            // layer, exactly like the markdown and agent-session renderers). That
+            // makes the blank webview, the brief pane-reveal frame, and every
+            // transparent page region render the terminal color from the first
+            // frame. Tracks live theme changes via this same call.
+            webView.wantsLayer = true
+            webView.setValue(false, forKey: "drawsBackground")
+            webView.underPageBackgroundColor = color
+            webView.layer?.isOpaque = color.alphaComponent >= 0.999
+            webView.layer?.backgroundColor = color.cgColor
+            portalAnchorView.wantsLayer = true
+            portalAnchorView.layer?.isOpaque = color.alphaComponent >= 0.999
+            portalAnchorView.layer?.backgroundColor = color.cgColor
+            return
+        }
+        // Real website on an opaque theme: keep WebKit drawing its own background
+        // so pages without their own CSS background remain readable. (Restores
+        // opaque drawing in case a transparent theme previously made this webview
+        // clear before the user switched to an opaque theme.)
         webView.setValue(true, forKey: "drawsBackground")
         webView.layer?.isOpaque = color.alphaComponent >= 0.999
         webView.layer?.backgroundColor = nil
         webView.underPageBackgroundColor = color
+        portalAnchorView.wantsLayer = true
+        portalAnchorView.layer?.isOpaque = false
+        portalAnchorView.layer?.backgroundColor = NSColor.clear.cgColor
     }
 
     func drawsConfiguredWebViewBackgroundForCurrentPage() -> Bool {
