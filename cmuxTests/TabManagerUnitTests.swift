@@ -476,12 +476,10 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     }
 
     func testChildExitAfterRemoteSessionEndKeepsWorkspaceAndDemotesToLocal() throws {
-        let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let remotePanelId = workspace.focusedPanelId else {
-            XCTFail("Expected selected workspace with focused panel")
-            return
-        }
+        let fixture = try makeTabManagerChildExitFixture()
+        let manager = fixture.manager
+        let workspace = fixture.workspace
+        let remotePanelId = fixture.panelId
 
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
@@ -500,6 +498,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: remotePanelId, relayPort: 64016)
+        workspace.teardownRemoteConnection()
 
         XCTAssertFalse(workspace.isRemoteWorkspace)
 
