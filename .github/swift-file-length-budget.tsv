@@ -15,7 +15,7 @@
 7230	cmuxTests/WorkspaceUnitTests.swift
 7205	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6719	cmuxTests/GhosttyConfigTests.swift
-6382	cmuxTests/TerminalAndGhosttyTests.swift
+6392	cmuxTests/TerminalAndGhosttyTests.swift
 6120	CLI/cmux_open.swift
 5985	Sources/TextBoxInput.swift
 5946	cmuxTests/SessionPersistenceTests.swift
@@ -55,7 +55,7 @@
 1751	Sources/WindowDragHandleView.swift
 1742	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1715	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
-1713	cmuxUITests/MultiWindowNotificationsUITests.swift
+1743	cmuxUITests/MultiWindowNotificationsUITests.swift
 1708	Sources/RestorableAgentSession.swift
 1707	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1654	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
@@ -78,7 +78,7 @@
 1103	cmuxTests/FileExplorerStoreTests.swift
 1084	cmuxTests/AgentHibernationTests.swift
 1048	Sources/GhosttyConfig.swift
-1020	cmuxUITests/BonsplitTabDragUITests.swift
+1058	cmuxUITests/BonsplitTabDragUITests.swift
 1015	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 969	cmuxUITests/TerminalCmdClickUITests.swift
