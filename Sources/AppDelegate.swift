@@ -19,7 +19,7 @@ import Darwin
 import CmuxFoundation
 import SessionAutosave
 
-private typealias AppSessionAutosaveCoordinator = SessionAutosaveCoordinator<RestorableAgentSessionIndex>
+private typealias AppSessionAutosaveCoordinator = SessionAutosaveCoordinator<ProcessDetectedResumeIndexes>
 
 private struct MultiWindowRouteCLIResult {
     let status: String
@@ -1245,7 +1245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Prewarm the shared restorable-agent index off the main thread so the first
         // tab/workspace/window close after launch reads a warm cache instead of paying a
-        // synchronous RestorableAgentSessionIndex.load() on the main thread. See
+        // synchronous restorable-agent index load on the main thread. See
         // closedPanelHistoryEntry.
         if !isRunningUnderXCTest {
             SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
@@ -4037,15 +4037,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return
         }
-        let restorableAgentIndex = await sessionAutosaveCoordinator.loadSnapshot {
-            RestorableAgentSessionIndex.loadStaleTolerant()
-        }
+        let resumeIndexes = await ProcessDetectedResumeIndexes.load()
         guard !Task.isCancelled else { return }
-        sessionAutosaveCoordinator.cacheSnapshot(restorableAgentIndex)
+        sessionAutosaveCoordinator.cacheSnapshot(resumeIndexes)
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
-            restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: nil
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
 #if DEBUG
         fingerprintMs = (ProcessInfo.processInfo.systemUptime - fingerprintStart) * 1000.0
@@ -4070,7 +4068,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !Task.isCancelled else { return }
         _ = saveSessionSnapshotUsingCachedResumeMetadata(
             includeScrollback: false,
-            restorableAgentIndex: restorableAgentIndex
+            resumeMetadata: resumeIndexes
         )
 #if DEBUG
         saveMs = (ProcessInfo.processInfo.systemUptime - saveStart) * 1000.0
@@ -4102,7 +4100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         let resumeIndexes = ProcessDetectedResumeIndexes.loadForTerminationSnapshotSynchronously()
-        sessionAutosaveCoordinator.cacheSnapshot(resumeIndexes.restorableAgentIndex)
+        sessionAutosaveCoordinator.cacheSnapshot(resumeIndexes)
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
@@ -4126,7 +4124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let resumeIndexes = await ProcessDetectedResumeIndexes.load()
                 guard !Task.isCancelled,
                       !self.isTerminatingApp else { return }
-                self.sessionAutosaveCoordinator.cacheSnapshot(resumeIndexes.restorableAgentIndex)
+                self.sessionAutosaveCoordinator.cacheSnapshot(resumeIndexes)
                 _ = self.saveSessionSnapshot(
                     includeScrollback: includeScrollback,
                     removeWhenEmpty: removeWhenEmpty,
@@ -4141,10 +4139,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func saveSessionSnapshotUsingCachedResumeMetadata(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        resumeMetadata: ProcessDetectedResumeIndexes? = nil
     ) -> Bool {
-        guard let restorableAgentIndex = restorableAgentIndexForCheapSessionSnapshot(
-            explicitIndex: restorableAgentIndex
+        guard let resumeMetadata = resumeMetadataForCheapSessionSnapshot(
+            explicitMetadata: resumeMetadata
         ) else {
 #if DEBUG
             cmuxDebugLog("session.save.skipped reason=missing_cached_resume_metadata includeScrollback=\(includeScrollback ? 1 : 0)")
@@ -4154,16 +4152,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
-            restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: nil
+            restorableAgentIndex: resumeMetadata.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeMetadata.surfaceResumeBindingIndex
         )
     }
 
-    private func restorableAgentIndexForCheapSessionSnapshot(
-        explicitIndex: RestorableAgentSessionIndex?
-    ) -> RestorableAgentSessionIndex? {
+    private func resumeMetadataForCheapSessionSnapshot(
+        explicitMetadata: ProcessDetectedResumeIndexes?
+    ) -> ProcessDetectedResumeIndexes? {
         sessionAutosaveCoordinator.snapshotForCheapSave(
-            explicitSnapshot: explicitIndex
+            explicitSnapshot: explicitMetadata
         )
     }
 
@@ -16084,17 +16082,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             restorableAgentIndex: nil
         )
         let workspaceIds = context.tabManager.sessionSnapshotWorkspaceIds()
-        SharedLiveAgentIndex.shared.withSnapshotForPersistence { [weak self, windowId = context.windowId, baseSnapshot, workspaceIds] restorableAgentIndex in
-            guard let self else { return }
-            guard !self.isTerminatingApp,
-                  !self.isApplyingSessionRestore else { return }
-            self.recordClosedWindowHistory(
-                windowId: windowId,
-                snapshot: baseSnapshot,
-                workspaceIds: workspaceIds,
-                restorableAgentIndex: restorableAgentIndex
-            )
-        }
+        let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        recordClosedWindowHistory(
+            windowId: context.windowId,
+            snapshot: baseSnapshot,
+            workspaceIds: workspaceIds,
+            restorableAgentIndex: restorableAgentIndex
+        )
     }
 
     private func recordClosedWindowHistory(

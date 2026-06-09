@@ -5355,12 +5355,12 @@ class TabManager: ObservableObject {
             }
         }
         if let closedWorkspaceHistoryPayload {
-            pushClosedWorkspaceHistoryAfterLoadingResumeMetadata(closedWorkspaceHistoryPayload)
+            pushClosedWorkspaceHistoryUsingCachedResumeMetadata(closedWorkspaceHistoryPayload)
         }
         publishCmuxWorkspaceClosed(workspace)
     }
 
-    private func pushClosedWorkspaceHistoryAfterLoadingResumeMetadata(
+    private func pushClosedWorkspaceHistoryUsingCachedResumeMetadata(
         _ payload: (
             workspaceId: UUID,
             windowId: UUID?,
@@ -5368,9 +5368,8 @@ class TabManager: ObservableObject {
             snapshot: SessionWorkspaceSnapshot
         )
     ) {
-        SharedLiveAgentIndex.shared.withSnapshotForPersistence { [weak self, payload] restorableAgentIndex in
-            self?.pushClosedWorkspaceHistory(payload, restorableAgentIndex: restorableAgentIndex)
-        }
+        let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        pushClosedWorkspaceHistory(payload, restorableAgentIndex: restorableAgentIndex)
     }
 
     private func pushClosedWorkspaceHistory(
@@ -6937,7 +6936,7 @@ class TabManager: ObservableObject {
         // The short cooldown coalesces rapid workspace-cycle key repeats before SwiftUI remounts idle views.
         workspaceCycleCooldownTask = Task { [weak self, generation] in
             do {
-                try await ContinuousClock().sleep(for: .milliseconds(220))
+                try await Task.sleep(nanoseconds: 220_000_000)
             } catch {
 #if DEBUG
                 await MainActor.run {

@@ -1616,22 +1616,16 @@ private struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
 private actor TerminalSurfaceRuntimeTeardownCoordinator {
     static let shared = TerminalSurfaceRuntimeTeardownCoordinator()
 
-    private let timeout: Duration = .seconds(5)
-    private var pendingReasonsById: [UUID: String] = [:]
-    private var timeoutTasksById: [UUID: Task<Void, Never>] = [:]
     private var queuedRequests: [TerminalSurfaceRuntimeTeardownRequest] = []
     private var isWorkerRunning = false
 
     func enqueue(_ request: TerminalSurfaceRuntimeTeardownRequest) {
-        pendingReasonsById[request.id] = request.reason
-        scheduleTimeout(id: request.id)
         queuedRequests.append(request)
         if !isWorkerRunning {
             isWorkerRunning = true
             Task.detached(priority: .utility) {
                 while let request = await self.nextRequestForWorker() {
                     await Self.free(request)
-                    await self.complete(id: request.id)
                 }
             }
         }
@@ -1662,39 +1656,6 @@ private actor TerminalSurfaceRuntimeTeardownCoordinator {
         cmuxDebugLog(
             "surface.lifecycle.nativeFree.end surface=\(request.surfaceToken) " +
             "workspace=\(request.workspaceToken) reason=\(request.reason)"
-        )
-#endif
-    }
-
-    private func complete(id: UUID) {
-        cancelTimeout(id: id)
-        pendingReasonsById.removeValue(forKey: id)
-    }
-
-    private func scheduleTimeout(id: UUID) {
-        cancelTimeout(id: id)
-        let timeout = self.timeout
-        timeoutTasksById[id] = Task { [weak self] in
-            do {
-                try await ContinuousClock().sleep(for: timeout)
-            } catch {
-                return
-            }
-            await self?.timeoutExpired(id: id)
-        }
-    }
-
-    private func cancelTimeout(id: UUID) {
-        timeoutTasksById.removeValue(forKey: id)?.cancel()
-    }
-
-    private func timeoutExpired(id: UUID) {
-        timeoutTasksById.removeValue(forKey: id)?.cancel()
-        guard let reason = pendingReasonsById[id] else { return }
-#if DEBUG
-        cmuxDebugLog(
-            "surface.lifecycle.nativeFree.timeout surface=\(id.uuidString.prefix(5)) " +
-            "reason=\(reason)"
         )
 #endif
     }
@@ -5505,6 +5466,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
     private var needsConfirmCloseOverrideForTesting: Bool?
     private var runtimeSurfaceFreedOutOfBandForTesting = false
+    private var runtimeSurfaceInstalledForTesting = false
     private var runtimeSurfaceCreateAttemptCountForTesting = 0
     private let debugForceRefreshCountLock = NSLock()
     private var debugForceRefreshCountValue = 0
@@ -5865,6 +5827,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             mobileByteTeeContext = nil
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
+#if DEBUG
+            runtimeSurfaceInstalledForTesting = false
+#endif
             activePortalHostLease = nil
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
@@ -6140,6 +6105,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+#if DEBUG
+        runtimeSurfaceInstalledForTesting = false
+#endif
 
         guard let surfaceToFree else {
             callbackContext?.release()
@@ -6198,6 +6166,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+#if DEBUG
+        runtimeSurfaceInstalledForTesting = false
+#endif
         activePortalHostLease = nil
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
@@ -6732,6 +6703,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             } else {
                 self.surface = ghostty_surface_new(app, &surfaceConfig)
             }
+#if DEBUG
+            runtimeSurfaceInstalledForTesting = false
+#endif
         }
 
         let resolvedWorkingDirectory: String? = {
@@ -7229,6 +7203,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func setOcclusion(_ visible: Bool) {
         guard let surface = surface else { return }
+#if DEBUG
+        guard !runtimeSurfaceInstalledForTesting else { return }
+#endif
         ghostty_surface_set_occlusion(surface, visible)
     }
 
@@ -8104,6 +8081,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         surface = nil
+        runtimeSurfaceInstalledForTesting = false
         ghostty_surface_free(surfaceToFree)
         callbackContext?.release()
     }
@@ -8125,6 +8103,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         ghostty_surface_free(surfaceToFree)
         runtimeSurfaceFreedOutOfBandForTesting = true
+        runtimeSurfaceInstalledForTesting = false
         callbackContext?.release()
     }
 
@@ -8133,6 +8112,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surface = runtimeSurface
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
+        runtimeSurfaceInstalledForTesting = true
     }
 #endif
 
@@ -8169,6 +8149,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+#if DEBUG
+        runtimeSurfaceInstalledForTesting = false
+#endif
 
         guard let surfaceToFree else {
 #if DEBUG
@@ -14019,11 +14002,13 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
-    func setVisibleInUI(_ visible: Bool) {
+    func setVisibleInUI(_ visible: Bool, updateRuntimeOcclusion: Bool = true) {
         let wasVisible = surfaceView.isVisibleInUI
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
-        if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
+        if updateRuntimeOcclusion,
+           wasVisible != visible,
+           lastRequestedPortalOcclusionVisible != visible {
             lastRequestedPortalOcclusionVisible = visible
             surfaceView.terminalSurface?.setOcclusion(visible)
         }

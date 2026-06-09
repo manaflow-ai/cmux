@@ -765,10 +765,7 @@ extension Workspace {
             panelId: panelId,
             includeScrollback: true,
             restorableAgent: nil,
-            resumeBinding: effectiveSurfaceResumeBinding(
-                panelId: panelId,
-                surfaceResumeBindingIndex: nil
-            )
+            resumeBinding: cachedSurfaceResumeBinding(panelId: panelId)
         ) else {
             return nil
         }
@@ -804,14 +801,13 @@ extension Workspace {
         guard let entry = closedPanelHistoryEntry(panelId: panelId, tabId: tab.id, pane: pane) else {
             return false
         }
-        pushClosedPanelHistoryAfterLoadingResumeMetadata(entry)
+        pushClosedPanelHistoryUsingCachedResumeMetadata(entry)
         return true
     }
 
-    private func pushClosedPanelHistoryAfterLoadingResumeMetadata(_ entry: ClosedPanelHistoryEntry) {
-        SharedLiveAgentIndex.shared.withSnapshotForPersistence { [weak self, entry] restorableAgentIndex in
-            self?.pushClosedPanelHistory(entry, restorableAgentIndex: restorableAgentIndex)
-        }
+    private func pushClosedPanelHistoryUsingCachedResumeMetadata(_ entry: ClosedPanelHistoryEntry) {
+        let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        pushClosedPanelHistory(entry, restorableAgentIndex: restorableAgentIndex)
     }
 
     private func pushClosedPanelHistory(
@@ -1641,6 +1637,10 @@ extension Workspace {
         if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) { return detectedBinding }
         if storedBinding.isProcessDetected { return nil }
         return storedBinding
+    }
+
+    func cachedSurfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
+        surfaceResumeBindingsByPanelId[panelId]
     }
 
     private func createPanel(
@@ -10362,53 +10362,14 @@ final class SharedLiveAgentIndex: ObservableObject {
         return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
-    /// Returns a fresh enough index for persistence, or starts a refresh and reports
-    /// that persistence should wait or skip rather than writing an incomplete snapshot.
-    private func cachedSnapshotForPersistence() -> RestorableAgentSessionIndex? {
-        guard let index,
-              let loadedAt,
-              Date().timeIntervalSince(loadedAt) < Self.cacheTTL else {
-            scheduleRefreshIfStale()
-            return nil
-        }
-        return index
-    }
-
-    /// Loads the restorable-agent index off the main actor for persistence paths that
-    /// can defer until authoritative resume metadata is available.
-    func loadSnapshotForPersistence() async -> RestorableAgentSessionIndex {
-        if let cachedSnapshot = cachedSnapshotForPersistence() {
-            return cachedSnapshot
-        }
-        if let refreshTask {
-            await refreshTask.value
-            if let cachedSnapshot = cachedSnapshotForPersistence() {
-                return cachedSnapshot
-            }
-        }
-        let newIndex = await Task.detached(priority: .utility) {
-            RestorableAgentSessionIndex.loadStaleTolerant()
-        }.value
-        index = newIndex
-        loadedAt = Date()
-        return newIndex
-    }
-
-    /// Provides persistence with a warm authoritative snapshot immediately, or
-    /// defers the callback until the stale-tolerant off-main load completes.
-    func withSnapshotForPersistence(
-        _ body: @escaping @MainActor (RestorableAgentSessionIndex) -> Void
-    ) {
-        if let cachedSnapshot = cachedSnapshotForPersistence() {
-            body(cachedSnapshot)
-            return
-        }
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let snapshot = await self.loadSnapshotForPersistence()
-            body(snapshot)
-        }
+    /// Returns cached resume metadata immediately and schedules a refresh when needed.
+    ///
+    /// Interactive close-history paths must preserve the closed item even when the
+    /// metadata cache is cold. Returning `.empty` on cache miss avoids main-actor
+    /// process probing and prevents a deferred background load from gating history.
+    func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex {
+        scheduleRefreshIfStale()
+        return index ?? .empty
     }
 
     /// Ensure the hook-store watcher is running and refresh if the cache has aged past the
@@ -15849,7 +15810,7 @@ final class Workspace: Identifiable, ObservableObject {
     func teardownAllPanels() {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
-        hideAllTerminalPortalViews()
+        hideAllTerminalPortalViews(updateRuntimeOcclusion: false)
         hideAllBrowserPortalViews()
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
@@ -17006,10 +16967,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Hide all terminal portal views for this workspace.
     /// Called before the workspace is unmounted to prevent portal-hosted terminal
     /// views from covering browser panes in the newly selected workspace.
-    func hideAllTerminalPortalViews() {
+    func hideAllTerminalPortalViews(updateRuntimeOcclusion: Bool = true) {
         for panel in panels.values {
             guard let terminal = panel as? TerminalPanel else { continue }
-            terminal.hostedView.setVisibleInUI(false)
+            terminal.hostedView.setVisibleInUI(false, updateRuntimeOcclusion: updateRuntimeOcclusion)
             TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
         }
     }
@@ -19126,10 +19087,7 @@ extension Workspace: BonsplitDelegate {
             let transferFallbackTitle = cachedTitle ?? panel.displayTitle
             let restorableAgent = restoredAgentSnapshotsByPanelId[panelId]
             let restorableAgentResumeState = restoredAgentResumeStatesByPanelId[panelId]
-            let resumeBinding = effectiveSurfaceResumeBinding(
-                panelId: panelId,
-                surfaceResumeBindingIndex: nil
-            )
+            let resumeBinding = cachedSurfaceResumeBinding(panelId: panelId)
             let agentRuntime = agentRuntimeState(forPanelId: panelId)
             pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
                 sourceWorkspaceId: id,
@@ -19327,7 +19285,7 @@ extension Workspace: BonsplitDelegate {
         if !closedPanelIds.isEmpty {
             if !isDetachingCloseTransaction && !suppressClosedPanelHistory {
                 for entry in closedHistoryEntries {
-                    pushClosedPanelHistoryAfterLoadingResumeMetadata(entry)
+                    pushClosedPanelHistoryUsingCachedResumeMetadata(entry)
                 }
             }
 
