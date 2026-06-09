@@ -476,10 +476,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     }
 
     func testChildExitAfterRemoteSessionEndKeepsWorkspaceAndDemotesToLocal() throws {
-        let fixture = try makeTabManagerChildExitFixture()
-        let manager = fixture.manager
-        let workspace = fixture.workspace
-        let remotePanelId = fixture.panelId
+        let (manager, workspace, remotePanelId) = try makeTabManagerChildExitFixture()
 
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
@@ -543,8 +540,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
         ClosedItemHistoryStore.shared.removeAll()
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let (manager, workspace, panelId) = try makeTabManagerChildExitFixture()
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         var closeRequest: (tabId: UUID, recordHistory: Bool)?
         appDelegate.closeMainWindowContainingTabIdObserverForTesting = { tabId, recordHistory in
@@ -560,8 +556,6 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         appDelegate.recordClosedWindowHistoryForTesting(windowId: windowId)
         XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
         ClosedItemHistoryStore.shared.removeAll()
-
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panelId)
         drainMainQueue()
@@ -579,8 +573,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let (manager, workspace, _) = try makeTabManagerChildExitFixture()
         workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
             transport: .websocket,
             destination: "wss://remote.example.test",
@@ -611,8 +604,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
         ClosedItemHistoryStore.shared.removeAll()
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let (manager, workspace, _) = try makeTabManagerChildExitFixture()
         workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
             transport: .websocket,
             destination: "wss://remote.example.test",
