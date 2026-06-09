@@ -5,6 +5,7 @@ import CmuxMobileRPC
 @testable import CmuxMobileShell
 @testable import CmuxMobileShellUI
 import CmuxMobileShellModel
+import CmuxMobileTransport
 import CmuxMobileWorkspace
 import Foundation
 import StackAuth
@@ -640,7 +641,69 @@ final class TerminalOutputCollector {
     #expect(route.kind == .tailscale)
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "No response from work-mac.tailnet.ts.net:58465. Make sure the host app is open and accepting mobile connections.")
+    // A handshake timeout to a Tailscale host now points the user at the real
+    // cause (Mac asleep / off Tailscale) instead of wrongly blaming the host
+    // app, and carries an actionable guidance line.
+    #expect(store.connectionError == "No response from work-mac.tailnet.ts.net:58465. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network.")
+}
+
+@MainActor
+@Test func manualHostPairingWhileOfflineFailsFastWithGuidanceAndNoDial() async throws {
+    // Reachability preflight: a phone with no network path must fail the pair
+    // immediately with the offline category and never dial a transport, instead
+    // of letting the connect sit in NWConnection's `.waiting` state and stack
+    // the per-route timeouts into the opaque ~60s wait the reporter saw.
+    let dials = TransportDialRecorder()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: RecordingNeverConnectTransportFactory(dials: dials)
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        reachability: OfflineReachability()
+    )
+
+    store.signIn()
+    await store.connectManualHost(name: "Work Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    // Non-empty, offline-specific headline: the spinner can no longer revert
+    // silently, and the message names the real problem (the phone is offline).
+    #expect(store.connectionError == "This device looks offline. Connect to Wi-Fi or cellular, then try again.")
+    // The preflight short-circuited before any transport was created.
+    #expect(await dials.count == 0)
+}
+
+@MainActor
+@Test func qrPairingWhileOfflineFailsFastWithoutDial() async throws {
+    let route = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: UUID().uuidString,
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let dials = TransportDialRecorder()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: RecordingNeverConnectTransportFactory(dials: dials)
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        reachability: OfflineReachability()
+    )
+
+    store.signIn()
+    let result = await store.connectPairingURLResult(try attachURL(for: ticket).absoluteString)
+
+    #expect(result == .failed)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == "This device looks offline. Connect to Wi-Fi or cellular, then try again.")
+    #expect(await dials.count == 0)
 }
 
 @MainActor
@@ -3004,6 +3067,33 @@ private func combinedFrames(_ frames: [Data]) -> Data {
 private struct HangingTransportFactory: CmxByteTransportFactory {
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         HangingTransport()
+    }
+}
+
+/// A ``ReachabilityProviding`` double reporting a permanently-offline device, so
+/// the pairing reachability preflight short-circuits before any connect.
+private struct OfflineReachability: ReachabilityProviding {
+    var isOnline: Bool { false }
+    func pathChanges() -> AsyncStream<Void> {
+        AsyncStream { $0.finish() }
+    }
+}
+
+/// Counts how many times a transport was created (dialed). Used to prove the
+/// offline preflight returns before any transport is made.
+private actor TransportDialRecorder {
+    private(set) var count = 0
+    func record() { count += 1 }
+}
+
+/// A transport factory whose product would never connect; it records each
+/// `makeTransport` so a test can assert the offline preflight never dialed.
+private struct RecordingNeverConnectTransportFactory: CmxByteTransportFactory {
+    let dials: TransportDialRecorder
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        let dials = dials
+        Task { await dials.record() }
+        return HangingTransport()
     }
 }
 
