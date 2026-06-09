@@ -5270,9 +5270,14 @@ class TabManager: ObservableObject {
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
            let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
+            // Prefer the warm cached agent index over a synchronous
+            // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
+            // workspace does not freeze the main thread; fall back to a fresh load only
+            // while the cache has not loaded yet. See closedPanelHistoryEntry.
             let snapshot = workspace.sessionSnapshot(
                 includeScrollback: true,
-                restorableAgentIndex: RestorableAgentSessionIndex.load()
+                restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                    ?? RestorableAgentSessionIndex.load()
             )
             ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,
