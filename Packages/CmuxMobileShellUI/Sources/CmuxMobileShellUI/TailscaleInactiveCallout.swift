@@ -15,13 +15,7 @@ import SwiftUI
 /// App Store product page is the single action: it shows "Open" when the app
 /// is installed and "Get" when it is not.
 struct TailscaleInactiveCallout: View {
-    /// The surface hosting the callout; selects the explanation line.
-    enum Context: String {
-        case pairing
-        case disconnected
-    }
-
-    let context: Context
+    let context: TailscaleInactiveCalloutContext
     @Environment(\.analytics) private var analytics
 
     private static let appStoreURL = URL(string: "https://apps.apple.com/app/tailscale/id1470499037")!
