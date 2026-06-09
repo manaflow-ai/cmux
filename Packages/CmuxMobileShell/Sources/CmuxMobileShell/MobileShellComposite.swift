@@ -2469,6 +2469,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
+                    // The notification feed rows carry `workspace_name`, which
+                    // comes from the same workspace metadata. A rename/close fires
+                    // `workspace.updated` (not `notifications.updated`, whose hash
+                    // omits the label), so refresh the feed too to keep row labels
+                    // current.
+                    self.scheduleNotificationsRefreshFromEvent()
                 } else if event.topic == "notifications.updated" {
                     self.scheduleNotificationsRefreshFromEvent()
                 } else if event.topic == "terminal.render_grid" {

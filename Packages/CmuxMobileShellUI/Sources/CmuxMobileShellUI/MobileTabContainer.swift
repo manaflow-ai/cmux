@@ -58,6 +58,15 @@ struct MobileTabContainer: View {
                 .tag(MobileShellTab.notifications)
         }
         .accessibilityIdentifier("MobileTabBar")
+        // Any explicit open request (in-app feed tap OR an APNs deep-link tap
+        // that lands while the user is on the Notifications tab) must bring the
+        // Workspaces tab forward so the opened workspace is actually visible.
+        // Observing the monotonic token covers a repeat open of the
+        // already-selected workspace too.
+        .onChange(of: store.pendingWorkspaceOpenRequest?.token) { _, _ in
+            guard store.pendingWorkspaceOpenRequest != nil else { return }
+            selectedTab = .workspaces
+        }
     }
 
     private var notificationsTab: some View {
@@ -75,10 +84,9 @@ struct MobileTabContainer: View {
     /// badge clears immediately (propagated to the Mac for reconciliation).
     private func openNotification(_ notification: MobileNotificationPreview) {
         store.markNotificationsRead(forWorkspace: notification.workspaceID)
-        // Switch to the Workspaces tab first, then issue an explicit open request
-        // so the compact iPhone stack actually pushes the workspace detail (a
-        // bare `selectedWorkspaceID` set leaves the compact UI at the root list).
-        selectedTab = .workspaces
+        // The shared explicit-open intent both pushes the compact iPhone stack
+        // and (via the `onChange` above) brings the Workspaces tab forward, so a
+        // bare `selectedWorkspaceID` set that left the UI on the feed is avoided.
         store.requestOpenWorkspace(MobileWorkspacePreview.ID(rawValue: notification.workspaceID))
         if let surfaceID = notification.surfaceID {
             store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))

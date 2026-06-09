@@ -136,7 +136,13 @@ public final class MobilePushCoordinator {
             return
         }
         if let workspaceId {
-            store.selectedWorkspaceID = MobileWorkspacePreview.ID(rawValue: workspaceId)
+            // Route through the shared explicit-open intent so every deep-link
+            // entrypoint (APNs tap, in-app feed tap) behaves identically: it
+            // pushes the compact iPhone navigation stack AND drives the tab
+            // container back to the Workspaces tab, instead of only mutating the
+            // selection behind the scenes (which left a push tap stranded on the
+            // Notifications tab once the tab bar was added).
+            store.requestOpenWorkspace(MobileWorkspacePreview.ID(rawValue: workspaceId))
         }
         if let surfaceId {
             store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceId))
