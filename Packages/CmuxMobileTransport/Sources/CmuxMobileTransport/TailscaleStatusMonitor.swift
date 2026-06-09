@@ -41,20 +41,29 @@ public final class TailscaleStatusMonitor {
         }
         let monitor = NWPathMonitor()
         self.pathMonitor = monitor
-        monitor.pathUpdateHandler = { [weak self] _ in
-            // The handler runs on the monitor queue; the snapshot itself is
-            // re-read on the main actor so observation stays single-threaded.
-            Task { @MainActor in self?.refresh() }
+        monitor.pathUpdateHandler = { [weak self, provider] _ in
+            // NWPathMonitor reports every path change (Wi-Fi, cellular, any
+            // VPN), so walk the interfaces here on the monitor's utility
+            // queue; only the publish hops to the main actor. Keeps the
+            // syscall off the main thread during unrelated network churn.
+            let next = TailscaleStatus(interfaces: provider.currentInterfaceAddresses())
+            Task { @MainActor in self?.apply(next) }
         }
         monitor.start(queue: DispatchQueue(label: "dev.cmux.tailscale-status", qos: .utility))
     }
 
     /// Re-evaluates the tailnet status from a fresh interface snapshot.
     ///
-    /// Cheap (one `getifaddrs` walk); call on app foreground or after a user
-    /// action that may have toggled Tailscale.
+    /// One bounded `getifaddrs` walk (microseconds, no I/O wait); kept
+    /// synchronous so init and the app-foreground caller observe the result
+    /// immediately instead of first painting a stale status.
     public func refresh() {
-        let next = TailscaleStatus(interfaces: provider.currentInterfaceAddresses())
+        apply(TailscaleStatus(interfaces: provider.currentInterfaceAddresses()))
+    }
+
+    /// Publishes a newly evaluated status, dropping no-op updates so SwiftUI
+    /// observation is not invalidated by unrelated path churn.
+    private func apply(_ next: TailscaleStatus) {
         if next != status {
             status = next
         }
