@@ -5305,24 +5305,24 @@ class TabManager: ObservableObject {
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
-        if recordHistory,
-           workspace.isRestorableInSessionSnapshot,
-           let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            // Closed-workspace history is best effort; a cold cache starts a refresh
-            // and the close stays immediate instead of writing incomplete agent state.
-            if let restorableAgentIndex = SharedLiveAgentIndex.shared.cachedSnapshotForPersistence() {
-                let snapshot = workspace.sessionSnapshot(
-                    includeScrollback: true,
-                    restorableAgentIndex: restorableAgentIndex
-                )
-                ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
-                    workspaceId: workspace.id,
-                    windowId: AppDelegate.shared?.windowId(for: self),
-                    workspaceIndex: index,
-                    snapshot: snapshot
-                )))
+        let closedWorkspaceHistoryPayload: (
+            workspaceId: UUID,
+            windowId: UUID?,
+            workspaceIndex: Int,
+            snapshot: SessionWorkspaceSnapshot
+        )? = {
+            guard recordHistory,
+                  workspace.isRestorableInSessionSnapshot,
+                  let index = tabs.firstIndex(where: { $0.id == workspace.id }) else {
+                return nil
             }
-        }
+            return (
+                workspace.id,
+                AppDelegate.shared?.windowId(for: self),
+                index,
+                workspace.sessionSnapshot(includeScrollback: true)
+            )
+        }()
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         clearWorkspacePullRequestTracking(workspaceId: workspace.id)
         sidebarSelectedWorkspaceIds.remove(workspace.id)
@@ -5354,7 +5354,44 @@ class TabManager: ObservableObject {
                 selectedTabId = tabs[newIndex].id
             }
         }
+        if let closedWorkspaceHistoryPayload {
+            pushClosedWorkspaceHistoryAfterLoadingResumeMetadata(closedWorkspaceHistoryPayload)
+        }
         publishCmuxWorkspaceClosed(workspace)
+    }
+
+    private func pushClosedWorkspaceHistoryAfterLoadingResumeMetadata(
+        _ payload: (
+            workspaceId: UUID,
+            windowId: UUID?,
+            workspaceIndex: Int,
+            snapshot: SessionWorkspaceSnapshot
+        )
+    ) {
+        SharedLiveAgentIndex.shared.withSnapshotForPersistence { [weak self, payload] restorableAgentIndex in
+            self?.pushClosedWorkspaceHistory(payload, restorableAgentIndex: restorableAgentIndex)
+        }
+    }
+
+    private func pushClosedWorkspaceHistory(
+        _ payload: (
+            workspaceId: UUID,
+            windowId: UUID?,
+            workspaceIndex: Int,
+            snapshot: SessionWorkspaceSnapshot
+        ),
+        restorableAgentIndex: RestorableAgentSessionIndex
+    ) {
+        let snapshot = payload.snapshot.applyingRestorableAgentIndex(
+            restorableAgentIndex,
+            workspaceId: payload.workspaceId
+        )
+        ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+            workspaceId: payload.workspaceId,
+            windowId: payload.windowId,
+            workspaceIndex: payload.workspaceIndex,
+            snapshot: snapshot
+        )))
     }
 
     /// If `closedWorkspaceId` was the anchor of any group, dissolve that group:
@@ -9309,7 +9346,7 @@ class TabManager: ObservableObject {
 
 extension TabManager {
     func sessionAutosaveFingerprint(
-        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Int {
         var hasher = Hasher()
@@ -9374,7 +9411,7 @@ extension TabManager {
                     into: &hasher
                 )
                 Self.hashRestorableAgentSnapshot(
-                    restorableAgentIndex.snapshot(
+                    restorableAgentIndex?.snapshot(
                         workspaceId: workspace.id,
                         panelId: panelId
                     ),
@@ -9600,7 +9637,7 @@ extension TabManager {
 
     func sessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
         let restorableTabs = tabs

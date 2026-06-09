@@ -761,14 +761,10 @@ extension Workspace {
                 anchorPanelId: fallbackAnchorPanelId
             )
         }
-        // Closed-panel history is best effort; a cold cache starts a refresh and the close
-        // stays immediate instead of paying the synchronous agent-index load.
-        let restorableAgent = SharedLiveAgentIndex.shared.cachedSnapshotForPersistence()?
-            .snapshot(workspaceId: id, panelId: panelId)
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
-            restorableAgent: restorableAgent,
+            restorableAgent: nil,
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
@@ -808,8 +804,33 @@ extension Workspace {
         guard let entry = closedPanelHistoryEntry(panelId: panelId, tabId: tab.id, pane: pane) else {
             return false
         }
-        ClosedItemHistoryStore.shared.push(.panel(entry))
+        pushClosedPanelHistoryAfterLoadingResumeMetadata(entry)
         return true
+    }
+
+    private func pushClosedPanelHistoryAfterLoadingResumeMetadata(_ entry: ClosedPanelHistoryEntry) {
+        SharedLiveAgentIndex.shared.withSnapshotForPersistence { [weak self, entry] restorableAgentIndex in
+            self?.pushClosedPanelHistory(entry, restorableAgentIndex: restorableAgentIndex)
+        }
+    }
+
+    private func pushClosedPanelHistory(
+        _ entry: ClosedPanelHistoryEntry,
+        restorableAgentIndex: RestorableAgentSessionIndex
+    ) {
+        let snapshot = entry.snapshot.applyingRestorableAgentIndex(
+            restorableAgentIndex,
+            workspaceId: entry.workspaceId
+        )
+        ClosedItemHistoryStore.shared.push(.panel(ClosedPanelHistoryEntry(
+            workspaceId: entry.workspaceId,
+            paneId: entry.paneId,
+            paneAnchorPanelId: entry.paneAnchorPanelId,
+            restoreInOriginalPane: entry.restoreInOriginalPane,
+            tabIndex: entry.tabIndex,
+            snapshot: snapshot,
+            fallbackSplitPlacement: entry.fallbackSplitPlacement
+        )))
     }
 
     @discardableResult
@@ -10341,19 +10362,9 @@ final class SharedLiveAgentIndex: ObservableObject {
         return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
-    /// Current cached index. Never blocks. Used by the close-history undo snapshot so
-    /// closing a tab does not pay the synchronous `RestorableAgentSessionIndex.load()`
-    /// cost on the main thread. The directory watcher keeps this current; stale tolerance
-    /// is fine because restore/resume re-reads transcripts from disk and only uses the
-    /// cached snapshot's session identity, not the live PID set.
-    func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex? {
-        scheduleRefreshIfStale()
-        return index
-    }
-
     /// Returns a fresh enough index for persistence, or starts a refresh and reports
     /// that persistence should wait or skip rather than writing an incomplete snapshot.
-    func cachedSnapshotForPersistence() -> RestorableAgentSessionIndex? {
+    private func cachedSnapshotForPersistence() -> RestorableAgentSessionIndex? {
         guard let index,
               let loadedAt,
               Date().timeIntervalSince(loadedAt) < Self.cacheTTL else {
@@ -10381,6 +10392,23 @@ final class SharedLiveAgentIndex: ObservableObject {
         index = newIndex
         loadedAt = Date()
         return newIndex
+    }
+
+    /// Provides persistence with a warm authoritative snapshot immediately, or
+    /// defers the callback until the stale-tolerant off-main load completes.
+    func withSnapshotForPersistence(
+        _ body: @escaping @MainActor (RestorableAgentSessionIndex) -> Void
+    ) {
+        if let cachedSnapshot = cachedSnapshotForPersistence() {
+            body(cachedSnapshot)
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let snapshot = await self.loadSnapshotForPersistence()
+            body(snapshot)
+        }
     }
 
     /// Ensure the hook-store watcher is running and refresh if the cache has aged past the
@@ -19299,7 +19327,7 @@ extension Workspace: BonsplitDelegate {
         if !closedPanelIds.isEmpty {
             if !isDetachingCloseTransaction && !suppressClosedPanelHistory {
                 for entry in closedHistoryEntries {
-                    ClosedItemHistoryStore.shared.push(.panel(entry))
+                    pushClosedPanelHistoryAfterLoadingResumeMetadata(entry)
                 }
             }
 

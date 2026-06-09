@@ -1786,7 +1786,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveTerminatingSessionSnapshotSynchronously(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
@@ -1879,7 +1879,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
         closeAllWebInspectorsBeforeAppTeardown()
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveTerminatingSessionSnapshotSynchronously(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
@@ -1910,7 +1910,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveTerminatingSessionSnapshotSynchronously(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
     }
 
@@ -3654,7 +3654,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
-                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+                _ = self.saveTerminatingSessionSnapshotSynchronously(includeScrollback: true, removeWhenEmpty: false)
                 ClosedItemHistoryStore.shared.flushPendingSaves()
             }
         }
@@ -3668,7 +3668,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.isTerminatingApp {
-                    _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+                    _ = self.saveTerminatingSessionSnapshotSynchronously(includeScrollback: true, removeWhenEmpty: false)
                     ClosedItemHistoryStore.shared.flushPendingSaves()
                 } else {
                     self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
@@ -4083,12 +4083,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Writes the final termination snapshot on the main actor so macOS teardown
+    /// cannot exit before scrollback and process-detected resume metadata persist.
+    /// Normal lifecycle saves must use the async process-detected path instead.
     @discardableResult
-    private func saveSessionSnapshotIncludingProcessDetectedIndexes(
+    private func saveTerminatingSessionSnapshotSynchronously(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        guard Self.shouldWriteSessionSnapshotSynchronously(
+            isTerminatingApp: isTerminatingApp,
+            includeScrollback: includeScrollback
+        ) else {
+            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
+                includeScrollback: includeScrollback,
+                removeWhenEmpty: removeWhenEmpty
+            )
+            return false
+        }
+        let resumeIndexes = ProcessDetectedResumeIndexes.loadForTerminationSnapshotSynchronously()
         sessionAutosaveCoordinator.cacheSnapshot(resumeIndexes.restorableAgentIndex)
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
@@ -4271,7 +4284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func sessionWindowSnapshot(
         for context: MainWindowContext,
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex,
+        restorableAgentIndex: RestorableAgentSessionIndex?,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWindowSnapshot {
         let tabManagerSnapshot = context.tabManager.sessionSnapshot(
@@ -16065,36 +16078,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               !isApplyingSessionRestore else {
             return
         }
-        if let cachedIndex = SharedLiveAgentIndex.shared.cachedSnapshotForPersistence() {
-            recordClosedWindowHistory(for: context, restorableAgentIndex: cachedIndex)
-            return
-        }
-
-        Task { @MainActor [weak self, context] in
+        let baseSnapshot = sessionWindowSnapshot(
+            for: context,
+            includeScrollback: true,
+            restorableAgentIndex: nil
+        )
+        let workspaceIds = context.tabManager.sessionSnapshotWorkspaceIds()
+        SharedLiveAgentIndex.shared.withSnapshotForPersistence { [weak self, windowId = context.windowId, baseSnapshot, workspaceIds] restorableAgentIndex in
             guard let self else { return }
-            let restorableAgentIndex = await SharedLiveAgentIndex.shared.loadSnapshotForPersistence()
             guard !self.isTerminatingApp,
                   !self.isApplyingSessionRestore else { return }
-            self.recordClosedWindowHistory(for: context, restorableAgentIndex: restorableAgentIndex)
+            self.recordClosedWindowHistory(
+                windowId: windowId,
+                snapshot: baseSnapshot,
+                workspaceIds: workspaceIds,
+                restorableAgentIndex: restorableAgentIndex
+            )
         }
     }
 
     private func recordClosedWindowHistory(
-        for context: MainWindowContext,
+        windowId: UUID?,
+        snapshot baseSnapshot: SessionWindowSnapshot,
+        workspaceIds: [UUID],
         restorableAgentIndex: RestorableAgentSessionIndex
     ) {
-        let snapshot = sessionWindowSnapshot(
-            for: context,
-            includeScrollback: true,
-            restorableAgentIndex: restorableAgentIndex
-        )
+        let snapshot = baseSnapshot.applyingRestorableAgentIndex(restorableAgentIndex)
         guard !snapshot.tabManager.workspaces.isEmpty else {
             return
         }
         ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(
-            windowId: context.windowId,
+            windowId: windowId,
             snapshot: snapshot,
-            workspaceIds: context.tabManager.sessionSnapshotWorkspaceIds()
+            workspaceIds: workspaceIds
         )))
     }
 

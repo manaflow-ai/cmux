@@ -1692,7 +1692,16 @@ struct ProcessDetectedResumeIndexes: Sendable {
         }.value
     }
 
-    static func loadSynchronously(
+    /// Loads process-detected metadata synchronously for final app-termination snapshots.
+    /// Normal lifecycle saves should use ``load(homeDirectory:fileManager:)``.
+    static func loadForTerminationSnapshotSynchronously(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> ProcessDetectedResumeIndexes {
+        loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+    }
+
+    private static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> ProcessDetectedResumeIndexes {
