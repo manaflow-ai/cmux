@@ -195,7 +195,7 @@ extension SocketControlServer {
         }
 
         var bindAttempt = acquireActiveSocketPathLock()
-            ?? bindListenerSocketOnListenerQueue(
+            ?? transport.bindListenerSocket(
                 newServerSocket,
                 path: activeSocketPath,
                 canReplaceRefusedSocket: activeSocketPathCanReplaceRefusedSocket
@@ -224,7 +224,7 @@ extension SocketControlServer {
                 state.socketPath = activeSocketPath
             }
             bindAttempt = acquireActiveSocketPathLock()
-                ?? bindListenerSocketOnListenerQueue(
+                ?? transport.bindListenerSocket(
                     newServerSocket,
                     path: activeSocketPath,
                     canReplaceRefusedSocket: activeSocketPathCanReplaceRefusedSocket
@@ -353,17 +353,4 @@ extension SocketControlServer {
         }
     }
 
-    private func bindListenerSocketOnListenerQueue(
-        _ socket: Int32,
-        path: String,
-        canReplaceRefusedSocket: Bool
-    ) -> SocketBindAttemptResult {
-        socketListenerQueue.sync {
-            transport.bindListenerSocket(
-                socket,
-                path: path,
-                canReplaceRefusedSocket: canReplaceRefusedSocket
-            )
-        }
-    }
 }

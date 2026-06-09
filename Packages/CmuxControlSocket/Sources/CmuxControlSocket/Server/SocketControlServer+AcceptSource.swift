@@ -5,16 +5,29 @@ extension SocketControlServer {
     /// Arms the accept read source for `listenerSocket` under `generation`.
     ///
     /// `DispatchSource.makeReadSource` carve-out: low-level socket I/O event
-    /// delivery with no async-native equivalent; state stays under the
-    /// listener lock.
+    /// delivery with no async-native equivalent. The source delivers on the
+    /// listener queue — this actor's executor — so its handlers enter
+    /// isolation synchronously via `assumeIsolated`.
     func startAcceptSource(listenerSocket: Int32, generation: UInt64) {
         let source = DispatchSource.makeReadSource(fileDescriptor: listenerSocket, queue: socketListenerQueue)
         source.setEventHandler { [weak self] in
-            self?.drainPendingSocketClients(listenerSocket: listenerSocket, generation: generation)
+            guard let self else { return }
+            self.assumeIsolated { isolatedServer in
+                isolatedServer.drainPendingSocketClients(
+                    listenerSocket: listenerSocket,
+                    generation: generation
+                )
+            }
         }
         source.setCancelHandler { [weak self] in
             close(listenerSocket)
-            self?.finishAcceptSourceCancel(listenerSocket: listenerSocket, generation: generation)
+            guard let self else { return }
+            self.assumeIsolated { isolatedServer in
+                isolatedServer.finishAcceptSourceCancel(
+                    listenerSocket: listenerSocket,
+                    generation: generation
+                )
+            }
         }
 
         let shouldResume = withListenerState { state in
@@ -99,7 +112,9 @@ extension SocketControlServer {
 
             // Capture peer PID immediately, before short-lived clients can disconnect.
             let peerPid = transport.peerProcessID(of: clientSocket)
-            events.clientAccepted(clientSocket, peerPid)
+            connectionsContinuation.yield(
+                ControlConnection(socket: clientSocket, peerProcessID: peerPid)
+            )
         }
     }
 
@@ -187,7 +202,7 @@ extension SocketControlServer {
         consecutiveFailures: Int,
         delayMs: Int
     ) {
-        let sourceToPause = withListenerState { state -> (any DispatchSourceRead)? in
+        let suspendedSourceID = withListenerState { state -> ObjectIdentifier? in
             guard state.activeAcceptLoopGeneration == generation,
                   state.serverSocket == listenerSocket,
                   let source = state.listenerReadSource,
@@ -196,9 +211,9 @@ extension SocketControlServer {
             }
             source.suspend()
             state.listenerReadSourceSuspended = true
-            return source
+            return ObjectIdentifier(source)
         }
-        guard let sourceToPause else {
+        guard let suspendedSourceID else {
             return
         }
 
@@ -215,27 +230,40 @@ extension SocketControlServer {
             )
         )
 
-        // asyncAfter justification (faithful lift of the legacy resume path):
-        // a genuine bounded backoff deadline in a non-async type with no task
-        // to host a Clock.sleep; a stale fire is a no-op via the generation/
-        // identity/suspended guards below, and stop() resumes-before-cancel
-        // independently, so no cancellation hook is needed for correctness.
-        // The stage-3 actor conversion replaces this with an injected Clock.
-        let deadline = DispatchTime.now() + .milliseconds(delayMs)
-        socketListenerQueue.asyncAfter(deadline: deadline) { [weak self, sourceToPause] in
-            guard let self else { return }
-            self.withListenerState { state in
-                guard state.activeAcceptLoopGeneration == generation,
-                      state.serverSocket == listenerSocket,
-                      state.isRunning,
-                      let activeSource = state.listenerReadSource,
-                      activeSource === sourceToPause,
-                      state.listenerReadSourceSuspended else {
-                    return
-                }
-                sourceToPause.resume()
-                state.listenerReadSourceSuspended = false
+        // Bounded, cancellable backoff deadline on the injected recovery
+        // clock; ``stop()`` cancels it, and a stale fire is a no-op via the
+        // generation/identity/suspended guards in the resume.
+        acceptResumeTask?.cancel()
+        acceptResumeTask = Task { [weak self, recoveryClock] in
+            do {
+                try await recoveryClock.sleep(forMilliseconds: delayMs)
+            } catch {
+                return
             }
+            await self?.resumeSuspendedAcceptSource(
+                listenerSocket: listenerSocket,
+                generation: generation,
+                suspendedSourceID: suspendedSourceID
+            )
+        }
+    }
+
+    private func resumeSuspendedAcceptSource(
+        listenerSocket: Int32,
+        generation: UInt64,
+        suspendedSourceID: ObjectIdentifier
+    ) {
+        withListenerState { state in
+            guard state.activeAcceptLoopGeneration == generation,
+                  state.serverSocket == listenerSocket,
+                  state.isRunning,
+                  let activeSource = state.listenerReadSource,
+                  ObjectIdentifier(activeSource) == suspendedSourceID,
+                  state.listenerReadSourceSuspended else {
+                return
+            }
+            activeSource.resume()
+            state.listenerReadSourceSuspended = false
         }
     }
 

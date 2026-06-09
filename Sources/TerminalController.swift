@@ -104,6 +104,9 @@ class TerminalController {
     // The package-owned listener: path/bind/lock lifecycle, accept source,
     // backoff/rearm recovery, and the generation-counted state machine.
     nonisolated let socketServer: SocketControlServer
+    // Lifetime anchor for the accepted-connection consumer; the controller is
+    // an app-lifetime singleton, so the loop runs until process exit.
+    private nonisolated let socketConnectionsTask: Task<Void, Never>
     // Per-surface dedupe for high-frequency report_* socket telemetry.
     private nonisolated let socketFastPathState = SocketFastPathState()
     private nonisolated let myPid = getpid()
@@ -264,11 +267,28 @@ class TerminalController {
         self.passwordStore = passwordStore
         self.transport = transport
         let serverEventTarget = ServerEventTarget()
-        self.socketServer = SocketControlServer(
+        let socketServer = SocketControlServer(
             transport: transport,
             listenerPolicy: listenerPolicy,
             events: Self.makeSocketServerEvents(target: serverEventTarget)
         )
+        self.socketServer = socketServer
+        // The single consumer of the server's accepted-connection stream.
+        // Each connection still gets a dedicated thread: the command bodies
+        // block (main-thread sync hops, semaphore waits on async work), which
+        // must never run on the cooperative thread pool.
+        self.socketConnectionsTask = Task.detached {
+            for await connection in socketServer.connections {
+                guard let controller = serverEventTarget.controller else {
+                    close(connection.socket)
+                    continue
+                }
+                controller.spawnClientHandler(
+                    socket: connection.socket,
+                    peerPid: connection.peerProcessID
+                )
+            }
+        }
         serverEventTarget.controller = self
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
@@ -292,7 +312,7 @@ class TerminalController {
 
     @discardableResult
     nonisolated func reserveStartupSocketPath(_ path: String) -> String {
-        socketServer.reserveStartupSocketPath(path)
+        socketServer.performSync { $0.reserveStartupSocketPath(path) }
     }
 
     nonisolated func activeSocketPath(preferredPath: String) -> String {
@@ -646,17 +666,15 @@ class TerminalController {
                 sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
             },
             listenerDidStart: { path, _ in
-                target.controller?.socketListenerDidStart(path: path)
+                // Fires on the server's listener queue (the actor's
+                // executor); the notification + PortScanner wiring are
+                // main-actor state, so hop asynchronously.
+                Task { @MainActor in
+                    target.controller?.socketListenerDidStart(path: path)
+                }
             },
             recordLastSocketPath: { path in
                 SocketControlSettings.recordLastSocketPath(path)
-            },
-            clientAccepted: { socket, peerPid in
-                guard let controller = target.controller else {
-                    close(socket)
-                    return
-                }
-                controller.spawnClientHandler(socket: socket, peerPid: peerPid)
             },
             pathMissingDetected: { path, generation in
                 Task { @MainActor in
@@ -690,55 +708,57 @@ class TerminalController {
         preserveAcceptFailureStreak: Bool = false
     ) {
         self.tabManager = tabManager
-        socketServer.start(
-            socketPath: socketPath,
-            accessMode: accessMode,
-            preserveAcceptFailureStreak: preserveAcceptFailureStreak
-        )
+        _ = socketServer.performSync {
+            $0.start(
+                socketPath: socketPath,
+                accessMode: accessMode,
+                preserveAcceptFailureStreak: preserveAcceptFailureStreak
+            )
+        }
     }
 
-    /// Invoked by the server at the exact point the legacy `start` posted
-    /// `.socketListenerDidStart`: after the running-state commit, before the
-    /// path monitor and accept source arm. Every start path runs on the main
-    /// thread (`start` is `@MainActor`; rearm fires on the main queue; the
-    /// path-missing restart hops through a `@MainActor` task).
-    private nonisolated func socketListenerDidStart(path: String) {
-        MainActor.assumeIsolated {
-            NotificationCenter.default.post(
-                name: .socketListenerDidStart,
-                object: self,
-                userInfo: ["path": path]
-            )
+    /// Invoked at the lifecycle point the legacy `start` posted
+    /// `.socketListenerDidStart` (running-state commit), reached through an
+    /// async main-actor hop because the server now emits the event from its
+    /// listener-queue executor. The notification therefore posts just after
+    /// the synchronous `start` facade returns instead of during it; observers
+    /// already received it via the main queue, so ordering is unchanged for
+    /// them.
+    private func socketListenerDidStart(path: String) {
+        NotificationCenter.default.post(
+            name: .socketListenerDidStart,
+            object: self,
+            userInfo: ["path": path]
+        )
 
-            // Wire batched port scanner results back to workspace state.
-            PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
-                guard let self, let tabManager = self.tabManager else { return }
-                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-                let validSurfaceIds = Set(workspace.panels.keys)
-                guard validSurfaceIds.contains(panelId) else { return }
-                workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
+        // Wire batched port scanner results back to workspace state.
+        PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
+            guard let self, let tabManager = self.tabManager else { return }
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            let validSurfaceIds = Set(workspace.panels.keys)
+            guard validSurfaceIds.contains(panelId) else { return }
+            workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
+            workspace.recomputeListeningPorts()
+        }
+        PortScanner.shared.onAgentPortsUpdated = { [weak self] workspaceId, ports in
+            guard let self, let tabManager = self.tabManager else { return }
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            if workspace.agentListeningPorts != ports {
+                workspace.agentListeningPorts = ports
                 workspace.recomputeListeningPorts()
             }
-            PortScanner.shared.onAgentPortsUpdated = { [weak self] workspaceId, ports in
-                guard let self, let tabManager = self.tabManager else { return }
-                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-                if workspace.agentListeningPorts != ports {
-                    workspace.agentListeningPorts = ports
-                    workspace.recomputeListeningPorts()
+        }
+        PortScanner.shared.agentPIDsProvider = { [weak self] workspaceIds in
+            guard let self, let tabManager = self.tabManager else { return [:] }
+            var pidsByWorkspace: [UUID: Set<Int>] = [:]
+            for workspaceId in workspaceIds {
+                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
+                let pids = Set(workspace.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
+                if !pids.isEmpty {
+                    pidsByWorkspace[workspaceId] = pids
                 }
             }
-            PortScanner.shared.agentPIDsProvider = { [weak self] workspaceIds in
-                guard let self, let tabManager = self.tabManager else { return [:] }
-                var pidsByWorkspace: [UUID: Set<Int>] = [:]
-                for workspaceId in workspaceIds {
-                    guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
-                    let pids = Set(workspace.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-                    if !pids.isEmpty {
-                        pidsByWorkspace[workspaceId] = pids
-                    }
-                }
-                return pidsByWorkspace
-            }
+            return pidsByWorkspace
         }
     }
 
@@ -749,7 +769,7 @@ class TerminalController {
     private func restartSocketListenerIfPathMissing(path: String, generation: UInt64) {
         guard let tabManager else { return }
         let restartMode = socketServer.accessMode
-        guard socketServer.shouldRestartForMissingPath(path: path, generation: generation) else { return }
+        guard socketServer.performSync({ $0.shouldRestartForMissingPath(path: path, generation: generation) }) else { return }
 
         sentryBreadcrumb(
             "socket.listener.restart",
@@ -766,7 +786,9 @@ class TerminalController {
     }
 
     nonisolated func stop() {
-        socketServer.stop()
+        // Synchronous by contract: applicationWillTerminate and the updater's
+        // relaunch hook need the unlink + lock release to finish before exit.
+        socketServer.performSync { $0.stop() }
     }
 
     private nonisolated func writeSocketResponse(_ response: String, to socket: Int32) -> Bool {
@@ -1069,12 +1091,14 @@ class TerminalController {
             guard let self else { return }
             MainActor.assumeIsolated {
                 guard let tabManager = self.tabManager else { return }
-                guard let restartPath = self.socketServer.claimPendingRearm(
-                    generation: generation,
-                    errnoCode: errnoCode,
-                    consecutiveFailures: consecutiveFailures,
-                    delayMs: delayMs
-                ) else { return }
+                guard let restartPath = self.socketServer.performSync({
+                    $0.claimPendingRearm(
+                        generation: generation,
+                        errnoCode: errnoCode,
+                        consecutiveFailures: consecutiveFailures,
+                        delayMs: delayMs
+                    )
+                }) else { return }
 
                 let restartMode = self.socketServer.accessMode
 
@@ -1125,50 +1149,39 @@ class TerminalController {
             }
         }
 
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        var pending = ""
         var authenticated = false
+        let lineReader = ControlClientLineReader(socket: socket)
 
-        while socketServer.isRunning {
-            let bytesRead = read(socket, &buffer, buffer.count - 1)
-            guard bytesRead > 0 else { break }
+        while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
 
-            let chunk = String(bytes: buffer[0..<bytesRead], encoding: .utf8) ?? ""
-            pending.append(chunk)
-
-            while let newlineIndex = pending.firstIndex(of: "\n") {
-                let line = String(pending[..<newlineIndex])
-                pending = String(pending[pending.index(after: newlineIndex)...])
-                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { continue }
-
-                var shouldCloseSocket = false
-                autoreleasepool {
-                    if isEventsStreamRequest(trimmed) {
-                        if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
-                            if !writeSocketResponse(response, to: socket) {
-                                shouldCloseSocket = true
-                            }
-                            return
-                        }
-                        handleEventsStreamRequest(trimmed, socket: socket)
-                        shouldCloseSocket = true
-                        return
-                    }
-
-                    let result = processSocketLine(trimmed, authenticated: authenticated)
-                    authenticated = result.authenticated
-                    if let response = result.response {
-                        let didWriteResponse = writeSocketResponse(response, to: socket)
-                        publishSocketEvents(command: trimmed, response: response)
-                        if !didWriteResponse {
+            var shouldCloseSocket = false
+            autoreleasepool {
+                if isEventsStreamRequest(trimmed) {
+                    if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                        if !writeSocketResponse(response, to: socket) {
                             shouldCloseSocket = true
                         }
+                        return
                     }
-                }
-                if shouldCloseSocket {
+                    handleEventsStreamRequest(trimmed, socket: socket)
+                    shouldCloseSocket = true
                     return
                 }
+
+                let result = processSocketLine(trimmed, authenticated: authenticated)
+                authenticated = result.authenticated
+                if let response = result.response {
+                    let didWriteResponse = writeSocketResponse(response, to: socket)
+                    publishSocketEvents(command: trimmed, response: response)
+                    if !didWriteResponse {
+                        shouldCloseSocket = true
+                    }
+                }
+            }
+            if shouldCloseSocket {
+                return
             }
         }
     }

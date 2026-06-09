@@ -2,15 +2,17 @@ internal import Darwin
 internal import Foundation
 
 extension SocketControlServer {
-    /// Stops the listener synchronously: tears down the accept and
-    /// path-monitor sources, shuts down and closes the server socket, unlinks
-    /// the socket path when the listener still owns it, and releases the path
-    /// lock.
+    /// Stops the listener: tears down the accept and path-monitor sources,
+    /// cancels any pending accept-source resume, shuts down and closes the
+    /// server socket, unlinks the socket path when the listener still owns
+    /// it, and releases the path lock.
     ///
-    /// Synchronous by contract — the app calls this from
-    /// `applicationWillTerminate` and the updater's relaunch hook, where the
-    /// unlink and lock release must complete before the process exits.
+    /// Fully synchronous on the actor's executor. The app's termination and
+    /// updater-relaunch paths reach it through ``performSync(_:)``, so the
+    /// unlink and lock release still complete before the process exits.
     public func stop() {
+        acceptResumeTask?.cancel()
+        acceptResumeTask = nil
         let (
             sourceToCancel,
             sourceWasSuspended,

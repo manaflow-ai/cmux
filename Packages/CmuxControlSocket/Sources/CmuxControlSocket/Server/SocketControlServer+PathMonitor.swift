@@ -6,8 +6,9 @@ extension SocketControlServer {
     /// socket file disappears, so the host can restart the listener.
     ///
     /// `DispatchSource.makeFileSystemObjectSource` carve-out: file watching
-    /// with no Foundation async equivalent; state stays under the listener
-    /// lock.
+    /// with no Foundation async equivalent. The source delivers on the
+    /// listener queue — this actor's executor — so its handler enters
+    /// isolation synchronously via `assumeIsolated`.
     func startSocketPathMonitor(path: String, generation: UInt64) {
         let directoryPath = URL(fileURLWithPath: path).deletingLastPathComponent().path
         let fd = open(directoryPath, O_EVTONLY)
@@ -32,7 +33,10 @@ extension SocketControlServer {
             queue: socketListenerQueue
         )
         source.setEventHandler { [weak self] in
-            self?.handleSocketPathDirectoryEvent(path: path, generation: generation)
+            guard let self else { return }
+            self.assumeIsolated { isolatedServer in
+                isolatedServer.handleSocketPathDirectoryEvent(path: path, generation: generation)
+            }
         }
         source.setCancelHandler {
             close(fd)
