@@ -45,7 +45,7 @@
 1	Sources/AppDelegate.swift	value 'browserPanel' was defined but never used; consider replacing with boolean test
 2	Sources/AppDelegate.swift	value 'self' was defined but never used; consider replacing with boolean test
 1	Sources/Auth/AuthManager.swift	main actor-isolated static property 'logTimestampFormatter' can not be referenced from a nonisolated context
-24	Sources/ContentView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+18	Sources/ContentView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/ContentView.swift	treating a forced downcast to 'CGColor' as optional will never produce 'nil'
 1	Sources/ContentView.swift	use of protocol 'Panel' as a type must be written 'any Panel'; this will be an error in a future Swift language mode
 1	Sources/Feed/FeedPanelView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
@@ -74,6 +74,8 @@
 1	Sources/SessionIndexStore.swift	reference to captured var 'self' in concurrently-executing code
 2	Sources/SessionIndexView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/Settings/ConfigSettingsView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+2	Sources/SidebarMetadataViews.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+2	Sources/TabItemView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 17	Sources/TabManager.swift	result of call to 'closePanel(_:force:)' is unused
 1	Sources/TerminalController.swift	'CGWindowListCreateImage' was deprecated in macOS 14.0: Please use ScreenCaptureKit instead.
 2	Sources/TerminalController.swift	'activateIgnoringOtherApps' was deprecated in macOS 14.0: ignoringOtherApps is deprecated in macOS 14 and will have no effect.
@@ -94,6 +96,7 @@
 1	Sources/Update/UpdateDriver.swift	sendability of function types in instance method 'showUpdateFound(with:state:reply:)' does not match requirement in protocol 'SPUUserDriver'
 2	Sources/Update/UpdateLogStore.swift	result of 'try?' is unused
 1	Sources/Update/UpdateTestSupport.swift	'init(dictionary:)' is deprecated: Properties that depend on the system or application version are not supported when used with this initializer. The designated initializer is available in SUAppcastItem+Private.h. Please first explore other APIs or contact us to describe your use case.
+2	Sources/VerticalTabsSidebar.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/Workspace.swift	conformance of 'Workspace' to protocol 'BonsplitDelegate' crosses into main actor-isolated code and can cause data races
 1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:didChangeGeometry:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
 1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:didClosePane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
