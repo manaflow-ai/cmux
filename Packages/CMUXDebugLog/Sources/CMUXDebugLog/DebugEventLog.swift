@@ -11,6 +11,8 @@ public final class DebugEventLog: @unchecked Sendable {
     private var entries: [String] = []
     private let capacity = 500
     private let queue = DispatchQueue(label: "cmux.debug-event-log")
+    /// Persistent write handle, kept open to avoid per-message open/seek/close overhead.
+    private var fileHandle: FileHandle?
     private static let logPath = resolveLogPath()
     private static let debugFieldPattern = try! NSRegularExpression(
         pattern: "(^| )([A-Za-z][A-Za-z0-9_-]*)=",
@@ -140,12 +142,36 @@ public final class DebugEventLog: @unchecked Sendable {
             let line = entry + "\n"
             guard let data = line.data(using: .utf8) else { return }
 
+            self.appendToFile(data)
+        }
+    }
+
+    /// Appends `data` to the log file, reusing a persistent file handle.
+    /// Must only be called from within `queue`.
+    private func appendToFile(_ data: Data) {
+        // Fast path: try to write on the cached handle.
+        if let handle = fileHandle {
+            do {
+                try handle.write(contentsOf: data)
+                return
+            } catch {
+                // Handle became invalid (file deleted/rotated). Fall through to re-open.
+                try? handle.close()
+                fileHandle = nil
+            }
+        }
+        // Slow path: open (or create) the file and seek to end once.
+        if FileManager.default.fileExists(atPath: Self.logPath) {
             if let handle = FileHandle(forWritingAtPath: Self.logPath) {
-                defer { try? handle.close() }
-                guard (try? handle.seekToEnd()) != nil else { return }
+                _ = try? handle.seekToEnd()
+                fileHandle = handle
                 try? handle.write(contentsOf: data)
-            } else {
-                FileManager.default.createFile(atPath: Self.logPath, contents: data)
+            }
+        } else {
+            FileManager.default.createFile(atPath: Self.logPath, contents: data)
+            if let handle = FileHandle(forWritingAtPath: Self.logPath) {
+                _ = try? handle.seekToEnd()
+                fileHandle = handle
             }
         }
     }
@@ -153,6 +179,8 @@ public final class DebugEventLog: @unchecked Sendable {
     /// Writes the current buffer to disk, replacing the existing log file.
     public func dump() {
         queue.sync {
+            try? self.fileHandle?.close()
+            self.fileHandle = nil
             let content = self.entries.joined(separator: "\n") + "\n"
             try? content.write(toFile: Self.logPath, atomically: true, encoding: .utf8)
         }

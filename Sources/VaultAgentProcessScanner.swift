@@ -34,7 +34,13 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] {
         let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        // Re-use a recent snapshot when available; the agent-hibernation poll fires every 30 s
+        // and the full proc_pidinfo sweep for all processes is expensive. A 60-second TTL
+        // covers the first repeat at t+35 s while sharing work with the session-autosave path.
+        let processSnapshot = CmuxTopProcessSnapshot.captureCached(
+            includeProcessDetails: true,
+            maximumAge: 60
+        )
         return processDetectedSnapshots(
             registry: registry,
             fileManager: fileManager,
