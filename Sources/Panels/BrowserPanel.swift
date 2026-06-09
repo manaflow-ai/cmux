@@ -12259,8 +12259,12 @@ enum BrowserDataImporter {
     // represented unambiguously in a header (so the caller keeps the exact value via
     // the properties path instead).
     private static func httpOnlyCookieViaHeader(_ p: SafariBinaryCookiesParser.ParsedCookie) -> HTTPCookie? {
+        // Any ";"/"," in a field would be misparsed as an attribute/cookie boundary
+        // by the Set-Cookie parser, and "=" in the name would corrupt the name=value
+        // split. Bail to the caller's properties path for those (rare) cookies.
         guard !p.value.contains(";"), !p.value.contains(","),
-              !p.name.contains(";"), !p.name.contains("=") else { return nil }
+              !p.name.contains(";"), !p.name.contains(","), !p.name.contains("="),
+              !p.path.contains(";"), !p.path.contains(",") else { return nil }
         let scheme = p.isSecure ? "https" : "http"
         let host = p.domain.hasPrefix(".") ? String(p.domain.dropFirst()) : p.domain
         guard let url = URL(string: "\(scheme)://\(host)/") else { return nil }

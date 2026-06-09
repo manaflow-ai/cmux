@@ -21,33 +21,25 @@ enum SafariBinaryCookiesParser {
         case pageOutOfBounds(Int)
         case cookieOutOfBounds(Int)
 
+        // User-facing copy stays product-level and action-oriented. The page/cookie
+        // indices carried by the associated values are diagnostics, not shown to
+        // users; a caller can log them if needed.
         var errorDescription: String? {
             switch self {
             case .tooShort:
                 return String(
                     localized: "safari.cookies.parse.error.tooShort",
-                    defaultValue: "The Safari cookies file is too short or incomplete to read."
+                    defaultValue: "The Safari cookies file appears incomplete. Try re-exporting it from Safari, then import again."
                 )
             case .invalidMagic:
                 return String(
                     localized: "safari.cookies.parse.error.invalidMagic",
-                    defaultValue: "The Safari cookies file is not in the expected format."
+                    defaultValue: "This file isn't a recognizable Safari cookies file."
                 )
-            case .pageOutOfBounds(let i):
+            case .pageOutOfBounds, .cookieOutOfBounds:
                 return String(
-                    format: String(
-                        localized: "safari.cookies.parse.error.pageOutOfBounds",
-                        defaultValue: "The Safari cookies file is corrupted (page %d is out of bounds)."
-                    ),
-                    i
-                )
-            case .cookieOutOfBounds(let i):
-                return String(
-                    format: String(
-                        localized: "safari.cookies.parse.error.cookieOutOfBounds",
-                        defaultValue: "The Safari cookies file is corrupted (cookie %d is out of bounds)."
-                    ),
-                    i
+                    localized: "safari.cookies.parse.error.corrupted",
+                    defaultValue: "The Safari cookies file appears to be corrupted. Try re-exporting it from Safari, then import again."
                 )
             }
         }
