@@ -1233,21 +1233,6 @@ final class MobileHostService {
         }
     }
 
-    /// Whether the request is authorized by a workspace-scoped attach ticket
-    /// (a single-workspace deep-link pairing) rather than a full account attach.
-    ///
-    /// A full attach presents no attach ticket (it authorizes via Stack auth
-    /// only), so it returns `false`. A scoped ticket carries a non-empty
-    /// `workspaceID`. Used to deny the cross-workspace `notifications.updated`
-    /// event topic to scoped tickets at subscribe time.
-    nonisolated func requestIsWorkspaceScopedTicket(_ request: MobileHostRPCRequest) -> Bool {
-        guard let attachToken = request.auth?.attachToken,
-              let ticket = ticketStore.validTicket(authToken: attachToken) else {
-            return false
-        }
-        return !ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
     private static func ticketAuthorizationError(
         ticket: CmxAttachTicket,
         request: MobileHostRPCRequest
@@ -1284,14 +1269,6 @@ final class MobileHostService {
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
             return nil
-        // Notification methods (`mobile.notifications.list` / `.mark_read`) are
-        // deliberately NOT allowlisted for workspace-scoped attach tickets: the
-        // feed spans every workspace, so a scoped ticket must fall through to
-        // `scopedTicketError` rather than read all workspaces' notification
-        // bodies (client-side filtering is not an authorization boundary). The
-        // notifications hub authorizes through the Stack-auth full-attach gate,
-        // which never enters this ticket switch. Scoped-ticket notification
-        // access is deferred future work.
         case "workspace.create":
             return nil
         case "mobile.terminal.create", "terminal.create":
@@ -2052,18 +2029,7 @@ actor MobileHostConnection {
         case "mobile.events.subscribe":
             let streamID = (request.params["stream_id"] as? String) ?? UUID().uuidString
             let topicsArray = (request.params["topics"] as? [String]) ?? []
-            var topics = Set(topicsArray.filter { !$0.isEmpty })
-            // `notifications.updated` is a CROSS-WORKSPACE signal (it fires for
-            // any notification, in any workspace). A workspace-scoped attach
-            // ticket must not learn the timing of activity outside its scope, so
-            // strip the topic for scoped tickets. They also can't read the feed
-            // (`mobile.notifications.list` falls through to `scopedTicketError`),
-            // so stripping the subscription leaves no notification channel for a
-            // scoped ticket. A full account attach (no scoped ticket) keeps it.
-            if topics.contains("notifications.updated"),
-               MobileHostService.shared.requestIsWorkspaceScopedTicket(request) {
-                topics.remove("notifications.updated")
-            }
+            let topics = Set(topicsArray.filter { !$0.isEmpty })
             guard !topics.isEmpty else {
                 return .failure(MobileHostRPCError(code: "invalid_params", message: "topics is required"))
             }

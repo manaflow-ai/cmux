@@ -20845,6 +20845,17 @@ class TerminalController {
     /// shape with `created_at` as Unix epoch seconds (the phone decodes it into a
     /// `Date`). This is the snapshot the phone pulls on cold-attach and on every
     /// `notifications.updated` signal.
+    ///
+    /// Authorization: like `workspace.list`, this returns the user's own state
+    /// across all of their Mac's workspaces and is account-scoped by same-account
+    /// Stack auth, which is the SOLE authorization gate for the mobile data plane
+    /// (`MobileHostService.authorizationError(for:)`). The attach ticket is
+    /// route-discovery + workspace-selection only and never authorizes on its
+    /// own, and `mobile.attach_ticket.create` itself requires the same-account
+    /// Stack token to mint, so every caller here is the Mac owner reading their
+    /// own notifications. Confining the feed to a single workspace (cross-account
+    /// or scoped sharing) would require a data-plane-wide scope model, not a
+    /// notifications-only check, and is out of scope for this foundation.
     private func v2MobileNotificationsList(params: [String: Any]) -> V2CallResult {
         let recent = TerminalNotificationStore.shared.notifications
             .sorted { $0.createdAt > $1.createdAt }

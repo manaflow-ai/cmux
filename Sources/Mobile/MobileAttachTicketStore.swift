@@ -11,10 +11,7 @@ enum MobileAttachTicketStoreError: Error {
     case invalidAttachURL
 }
 
-/// `@unchecked Sendable`: all mutable state (`recordsByAuthToken`) is guarded by
-/// the internal `NSLock`, so instances are safe to read from any isolation (e.g.
-/// the `MobileHostConnection` actor checking ticket scope at subscribe time).
-final class MobileAttachTicketStore: @unchecked Sendable {
+final class MobileAttachTicketStore {
     private struct Record {
         let ticket: CmxAttachTicket
         let issuedAt: Date
