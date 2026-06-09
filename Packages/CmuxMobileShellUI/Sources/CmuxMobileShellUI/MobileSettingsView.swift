@@ -2,6 +2,7 @@
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileSupport
+import CmuxMobileWorkspace
 import SwiftUI
 
 /// The mobile app's settings page. Surfaces the signed-in account (so the user
@@ -28,6 +29,7 @@ struct MobileSettingsView: View {
     @State private var notificationsEnabled = false
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
+    @State private var showingSetupHelp = false
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
@@ -94,6 +96,15 @@ struct MobileSettingsView: View {
                         }
                         .accessibilityIdentifier("MobileSettingsRescanQR")
                     }
+                    Button {
+                        showingSetupHelp = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.setUpYourMac", defaultValue: "Set up your Mac"),
+                            systemImage: "macbook.and.iphone"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsSetUpYourMac")
                     Button {
                         showingOnboarding = true
                     } label: {
@@ -181,10 +192,32 @@ struct MobileSettingsView: View {
             .sheet(isPresented: $showingOnboarding) {
                 // Re-entry from Settings: walk the explainer again. `onComplete`
                 // only dismisses; it never touches the persisted seen flag.
-                OnboardingFlowView { showingOnboarding = false }
+                OnboardingFlowView(
+                    onComplete: { showingOnboarding = false },
+                    setupHelpHighlight: setupHelpHighlight
+                )
+            }
+            .sheet(isPresented: $showingSetupHelp) {
+                // Re-enterable setup help: surfaces every pre-pairing dead-end with
+                // its concrete next step, highlighting the user's current gate.
+                SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
+    }
+
+    /// The setup gate to highlight, from durable public signals only (signed in,
+    /// known paired Mac). Settings is reached only from the connected workspace
+    /// list today, so a known paired Mac is the common case; the classifier still
+    /// degrades correctly if the entry point widens. Account-mismatch is not
+    /// inferred here (it is a live pairing-failure signal owned elsewhere), but it
+    /// is always shown as a gate in the help body.
+    private var setupHelpHighlight: MobileSetupGuidanceState {
+        MobileSetupGuidancePolicy.state(
+            isSignedIn: authManager.isAuthenticated,
+            hasKnownPairedMac: store?.hasKnownPairedMac ?? !connectedHostName.isEmpty,
+            hasAccountMismatch: false
+        )
     }
 
     private var accountEmail: String {

@@ -1,6 +1,7 @@
 import CmuxMobileSupport
 import SwiftUI
 #if os(iOS)
+import CmuxMobileWorkspace
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
@@ -14,6 +15,10 @@ struct DisconnectedWorkspaceShellView: View {
     /// onboarding "Download via TestFlight" link points at while TestFlight is
     /// still private.
     private static let testFlightURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
+
+    #if os(iOS)
+    @State private var isShowingSetupHelp = false
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -31,6 +36,15 @@ struct DisconnectedWorkspaceShellView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.blue)
                 .accessibilityIdentifier("MobileShowAddDeviceButton")
+                #if os(iOS)
+                Button {
+                    isShowingSetupHelp = true
+                } label: {
+                    Text(L10n.string("mobile.devices.setupHelp", defaultValue: "Trouble connecting?"))
+                }
+                .font(.callout)
+                .accessibilityIdentifier("MobileDisconnectedSetupHelpButton")
+                #endif
                 Link(
                     L10n.string("mobile.testflight.link", defaultValue: "Download via TestFlight"),
                     destination: Self.testFlightURL
@@ -59,6 +73,14 @@ struct DisconnectedWorkspaceShellView: View {
             }
             .accessibilityIdentifier("MobileDisconnectedWorkspaceShell")
         }
+        #if os(iOS)
+        .sheet(isPresented: $isShowingSetupHelp) {
+            // A user on the never-paired/offline screen can reach the same
+            // explicit setup-gate guidance shown in onboarding and Settings, so
+            // the dead end is never silent.
+            SetupHelpView(highlight: .signedInNeverPaired) { isShowingSetupHelp = false }
+        }
+        #endif
     }
 
     private var signOutButton: some View {
