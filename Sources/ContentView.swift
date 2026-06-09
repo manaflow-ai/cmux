@@ -2108,8 +2108,10 @@ struct ContentView: View {
     ) -> FullscreenControlsPlacement? {
         guard isFullScreen else { return nil }
         // Placement is intentionally independent of sidebar visibility so toggling
-        // the sidebar in fullscreen never shifts the accessory bar.
-        return FullscreenControlsPlacement(leadingPadding: 10, topPadding: 4)
+        // the sidebar in fullscreen never shifts the accessory bar. `topPadding`
+        // mirrors the title row's top inset (see `customTitlebar`) so the controls'
+        // center lines up with the folder icon / title.
+        return FullscreenControlsPlacement(leadingPadding: 10, topPadding: 2)
     }
 
     private func terminalContent(appearance: WindowAppearanceSnapshot) -> some View {
@@ -2494,8 +2496,11 @@ struct ContentView: View {
                                 ? appearance.sidebarContentColorScheme
                                 : appearance.chromeColorScheme
                         )
-                        .padding(.leading, placement.leadingPadding)
+                        // Same vertical frame as the title row (`customTitlebar`)
+                        // so the controls' center matches the folder icon / title.
+                        .frame(height: max(1, WindowChromeMetrics.appTitlebarHeight - 2), alignment: .center)
                         .padding(.top, placement.topPadding)
+                        .padding(.leading, placement.leadingPadding)
                 }
             }
     }
