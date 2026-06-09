@@ -35,22 +35,23 @@ public struct NetworkInterfaceAddress: Sendable, Equatable {
     }
 }
 
-/// Pure classification from an interface snapshot to a ``TailscaleStatus``.
-public enum TailscaleTailnetDetector {
-    /// Classifies an interface-address snapshot.
+extension TailscaleStatus {
+    /// Pure classification from an interface-address snapshot.
     ///
     /// - Parameter interfaces: The enumerated interface addresses, or `nil`
     ///   when enumeration itself failed.
-    /// - Returns: ``TailscaleStatus/active`` when any tunnel (`utun*`)
-    ///   interface holds a Tailscale-range address,
-    ///   ``TailscaleStatus/unknown`` for a `nil` snapshot, and
-    ///   ``TailscaleStatus/inactiveOrNotInstalled`` otherwise.
-    public static func status(forInterfaces interfaces: [NetworkInterfaceAddress]?) -> TailscaleStatus {
-        guard let interfaces else { return .unknown }
-        let hasTailnetAddress = interfaces.contains { entry in
-            isTunnelInterfaceName(entry.interfaceName) && isTailscaleSelfAddress(entry.address)
+    /// - Returns: ``active`` when any tunnel (`utun*`) interface holds a
+    ///   Tailscale-range address, ``unknown`` for a `nil` snapshot, and
+    ///   ``inactiveOrNotInstalled`` otherwise.
+    public init(interfaces: [NetworkInterfaceAddress]?) {
+        guard let interfaces else {
+            self = .unknown
+            return
         }
-        return hasTailnetAddress ? .active : .inactiveOrNotInstalled
+        let hasTailnetAddress = interfaces.contains { entry in
+            Self.isTunnelInterfaceName(entry.interfaceName) && Self.isTailscaleSelfAddress(entry.address)
+        }
+        self = hasTailnetAddress ? .active : .inactiveOrNotInstalled
     }
 
     /// Whether the interface is a userspace tunnel. Tailscale on Apple

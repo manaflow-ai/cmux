@@ -34,7 +34,7 @@ public final class TailscaleStatusMonitor {
         monitorsPathChanges: Bool = true
     ) {
         self.provider = provider
-        self.status = TailscaleTailnetDetector.status(forInterfaces: provider.currentInterfaceAddresses())
+        self.status = TailscaleStatus(interfaces: provider.currentInterfaceAddresses())
         guard monitorsPathChanges else {
             self.pathMonitor = nil
             return
@@ -54,7 +54,7 @@ public final class TailscaleStatusMonitor {
     /// Cheap (one `getifaddrs` walk); call on app foreground or after a user
     /// action that may have toggled Tailscale.
     public func refresh() {
-        let next = TailscaleTailnetDetector.status(forInterfaces: provider.currentInterfaceAddresses())
+        let next = TailscaleStatus(interfaces: provider.currentInterfaceAddresses())
         if next != status {
             status = next
         }
