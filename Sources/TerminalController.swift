@@ -20881,8 +20881,19 @@ class TerminalController {
     /// copy), so the Mac stops re-notifying and the store change re-emits
     /// `notifications.updated` to reconcile every connected phone.
     private func v2MobileNotificationsMarkRead(params: [String: Any]) -> V2CallResult {
+        // Reject any present-but-invalid selector first. This is a mutating RPC
+        // at a trust boundary: a malformed `id` alongside a valid `workspace_id`
+        // must NOT silently downgrade to a broader workspace-wide mark-read than
+        // the caller asked for. Mirrors `v2MobileWorkspaceList`'s
+        // `v2HasNonNullParam`-guarded UUID validation.
         let id = v2UUID(params, "id")
+        if v2HasNonNullParam(params, "id"), id == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid id", data: nil)
+        }
         let workspaceID = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), workspaceID == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
         // Exactly one selector. Both/neither is a client bug, not a partial op.
         let selectorCount = (id == nil ? 0 : 1) + (workspaceID == nil ? 0 : 1)
         guard selectorCount == 1 else {
