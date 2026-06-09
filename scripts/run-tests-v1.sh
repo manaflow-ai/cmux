@@ -33,6 +33,9 @@ if [ ! -d "$APP" ]; then
   exit 1
 fi
 
+export CMUX_APP_PATH="$APP"
+export CMUX_VM_SOCKET_RUNNER=1
+
 cleanup() {
   pkill -x "cmux DEV" || true
   pkill -x "cmux" || true
