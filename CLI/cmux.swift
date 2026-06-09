@@ -22147,7 +22147,7 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd,
                         transcriptPath: parsedInput.transcriptPath,
                         agentLifecycle: .needsInput,
-                        lastSubtitle: "Waiting",
+                        lastSubtitle: String(localized: "agent.claude.input.subtitle.waiting", defaultValue: "Waiting"),
                         lastBody: question
                     )
                     setAgentLifecycle(
