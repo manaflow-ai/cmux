@@ -1269,15 +1269,14 @@ final class MobileHostService {
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
             return nil
-        case "mobile.notifications.list", "notifications.list":
-            // Account-scoped read of the notification feed, like the workspace
-            // list. A workspace-scoped attach ticket may read it (the feed is a
-            // mirror; the phone filters per workspace client-side). `mark_read`
-            // is intentionally NOT allowlisted here: a workspace-scoped ticket
-            // must not flip read-state for workspaces outside its scope, so it
-            // falls through to `scopedTicketError`. The notifications hub uses a
-            // full account attach, where this allowlist does not apply.
-            return nil
+        // Notification methods (`mobile.notifications.list` / `.mark_read`) are
+        // deliberately NOT allowlisted for workspace-scoped attach tickets: the
+        // feed spans every workspace, so a scoped ticket must fall through to
+        // `scopedTicketError` rather than read all workspaces' notification
+        // bodies (client-side filtering is not an authorization boundary). The
+        // notifications hub authorizes through the Stack-auth full-attach gate,
+        // which never enters this ticket switch. Scoped-ticket notification
+        // access is deferred future work.
         case "workspace.create":
             return nil
         case "mobile.terminal.create", "terminal.create":
