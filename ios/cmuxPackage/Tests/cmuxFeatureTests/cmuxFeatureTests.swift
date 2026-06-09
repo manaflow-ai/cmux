@@ -769,6 +769,33 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func manualHostPairingToLoopbackStillDialsWhileOffline() async throws {
+    // Loopback needs no external network path (simulator/dev pairing to
+    // 127.0.0.1), so the offline reachability preflight must not block it.
+    let attachRoute = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        reachability: OfflineReachability()
+    )
+
+    store.signIn()
+    await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.activeRoute?.kind == .debugLoopback)
+}
+
+@MainActor
 @Test func debugLoopbackAttachURLRejectsNonLoopbackHostBeforeStackAuth() async throws {
     let route = try hostPortRoute(kind: .debugLoopback, host: "203.0.113.9", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(

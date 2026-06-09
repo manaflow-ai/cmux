@@ -118,11 +118,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var macConnectionStatus: MobileMacConnectionStatus
     public private(set) var connectedHostName: String
     public private(set) var connectionError: String?
-    /// A shorter, actionable next-step line shown beneath ``connectionError``
-    /// (for example "Check that both devices are on the same Tailscale"). Set
-    /// together with ``connectionError`` from the one pairing-failure classifier
-    /// so a failed attempt always has guidance to show, and cleared whenever the
-    /// error is cleared. `nil` when the headline is already the full instruction.
+    /// Actionable next-step line shown beneath ``connectionError`` (for example
+    /// "Check that both devices are on the same Tailscale"). Set and cleared
+    /// together with the error by the pairing-failure classifier sink.
     public private(set) var connectionErrorGuidance: String?
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
@@ -854,9 +852,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let attemptID = beginPairingAttempt(method: "manual")
         // Fast offline preflight: fail immediately with actionable guidance
         // instead of stacking per-route timeouts into the opaque ~60s blob.
-        guard await failPairingIfOffline(attemptID: attemptID, phase: "preflight") == .proceed else {
-            return
-        }
+        let manualRoutes = directRoute.map { [$0] } ?? []
+        guard await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: manualRoutes) == .proceed else { return }
         do {
             let ticket = try await manualHostTicket(
                 name: trimmedName,
@@ -1244,10 +1241,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .failed
         }
 
-        // Fast offline preflight before the (potentially multi-route) connect, so
-        // a phone with no network path fails immediately with guidance instead of
-        // stacking the per-route connect timeouts into the opaque ~60s wait.
-        switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight") {
+        // Offline preflight: fail fast with guidance instead of stacking the
+        // per-route connect timeouts into the opaque ~60s wait.
+        let candidateRoutes = Self.supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
+        switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: candidateRoutes) {
         case .failedOffline: return .failed
         case .superseded: return .superseded
         case .proceed: break
@@ -1702,9 +1699,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let firstRoute = supportedRoutes.first else {
-            // The ticket carried no route kind this build can dial. Set the
-            // specific category and return; the caller preserves an
-            // already-set error rather than overwriting it with the generic one.
+            // No route kind this build can dial: set the specific category and
+            // return it so the caller records the matching analytics reason.
             connectionError = MobilePairingFailureCategory.noSupportedRoute.message
             connectionErrorGuidance = MobilePairingFailureCategory.noSupportedRoute.guidance
             connectionState = .disconnected
@@ -2067,9 +2063,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         recordPairingFailed(reason: category.analyticsReason, phase: phase)
     }
 
-    /// Clear the user-visible pairing error and its guidance together. Use this
-    /// instead of bare `connectionError = nil` so the guidance line never lingers
-    /// under a stale (now cleared) headline.
+    /// Clear the error and its guidance together (never bare `connectionError =
+    /// nil`) so the guidance line cannot linger under a cleared headline.
     private func clearPairingError() {
         connectionError = nil
         connectionErrorGuidance = nil
@@ -2104,8 +2099,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// How the reachability preflight resolved: proceed with the full connect,
-    /// the ``.offline`` failure was applied, or a newer attempt superseded this
-    /// one while the preflight awaited the reachability actor.
+    /// the ``.offline`` failure was applied, or a newer attempt superseded it.
     private enum PairingPreflightOutcome {
         case proceed
         case failedOffline
@@ -2115,11 +2109,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Reachability preflight: when the device has no satisfied network path,
     /// short-circuit the pairing attempt with the ``.offline`` category instead
     /// of letting `NWConnection` stack per-route timeouts into an opaque ~60s
-    /// wait. Records a ``DiagnosticEventCode/pairUnreachable`` (no host/secret).
+    /// wait. Loopback candidate routes skip it: they stay reachable with no
+    /// external network path (simulator/dev pairing to 127.0.0.1). Records a
+    /// ``DiagnosticEventCode/pairUnreachable`` diagnostic (no host/secret).
     private func failPairingIfOffline(
         attemptID: UUID,
-        phase: String
+        phase: String,
+        routes: [CmxAttachRoute]
     ) async -> PairingPreflightOutcome {
+        if routes.contains(where: MobileShellRouteAuthPolicy.routeIsLoopback) {
+            return .proceed
+        }
         guard await reachability.isOnline == false else { return .proceed }
         guard isCurrentPairingAttempt(attemptID) else { return .superseded }
         mobileShellLog.info("pairing preflight: device offline, short-circuiting")
