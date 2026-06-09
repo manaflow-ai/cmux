@@ -196,6 +196,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public var selectedTerminalID: MobileTerminalPreview.ID?
 
+    /// An explicit "open this workspace now" request, distinct from a passive
+    /// `selectedWorkspaceID` change.
+    ///
+    /// Passive selection changes (the Mac selecting a different sidebar tab) must
+    /// NOT yank the compact iPhone UI from its root list into a workspace, so
+    /// `WorkspaceShellView`'s navigation policy deliberately stays put at root on
+    /// a selection change. A notification tap (or any deep-link) is the opposite:
+    /// the user explicitly asked to open that workspace, so the compact stack
+    /// must push it. The id plus a monotonic token lets the view push even when
+    /// the target is already the selection (re-tapping the same workspace).
+    public private(set) var pendingWorkspaceOpenRequest: (id: MobileWorkspacePreview.ID, token: Int)?
+    private var workspaceOpenRequestCounter = 0
+
     /// Surface IDs whose next window attach must NOT grab the keyboard.
     ///
     /// A surface in this set mounts with autofocus disabled; the entry is
@@ -1553,6 +1566,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "source": .string("list_tap"),
         ])
         setSelectedWorkspaceID(id)
+    }
+
+    /// Explicitly open a workspace (notification tap / deep-link), selecting it
+    /// and signalling the compact shell to push its detail even from the root
+    /// list. The monotonic token makes a repeat request for the already-selected
+    /// workspace still fire an `onChange`.
+    public func requestOpenWorkspace(_ id: MobileWorkspacePreview.ID) {
+        setSelectedWorkspaceID(id)
+        workspaceOpenRequestCounter += 1
+        pendingWorkspaceOpenRequest = (id: id, token: workspaceOpenRequestCounter)
     }
 
     public func sendTerminalInput() {

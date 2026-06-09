@@ -107,6 +107,20 @@ struct WorkspaceShellView: View {
             compactNavigationPath.removeAll { !workspaceIDs.contains($0) }
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
+        // Explicit open requests (notification tap / deep-link) must push the
+        // workspace detail even from the root list, unlike passive selection
+        // changes which the navigation policy intentionally ignores at root.
+        // Observe the monotonic token so a repeat open of the already-selected
+        // workspace still fires.
+        .onChange(of: store.pendingWorkspaceOpenRequest?.token) { _, _ in
+            guard let request = store.pendingWorkspaceOpenRequest,
+                  store.workspaces.contains(where: { $0.id == request.id }) else {
+                return
+            }
+            if compactNavigationPath.last != request.id {
+                compactNavigationPath = [request.id]
+            }
+        }
         .onAppear {
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }

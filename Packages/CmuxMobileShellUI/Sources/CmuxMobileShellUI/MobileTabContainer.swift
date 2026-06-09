@@ -75,10 +75,13 @@ struct MobileTabContainer: View {
     /// badge clears immediately (propagated to the Mac for reconciliation).
     private func openNotification(_ notification: MobileNotificationPreview) {
         store.markNotificationsRead(forWorkspace: notification.workspaceID)
-        store.selectedWorkspaceID = MobileWorkspacePreview.ID(rawValue: notification.workspaceID)
+        // Switch to the Workspaces tab first, then issue an explicit open request
+        // so the compact iPhone stack actually pushes the workspace detail (a
+        // bare `selectedWorkspaceID` set leaves the compact UI at the root list).
+        selectedTab = .workspaces
+        store.requestOpenWorkspace(MobileWorkspacePreview.ID(rawValue: notification.workspaceID))
         if let surfaceID = notification.surfaceID {
             store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
         }
-        selectedTab = .workspaces
     }
 }
