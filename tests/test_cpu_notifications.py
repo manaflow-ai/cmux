@@ -67,6 +67,9 @@ def get_cmux_pid() -> Optional[int]:
                 if pid != os.getpid():
                     return pid
 
+    if os.environ.get("CMUX_SOCKET_PATH"):
+        return None
+
     result = subprocess.run(
         ["pgrep", "-f", r"cmux\.app/Contents/MacOS/cmux$"],
         capture_output=True,
@@ -251,6 +254,9 @@ def main():
     pid = get_cmux_pid()
     if pid is None:
         print("\n❌ SKIP: cmux is not running")
+        if os.environ.get("CMUX_SOCKET_PATH"):
+            print("CMUX_SOCKET_PATH is set, so runner-managed notification CPU coverage cannot skip.")
+            return 1
         return 0
 
     print(f"\nFound cmux process: PID {pid}")
@@ -263,6 +269,9 @@ def main():
     except cmuxError:
         print("\n❌ SKIP: Could not connect to cmux socket")
         print("Tip: set CMUX_TAG=<tag> or CMUX_SOCKET_PATH=<path> to target a tagged instance.")
+        if os.environ.get("CMUX_SOCKET_PATH"):
+            print("CMUX_SOCKET_PATH is set, so runner-managed notification CPU coverage cannot skip.")
+            return 1
         return 0
 
     results = []

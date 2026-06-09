@@ -247,7 +247,51 @@ private func openApplication(appURL: URL, bundleIdentifier: String) -> NSRunning
     if let openedError {
         fputs("openApplication error: \(openedError)\n", stderr)
     }
-    return openedApp ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first
+    if let openedApp {
+        return openedApp
+    }
+    if let runningApp = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first {
+        return runningApp
+    }
+
+    fputs("Falling back to direct app executable launch.\n", stderr)
+    return launchApplicationExecutable(appURL: appURL, bundleIdentifier: bundleIdentifier)
+}
+
+private func launchApplicationExecutable(appURL: URL, bundleIdentifier: String) -> NSRunningApplication? {
+    guard let executableURL = Bundle(url: appURL)?.executableURL else {
+        fputs("Unable to resolve app executable for \(appURL.path).\n", stderr)
+        return nil
+    }
+
+    let process = Process()
+    process.executableURL = executableURL
+    process.currentDirectoryURL = appURL.deletingLastPathComponent()
+    process.environment = ProcessInfo.processInfo.environment
+    do {
+        try process.run()
+    } catch {
+        fputs("direct executable launch error: \(error)\n", stderr)
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first
+    }
+
+    let processIdentifier = process.processIdentifier
+    let deadline = Date().addingTimeInterval(10)
+    while Date() < deadline {
+        if let app = NSRunningApplication(processIdentifier: processIdentifier) {
+            app.activate(options: [.activateAllWindows])
+            return app
+        }
+        if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first {
+            app.activate(options: [.activateAllWindows])
+            return app
+        }
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+    let app = NSRunningApplication(processIdentifier: processIdentifier)
+        ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first
+    app?.activate(options: [.activateAllWindows])
+    return app
 }
 
 @discardableResult

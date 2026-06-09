@@ -361,8 +361,7 @@ extension Workspace {
             from: snapshot,
             oldToNewPanelIds: oldToNewPanelIds
         )
-        let hasUnreadWorkspaceNotification = snapshot.notifications?.contains { !$0.isRead } == true
-        if snapshot.hasUnreadIndicator == true, !hasUnreadWorkspaceNotification {
+        if snapshot.hasUnreadIndicator == true {
             AppDelegate.shared?.notificationStore?.restoreUnreadIndicator(forTabId: id)
         } else {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
@@ -550,6 +549,9 @@ extension Workspace {
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
+            let didEndPersistentRemotePTYAttach =
+                remoteConfiguration?.preserveAfterTerminalExit == true &&
+                endedPersistentRemotePTYAttachSurfaceIds.contains(panelId)
             let restorableTmuxStartCommand = effectiveRestorableAgent == nil
                 ? Self.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
@@ -597,7 +599,7 @@ extension Workspace {
                 allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
-                workingDirectory: directory,
+                workingDirectory: didEndPersistentRemotePTYAttach ? nil : directory,
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
@@ -1757,6 +1759,16 @@ extension Workspace {
                 restoredAgentResumeLaunch?.initialInput != nil ||
                 (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
             )
+            let requestedWorkingDirectoryForRestoredTerminal =
+                startupHandlesWorkingDirectory ||
+                (remoteConfiguration != nil && (
+                    restoredAgentWillRunStartupCommand ||
+                    restoredAgentWillRunStartupInput ||
+                    restoresRemoteWorkspaceTerminalSnapshot ||
+                    effectiveRemoteStartupCommand != nil
+                ))
+                ? nil
+                : savedWorkingDirectory
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -1786,6 +1798,7 @@ extension Workspace {
                 inPane: paneId,
                 focus: false,
                 workingDirectory: localWorkingDirectory,
+                requestedWorkingDirectory: requestedWorkingDirectoryForRestoredTerminal,
                 initialCommand: restoredStartupCommand,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredStartupInput,
@@ -1940,7 +1953,8 @@ extension Workspace {
         } else {
             clearManualUnread(panelId: panelId)
         }
-        let hasUnreadPanelNotification = snapshot.notifications?.contains(where: { !$0.isRead }) == true
+        let hasUnreadPanelNotification = snapshot.hasUnreadIndicator != true &&
+            snapshot.notifications?.contains(where: { !$0.isRead }) == true
         if snapshot.hasUnreadIndicator == true, !hasUnreadPanelNotification {
             let contributesToWorkspaceUnread = snapshot.restoredUnreadContributesToWorkspace
                 ?? (snapshot.notifications?.isEmpty ?? true)
@@ -2010,19 +2024,27 @@ extension Workspace {
         from snapshot: SessionWorkspaceSnapshot,
         oldToNewPanelIds: [UUID: UUID]
     ) -> [TerminalNotification] {
-        var notifications = (snapshot.notifications ?? []).map {
-            $0.terminalNotification(tabId: id, surfaceId: nil, panelId: nil)
+        var notifications = (snapshot.notifications ?? []).map { notification in
+            var restored = notification.terminalNotification(tabId: id, surfaceId: nil, panelId: nil)
+            if snapshot.hasUnreadIndicator == true {
+                restored.isRead = true
+            }
+            return restored
         }
 
         for panelSnapshot in snapshot.panels {
             guard let newPanelId = oldToNewPanelIds[panelSnapshot.id] else { continue }
             notifications.append(
-                contentsOf: (panelSnapshot.notifications ?? []).map {
-                    $0.terminalNotification(
+                contentsOf: (panelSnapshot.notifications ?? []).map { notification in
+                    var restored = notification.terminalNotification(
                         tabId: id,
                         surfaceId: newPanelId,
                         panelId: newPanelId
                     )
+                    if panelSnapshot.hasUnreadIndicator == true {
+                        restored.isRead = true
+                    }
+                    return restored
                 }
             )
         }
@@ -6281,6 +6303,9 @@ final class WorkspaceRemoteSessionController {
     // override closure owns synchronization for any captured test-only state.
     nonisolated(unsafe) static var runProcessOverrideForTesting: ((String, [String], Data?, TimeInterval) throws -> (status: Int32, stdout: String, stderr: String))?
     nonisolated(unsafe) static var runProcessReadHandlesDidInstallForTesting: ((FileHandle, FileHandle) -> Void)?
+    nonisolated(unsafe) static var captureCommandStandardOutputOverrideForTesting: ((String, [String]) -> String?)?
+    nonisolated(unsafe) static var localDaemonBinaryOverrideForTesting: URL?
+    nonisolated(unsafe) static var startSynchronouslyForTesting = false
 #endif
 
     enum PortScanKickReason: String {
@@ -6454,6 +6479,16 @@ final class WorkspaceRemoteSessionController {
 
     func start() {
         debugLog("remote.session.start \(debugConfigSummary())")
+#if DEBUG
+        if Self.startSynchronouslyForTesting {
+            queue.sync { [weak self] in
+                guard let self else { return }
+                guard !self.isStopping else { return }
+                self.beginConnectionAttemptLocked()
+            }
+            return
+        }
+#endif
         queue.async { [weak self] in
             guard let self else { return }
             guard !self.isStopping else { return }
@@ -7271,6 +7306,12 @@ final class WorkspaceRemoteSessionController {
             self.beginConnectionAttemptLocked()
         }
         reconnectWorkItem = workItem
+#if DEBUG
+        if Self.startSynchronouslyForTesting, retryNumber == 1 {
+            workItem.perform()
+            return RetrySchedule(retry: retryNumber, delay: 0)
+        }
+#endif
         queue.asyncAfter(deadline: .now() + retryDelay, execute: workItem)
         return RetrySchedule(retry: retryNumber, delay: retryDelay)
     }
@@ -7731,6 +7772,19 @@ final class WorkspaceRemoteSessionController {
 
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
+        let stdoutReadDescriptor = Darwin.dup(stdoutHandle.fileDescriptor)
+        let stderrReadDescriptor = Darwin.dup(stderrHandle.fileDescriptor)
+        guard stdoutReadDescriptor >= 0, stderrReadDescriptor >= 0 else {
+            if stdoutReadDescriptor >= 0 {
+                Darwin.close(stdoutReadDescriptor)
+            }
+            if stderrReadDescriptor >= 0 {
+                Darwin.close(stderrReadDescriptor)
+            }
+            throw NSError(domain: "cmux.remote.process", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to duplicate process output pipe descriptors",
+            ])
+        }
         let captureQueue = DispatchQueue(label: "cmux.remote.process.capture")
         let exitSemaphore = DispatchSemaphore(value: 0)
         var stdoutData = Data()
@@ -7744,7 +7798,8 @@ final class WorkspaceRemoteSessionController {
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
             defer { captureGroup.leave() }
-            let result = Self.readProcessPipeToEnd(stdoutHandle)
+            defer { Darwin.close(stdoutReadDescriptor) }
+            let result = Self.readProcessPipeToEnd(stdoutReadDescriptor)
             captureQueue.sync {
                 stdoutData = result.data
                 stdoutReadError = result.readError
@@ -7753,7 +7808,8 @@ final class WorkspaceRemoteSessionController {
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
             defer { captureGroup.leave() }
-            let result = Self.readProcessPipeToEnd(stderrHandle)
+            defer { Darwin.close(stderrReadDescriptor) }
+            let result = Self.readProcessPipeToEnd(stderrReadDescriptor)
             captureQueue.sync {
                 stderrData = result.data
                 stderrReadError = result.readError
@@ -7854,8 +7910,8 @@ final class WorkspaceRemoteSessionController {
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
 
-    private static func readProcessPipeToEnd(_ fileHandle: FileHandle) -> ProcessPipeEndRead {
-        ProcessPipeReader.readDataToEndOfFile(from: fileHandle)
+    private static func readProcessPipeToEnd(_ fileDescriptor: Int32) -> ProcessPipeEndRead {
+        ProcessPipeReader.readDataToEndOfFile(fileDescriptor: fileDescriptor)
     }
 
 #if DEBUG
@@ -8051,7 +8107,7 @@ final class WorkspaceRemoteSessionController {
           esac
           cmux_child_pids="$(printf '%s\\n' "$cmux_ps_output" | awk -v parent="$cmux_listener_pid" -v slot="$cmux_persistent_slot" '
             function clean_token(value) {
-              gsub(/'\''/, "", value)
+              gsub(/\\047/, "", value)
               gsub(/"/, "", value)
               gsub(/\\\\/, "", value)
               return value
@@ -8373,6 +8429,13 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func buildLocalDaemonBinary(goOS: String, goArch: String, version: String) throws -> URL {
+#if DEBUG
+        if let override = Self.localDaemonBinaryOverrideForTesting,
+           FileManager.default.isExecutableFile(atPath: override.path) {
+            debugLog("remote.build.testOverride path=\(override.path)")
+            return override
+        }
+#endif
         if let explicitBinary = Self.explicitRemoteDaemonBinaryURL(),
            FileManager.default.isExecutableFile(atPath: explicitBinary.path) {
             debugLog("remote.build.explicit path=\(explicitBinary.path)")
@@ -8926,6 +8989,12 @@ final class WorkspaceRemoteSessionController {
         executablePath: String,
         arguments: [String]
     ) -> String? {
+#if DEBUG
+        if let override = captureCommandStandardOutputOverrideForTesting {
+            return override(executablePath, arguments)
+        }
+#endif
+
         let process = Process()
         let stdoutPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
@@ -14754,6 +14823,7 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         focus: Bool? = nil,
         workingDirectory: String? = nil,
+        requestedWorkingDirectory: String? = nil,
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
@@ -14792,6 +14862,7 @@ final class Workspace: Identifiable, ObservableObject {
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
+            requestedWorkingDirectory: requestedWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
@@ -14881,7 +14952,7 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return nil }
 
-        let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         let requestedWorkingDirectory: String? = {
             if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !workingDirectory.isEmpty {
@@ -14909,6 +14980,9 @@ final class Workspace: Identifiable, ObservableObject {
         let launchContext = oldPanel.surface.launchContext
         let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
         let additionalEnvironment = oldPanel.surface.respawnAdditionalEnvironment
+        var respawnConfig = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+        respawnConfig.waitAfterCommand = true
+        inheritedConfig = respawnConfig
 
         oldPanel.unfocus()
         oldPanel.hostedView.setVisibleInUI(false)
@@ -14936,6 +15010,7 @@ final class Workspace: Identifiable, ObservableObject {
             context: launchContext,
             configTemplate: inheritedConfig,
             workingDirectory: requestedWorkingDirectory,
+            requestedWorkingDirectory: requestedWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: trimmedCommand,
             tmuxStartCommand: replacementTmuxStartCommand,
@@ -15182,7 +15257,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Keyboard/browser-open paths want "new tab at end" regardless of global new-tab placement.
         if insertAtEnd {
-            let targetIndex = max(0, bonsplitController.tabs(inPane: paneId).count - 1)
+            let targetIndex = bonsplitController.tabs(inPane: paneId).count
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
         publishCmuxSurfaceCreated(browserPanel.id, paneId: paneId, kind: "browser", origin: "browser_tab", focused: shouldFocusNewTab)

@@ -4,8 +4,6 @@ import Observation
 @MainActor
 @Observable
 final class TextBoxMentionCompletionController {
-    private static let maxVisibleStaleSuggestionsToFilter = 500
-
     private(set) var suggestions: [TextBoxMentionSuggestion] = []
     private(set) var selectionIndex: Int = 0
     private(set) var isLoadingSuggestions = false
@@ -58,32 +56,13 @@ final class TextBoxMentionCompletionController {
         guard let query else { return }
 
         guard activeQuery != query || activeRootDirectory != rootDirectory else { return }
-        let previousActiveQuery = activeQuery
-        let previousRootDirectory = activeRootDirectory
         activeQuery = query
         activeRootDirectory = rootDirectory
         selectionIndex = 0
         isLoadingSuggestions = true
-        // Moving between a bare trigger and typed query changes the expected
-        // result shape. Show the loading row until that exact query finishes.
-        let previousQueryWasEmpty = previousActiveQuery?.query
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty ?? true
-        let queryIsEmpty = query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let queryChangedToNonEmpty = previousQueryWasEmpty &&
-            !queryIsEmpty
-        let queryChangedToEmpty = !previousQueryWasEmpty && queryIsEmpty
-        if previousActiveQuery?.trigger != query.trigger ||
-            previousRootDirectory != rootDirectory ||
-            queryChangedToNonEmpty ||
-            queryChangedToEmpty {
-            suggestions = []
-            suggestionsQuery = nil
-            suggestionsRootDirectory = nil
-        } else if previousActiveQuery?.query != query.query,
-                  !queryIsEmpty {
-            filterVisibleStaleSuggestions(matching: query.query)
-        }
+        suggestions = []
+        suggestionsQuery = nil
+        suggestionsRootDirectory = nil
         lookupTask?.cancel()
         lookupGeneration &+= 1
         let generation = lookupGeneration
@@ -131,46 +110,6 @@ final class TextBoxMentionCompletionController {
         lookupTask = nil
         lookupGeneration &+= 1
         onStateChanged?()
-    }
-
-    private func filterVisibleStaleSuggestions(matching query: String) {
-        let normalizedQuery = Self.normalizedMentionSearchText(query)
-        guard !normalizedQuery.isEmpty, !suggestions.isEmpty else { return }
-        if suggestions.count > Self.maxVisibleStaleSuggestionsToFilter {
-            // The index store caps visible rows at this size; oversized injected
-            // stale state is safer to clear than filter on the main actor.
-            suggestions = []
-        } else {
-            suggestions = suggestions.filter { suggestion in
-                Self.title(suggestion.title, matchesNormalizedQuery: normalizedQuery)
-            }
-        }
-        suggestionsQuery = nil
-        suggestionsRootDirectory = nil
-        selectionIndex = suggestions.isEmpty ? 0 : min(selectionIndex, suggestions.count - 1)
-    }
-
-    private static func title(_ title: String, matchesNormalizedQuery normalizedQuery: String) -> Bool {
-        let normalizedTitle = normalizedMentionSearchText(title)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/$@"))
-        guard !normalizedQuery.isEmpty else { return true }
-        guard !normalizedTitle.isEmpty else { return false }
-        if normalizedTitle.contains(normalizedQuery) { return true }
-
-        var candidateIndex = normalizedTitle.startIndex
-        for queryCharacter in normalizedQuery {
-            guard let matchIndex = normalizedTitle[candidateIndex...].firstIndex(of: queryCharacter) else {
-                return false
-            }
-            candidateIndex = normalizedTitle.index(after: matchIndex)
-        }
-        return true
-    }
-
-    private static func normalizedMentionSearchText(_ text: String) -> String {
-        text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
     }
 
     deinit {

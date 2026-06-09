@@ -56,6 +56,9 @@ def get_cmux_pid() -> int | None:
                 if pid != os.getpid():
                     return pid
 
+    if os.environ.get("CMUX_SOCKET_PATH"):
+        return None
+
     result = subprocess.run(
         ["pgrep", "-f", r"cmux\.app/Contents/MacOS/cmux$"],
         capture_output=True, text=True,
@@ -101,6 +104,9 @@ def main() -> int:
     pid = get_cmux_pid()
     if pid is None:
         print("\nSKIP: cmux is not running")
+        if os.environ.get("CMUX_SOCKET_PATH"):
+            print("CMUX_SOCKET_PATH is set, so runner-managed omnibar CPU coverage cannot skip.")
+            return 1
         return 0
 
     client = cmux()

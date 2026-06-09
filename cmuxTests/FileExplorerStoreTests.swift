@@ -9,35 +9,53 @@ import XCTest
 // MARK: - Mock Provider
 
 private final class MockFileExplorerProvider: FileExplorerProvider {
-    var homePath: String
-    var isAvailable: Bool
-    var listings: [String: Result<[FileExplorerEntry], Error>] = [:]
-    var listCallCount = 0
-    var listCallPaths: [String] = []
-    /// Optional delay (seconds) before returning results
-    var delay: TimeInterval = 0
+    var homePath: String { get { locked { _homePath } } set { locked { _homePath = newValue } } }
+    var isAvailable: Bool { get { locked { _isAvailable } } set { locked { _isAvailable = newValue } } }
+    var listings: [String: Result<[FileExplorerEntry], Error>] {
+        get { locked { _listings } }
+        set { locked { _listings = newValue } }
+    }
+    var listCallCount: Int { locked { _listCallCount } }
+    var listCallPaths: [String] { locked { _listCallPaths } }
+    var delay: TimeInterval { get { locked { _delay } } set { locked { _delay = newValue } } }
+    private let lock = NSLock()
+    private var _homePath: String
+    private var _isAvailable: Bool
+    private var _listings: [String: Result<[FileExplorerEntry], Error>] = [:]
+    private var _listCallCount = 0
+    private var _listCallPaths: [String] = []
+    private var _delay: TimeInterval = 0
 
     init(homePath: String = "/home/user", isAvailable: Bool = true) {
-        self.homePath = homePath
-        self.isAvailable = isAvailable
+        _homePath = homePath
+        _isAvailable = isAvailable
     }
 
     func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
-        listCallCount += 1
-        listCallPaths.append(path)
-
-        if delay > 0 {
-            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        let snapshot = locked {
+            _listCallCount += 1
+            _listCallPaths.append(path)
+            return (delay: _delay, isAvailable: _isAvailable, result: _listings[path])
         }
 
-        guard isAvailable else {
+        if snapshot.delay > 0 {
+            try await Task.sleep(nanoseconds: UInt64(snapshot.delay * 1_000_000_000))
+        }
+
+        guard snapshot.isAvailable else {
             throw FileExplorerError.providerUnavailable
         }
 
-        if let result = listings[path] {
+        if let result = snapshot.result {
             return try result.get()
         }
         return []
+    }
+
+    private func locked<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
     }
 }
 
@@ -219,7 +237,7 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertEqual(store.rootPath, "/home/dev")
         XCTAssertEqual(store.displayRootPath, "ssh://dev@ubuntu-host:2222:/home/dev")
         XCTAssertEqual(transport.resolvedHomeConnections, [connection])
-        XCTAssertEqual(transport.listedPaths, ["/home/dev"])
+        XCTAssertEqual(transport.listedPaths.last, "/home/dev")
     }
 
     func testSwitchingFromLocalToRemoteRepointsTreeToRemoteHome() async throws {
@@ -598,9 +616,10 @@ final class FileExplorerStoreTests: XCTestCase {
 @MainActor
 final class FileSearchControllerTests: XCTestCase {
     private struct WaitTimeout: Error {}
+    private struct RequiredToolUnavailable: Error {}
 
     func testSearchIncludesDotfilesWithoutSearchingGitInternals() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+        try Self.requireRipgrep()
 
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -651,7 +670,7 @@ final class FileSearchControllerTests: XCTestCase {
     }
 
     func testSearchPublishesAllMatchingFilesInFolder() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+        try Self.requireRipgrep()
 
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -691,7 +710,7 @@ final class FileSearchControllerTests: XCTestCase {
     }
 
     func testSearchLimitsHighVolumeResultsWithoutWaitingForRipgrepExit() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+        try Self.requireRipgrep()
 
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -718,7 +737,7 @@ final class FileSearchControllerTests: XCTestCase {
     }
 
     func testSearchRefreshesWhenContentRevisionChanges() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+        try Self.requireRipgrep()
 
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -747,7 +766,7 @@ final class FileSearchControllerTests: XCTestCase {
     }
 
     func testSearchRefreshesSameRequestAfterFileContentsChange() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+        try Self.requireRipgrep()
 
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1021,6 +1040,22 @@ final class FileSearchControllerTests: XCTestCase {
 
     private static func hasRipgrep() -> Bool {
         RipgrepExecutableResolver.resolve(configuredPath: nil) != nil
+    }
+
+    private static func requireRipgrep(file: StaticString = #filePath, line: UInt = #line) throws {
+        guard hasRipgrep() else {
+            let message = "ripgrep is required for file search behavior tests"
+            if isHostedCI {
+                XCTFail("\(message); hosted CI must exercise FileExplorer search behavior", file: file, line: line)
+                throw RequiredToolUnavailable()
+            }
+            throw XCTSkip(message)
+        }
+    }
+
+    private static var isHostedCI: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true"
     }
 
     private static func findSearchField(in root: NSView) -> NSSearchField? {

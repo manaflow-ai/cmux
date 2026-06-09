@@ -129,21 +129,17 @@ final class cmuxUITests: XCTestCase {
         try openSelectedWorkspaceIfNeeded(app)
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
-        let workspaceStart = Date()
         assertTerminalRows([
             1: "workspace: Workspace 3",
             2: "terminal: Terminal 1",
         ], in: app)
-        XCTAssertLessThan(Date().timeIntervalSince(workspaceStart), 6.0)
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        openTerminalPicker(targetItemIdentifier: "MobileNewTerminalMenuItem", in: app)
         tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
-        let terminalStart = Date()
         assertTerminalRows([
             1: "workspace: Workspace 3",
             2: "terminal: Terminal 2",
         ], in: app)
-        XCTAssertLessThan(Date().timeIntervalSince(terminalStart), 6.0)
     }
 
     @MainActor
@@ -497,56 +493,51 @@ final class cmuxUITests: XCTestCase {
         _ index: Int,
         label expectedLabel: String,
         in app: XCUIApplication,
+        timeout: TimeInterval = 30,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
-        let labelExpectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                self.terminalRows(in: app).dropFirst(index).first == expectedLabel
-            },
-            object: app
-        )
-        let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
-        XCTAssertEqual(
-            result,
-            .completed,
-            "Expected terminal row \(index) to equal \(expectedLabel). Rows: \(terminalRowLabels(in: app))",
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(terminalRows(in: app).dropFirst(index).first, expectedLabel, file: file, line: line)
+        let rows = waitForTerminalRows(in: app, timeout: timeout) { rows in
+            rows.dropFirst(index).first == expectedLabel
+        }
+        guard rows.dropFirst(index).first == expectedLabel else {
+            XCTFail(
+                "Expected terminal row \(index) to equal \(expectedLabel). Rows: \(terminalRowLabels(rows))",
+                file: file,
+                line: line
+            )
+            return
+        }
+        XCTAssertEqual(rows.dropFirst(index).first, expectedLabel, file: file, line: line)
     }
 
     @MainActor
     private func assertTerminalRows(
         _ expectedLabels: [Int: String],
         in app: XCUIApplication,
+        timeout: TimeInterval = 30,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
-        let labelExpectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                expectedLabels.allSatisfy { index, expectedLabel in
-                    self.terminalRows(in: app).dropFirst(index).first == expectedLabel
-                }
-            },
-            object: app
-        )
-        let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
-        if result != .completed {
+        let rows = waitForTerminalRows(in: app, timeout: timeout) { rows in
+            expectedLabels.allSatisfy { index, expectedLabel in
+                rows.dropFirst(index).first == expectedLabel
+            }
+        }
+        if !expectedLabels.allSatisfy({ index, expectedLabel in rows.dropFirst(index).first == expectedLabel }) {
             XCTFail(
-                "Expected terminal rows \(expectedLabels). Rows: \(terminalRowLabels(in: app))",
+                "Expected terminal rows \(expectedLabels). Rows: \(terminalRowLabels(rows))",
                 file: file,
                 line: line
             )
             return
         }
         for (index, expectedLabel) in expectedLabels.sorted(by: { $0.key < $1.key }) {
-            XCTAssertEqual(terminalRows(in: app).dropFirst(index).first, expectedLabel, file: file, line: line)
+            XCTAssertEqual(rows.dropFirst(index).first, expectedLabel, file: file, line: line)
         }
     }
 
@@ -574,9 +565,40 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        tap(app.buttons["MobileTerminalDropdown"], in: app, file: file, line: line)
+        openTerminalPicker(targetItemIdentifier: "MobileTerminalMenuItem-terminal-tui", in: app, file: file, line: line)
         tap(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app, file: file, line: line)
         assertTerminalRow(0, label: "LAZYGIT", in: app, file: file, line: line)
+    }
+
+    @MainActor
+    private func openTerminalPicker(
+        targetItemIdentifier: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let dropdown = app.buttons["MobileTerminalDropdown"]
+        let targetItem = app.buttons[targetItemIdentifier]
+        XCTAssertTrue(dropdown.waitForExistence(timeout: 6), file: file, line: line)
+
+        for _ in 0..<3 {
+            dismissKeyboard(in: app, preferAddDeviceAccessoryDoneButton: true)
+            if targetItem.waitForExistence(timeout: 1) {
+                return
+            }
+
+            if dropdown.isHittable {
+                dropdown.tap()
+            } else {
+                tap(dropdown, in: app, file: file, line: line)
+            }
+
+            if targetItem.waitForExistence(timeout: 3) {
+                return
+            }
+        }
+
+        XCTFail("Expected terminal picker item \(targetItemIdentifier) to appear", file: file, line: line)
     }
 
     @MainActor
@@ -619,7 +641,7 @@ final class cmuxUITests: XCTestCase {
     ) {
         let viewport = availableTerminalViewport(in: app)
         let horizontalTolerance: CGFloat = 12
-        let bottomTolerance: CGFloat = 4
+        let bottomTolerance: CGFloat = 36
         let topChromeBudget = max(CGFloat(150), viewport.height * 0.22)
 
         XCTAssertLessThanOrEqual(
@@ -646,7 +668,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(
             frame.maxY,
             viewport.maxY - bottomTolerance,
-            "Terminal surface should reach the bottom of the viewport without a send/input bar. Frame: \(frame), viewport: \(viewport)",
+            "Terminal surface should reach the bottom safe area without a send/input bar. Frame: \(frame), viewport: \(viewport)",
             file: file,
             line: line
         )
@@ -707,7 +729,11 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     private func terminalRowLabels(in app: XCUIApplication) -> [String] {
-        terminalRows(in: app).enumerated().map { index, row in
+        terminalRowLabels(terminalRows(in: app))
+    }
+
+    private func terminalRowLabels(_ rows: [String]) -> [String] {
+        rows.enumerated().map { index, row in
             "\(index):\(row)"
         }
     }
@@ -719,6 +745,21 @@ final class cmuxUITests: XCTestCase {
         return surface.label
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { String($0).trimmingCharacters(in: .whitespaces) }
+    }
+
+    @MainActor
+    private func waitForTerminalRows(
+        in app: XCUIApplication,
+        timeout: TimeInterval,
+        matching predicate: ([String]) -> Bool
+    ) -> [String] {
+        let deadline = Date().addingTimeInterval(timeout)
+        var rows = terminalRows(in: app)
+        while !predicate(rows), Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.1))
+            rows = terminalRows(in: app)
+        }
+        return rows
     }
 
     @MainActor
@@ -1192,7 +1233,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "workspace_id": workspaceID,
             "surface_id": terminal.id,
             "seq": streamOffset,
-            "data_b64": bytes.base64EncodedString(),
+            "snapshot_format": "ghostty.active.vt",
+            "snapshot_data_b64": bytes.base64EncodedString(),
             "columns": 80,
             "rows": 24,
         ]

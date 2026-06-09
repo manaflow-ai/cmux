@@ -3003,8 +3003,45 @@ final class BrowserPortalAnchorView: NSView {
     }
 }
 
+#if DEBUG
+enum BrowserHistoryTraversalRecoveryDebugAction: Equatable {
+    case goBack(URL)
+    case loadTarget(URL)
+}
+#endif
+
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
+    private enum HistoryTraversalRecoveryRequest {
+        case goBack(targetURL: URL)
+        case loadTarget(targetURL: URL)
+
+        var targetURL: URL {
+            switch self {
+            case .goBack(let targetURL), .loadTarget(let targetURL):
+                return targetURL
+            }
+        }
+    }
+
+    private enum HistoryTraversalRecoveryState {
+        case idle
+        case awaitingTarget(URL)
+
+        func isAwaitingTarget(_ url: URL?) -> Bool {
+            guard case .awaitingTarget(let targetURL) = self else { return false }
+            return url == targetURL
+        }
+
+        func recoveryRequest(committedURL: URL?, canGoBack: Bool) -> HistoryTraversalRecoveryRequest? {
+            guard case .awaitingTarget(let targetURL) = self,
+                  committedURL != targetURL else {
+                return nil
+            }
+            return canGoBack ? .goBack(targetURL: targetURL) : .loadTarget(targetURL: targetURL)
+        }
+    }
+
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
 
@@ -3391,6 +3428,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var hasBackgroundPreloadHost: Bool {
         backgroundPreloadWindow != nil
     }
+
     private var shouldPreloadInitialNavigationInBackground: Bool
     private var backgroundPreloadWindow: NSWindow?
     private let visualAutomationCaptureGate = BrowserScreenshotCaptureGate()
@@ -3448,6 +3486,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var restoredForwardHistoryStack: [URL] = []
     private var restoredHistoryCurrentURL: URL?
     private var isMainFrameProvisionalNavigationActive: Bool = false
+    private var historyTraversalRecoveryState: HistoryTraversalRecoveryState = .idle
 
     /// Published estimated progress (0.0 - 1.0)
     @Published private(set) var estimatedProgress: Double = 0.0
@@ -3541,7 +3580,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var activePortalHostLease: PortalHostLease?
     private var pendingDistinctPortalHostReplacementPaneId: UUID?
     private var lockedPortalHost: PortalHostLock?
-    private var webViewCancellables = Set<AnyCancellable>()
+    private var ghosttyBackgroundObserver: NSObjectProtocol?
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
     private var downloadDelegate: BrowserDownloadDelegate?
@@ -3639,6 +3678,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private let developerToolsAttachedManualCloseDetectionDelay: TimeInterval = 0.35
     private var developerToolsLastAttachedHostAt: Date?
     private var developerToolsLastKnownVisibleAt: Date?
+#if DEBUG
+    private var debugDeveloperToolsHostAttachedOverride: Bool?
+#endif
     private var detachedDeveloperToolsWindowCloseObserver: NSObjectProtocol?
     private var preferredAttachedDeveloperToolsWidth: CGFloat?
     private var preferredAttachedDeveloperToolsWidthFraction: CGFloat?
@@ -3714,7 +3756,7 @@ final class BrowserPanel: Panel, ObservableObject {
             restoreDiscardedWebViewIfNeeded(reason: "visible.\(reason)")
             drainPendingInteractiveBrowserPromptsIfPossible(reason: "visible.\(reason)")
         } else if changed || isFirstVisibilityRecord || !hiddenWebViewDiscardManager.hasScheduledDiscard {
-            scheduleHiddenWebViewDiscardIfNeeded(reason: reason)
+            scheduleHiddenWebViewDiscardIfNeeded(reason: reason, now: now)
         }
     }
 
@@ -3796,8 +3838,12 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.blockers(for: hiddenWebViewDiscardSnapshot)
     }
 
-    private func scheduleHiddenWebViewDiscardIfNeeded(reason: String) {
-        hiddenWebViewDiscardManager.scheduleIfNeeded(reason: reason)
+    func hiddenWebViewDiscardBlockersForTesting() -> [String] {
+        hiddenWebViewDiscardBlockers()
+    }
+
+    private func scheduleHiddenWebViewDiscardIfNeeded(reason: String, now: Date = Date()) {
+        hiddenWebViewDiscardManager.scheduleIfNeeded(reason: reason, now: now)
     }
 
     private func cancelHiddenWebViewDiscard() {
@@ -3842,7 +3888,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelPendingInteractiveBrowserPrompts(reason: "discardHiddenWebView")
 
         webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        resetWebViewBackgroundObservation()
         closeBackgroundPreloadHost(reason: "discardHiddenWebView")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
@@ -4231,6 +4277,9 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didStartProvisionalNavigation = { [weak self] webView in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                if self.historyTraversalRecoveryState.isAwaitingTarget(webView.url) {
+                    self.historyTraversalRecoveryState = .idle
+                }
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
@@ -4240,6 +4289,21 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
+                if let recovery = self.historyTraversalRecoveryState.recoveryRequest(
+                    committedURL: webView.url,
+                    canGoBack: webView.canGoBack
+                ) {
+                    // The current top-level document committed, even if recovery immediately redirects it.
+                    self.resetMediaPlaybackTracking()
+                    switch recovery {
+                    case .goBack:
+                        webView.goBack()
+                    case .loadTarget:
+                        webView.load(URLRequest(url: recovery.targetURL))
+                    }
+                    return
+                }
+                self.historyTraversalRecoveryState = .idle
                 // Reset playback tracking only once the new top-level document has
                 // actually replaced the old one. Resetting earlier (on provisional
                 // start) would drop a still-playing page's frames if the
@@ -4255,6 +4319,9 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
+                if self.historyTraversalRecoveryState.isAwaitingTarget(webView.url) {
+                    self.historyTraversalRecoveryState = .idle
+                }
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationFinish")
                 self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
@@ -4550,6 +4617,7 @@ final class BrowserPanel: Panel, ObservableObject {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = initialRequest.url
             shouldRenderWebView = renderInitialNavigation
+            refreshWebViewLifecycleState()
             guard renderInitialNavigation else { return }
             if let url = initialRequest.url,
                insecureHTTPBypassHostOnce == nil,
@@ -4569,7 +4637,15 @@ final class BrowserPanel: Panel, ObservableObject {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = url
             shouldRenderWebView = renderInitialNavigation
+            refreshWebViewLifecycleState()
             guard renderInitialNavigation else { return }
+            guard !Self.isBlankBrowserPageURL(url) else {
+                if shouldPreloadInitialNavigationInBackground {
+                    shouldPreloadInitialNavigationInBackground = false
+                    ensureBackgroundPreloadHostIfNeeded(reason: "initial-navigation")
+                }
+                return
+            }
             navigate(to: url)
         }
     }
@@ -4630,6 +4706,14 @@ final class BrowserPanel: Panel, ObservableObject {
         guard let preloadWindow = backgroundPreloadWindow else { return false }
         let attachedWindow = webView.window
         return attachedWindow == nil || attachedWindow === preloadWindow
+    }
+
+    static func shouldReleaseBackgroundPreloadHost(
+        preloadWindow: AnyObject?,
+        attachedWindow: AnyObject?
+    ) -> Bool {
+        guard let preloadWindow, let attachedWindow else { return false }
+        return attachedWindow !== preloadWindow
     }
 
     private func presentBrowserAlert(
@@ -4708,8 +4792,11 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: String) {
         guard let preloadWindow = backgroundPreloadWindow else { return }
-        guard let attachedWindow = webView.window else { return }
-        guard attachedWindow !== preloadWindow else { return }
+        let attachedWindow = webView.window
+        guard Self.shouldReleaseBackgroundPreloadHost(
+            preloadWindow: preloadWindow,
+            attachedWindow: attachedWindow
+        ) else { return }
         closeBackgroundPreloadHost(reason: reason)
         drainPendingInteractiveBrowserPromptsIfPossible(reason: reason)
     }
@@ -4852,7 +4939,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelDeveloperToolsRestoreRetry()
 
         webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        resetWebViewBackgroundObservation()
         clearWebContentTerminationRecovery()
         clearBrowserFocusMode(reason: "profileSwitch")
         faviconTask?.cancel()
@@ -5158,6 +5245,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func setupObservers(for webView: WKWebView) {
+        resetWebViewBackgroundObservation()
         let observedWebViewInstanceID = webViewInstanceID
 
         // URL changes
@@ -5273,16 +5361,26 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         webViewObservers.append(microphoneCaptureObserver)
 
-        NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
-            .sink { [weak self] notification in
-                guard let self else { return }
-                self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
+        ghosttyBackgroundObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                self?.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
             }
-            .store(in: &webViewCancellables)
+        }
 
         // Apply the configured background for the freshly bound webview (covers
         // the initial bind and every post-crash replacement).
         applyConfiguredWebViewBackground()
+    }
+
+    private func resetWebViewBackgroundObservation() {
+        if let ghosttyBackgroundObserver {
+            NotificationCenter.default.removeObserver(ghosttyBackgroundObserver)
+            self.ghosttyBackgroundObserver = nil
+        }
     }
 
     /// Configures the live webview's background for the current Ghostty theme.
@@ -5475,7 +5573,7 @@ final class BrowserPanel: Panel, ObservableObject {
 #endif
 
         webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        resetWebViewBackgroundObservation()
         clearBrowserFocusMode(reason: reason)
         faviconTask?.cancel()
         faviconTask = nil
@@ -5571,6 +5669,45 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         return true
     }
+
+#if DEBUG
+    func debugSetHistoryTraversalRecoveryTarget(_ targetURL: URL) {
+        historyTraversalRecoveryState = .awaitingTarget(targetURL)
+    }
+
+    func debugHistoryTraversalRecoveryAction(
+        committedURL: URL?,
+        canGoBack: Bool
+    ) -> BrowserHistoryTraversalRecoveryDebugAction? {
+        guard let request = historyTraversalRecoveryState.recoveryRequest(
+            committedURL: committedURL,
+            canGoBack: canGoBack
+        ) else {
+            return nil
+        }
+        switch request {
+        case .goBack(let targetURL):
+            return .goBack(targetURL)
+        case .loadTarget(let targetURL):
+            return .loadTarget(targetURL)
+        }
+    }
+
+    func debugSetLiveSessionHistoryForRestoredNavigation(
+        currentURL: URL?,
+        nativeCanGoBack: Bool,
+        nativeCanGoForward: Bool = false
+    ) {
+        self.currentURL = currentURL
+        self.nativeCanGoBack = nativeCanGoBack
+        self.nativeCanGoForward = nativeCanGoForward
+        refreshNavigationAvailability()
+    }
+
+    func debugShouldUseRestoredBackFallbackForGoBack() -> Bool {
+        shouldUseRestoredBackFallbackForGoBack()
+    }
+#endif
 
     private func clearWebContentTerminationRecovery() {
         pendingWebContentRecoveryURL = nil
@@ -5684,7 +5821,7 @@ final class BrowserPanel: Panel, ObservableObject {
         uiDelegate = nil
         webViewDidRequestClose = nil
         webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        resetWebViewBackgroundObservation()
         faviconTask?.cancel()
         faviconTask = nil
     }
@@ -6340,7 +6477,9 @@ final class BrowserPanel: Panel, ObservableObject {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
         webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        if let ghosttyBackgroundObserver {
+            NotificationCenter.default.removeObserver(ghosttyBackgroundObserver)
+        }
         let webView = webView
         Task { @MainActor in
             BrowserWindowPortalRegistry.detach(webView: webView)
@@ -6488,7 +6627,7 @@ extension BrowserPanel {
 
         let oldWebView = webView
         webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        resetWebViewBackgroundObservation()
         cancelPendingInteractiveBrowserPrompts(reason: "contextReset")
         closeBackgroundPreloadHost(reason: "contextReset")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
@@ -6567,7 +6706,10 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 
 extension BrowserPanel {
     private func cancelInFlightNavigationBeforeHistoryTraversal() {
-        guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
+        guard isMainFrameProvisionalNavigationActive else { return }
+        if let targetURL = webView.url {
+            historyTraversalRecoveryState = .awaitingTarget(targetURL)
+        }
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
     }
@@ -6594,7 +6736,7 @@ extension BrowserPanel {
         if usesRestoredSessionHistory {
             realignRestoredSessionHistoryToLiveCurrentIfPossible()
 
-            if (isLiveSessionHistoryAlignedWithRestoredCurrent || !nativeCanGoBack),
+            if shouldUseRestoredBackFallbackForGoBack(),
                let targetURL = restoredBackHistoryStack.popLast() {
                 if let current = resolvedCurrentSessionHistoryURL() {
                     restoredForwardHistoryStack.append(current)
@@ -6619,6 +6761,12 @@ extension BrowserPanel {
         }
 
         webView.goBack()
+    }
+
+    private func shouldUseRestoredBackFallbackForGoBack() -> Bool {
+        usesRestoredSessionHistory &&
+            !restoredBackHistoryStack.isEmpty &&
+            (isLiveSessionHistoryAlignedWithRestoredCurrent || !nativeCanGoBack)
     }
 
     /// Go forward in history
@@ -6813,6 +6961,15 @@ extension BrowserPanel {
         preferredDeveloperToolsVisible = next
     }
 
+    private func isDeveloperToolsHostAttached() -> Bool {
+#if DEBUG
+        if let debugDeveloperToolsHostAttachedOverride {
+            return debugDeveloperToolsHostAttachedOverride
+        }
+#endif
+        return webView.superview != nil && webView.window != nil
+    }
+
     private func reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden() {
         guard !preferredDeveloperToolsVisible, !isDeveloperToolsVisible() else { return }
         reevaluateHiddenWebViewDiscardScheduling(reason: "developer_tools_visibility_changed")
@@ -6826,6 +6983,16 @@ extension BrowserPanel {
             setPreferredDeveloperToolsPresentation(.detached)
         }
     }
+
+#if DEBUG
+    func debugSetAttachedDeveloperToolsPresentationForTesting() {
+        setPreferredDeveloperToolsPresentation(.attached)
+    }
+
+    func debugSetDeveloperToolsHostAttachedForTesting(_ attached: Bool?) {
+        debugDeveloperToolsHostAttachedOverride = attached
+    }
+#endif
 
     private func installDetachedDeveloperToolsWindowCloseObserver() {
         guard detachedDeveloperToolsWindowCloseObserver == nil else { return }
@@ -6891,11 +7058,11 @@ extension BrowserPanel {
     }
 
     private func detachedDeveloperToolsWindowBelongsToPanel(_ window: NSWindow) -> Bool {
-        guard let frontendWebView = webView.cmuxInspectorFrontendWebView(),
+        guard let frontendView = webView.cmuxInspectorFrontendView(),
               let contentView = window.contentView else {
             return false
         }
-        return frontendWebView === contentView || frontendWebView.isDescendant(of: contentView)
+        return frontendView === contentView || frontendView.isDescendant(of: contentView)
     }
 
     private func shouldDismissDetachedDeveloperToolsWindows() -> Bool {
@@ -6929,7 +7096,7 @@ extension BrowserPanel {
     private func prepareDeveloperToolsForRevealIfNeeded(_ inspector: NSObject) {
         if preferredDeveloperToolsPresentation != .unknown {
             guard preferredDeveloperToolsPresentation == .attached else { return }
-            guard webView.superview != nil, webView.window != nil else { return }
+            guard isDeveloperToolsHostAttached() else { return }
             guard inspector.cmuxCallBool(selector: NSSelectorFromString("isAttached")) == false else { return }
         }
         let attachSelector = NSSelectorFromString("attach")
@@ -7018,6 +7185,23 @@ extension BrowserPanel {
         guard pendingTargetVisible != isDeveloperToolsVisible() else { return }
         _ = performDeveloperToolsVisibilityTransition(to: pendingTargetVisible, source: "\(source).queued")
     }
+
+#if DEBUG
+    func debugSettleDeveloperToolsTransitionForTesting(source: String = "unit-test") {
+        var remainingPasses = 4
+        repeat {
+            developerToolsTransitionSettleWorkItem?.cancel()
+            developerToolsTransitionSettleWorkItem = nil
+            finishDeveloperToolsTransition(source: source)
+            remainingPasses -= 1
+        } while remainingPasses > 0 &&
+            (
+                developerToolsTransitionSettleWorkItem != nil ||
+                developerToolsTransitionTargetVisible != nil ||
+                pendingDeveloperToolsTransitionTargetVisible != nil
+            )
+    }
+#endif
 
     @discardableResult
     private func enqueueDeveloperToolsVisibilityTransition(
@@ -7261,7 +7445,7 @@ extension BrowserPanel {
         guard preferredDeveloperToolsVisible else { return false }
         guard preferredDeveloperToolsPresentation != .detached else { return false }
         guard !isDeveloperToolsTransitionInFlight else { return false }
-        guard webView.superview != nil, webView.window != nil else { return false }
+        guard isDeveloperToolsHostAttached() else { return false }
         guard let developerToolsLastAttachedHostAt else { return false }
         guard Date().timeIntervalSince(developerToolsLastAttachedHostAt) >= developerToolsAttachedManualCloseDetectionDelay else {
             return false
@@ -7296,13 +7480,19 @@ extension BrowserPanel {
             forceDeveloperToolsRefreshOnNextAttach = false
             return
         }
-        guard !isDeveloperToolsTransitionInFlight else { return }
+        let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
+        if isDeveloperToolsTransitionInFlight {
+            guard shouldForceRefresh else { return }
+            developerToolsTransitionSettleWorkItem?.cancel()
+            developerToolsTransitionSettleWorkItem = nil
+            developerToolsTransitionTargetVisible = nil
+            pendingDeveloperToolsTransitionTargetVisible = nil
+        }
         guard let inspector = webView.cmuxInspectorObject() else {
             scheduleDeveloperToolsRestoreRetry()
             return
         }
 
-        let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
         forceDeveloperToolsRefreshOnNextAttach = false
 
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
@@ -8677,14 +8867,18 @@ extension WKWebView {
         return inspector
     }
 
-    func cmuxInspectorFrontendWebView() -> WKWebView? {
+    func cmuxInspectorFrontendView() -> NSView? {
         guard let inspector = cmuxInspectorObject() else { return nil }
         let selector = NSSelectorFromString("inspectorWebView")
         guard inspector.responds(to: selector),
-              let inspectorWebView = inspector.perform(selector)?.takeUnretainedValue() as? WKWebView else {
+              let inspectorView = inspector.perform(selector)?.takeUnretainedValue() as? NSView else {
             return nil
         }
-        return inspectorWebView
+        return inspectorView
+    }
+
+    func cmuxInspectorFrontendWebView() -> WKWebView? {
+        cmuxInspectorFrontendView() as? WKWebView
     }
 }
 
@@ -9151,7 +9345,12 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        let nsError = error as NSError
         NSLog("BrowserPanel navigation failed: %@", error.localizedDescription)
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            didCancelProvisionalNavigation?(webView)
+            return
+        }
         // Treat committed-navigation failures the same as provisional ones so
         // stale favicon/title state from the prior page gets cleared.
         let failedURL = webView.url?.absoluteString ?? ""

@@ -29,13 +29,35 @@ on:
 jobs:
   tests:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    timeout-minutes: 20
+    timeout-minutes: 75
     steps:
+      - name: Validate suite selection
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.skip_unit_tests }}" = "true" ] && [ "${{ inputs.skip_ui_tests }}" = "true" ]; then
+            echo "skip_unit_tests and skip_ui_tests cannot both be true; that would execute no tests" >&2
+            exit 1
+          fi
+
+      - name: Prepare self-hosted workspace
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE"
+          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo -n chown -R "$(id -un):$(id -gn)" "$GITHUB_WORKSPACE"
+          fi
+          chmod -R u+rwX "$GITHUB_WORKSPACE" || true
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           ref: ${{ github.event.inputs.ref || github.ref }}
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
 
       - name: Select Xcode
         run: |
@@ -104,11 +126,55 @@ jobs:
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
           echo ""
           clang -framework Foundation -framework CoreGraphics \
+            -framework AppKit \
             -o /tmp/create-virtual-display scripts/create-virtual-display.m
-          /tmp/create-virtual-display &
+          VDISPLAY_COMMAND=(/tmp/create-virtual-display)
+          CURRENT_USER="$(id -un)"
+          CURRENT_UID="$(id -u)"
+          GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+          if [ -n "$GUI_USER" ] &&
+             [ "$GUI_USER" != "root" ] &&
+             GUI_UID="$(id -u "$GUI_USER" 2>/dev/null)" &&
+             command -v sudo >/dev/null 2>&1 &&
+             sudo -n true 2>/dev/null; then
+            echo "Launching virtual display helper in console GUI bootstrap for $GUI_USER ($GUI_UID); current user: $CURRENT_USER"
+            VDISPLAY_COMMAND=(sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" /usr/bin/env /tmp/create-virtual-display)
+          elif launchctl print "gui/$CURRENT_UID" >/dev/null 2>&1; then
+            echo "Launching virtual display helper in current user GUI bootstrap for $CURRENT_USER ($CURRENT_UID)"
+            VDISPLAY_COMMAND=(launchctl asuser "$CURRENT_UID" /usr/bin/env /tmp/create-virtual-display)
+          else
+            echo "Launching virtual display helper in current bootstrap"
+          fi
+          VDISPLAY_READY="$RUNNER_TEMP/cmux-virtual-display.ready"
+          VDISPLAY_ID_PATH="$RUNNER_TEMP/cmux-virtual-display.id"
+          VDISPLAY_LOG="$RUNNER_TEMP/cmux-virtual-display.log"
+          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
+
+          "${VDISPLAY_COMMAND[@]}" \
+            --ready-path "$VDISPLAY_READY" \
+            --display-id-path "$VDISPLAY_ID_PATH" \
+            >"$VDISPLAY_LOG" 2>&1 &
           VDISPLAY_PID=$!
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
-          sleep 3
+
+          for _ in $(seq 1 900); do
+            if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
+              break
+            fi
+            if ! kill -0 "$VDISPLAY_PID" 2>/dev/null; then
+              echo "Virtual display helper exited before readiness" >&2
+              cat "$VDISPLAY_LOG" >&2 || true
+              exit 1
+            fi
+            sleep 0.1
+          done
+          if [ ! -s "$VDISPLAY_READY" ] || [ ! -s "$VDISPLAY_ID_PATH" ]; then
+            echo "Timed out waiting for virtual display readiness after 90s" >&2
+            cat "$VDISPLAY_LOG" >&2 || true
+            exit 1
+          fi
+          echo "Virtual display ready: $(tr -d '\n' < "$VDISPLAY_ID_PATH")"
+          cat "$VDISPLAY_LOG"
           echo "=== Display after ==="
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
 
@@ -142,12 +208,11 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/tests"
           run_unit_tests() {
-            scripts/ci/xcodebuild_noninteractive.py \
-              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -disableAutomaticPackageResolution \
-              -destination "platform=macOS" test 2>&1
+            SOURCE_PACKAGES_DIR="$SOURCE_PACKAGES_DIR" \
+              DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
+              scripts/ci/run-cmux-unit-tests-isolated.sh
           }
 
           set +e
@@ -158,10 +223,10 @@ jobs:
           # SwiftPM binary artifact resolution can occasionally fail with
           # "Could not resolve package dependencies". Retry once after clearing
           # SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" <<<"$OUTPUT"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
-            rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+            rm -rf "$DERIVED_DATA_PATH"
             set +e
             OUTPUT=$(run_unit_tests)
             EXIT_CODE=$?
@@ -170,13 +235,12 @@ jobs:
 
           echo "$OUTPUT"
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
+            echo "Unit tests failed"
+            exit "$EXIT_CODE"
+          fi
+          if ! grep -Eq 'All [1-9][0-9]* selected cmuxTests XCTestCase classes and Swift Testing suites passed in shard-.* batches' <<<"$OUTPUT"; then
+            echo "Unit test workflow completed without executing any tests" >&2
+            exit 1
           fi
 
       - name: Run UI tests
@@ -195,9 +259,23 @@ jobs:
             ONLY_TESTING="-only-testing:cmuxUITests"
           fi
 
-          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+          set +e
+          OUTPUT=$(scripts/ci/xcodebuild_noninteractive.py \
+            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
-            "$ONLY_TESTING" test
+            "$ONLY_TESTING" test 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          echo "$OUTPUT"
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "UI tests failed"
+            exit "$EXIT_CODE"
+          fi
+          if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
+            echo "UI test workflow completed without executing any tests" >&2
+            exit 1
+          fi

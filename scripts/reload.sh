@@ -16,6 +16,7 @@ CMUX_DEV_PORT_END=""
 CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
 CLI_PATH=""
+PRINT_DEV_WEB_ENV=0
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
 # read the last-socket-path markers (https://github.com/manaflow-ai/cmux/issues/5146).
 # Resolve the real account home via getpwuid (the same syscall
@@ -240,6 +241,7 @@ Options:
                          CMUX_SWIFT_FRONTEND_WORKAROUND=1.
   --swift-disable-global-isel
                          Alias for --swift-frontend-workaround.
+  --print-dev-web-env    Print the derived CMUX_PORT environment for this tag and exit.
   -h, --help             Show this help.
 EOF
 }
@@ -275,19 +277,49 @@ is_positive_integer() {
   (( numeric > 0 ))
 }
 
-choose_cmux_dev_port() {
+choose_cmux_dev_port_source() {
   if is_valid_port "${CMUX_PORT:-}"; then
-    echo "$CMUX_PORT"
+    echo "env"
     return 0
   fi
   if is_valid_port "${PORT:-}"; then
-    echo "$PORT"
+    echo "env"
     return 0
   fi
+  if [[ -n "${TAG_SLUG:-}" ]]; then
+    echo "tag"
+    return 0
+  fi
+  echo "default"
+}
+
+choose_cmux_dev_port() {
+  local source="$1"
+  case "$source" in
+    env)
+      if is_valid_port "${CMUX_PORT:-}"; then
+        echo "$CMUX_PORT"
+      else
+        echo "$PORT"
+      fi
+      return 0
+      ;;
+    tag)
+      local checksum
+      checksum="$(printf '%s' "$TAG_SLUG" | cksum | awk '{print $1}')"
+      echo $((3800 + (checksum % 1000)))
+      return 0
+      ;;
+  esac
   echo "3777"
 }
 
 choose_cmux_dev_port_range() {
+  local source="$1"
+  if [[ "$source" != "env" ]]; then
+    echo "1"
+    return 0
+  fi
   if is_positive_integer "${CMUX_PORT_RANGE:-}"; then
     echo "$CMUX_PORT_RANGE"
     return 0
@@ -298,7 +330,8 @@ choose_cmux_dev_port_range() {
 choose_cmux_dev_port_end() {
   local start="$1"
   local range="$2"
-  if is_valid_port "${CMUX_PORT_END:-}"; then
+  local source="$3"
+  if [[ "$source" == "env" ]] && is_valid_port "${CMUX_PORT_END:-}"; then
     echo "$CMUX_PORT_END"
     return 0
   fi
@@ -351,6 +384,21 @@ cleanup_incomplete_xcodebuild_outputs() {
   remove_app_bundle_output "${XCODEBUILD_SOURCE_APP_PATH:-}"
   remove_app_bundle_output "${XCODEBUILD_TAG_APP_PATH:-}"
   remove_app_bundle_output "${TAG_APP_STAGING_PATH:-}"
+}
+
+prune_stale_bridging_header_pch() {
+  local derived_data_path="${1:-}"
+  local intermediates_path=""
+  if [[ -z "$derived_data_path" || ! -d "$derived_data_path" ]]; then
+    return 0
+  fi
+  intermediates_path="$derived_data_path/Build/Intermediates.noindex"
+  if [[ ! -d "$intermediates_path" ]]; then
+    return 0
+  fi
+  find "$intermediates_path" \
+    -type f -name '*-Bridging-header.pch' \
+    -print -delete
 }
 
 validate_app_bundle() {
@@ -480,6 +528,10 @@ while [[ $# -gt 0 ]]; do
       SWIFT_FRONTEND_WORKAROUND=1
       shift
       ;;
+    --print-dev-web-env)
+      PRINT_DEV_WEB_ENV=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -516,10 +568,19 @@ if [[ -n "$TAG" ]]; then
   fi
 fi
 
-CMUX_DEV_PORT="$(choose_cmux_dev_port)"
-CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
-CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_RANGE")"
+CMUX_DEV_PORT_SOURCE="$(choose_cmux_dev_port_source)"
+CMUX_DEV_PORT="$(choose_cmux_dev_port "$CMUX_DEV_PORT_SOURCE")"
+CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range "$CMUX_DEV_PORT_SOURCE")"
+CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_RANGE" "$CMUX_DEV_PORT_SOURCE")"
 CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
+
+if [[ "$PRINT_DEV_WEB_ENV" -eq 1 ]]; then
+  printf 'CMUX_PORT=%s\n' "$CMUX_DEV_PORT"
+  printf 'CMUX_PORT_RANGE=%s\n' "$CMUX_DEV_PORT_RANGE"
+  printf 'CMUX_PORT_END=%s\n' "$CMUX_DEV_PORT_END"
+  printf 'CMUX_DEV_ORIGIN=%s\n' "$CMUX_DEV_ORIGIN"
+  exit 0
+fi
 
 # Quiet logging: capture all noisy build output (xcodebuild, zig, codesign,
 # plistbuddy, etc.) to a single log file. On success we print only a one-line
@@ -664,6 +725,7 @@ XCODEBUILD_ARGS+=(build)
 if [[ -n "$BUILD_PRODUCTS_DEBUG_DIR" ]]; then
   mkdir -p "$BUILD_PRODUCTS_DEBUG_DIR"
   cleanup_incomplete_xcodebuild_outputs
+  prune_stale_bridging_header_pch "$DERIVED_DATA"
   XCODEBUILD_CLEANED_OUTPUTS=0
 fi
 

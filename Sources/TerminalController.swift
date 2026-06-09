@@ -126,6 +126,8 @@ class TerminalController {
         var sticky: Bool = false
     }
     private static let mobileViewportReportTTL: TimeInterval = 5
+    private static let mobileViewportClientIDMaxLength = 128
+    private static let mobileViewportStickyReportLimitPerSurface = 16
     private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
 #if DEBUG
@@ -2355,6 +2357,18 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugCommandPaletteSelection(params: params))
         case "debug.command_palette.results":
             return v2Result(id: id, self.v2DebugCommandPaletteResults(params: params))
+        case "debug.command_palette.query.set":
+            return v2Result(id: id, self.v2DebugCommandPaletteQuerySet(params: params))
+        case "debug.command_palette.submit":
+            return v2Result(id: id, self.v2DebugCommandPaletteSubmit(params: params))
+        case "debug.settings.set":
+            return v2Result(id: id, self.v2DebugSettingsSet(params: params))
+        case "debug.settings.get":
+            return v2Result(id: id, self.v2DebugSettingsGet(params: params))
+        case "debug.sidebar_help.perform":
+            return v2Result(id: id, self.v2DebugSidebarHelpPerform(params: params))
+        case "debug.feedback.message.set":
+            return v2Result(id: id, self.v2DebugFeedbackMessageSet(params: params))
         case "debug.command_palette.rename_input.interact":
             return v2Result(id: id, self.v2DebugCommandPaletteRenameInputInteraction(params: params))
         case "debug.command_palette.rename_input.delete_backward":
@@ -2653,6 +2667,12 @@ class TerminalController {
             "debug.command_palette.visible",
             "debug.command_palette.selection",
             "debug.command_palette.results",
+            "debug.command_palette.query.set",
+            "debug.command_palette.submit",
+            "debug.settings.set",
+            "debug.settings.get",
+            "debug.sidebar_help.perform",
+            "debug.feedback.message.set",
             "debug.command_palette.rename_input.interact",
             "debug.command_palette.rename_input.delete_backward",
             "debug.command_palette.rename_input.selection",
@@ -7378,6 +7398,8 @@ class TerminalController {
                     item["developer_tools_visible"] = browserPanel.isDeveloperToolsVisible()
                 }
                 if let terminalPanel = panel as? TerminalPanel {
+                    let currentDirectory = v2NonEmptyString(ws.panelDirectories[panel.id] ?? terminalPanel.directory)
+                    item["current_directory"] = v2OrNull(currentDirectory)
                     item["requested_working_directory"] = v2OrNull(v2NonEmptyString(terminalPanel.requestedWorkingDirectory))
                     item["initial_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugInitialCommand()))
                     item["tmux_start_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugTmuxStartCommand()))
@@ -15221,6 +15243,244 @@ class TerminalController {
         ])
     }
 
+    private func v2DebugCommandPaletteQuerySet(params: [String: Any]) -> V2CallResult {
+        guard let query = params["query"] as? String else {
+            return .err(code: "invalid_params", message: "Missing command palette query", data: nil)
+        }
+        let requestedWindowId = v2UUID(params, "window_id")
+        let mode = v2String(params, "mode") ?? "switcher"
+        guard mode == "switcher" || mode == "commands" else {
+            return .err(code: "invalid_params", message: "Unsupported command palette mode", data: ["mode": mode])
+        }
+
+        var result: V2CallResult = .ok(["query": query, "mode": mode])
+        v2MainSync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(
+                name: .commandPaletteQuerySetRequested,
+                object: targetWindow,
+                userInfo: [
+                    "query": query,
+                    "mode": mode,
+                ]
+            )
+        }
+        return result
+    }
+
+    private func v2DebugCommandPaletteSubmit(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        let commandID = v2OptionalTrimmedRawString(params, "command_id")
+            ?? v2OptionalTrimmedRawString(params, "commandID")
+        var payload: [String: Any] = [:]
+        var notificationPayload: [String: Any] = [:]
+        let acknowledgement = CommandPaletteSubmitAcknowledgement()
+        if let commandID {
+            payload["command_id"] = commandID
+            notificationPayload["command_id"] = commandID
+            notificationPayload["acknowledgement"] = acknowledgement
+        }
+        var result: V2CallResult = .ok(payload)
+        v2MainSync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(
+                name: .commandPaletteSubmitRequested,
+                object: targetWindow,
+                userInfo: notificationPayload.isEmpty ? nil : notificationPayload
+            )
+            if commandID != nil {
+                payload["command_handled"] = acknowledgement.handled
+                result = .ok(payload)
+            }
+        }
+        return result
+    }
+
+#if DEBUG
+    private func v2DebugSettingsSet(params: [String: Any]) -> V2CallResult {
+        guard let key = v2String(params, "key") else {
+            return .err(code: "invalid_params", message: "Missing setting key", data: nil)
+        }
+
+        var payload: [String: Any] = ["key": key]
+        var result: V2CallResult = .ok(payload)
+        v2MainSync {
+            let defaults = UserDefaults.standard
+            switch key {
+            case CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey:
+                guard let value = v2Bool(params, "value") else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid bool value", data: ["key": key])
+                    return
+                }
+                defaults.set(value, forKey: key)
+                payload["value"] = value
+            case MenuBarOnlySettings.menuBarOnlyKey:
+                guard let value = v2Bool(params, "value") else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid bool value", data: ["key": key])
+                    return
+                }
+                defaults.set(value, forKey: key)
+                MenuBarOnlySettings.applyActivationPolicy(defaults: defaults)
+                payload["value"] = value
+            case WorkspacePresentationModeSettings.modeKey:
+                guard let value = v2String(params, "value"),
+                      let mode = WorkspacePresentationModeSettings.Mode(rawValue: value) else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid workspace presentation mode", data: ["key": key])
+                    return
+                }
+                WorkspacePresentationModeSettings.setMode(mode, defaults: defaults)
+                payload["value"] = value
+            default:
+                result = .err(code: "invalid_params", message: "Unsupported debug setting key", data: ["key": key])
+                return
+            }
+
+            defaults.synchronize()
+            NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+            AppDelegate.shared?.writeUITestDiagnosticsForDebug(stage: "debug.settings.set.\(key)")
+            result = .ok(payload)
+        }
+        return result
+    }
+
+    private func v2DebugSettingsGet(params: [String: Any]) -> V2CallResult {
+        guard let key = v2String(params, "key") else {
+            return .err(code: "invalid_params", message: "Missing setting key", data: nil)
+        }
+
+        var result: V2CallResult = .ok(["key": key])
+        v2MainSync {
+            let defaults = UserDefaults.standard
+            switch key {
+            case CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey:
+                result = .ok(["key": key, "value": defaults.bool(forKey: key)])
+            case MenuBarOnlySettings.menuBarOnlyKey:
+                result = .ok(["key": key, "value": defaults.bool(forKey: key)])
+            case WorkspacePresentationModeSettings.modeKey:
+                let rawValue = defaults.string(forKey: key) ?? WorkspacePresentationModeSettings.defaultMode.rawValue
+                let mode = WorkspacePresentationModeSettings.Mode(rawValue: rawValue) ?? WorkspacePresentationModeSettings.defaultMode
+                result = .ok(["key": key, "value": mode.rawValue])
+            default:
+                result = .err(code: "invalid_params", message: "Unsupported debug setting key", data: ["key": key])
+            }
+        }
+        return result
+    }
+#else
+    private func v2DebugSettingsSet(params: [String: Any]) -> V2CallResult { .err(code: "method_not_found", message: "Debug settings are unavailable in release builds", data: nil) }
+    private func v2DebugSettingsGet(params: [String: Any]) -> V2CallResult { .err(code: "method_not_found", message: "Debug settings are unavailable in release builds", data: nil) }
+#endif
+
+    private func v2DebugSidebarHelpPerform(params: [String: Any]) -> V2CallResult {
+        guard let rawAction = v2String(params, "action") else {
+            return .err(code: "invalid_params", message: "Missing sidebar help action", data: nil)
+        }
+        guard let action = SidebarHelpMenuAction(debugName: rawAction) else {
+            return .err(code: "invalid_params", message: "Unsupported sidebar help action", data: ["action": rawAction])
+        }
+        let requestedWindowId = v2UUID(params, "window_id")
+        if params["window_id"] != nil && requestedWindowId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+
+        var result: V2CallResult = .ok(["action": rawAction])
+        v2MainSync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = nil
+            }
+
+            switch action {
+            case .checkForUpdates:
+                SidebarHelpMenuActionPerformer.performCheckForUpdates()
+            case .sendFeedback:
+                SidebarHelpMenuActionPerformer.requestFeedbackComposer(targetWindow: targetWindow)
+            default:
+                result = .err(code: "invalid_params", message: "Unsupported sidebar help action", data: ["action": rawAction])
+            }
+        }
+        return result
+    }
+
+    private func v2DebugFeedbackMessageSet(params: [String: Any]) -> V2CallResult {
+        guard let message = v2String(params, "message") else {
+            return .err(code: "invalid_params", message: "Missing feedback message", data: nil)
+        }
+        let requestedWindowId = v2UUID(params, "window_id")
+        if params["window_id"] != nil && requestedWindowId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+
+        var result: V2CallResult = .ok(["message_length": message.count])
+        v2MainSync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = nil
+            }
+
+            FeedbackComposerBridge.setDebugMessageForTesting(message, in: targetWindow)
+        }
+        return result
+    }
+
     private func v2DebugCommandPaletteRenameInputInteraction(params: [String: Any]) -> V2CallResult {
         let requestedWindowId = v2UUID(params, "window_id")
         var result: V2CallResult = .ok([:])
@@ -20150,7 +20410,9 @@ class TerminalController {
                 }
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-                guard validSurfaceIds.contains(scope.panelId) else { return }
+                guard validSurfaceIds.contains(scope.panelId) else {
+                    return
+                }
                 tabManager.updateSurfaceDirectory(tabId: scope.workspaceId, surfaceId: scope.panelId, directory: directory)
             }
             return "OK"
@@ -21438,13 +21700,15 @@ class TerminalController {
         clientID: String,
         columns: Int,
         rows: Int,
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        sticky: Bool = false
     ) {
         var reports = mobileViewportReportsBySurfaceID[surfaceID] ?? [:]
         reports[clientID] = MobileViewportReport(
             columns: columns,
             rows: rows,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            sticky: sticky
         )
         mobileViewportReportsBySurfaceID[surfaceID] = reports
     }
@@ -21785,7 +22049,8 @@ class TerminalController {
         terminalPanel: TerminalPanel,
         sticky: Bool = false
     ) {
-        guard let clientID = v2String(params, "client_id"),
+        guard let rawClientID = v2String(params, "client_id"),
+              let clientID = Self.validMobileViewportClientID(rawClientID),
               let rawColumns = v2Int(params, "viewport_columns"),
               let rawRows = v2Int(params, "viewport_rows") else {
             return
@@ -21797,6 +22062,11 @@ class TerminalController {
         var reports = mobileViewportReportsBySurfaceID[terminalPanel.id] ?? [:]
         reports = reports.filter { _, report in
             report.sticky || now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
+        }
+        if sticky,
+           reports[clientID] == nil,
+           reports.values.filter(\.sticky).count >= Self.mobileViewportStickyReportLimitPerSurface {
+            return
         }
         reports[clientID] = MobileViewportReport(
             columns: columns,
@@ -21916,6 +22186,16 @@ class TerminalController {
             )
         }
         scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
+    }
+
+    private static func validMobileViewportClientID(_ rawClientID: String) -> String? {
+        let clientID = rawClientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clientID.isEmpty,
+              clientID.count <= mobileViewportClientIDMaxLength,
+              clientID.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) else {
+            return nil
+        }
+        return clientID
     }
 
     private func mobileResolveWorkspaceAndSurface(

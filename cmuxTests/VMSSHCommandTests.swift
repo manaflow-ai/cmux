@@ -129,6 +129,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let workspaceRef = "workspace:8"
         let windowID = "22222222-2222-2222-2222-222222222222"
+        let surfaceID = "55555555-5555-5555-5555-555555555555"
         let callerWorkspaceID = "33333333-3333-3333-3333-333333333333"
         let callerSurfaceID = "44444444-4444-4444-4444-444444444444"
 
@@ -162,6 +163,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "window_id": windowID,
                     ]
                 )
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": surfaceID,
+                                "ref": "surface:1",
+                                "index": 1,
+                                "focused": true,
+                            ],
+                        ],
+                    ]
+                )
             case "workspace.remote.configure":
                 return self.v2Response(
                     id: id,
@@ -175,6 +193,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         ],
                     ]
                 )
+            case "workspace.close":
+                return self.v2Response(id: id, ok: true, result: ["closed": true])
             default:
                 return self.v2Response(
                     id: id,
@@ -215,7 +235,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         XCTAssertEqual(
             requests.compactMap { $0["method"] as? String },
-            ["window.focus", "workspace.create", "workspace.remote.configure"]
+            ["window.focus", "workspace.create", "surface.list", "workspace.remote.configure"]
         )
     }
 

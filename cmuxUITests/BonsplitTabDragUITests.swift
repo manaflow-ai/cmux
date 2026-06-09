@@ -874,7 +874,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         app.launchArguments += ["-workspacePresentationMode", presentationMode.rawValue]
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
-        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+        XCTExpectFailure("Headless CI may launch the app without foreground activation", options: options) {
             app.launch()
         }
         return (app, dataPath)
@@ -896,7 +896,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
-        XCTExpectFailure("App foreground activation may fail on headless CI runners", options: options) {
+        XCTExpectFailure("App could not be foregrounded on this runner", options: options) {
             app.activate()
         }
         let reachedForeground = waitForCondition(timeout: timeout) {
@@ -916,7 +916,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
-        XCTExpectFailure("App foreground activation may fail on headless CI runners", options: options) {
+        XCTExpectFailure("App could not be foregrounded on this runner", options: options) {
             app.activate()
         }
         return waitForCondition(timeout: timeout) {

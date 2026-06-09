@@ -593,6 +593,17 @@ private extension FeedCoordinator {
             "workstreamId": event.sessionId,
         ]
 
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS"] == "1" {
+            runFallbackEffectsIfStillAwaiting(
+                requestId: requestId,
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                effects: effects
+            )
+            return
+        }
+
         let request = UNNotificationRequest(
             identifier: "feed.\(requestId)",
             content: content,

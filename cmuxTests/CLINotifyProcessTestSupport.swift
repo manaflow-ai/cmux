@@ -1,5 +1,18 @@
 import XCTest
 import Darwin
+import Foundation
+
+func bundledCLINotFoundError(appBundleURL: URL, file: StaticString = #filePath, line: UInt = #line) -> Error {
+    let message = "Bundled cmux CLI not found in \(appBundleURL.path)"
+    let environment = ProcessInfo.processInfo.environment
+    if environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true" {
+        XCTFail(message, file: file, line: line)
+        return NSError(domain: "cmux.tests", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: message,
+        ])
+    }
+    return XCTSkip(message)
+}
 
 extension CLINotifyProcessIntegrationRegressionTests {
     struct ProcessRunResult {
@@ -7,6 +20,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let stdout: String
         let stderr: String
         let timedOut: Bool
+    }
+
+    final class ProcessPipeCapture: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+
+        func append(_ chunk: Data) {
+            lock.lock()
+            data.append(chunk)
+            lock.unlock()
+        }
+
+        func stringValue() -> String {
+            lock.lock()
+            let value = data
+            lock.unlock()
+            return String(data: value, encoding: .utf8) ?? ""
+        }
     }
 
     final class MockSocketServerState: @unchecked Sendable {
@@ -24,6 +55,52 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let value = commands
             lock.unlock()
             return value
+        }
+    }
+
+    final class MockSocketConnectionTracker: @unchecked Sendable {
+        private let lock = NSLock()
+        private var acceptedConnections = 0
+        private var activeConnections = 0
+        private var lastActivity = Date()
+        private var didFulfill = false
+
+        func accepted() {
+            lock.lock()
+            acceptedConnections += 1
+            activeConnections += 1
+            lastActivity = Date()
+            lock.unlock()
+        }
+
+        func closed() {
+            lock.lock()
+            activeConnections = max(0, activeConnections - 1)
+            lastActivity = Date()
+            lock.unlock()
+        }
+
+        func activity() {
+            lock.lock()
+            lastActivity = Date()
+            lock.unlock()
+        }
+
+        func shouldFinish(idleFor interval: TimeInterval, allowOpenConnections: Bool) -> Bool {
+            lock.lock()
+            let shouldFinish = acceptedConnections > 0
+                && (allowOpenConnections || activeConnections == 0)
+                && Date().timeIntervalSince(lastActivity) >= interval
+            lock.unlock()
+            return shouldFinish
+        }
+
+        func markFulfilled() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            if didFulfill { return false }
+            didFulfill = true
+            return true
         }
     }
 
@@ -53,14 +130,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return item.path
         }
 
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        throw bundledCLINotFoundError(appBundleURL: appBundleURL)
     }
 
     func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
-        return URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
-            .path
+        return "/tmp/cx-\(name.prefix(3))-\(shortID).sock"
     }
 
     func bindUnixSocket(at path: String) throws -> Int32 {
@@ -72,7 +147,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         addr.sun_family = sa_family_t(AF_UNIX)
         let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
         let utf8 = Array(path.utf8)
-        XCTAssertLessThan(utf8.count, maxPathLength)
+        guard utf8.count < maxPathLength else {
+            close(fd)
+            throw NSError(domain: "cmux.tests", code: Int(ENAMETOOLONG), userInfo: [
+                NSLocalizedDescriptionKey: "Unix socket path is too long for sockaddr_un: \(path)",
+            ])
+        }
         _ = withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
             pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { buffer in
                 for index in 0..<utf8.count {
@@ -88,7 +168,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
         XCTAssertEqual(bindResult, 0)
-        XCTAssertEqual(Darwin.listen(fd, 1), 0)
+        XCTAssertEqual(Darwin.listen(fd, 16), 0)
         return fd
     }
 
@@ -332,12 +412,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         listenerFD: Int32,
         state: MockSocketServerState,
         fulfillWhen: (@Sendable (String) -> Bool)? = nil,
+        finishOnIdle: Bool = true,
         handler: @escaping @Sendable (String) -> String
     ) -> XCTestExpectation {
         startMockServerAllowingNoResponse(
             listenerFD: listenerFD,
             state: state,
-            fulfillWhen: fulfillWhen
+            fulfillWhen: fulfillWhen,
+            finishOnIdle: finishOnIdle,
+            allowOpenConnectionsAfterIdle: false
         ) { line in
             handler(line)
         }
@@ -347,58 +430,88 @@ extension CLINotifyProcessIntegrationRegressionTests {
         listenerFD: Int32,
         state: MockSocketServerState,
         fulfillWhen: (@Sendable (String) -> Bool)? = nil,
+        finishOnIdle: Bool = true,
+        allowOpenConnectionsAfterIdle: Bool = true,
         handler: @escaping @Sendable (String) -> String?
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli mock socket handled")
         DispatchQueue.global(qos: .userInitiated).async {
-            var didFulfill = false
+            let tracker = MockSocketConnectionTracker()
             func fulfillOnce() {
-                if !didFulfill {
-                    didFulfill = true
+                if tracker.markFulfilled() {
                     handled.fulfill()
                 }
             }
 
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+            func handleClient(_ clientFD: Int32) {
+                defer {
+                    Darwin.close(clientFD)
+                    tracker.closed()
+                }
+
+                var pending = Data()
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                while true {
+                    let count = Darwin.read(clientFD, &buffer, buffer.count)
+                    if count < 0 {
+                        if errno == EINTR { continue }
+                        return
+                    }
+                    if count == 0 { return }
+                    pending.append(buffer, count: count)
+
+                    while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                        let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                        pending.removeSubrange(0...newlineRange.lowerBound)
+                        guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                        tracker.activity()
+                        state.append(line)
+                        if fulfillWhen?(line) == true {
+                            fulfillOnce()
+                        }
+                        guard let responsePayload = handler(line) else { continue }
+                        let response = responsePayload + "\n"
+                        _ = response.withCString { ptr in
+                            Darwin.write(clientFD, ptr, strlen(ptr))
+                        }
+                        tracker.activity()
+                    }
                 }
             }
-            guard clientFD >= 0 else {
-                fulfillOnce()
-                return
-            }
-            defer {
-                Darwin.close(clientFD)
-                fulfillOnce()
-            }
 
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
+            let idleGrace: TimeInterval = 0.15
             while true {
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count < 0 {
+                var descriptor = pollfd(fd: listenerFD, events: Int16(POLLIN), revents: 0)
+                let ready = Darwin.poll(&descriptor, 1, 25)
+                if ready < 0 {
                     if errno == EINTR { continue }
+                    fulfillOnce()
                     return
                 }
-                if count == 0 { return }
-                pending.append(buffer, count: count)
 
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                    state.append(line)
-                    if fulfillWhen?(line) == true {
+                if ready > 0, descriptor.revents & Int16(POLLIN) != 0 {
+                    var clientAddr = sockaddr_un()
+                    var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                    let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                        ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                            Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                        }
+                    }
+                    guard clientFD >= 0 else {
+                        if errno == EINTR { continue }
                         fulfillOnce()
+                        return
                     }
-                    guard let responsePayload = handler(line) else { continue }
-                    let response = responsePayload + "\n"
-                    _ = response.withCString { ptr in
-                        Darwin.write(clientFD, ptr, strlen(ptr))
+
+                    tracker.accepted()
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        handleClient(clientFD)
                     }
+                }
+
+                if finishOnIdle && tracker.shouldFinish(idleFor: idleGrace, allowOpenConnections: allowOpenConnectionsAfterIdle) {
+                    fulfillOnce()
+                    return
                 }
             }
         }
@@ -479,6 +592,83 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func systemTopResponse(id: String) -> String {
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let paneId = "33333333-3333-3333-3333-333333333333"
+        let windowId = "44444444-4444-4444-4444-444444444444"
+        return v2Response(
+            id: id,
+            ok: true,
+            result: [
+                "active": NSNull(),
+                "caller": NSNull(),
+                "include_processes": true,
+                "windows": [
+                    [
+                        "kind": "window",
+                        "id": windowId,
+                        "ref": "window:\(windowId)",
+                        "index": 0,
+                        "key": true,
+                        "visible": true,
+                        "workspace_count": 1,
+                        "selected_workspace_id": workspaceId,
+                        "selected_workspace_ref": "workspace:\(workspaceId)",
+                        "workspaces": [
+                            [
+                                "kind": "workspace",
+                                "id": workspaceId,
+                                "ref": "workspace:\(workspaceId)",
+                                "index": 0,
+                                "title": "Test Workspace",
+                                "description": NSNull(),
+                                "selected": true,
+                                "pinned": false,
+                                "panes": [
+                                    [
+                                        "kind": "pane",
+                                        "id": paneId,
+                                        "ref": "pane:\(paneId)",
+                                        "index": 0,
+                                        "focused": true,
+                                        "surface_ids": [surfaceId],
+                                        "surface_refs": ["surface:\(surfaceId)"],
+                                        "selected_surface_id": surfaceId,
+                                        "selected_surface_ref": "surface:\(surfaceId)",
+                                        "surface_count": 1,
+                                        "surfaces": [
+                                            [
+                                                "kind": "surface",
+                                                "id": surfaceId,
+                                                "ref": "surface:\(surfaceId)",
+                                                "index": 0,
+                                                "type": "terminal",
+                                                "title": "Terminal",
+                                                "focused": true,
+                                                "selected": true,
+                                                "selected_in_pane": true,
+                                                "pane_id": paneId,
+                                                "pane_ref": "pane:\(paneId)",
+                                                "index_in_pane": 0,
+                                                "tty": NSNull(),
+                                                "webviews": [],
+                                                "url": NSNull(),
+                                                "browser_web_content_pid": NSNull(),
+                                                "processes": [],
+                                            ] as [String: Any],
+                                        ],
+                                    ] as [String: Any],
+                                ],
+                                "tags": [],
+                            ] as [String: Any],
+                        ],
+                    ] as [String: Any],
+                ],
+            ]
+        )
+    }
+
     func jsonObject(_ line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
@@ -516,6 +706,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
+        let stdoutCapture = ProcessPipeCapture()
+        let stderrCapture = ProcessPipeCapture()
+        let ioGroup = DispatchGroup()
+        ioGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stdoutCapture.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+            ioGroup.leave()
+        }
+        ioGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stderrCapture.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            ioGroup.leave()
+        }
         if let standardInput, let stdinPipe {
             stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
             try? stdinPipe.fileHandleForWriting.close()
@@ -527,7 +730,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             exitSignal.signal()
         }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timeoutFloor = ProcessInfo.processInfo.environment["CMUX_CLI_NOTIFY_PROCESS_TIMEOUT_SECONDS"]
+            .flatMap(TimeInterval.init) ?? timeout
+        let effectiveTimeout = max(timeout, timeoutFloor)
+        let timedOut = exitSignal.wait(timeout: .now() + effectiveTimeout) == .timedOut
         if timedOut {
             process.terminate()
             if exitSignal.wait(timeout: .now() + 1) == .timedOut {
@@ -535,9 +741,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 _ = exitSignal.wait(timeout: .now() + 1)
             }
         }
+        _ = ioGroup.wait(timeout: .now() + 1)
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stdout = stdoutCapture.stringValue()
+        let stderr = stderrCapture.stringValue()
         return ProcessRunResult(
             status: process.isRunning ? SIGKILL : process.terminationStatus,
             stdout: stdout,

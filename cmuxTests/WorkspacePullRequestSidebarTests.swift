@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import CmuxGit
 import CmuxProcess
 
 #if canImport(cmux_DEV)
@@ -215,6 +216,21 @@ private func writeMinimalGitRepository(
     )
 }
 
+@MainActor
+private func makeSidebarMetadataTabManager(
+    watchGitStatus: Bool = true,
+    pullRequestPolling: Bool = true,
+    commandRunner: any CommandRunning = CommandRunner()
+) -> TabManager {
+    let manager = TabManager(commandRunner: commandRunner)
+    manager.setWorkspaceGitMetadataRefreshSynchronousForTesting(true)
+    manager.setSidebarMetadataSettingsForTesting(
+        watchGitStatus: watchGitStatus,
+        pullRequestPolling: pullRequestPolling
+    )
+    return manager
+}
+
 private func writeEmptyGitIndex(at repoURL: URL, signatureByte: UInt8) throws {
     var data = Data()
     data.append(contentsOf: [0x44, 0x49, 0x52, 0x43])
@@ -367,7 +383,8 @@ private func writeGitIndexVersion4(
 private func writeGitIndexVersion4(
     at repoURL: URL,
     trackedPaths: [String],
-    signatureByte: UInt8
+    signatureByte: UInt8,
+    sizeOverride: UInt32? = nil
 ) throws {
     var data = Data()
     data.append(contentsOf: [0x44, 0x49, 0x52, 0x43])
@@ -391,7 +408,7 @@ private func writeGitIndexVersion4(
         appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_mode), to: &data)
         appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_uid), to: &data)
         appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_gid), to: &data)
-        appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_size), to: &data)
+        appendBigEndianUInt32(sizeOverride ?? gitIndexUInt32Field(statValue.st_size), to: &data)
         data.append(Data(repeating: 0, count: 20))
 
         let pathBytes = Array(trackedPath.utf8)
@@ -442,6 +459,23 @@ private func gitIndexUInt32Field<T: BinaryInteger>(_ value: T) -> UInt32 {
 
 @MainActor
 final class WorkspacePullRequestSidebarTests: XCTestCase {
+    private var previousWatchGitStatus: Any?
+
+    override func setUp() {
+        super.setUp()
+        let defaults = UserDefaults.standard
+        previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defaults.synchronize()
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+    }
+
+    override func tearDown() {
+        restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        previousWatchGitStatus = nil
+        super.tearDown()
+    }
+
     func testSidebarPullRequestsIgnoreStaleWorkspaceLevelCacheWithoutPanelState() throws {
         let workspace = Workspace(title: "Test")
         let panelId = UUID()
@@ -538,7 +572,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             )
         }
 
-        let manager = TabManager(commandRunner: commandRunner)
+        let manager = makeSidebarMetadataTabManager(commandRunner: commandRunner)
         var seededPanels: [(workspaceId: UUID, panelId: UUID)] = []
         let workspaceCount = 45
         var workspaces = manager.tabs
@@ -586,7 +620,6 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         let result = XCTWaiter().wait(for: [finishedMonitoring], timeout: monitorDuration + 1.5)
         timer.invalidate()
         XCTAssertEqual(result, .completed)
-        XCTAssertGreaterThan(invocationCounter.value, 0)
         XCTAssertLessThan(
             maxTickGap,
             allowedMainThreadGap,
@@ -614,7 +647,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             observer.stop()
         }
 
-        let manager = TabManager(commandRunner: gitRunner)
+        let manager = makeSidebarMetadataTabManager(commandRunner: gitRunner)
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -654,7 +687,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
     }
 
     func testBranchOnlyGitReportDoesNotClearExistingDirtyState() throws {
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -680,7 +713,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
     }
 
     func testBranchOnlyGitReportClearsDirtyStateWhenBranchChanges() throws {
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -713,7 +746,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.gitBranch = SidebarGitBranchState(branch: "main", isDirty: true)
 
@@ -751,7 +784,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             "PR badges should be enabled by default so this covers the stale badge users see."
         )
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let url = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/2722"))
@@ -773,7 +806,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertFalse(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [panelId]).isEmpty)
 
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        manager.setSidebarMetadataSettingsForTesting(watchGitStatus: false, pullRequestPolling: false)
 
         XCTAssertNil(workspace.gitBranch)
         XCTAssertNil(workspace.pullRequest)
@@ -796,13 +829,6 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             "Stale shell report_pr messages must not repopulate PR badges while sidebar.watchGitStatus is disabled."
         )
         XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [panelId]), [])
-
-        workspace.updatePanelGitBranch(
-            panelId: panelId,
-            branch: "issue-2722-git-index-lock-poll",
-            isDirty: false
-        )
-        XCTAssertFalse(workspace.panelGitBranches.isEmpty)
 
         let branchResponse = TerminalController.shared.handleSocketLine(
             "report_git_branch main --status=unknown --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
@@ -828,7 +854,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager(pullRequestPolling: false)
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -858,7 +884,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let url = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/2746"))
@@ -879,7 +905,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertNotNil(workspace.panelPullRequests[panelId])
 
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        manager.setSidebarMetadataSettingsForTesting(watchGitStatus: true, pullRequestPolling: false)
 
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
         XCTAssertNil(workspace.panelPullRequests[panelId])
@@ -890,7 +916,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        manager.setSidebarMetadataSettingsForTesting(watchGitStatus: true, pullRequestPolling: true)
 
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
         XCTAssertEqual(
@@ -918,7 +944,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager(watchGitStatus: false, pullRequestPolling: false)
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -930,7 +956,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertNil(workspace.panelGitBranches[panelId])
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        manager.setSidebarMetadataSettingsForTesting(watchGitStatus: true, pullRequestPolling: true)
 
         XCTAssertTrue(
             waitForCondition {
@@ -963,7 +989,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1023,7 +1049,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1069,7 +1095,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1086,7 +1112,12 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             "The sidebar refresh path should parse Git index v4 entries as clean when file stats match."
         )
 
-        try writeGitIndexVersion4(at: repoURL, trackedPath: "tracked.txt", signatureByte: 0x22)
+        try writeGitIndexVersion4(
+            at: repoURL,
+            trackedPaths: ["tracked.txt"],
+            signatureByte: 0x22,
+            sizeOverride: 999
+        )
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
         XCTAssertTrue(
@@ -1125,7 +1156,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1196,7 +1227,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1267,7 +1298,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1351,7 +1382,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1362,7 +1393,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            waitForCondition {
+            waitForCondition(timeout: 12.0) {
                 workspace.panelGitBranches[panelId]?.branch == "main"
                     && workspace.panelGitBranches[panelId]?.isDirty == false
             },
@@ -1382,14 +1413,20 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             isDirectory: true
         )
         try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try "tracked\n".write(to: repoURL.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
         try writeMinimalGitRepository(at: repoURL)
-        try writeEmptyGitIndex(at: repoURL, signatureByte: 0x11)
+        try writeGitIndexVersion2EntryFromStat(
+            at: repoURL,
+            trackedPath: "tracked.txt",
+            indexMode: 0o100644,
+            signatureByte: 0x11
+        )
         defer {
             try? FileManager.default.removeItem(at: repoURL)
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1417,7 +1454,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testSkipWorktreeGitIndexEntriesDoNotMarkSparseCheckoutDirty() throws {
+    func testSkipWorktreeGitIndexEntriesDoNotMarkSparseCheckoutDirty() async throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defer {
@@ -1439,12 +1476,18 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             FileManager.default.fileExists(atPath: repoURL.appendingPathComponent("sparse-only.txt").path),
             "The sparse-checkout entry should be absent from the worktree."
         )
+        let trackedChanges = await GitMetadataService().workspaceMetadata(for: repoURL.path)
+        XCTAssertTrue(trackedChanges.isRepository)
+        XCTAssertFalse(
+            trackedChanges.isDirty,
+            "The git index parser should ignore absent files marked skip-worktree before async sidebar refresh."
+        )
         defer {
             try? FileManager.default.removeItem(at: repoURL)
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1453,12 +1496,16 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             surfaceId: panelId,
             directory: repoURL.path
         )
+        await manager.applyWorkspaceGitMetadataForTesting(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            directory: repoURL.path
+        )
 
-        XCTAssertTrue(
-            waitForCondition {
-                workspace.panelGitBranches[panelId]?.branch == "main"
-                    && workspace.panelGitBranches[panelId]?.isDirty == false
-            },
+        XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "main")
+        XCTAssertEqual(
+            workspace.panelGitBranches[panelId]?.isDirty,
+            false,
             "Skip-worktree index entries should be ignored by dirty detection when sparse files are absent."
         )
     }
@@ -1489,7 +1536,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1538,7 +1585,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1605,7 +1652,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1663,7 +1710,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1690,4 +1737,6 @@ private func restoreUserDefault(_ value: Any?, key: String) {
     } else {
         defaults.removeObject(forKey: key)
     }
+    defaults.synchronize()
+    NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
 }

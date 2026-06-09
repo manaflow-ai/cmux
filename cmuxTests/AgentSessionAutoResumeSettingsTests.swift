@@ -8,6 +8,19 @@ import XCTest
 #endif
 
 final class AgentSessionAutoResumeSettingsTests: XCTestCase {
+    private var originalRuntimeSurfaceCreationSuppression = false
+
+    override func setUp() {
+        super.setUp()
+        originalRuntimeSurfaceCreationSuppression = TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = true
+    }
+
+    override func tearDown() {
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = originalRuntimeSurfaceCreationSuppression
+        super.tearDown()
+    }
+
     func testDefaultsKeyAndNotificationOnFlip() throws {
         let suiteName = "cmux-agent-session-auto-resume-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -238,9 +251,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
-            let restoredRemoteCommand = try XCTUnwrap(restored.remoteConfiguration?.terminalStartupCommand)
+            let restoredTerminalStartupCommand = try XCTUnwrap(restored.remoteConfiguration?.terminalStartupCommand)
 
-            XCTAssertEqual(restoredRemoteCommand, expectedRestoredRemoteCommand)
+            XCTAssertEqual(restoredTerminalStartupCommand, expectedRestoredRemoteCommand)
             XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), expectedRestoredRemoteCommand)
             XCTAssertTrue(restoredInput.hasInitialInput)
             XCTAssertGreaterThan(restoredInput.byteCount, 0)

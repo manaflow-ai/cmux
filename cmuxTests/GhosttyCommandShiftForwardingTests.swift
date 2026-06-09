@@ -68,14 +68,18 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
         defer { window.orderOut(nil) }
 
         // Headless CI runners can't initialize a Metal-backed Ghostty surface
-        // (embedded_window logs error.OutOfMemory). Skip rather than report a
-        // misleading key-forwarding failure; the same test still exercises
-        // the real path on developer machines and CI environments with a
-        // logged-in GUI session.
-        try XCTSkipUnless(
-            hostedTerminal.surface.hasLiveSurface,
-            "Ghostty surface failed to initialize on this host; Metal/embedded_window unavailable."
-        )
+        // (embedded_window logs error.OutOfMemory). Keep the local fallback as
+        // a skip, but make the dedicated terminal corpus workflow fail closed
+        // because that lane exists specifically to exercise this live path.
+        if !hostedTerminal.surface.hasLiveSurface {
+            let message = "Ghostty surface failed to initialize on this host; Metal/embedded_window unavailable."
+            if ProcessInfo.processInfo.environment["CMUX_REQUIRE_LIVE_GHOSTTY_SURFACE"] == "1" {
+                XCTFail(message)
+                return
+            } else {
+                throw XCTSkip(message)
+            }
+        }
 
         XCTAssertTrue(window.makeFirstResponder(surfaceView), "Expected Ghostty surface view to accept first responder")
         XCTAssertNotNil(surfaceView.terminalSurface)

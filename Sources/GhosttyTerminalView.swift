@@ -5235,6 +5235,7 @@ final class TerminalSurfaceRegistry {
             lhs.id.uuidString < rhs.id.uuidString
         }
     }
+
 }
 
 /// Core Image filter that cuts a pane-local terminal fill out of the shared window backdrop.
@@ -5288,6 +5289,10 @@ private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUI
 }
 
 final class TerminalSurface: Identifiable, ObservableObject {
+#if DEBUG
+    static var debugSuppressRuntimeSurfaceCreationForTesting = false
+#endif
+
     final class SearchState: ObservableObject {
         @Published var needle: String
         @Published var selected: UInt?
@@ -5421,12 +5426,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: CmuxSurfaceConfigTemplate?
     private let workingDirectory: String?
+    private let requestedWorkingDirectoryValue: String?
     let initialCommand: String?
     let tmuxStartCommand: String?
     let initialInput: String?
     private var nextRuntimeInitialInput: String?
     private let initialEnvironmentOverrides: [String: String]
-    var requestedWorkingDirectory: String? { workingDirectory }
+    var requestedWorkingDirectory: String? { requestedWorkingDirectoryValue }
     let focusPlacement: TerminalSurfaceFocusPlacement
     private var additionalEnvironment: [String: String]
     var respawnInitialEnvironmentOverrides: [String: String] {
@@ -5590,6 +5596,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         context: ghostty_surface_context_e,
         configTemplate: CmuxSurfaceConfigTemplate?,
         workingDirectory: String? = nil,
+        requestedWorkingDirectory: String? = nil,
         portOrdinal: Int = 0,
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
@@ -5606,7 +5613,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
-        self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedRequestedWorkingDirectory = requestedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.workingDirectory = trimmedWorkingDirectory
+        self.requestedWorkingDirectoryValue = trimmedRequestedWorkingDirectory?.isEmpty == false
+            ? trimmedRequestedWorkingDirectory
+            : trimmedWorkingDirectory
         self.portOrdinal = portOrdinal
         let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
@@ -5668,6 +5680,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard allowsRuntimeSurfaceCreation() else { return }
         guard surface == nil else { return }
         ensureHeadlessStartupWindowIfNeeded(reason: reason)
+        hostedView.window?.displayIfNeeded()
+        hostedView.window?.contentView?.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        if surface == nil {
+            createSurface(for: surfaceView)
+        }
         hostedView.attachSurface(self)
     }
 
@@ -6054,7 +6072,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func allowsRuntimeSurfaceCreation() -> Bool {
-        portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
+#if DEBUG
+        if Self.debugSuppressRuntimeSurfaceCreationForTesting {
+            return false
+        }
+#endif
+        return portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
     }
 
     private var hasDeferredStartupWork: Bool {
@@ -8018,6 +8041,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
 #if DEBUG
     @MainActor
+    func debugHasRuntimeSurfaceForTesting() -> Bool {
+        surface != nil
+    }
+
+    @MainActor
     func setNeedsConfirmCloseOverrideForTesting(_ value: Bool?) {
         needsConfirmCloseOverrideForTesting = value
     }
@@ -8112,6 +8140,22 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surface = runtimeSurface
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
+        TerminalSurfaceRegistry.shared.registerRuntimeSurface(runtimeSurface, ownerId: id)
+    }
+
+    @MainActor
+    static func enqueueRuntimeSurfaceTeardownForTesting(
+        surface: ghostty_surface_t,
+        freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void
+    ) {
+        enqueueTerminalSurfaceRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "testing",
+            surface: surface,
+            callbackContext: nil,
+            freeSurface: freeSurface
+        )
     }
 #endif
 
@@ -8647,6 +8691,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         applySurfaceBackground()
         applySurfaceColorScheme(force: !isSameSurface || !isAlreadyAttached)
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil,
+           let oldWindow = window,
+           let firstResponder = oldWindow.firstResponder as? NSView,
+           firstResponder === self || firstResponder.isDescendant(of: self) {
+            desiredFocus = false
+            terminalSurface?.setFocus(false, force: true)
+#if DEBUG
+            cmuxDebugLog(
+                "focus.detach.clear surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "firstResponder=\(String(describing: oldWindow.firstResponder))"
+            )
+#endif
+        }
+        super.viewWillMove(toWindow: newWindow)
     }
 
     override func viewDidMoveToWindow() {
@@ -10417,7 +10478,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     markedTextBefore: markedTextBefore
                 )
             let suppressComposingFallbackText = keyEvent.composing
-            if let text = textForKeyEvent(translationEvent) {
+            if let text = Self.shiftBackquoteEscapeFallbackText(for: event) ?? textForKeyEvent(translationEvent) {
                 if shouldSendText(text),
                    !suppressShiftSpaceFallbackText,
                    !suppressComposingFallbackText {
@@ -10698,7 +10759,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 // Some AppKit key paths can report Shift+` as a bare ESC control
                 // character even though the physical key should produce "~".
                 if scalar.value == 0x1B,
-                   flags == [.shift],
+                   flags.contains(.shift),
+                   !flags.contains(.control),
+                   !flags.contains(.option),
+                   !flags.contains(.command),
                    event.charactersIgnoringModifiers == "`" {
                     return "~"
                 }
@@ -10710,6 +10774,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return chars
+    }
+
+    static func shiftBackquoteEscapeFallbackText(for event: NSEvent) -> String? {
+        guard event.keyCode == 50 else { return nil }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(.shift),
+              !flags.contains(.control),
+              !flags.contains(.option),
+              !flags.contains(.command),
+              event.characters == "\u{1B}" || event.charactersIgnoringModifiers == "`" else {
+            return nil
+        }
+        return "~"
     }
 
     /// Get the unshifted codepoint for the key event
@@ -11777,6 +11854,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func debugHasPendingLeftMouseReleaseForTesting() -> Bool {
         hasPendingLeftMouseRelease
     }
+
+    func debugSetPendingLeftMouseReleaseForTesting(_ pending: Bool) {
+        hasPendingLeftMouseRelease = pending
+    }
 #endif
 
     override func scrollWheel(with event: NSEvent) {
@@ -12191,11 +12272,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
 private extension NSScreen {
     var displayID: UInt32? {
-        let key = NSDeviceDescriptionKey("NSScreenNumber")
-        if let v = deviceDescription[key] as? UInt32 { return v }
-        if let v = deviceDescription[key] as? Int { return UInt32(v) }
-        if let v = deviceDescription[key] as? NSNumber { return v.uint32Value }
-        return nil
+        cmuxDisplayID
     }
 }
 
@@ -13235,6 +13312,9 @@ final class GhosttySurfaceScrollView: NSView {
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
         guard let window else { return }
+        if let terminalSurface = surfaceView.terminalSurface {
+            attachSurface(terminalSurface)
+        }
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
@@ -13398,6 +13478,14 @@ final class GhosttySurfaceScrollView: NSView {
         deferredSearchOverlayMutationWorkItem = work
         DispatchQueue.main.async(execute: work)
     }
+
+#if DEBUG
+    func debugRunDeferredSearchOverlayMutationForTesting() {
+        guard let work = deferredSearchOverlayMutationWorkItem else { return }
+        work.perform()
+        work.cancel()
+    }
+#endif
 
     private func cancelImageTransferIndicatorShow() {
         imageTransferIndicatorShowWorkItem?.cancel()
@@ -14186,6 +14274,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugSurfaceHasPendingLeftMouseReleaseForTesting() -> Bool {
         surfaceView.debugHasPendingLeftMouseReleaseForTesting()
+    }
+
+    func debugSetSurfacePendingLeftMouseReleaseForTesting(_ pending: Bool) {
+        surfaceView.debugSetPendingLeftMouseReleaseForTesting(pending)
     }
 
     func debugHasKeyboardCopyModeIndicator() -> Bool {

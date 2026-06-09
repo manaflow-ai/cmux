@@ -304,11 +304,21 @@ private enum TextBoxDraftAttachmentStorage {
     )
 
     static func snapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
-        guard let localURL = attachment.localURL,
-              GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+        guard let localURL = attachment.localURL else {
             return fallbackSnapshot(for: attachment)
         }
         let standardizedLocalURL = localURL.standardizedFileURL
+        if let durableURL = copiedDraftURL(forOriginalURL: standardizedLocalURL) {
+            return copiedSnapshot(
+                for: attachment,
+                originalLocalURL: standardizedLocalURL,
+                durableURL: durableURL
+            )
+        }
+
+        guard GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+            return fallbackSnapshot(for: attachment)
+        }
         guard FileManager.default.fileExists(atPath: standardizedLocalURL.path) else {
             return fallbackSnapshot(for: attachment)
         }
@@ -320,9 +330,21 @@ private enum TextBoxDraftAttachmentStorage {
         guard let durableURL = copiedDraftURL(forOriginalURL: standardizedLocalURL) else {
             return fallbackSnapshot(for: attachment)
         }
-        let submissionFields = copiedSubmissionFields(
+        return copiedSnapshot(
             for: attachment,
             originalLocalURL: standardizedLocalURL,
+            durableURL: durableURL
+        )
+    }
+
+    private static func copiedSnapshot(
+        for attachment: TextBoxAttachment,
+        originalLocalURL: URL,
+        durableURL: URL
+    ) -> SessionTextBoxInputAttachmentSnapshot {
+        let submissionFields = copiedSubmissionFields(
+            for: attachment,
+            originalLocalURL: originalLocalURL,
             durableURL: durableURL
         )
         return SessionTextBoxInputAttachmentSnapshot(
@@ -2318,7 +2340,7 @@ private final class TextBoxSubmitEventRunner {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor in
+            Self.performOnMainActor {
                 guard let self, self.observationToken == token else { return }
                 if let notificationSurface = notification.object as AnyObject? {
                     guard notificationSurface === self.surface as AnyObject else { return }
@@ -2395,6 +2417,10 @@ private final class TextBoxSubmitEventRunner {
             timeoutSeconds: Self.waitTimeoutSeconds,
             onExhausted: onExhausted
         )
+        guard Self.active[id] === self,
+              observationToken == token else {
+            return nil
+        }
 
         @MainActor
         func checkIfCurrent() {
@@ -2410,7 +2436,7 @@ private final class TextBoxSubmitEventRunner {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
+            Self.performOnMainActor {
                 guard self != nil else { return }
                 checkIfCurrent()
             }
@@ -2421,7 +2447,7 @@ private final class TextBoxSubmitEventRunner {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor in
+            Self.performOnMainActor {
                 guard let self else { return }
                 if let surfaceView = notification.object as? GhosttyNSView {
                     guard let expectedSurface = self.surface.textBoxSubmitTerminalSurface,
@@ -2438,7 +2464,7 @@ private final class TextBoxSubmitEventRunner {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor in
+            Self.performOnMainActor {
                 guard let self else { return }
                 if let surfaceView = notification.object as? GhosttyNSView {
                     guard let expectedSurface = self.surface.textBoxSubmitTerminalSurface,
@@ -2454,13 +2480,13 @@ private final class TextBoxSubmitEventRunner {
             observers.append(center.addObserver(
                 forName: NSWindow.didUpdateNotification,
                 object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard self != nil else { return }
-                checkIfCurrent()
-            }
-        })
+                queue: .main
+            ) { [weak self] _ in
+                Self.performOnMainActor {
+                    guard self != nil else { return }
+                    checkIfCurrent()
+                }
+            })
         }
 
         if performInitialCheck {
@@ -2480,11 +2506,20 @@ private final class TextBoxSubmitEventRunner {
         onExhausted: (@MainActor () -> Void)?
     ) {
         waitTimeoutTimer?.cancel()
+        guard timeoutSeconds > 0 else {
+            waitTimeoutTimer = nil
+            observationToken = UUID()
+#if DEBUG
+            cmuxDebugLog("textbox.submit.wait.timeout.immediate id=\(id.uuidString.prefix(5))")
+#endif
+            onExhausted?()
+            return
+        }
         let timer = DispatchSource.makeTimerSource(queue: .main)
         waitTimeoutTimer = timer
         timer.schedule(deadline: .now() + timeoutSeconds)
         timer.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
+            Self.performOnMainActor {
                 guard let self,
                       self.observationToken == token else {
                     return
@@ -2496,6 +2531,18 @@ private final class TextBoxSubmitEventRunner {
             }
         }
         timer.resume()
+    }
+
+    private nonisolated static func performOnMainActor(_ work: @escaping @MainActor () -> Void) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                work()
+            }
+        } else {
+            Task { @MainActor in
+                work()
+            }
+        }
     }
 
     private func pasteFilePath(_ path: String) -> Bool {

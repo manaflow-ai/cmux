@@ -14,18 +14,94 @@ jobs:
             startup_smoke: true
             virtual_display: true
             skip_zig: false
+            require_macos26_window_tests: false
+            shard_index: 0
+            shard_count: 4
+            primary_shard: true
+          - os: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+            timeout: 30
+            startup_smoke: true
+            virtual_display: true
+            skip_zig: false
+            require_macos26_window_tests: false
+            shard_index: 1
+            shard_count: 4
+            primary_shard: false
+          - os: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+            timeout: 30
+            startup_smoke: true
+            virtual_display: true
+            skip_zig: false
+            require_macos26_window_tests: false
+            shard_index: 2
+            shard_count: 4
+            primary_shard: false
+          - os: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+            timeout: 30
+            startup_smoke: true
+            virtual_display: true
+            skip_zig: false
+            require_macos26_window_tests: false
+            shard_index: 3
+            shard_count: 4
+            primary_shard: false
           - os: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
             timeout: 30
             startup_smoke: true
             virtual_display: false
             skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
+            require_macos26_window_tests: true
+            shard_index: 0
+            shard_count: 4
+            primary_shard: true
+          - os: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
+            timeout: 30
+            startup_smoke: true
+            virtual_display: false
+            skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
+            require_macos26_window_tests: true
+            shard_index: 1
+            shard_count: 4
+            primary_shard: false
+          - os: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
+            timeout: 30
+            startup_smoke: true
+            virtual_display: false
+            skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
+            require_macos26_window_tests: true
+            shard_index: 2
+            shard_count: 4
+            primary_shard: false
+          - os: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
+            timeout: 30
+            startup_smoke: true
+            virtual_display: false
+            skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
+            require_macos26_window_tests: true
+            shard_index: 3
+            shard_count: 4
+            primary_shard: false
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.timeout }}
     steps:
+      - name: Prepare self-hosted workspace
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE"
+          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo -n chown -R "$(id -un):$(id -gn)" "$GITHUB_WORKSPACE"
+          fi
+          chmod -R u+rwX "$GITHUB_WORKSPACE" || true
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          persist-credentials: false
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
 
       - name: Select Xcode
         run: |
@@ -79,9 +155,26 @@ jobs:
         run: |
           ./scripts/install-zig-ci.sh
 
+      - name: Cache Zig packages
+        if: ${{ !matrix.skip_zig }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
+
+      - name: Cache Cargo packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Native/CommandPaletteNucleoFFI/target
+          key: cargo-nucleo-${{ runner.os }}-${{ hashFiles('Native/CommandPaletteNucleoFFI/Cargo.lock') }}
+          restore-keys: cargo-nucleo-${{ runner.os }}-
 
       - name: Cache DerivedData
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -102,33 +195,36 @@ jobs:
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
-          for attempt in 1 2 3; do
+          retry_delays=(10 20 40 60 60)
+          for attempt in 1 2 3 4 5 6; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
             fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "Failed to resolve Swift packages after 3 attempts" >&2
+            if [ "$attempt" -eq 6 ]; then
+              echo "Failed to resolve Swift packages after 6 attempts" >&2
               exit 1
             fi
-            echo "Package resolution failed on attempt $attempt, retrying..."
-            sleep $((attempt * 5))
+            delay="${retry_delays[$((attempt - 1))]}"
+            echo "Package resolution failed on attempt $attempt, retrying in ${delay}s..."
+            sleep "$delay"
           done
 
       - name: Run unit tests
         env:
           CMUX_SKIP_ZIG_BUILD: ${{ matrix.skip_zig && '1' || '0' }}
+          CMUX_REQUIRE_MACOS26_WINDOW_TESTS: ${{ matrix.require_macos26_window_tests && '1' || '0' }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/compat-tests"
           run_unit_tests() {
-            scripts/ci/xcodebuild_noninteractive.py \
-              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -disableAutomaticPackageResolution \
-              -destination "platform=macOS" \
-              test 2>&1
+            SOURCE_PACKAGES_DIR="$SOURCE_PACKAGES_DIR" \
+              DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
+              CMUX_UNIT_TEST_SHARD_INDEX="${{ matrix.shard_index }}" \
+              CMUX_UNIT_TEST_SHARD_COUNT="${{ matrix.shard_count }}" \
+              scripts/ci/run-cmux-unit-tests-isolated.sh
           }
 
           set +e
@@ -139,11 +235,11 @@ jobs:
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners. Retry once after clearing caches.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" <<<"$OUTPUT"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
-            rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+            rm -rf "$DERIVED_DATA_PATH"
             set +e
             run_unit_tests | tee /tmp/test-output.txt
             EXIT_CODE=${PIPESTATUS[0]}
@@ -152,45 +248,107 @@ jobs:
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
+            echo "Unit tests failed"
+            exit "$EXIT_CODE"
+          fi
+
+          if ! grep -Eq 'All [1-9][0-9]* selected cmuxTests XCTestCase classes and Swift Testing suites passed in shard-.* batches' <<<"$OUTPUT"; then
+            echo "Compatibility unit tests completed without executing any tests" >&2
+            exit 1
           fi
 
       - name: Create virtual display
-        if: matrix.virtual_display
+        if: matrix.primary_shard && matrix.virtual_display
         run: |
           set -euo pipefail
           echo "=== Display before ==="
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
           echo ""
           clang -framework Foundation -framework CoreGraphics \
+            -framework AppKit \
             -o /tmp/create-virtual-display scripts/create-virtual-display.m
-          /tmp/create-virtual-display &
+          VDISPLAY_COMMAND=(/tmp/create-virtual-display)
+          CURRENT_USER="$(id -un)"
+          CURRENT_UID="$(id -u)"
+          GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+          if [ -n "$GUI_USER" ] &&
+             [ "$GUI_USER" != "root" ] &&
+             GUI_UID="$(id -u "$GUI_USER" 2>/dev/null)" &&
+             command -v sudo >/dev/null 2>&1 &&
+             sudo -n true 2>/dev/null; then
+            echo "Launching virtual display helper in console GUI bootstrap for $GUI_USER ($GUI_UID); current user: $CURRENT_USER"
+            VDISPLAY_COMMAND=(sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" /usr/bin/env /tmp/create-virtual-display)
+          elif launchctl print "gui/$CURRENT_UID" >/dev/null 2>&1; then
+            echo "Launching virtual display helper in current user GUI bootstrap for $CURRENT_USER ($CURRENT_UID)"
+            VDISPLAY_COMMAND=(launchctl asuser "$CURRENT_UID" /usr/bin/env /tmp/create-virtual-display)
+          else
+            echo "Launching virtual display helper in current bootstrap"
+          fi
+          VDISPLAY_READY="${RUNNER_TEMP:-/tmp}/cmux-compat-virtual-display.ready"
+          VDISPLAY_ID_PATH="${RUNNER_TEMP:-/tmp}/cmux-compat-virtual-display.id"
+          VDISPLAY_LOG="${RUNNER_TEMP:-/tmp}/cmux-compat-virtual-display.log"
+          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
+
+          "${VDISPLAY_COMMAND[@]}" \
+            --ready-path "$VDISPLAY_READY" \
+            --display-id-path "$VDISPLAY_ID_PATH" \
+            >"$VDISPLAY_LOG" 2>&1 &
           VDISPLAY_PID=$!
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
-          sleep 3
+
+          for _ in $(seq 1 900); do
+            if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
+              break
+            fi
+            if ! kill -0 "$VDISPLAY_PID" 2>/dev/null; then
+              echo "Virtual display helper exited before readiness" >&2
+              cat "$VDISPLAY_LOG" >&2 || true
+              exit 1
+            fi
+            sleep 0.1
+          done
+          if [ ! -s "$VDISPLAY_READY" ] || [ ! -s "$VDISPLAY_ID_PATH" ]; then
+            echo "Timed out waiting for virtual display readiness after 90s" >&2
+            cat "$VDISPLAY_LOG" >&2 || true
+            exit 1
+          fi
+          echo "Virtual display ready: $(tr -d '\n' < "$VDISPLAY_ID_PATH")"
+          cat "$VDISPLAY_LOG"
           echo "=== Display after ==="
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
 
       - name: Build app for smoke test
-        if: matrix.startup_smoke
+        if: matrix.primary_shard && matrix.startup_smoke
         env:
           CMUX_SKIP_ZIG_BUILD: ${{ matrix.skip_zig && '1' || '0' }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" build
+          for attempt in 1 2 3 4; do
+            set +e
+            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" build 2>&1 | tee /tmp/cmux-compat-smoke-build-output.txt
+            exit_code=${PIPESTATUS[0]}
+            set -e
+            if [ "$exit_code" -eq 0 ]; then
+              exit 0
+            fi
+            if ! grep -Eq "(bad HTTP response code: '5[0-9][0-9]|curl: \([0-9]+\) The requested URL returned error: 5[0-9][0-9])" /tmp/cmux-compat-smoke-build-output.txt; then
+              exit "$exit_code"
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo "Compat smoke app build failed after 4 attempts" >&2
+              exit "$exit_code"
+            fi
+            delay=$((attempt * 20))
+            echo "Compat smoke app build hit a transient Zig package download failure on attempt $attempt, retrying in ${delay}s..."
+            sleep "$delay"
+          done
 
       - name: Smoke test
-        if: matrix.startup_smoke
+        if: matrix.primary_shard && matrix.startup_smoke
         run: |
           set -euo pipefail
           chmod +x scripts/smoke-test-ci.sh

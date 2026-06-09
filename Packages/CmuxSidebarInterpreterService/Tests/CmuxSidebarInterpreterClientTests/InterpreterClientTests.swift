@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxSidebarInterpreterClient
 
-@Suite struct InterpreterClientTests {
+@Suite(.serialized) struct InterpreterClientTests {
     @Test func rendersValidSourceOutOfProcess() async {
         let client = InterpreterClient(executableURL: interpreterWorkerURL(), timeout: .seconds(10))
         let node = await client.render(source: "Text(\"hello\")", state: [:])

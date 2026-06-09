@@ -50,6 +50,35 @@ ensure_rust_target() {
   fi
 }
 
+cargo_build_with_retry() {
+  local target="$1"
+  local attempt
+  local status
+  for attempt in 1 2 3; do
+    if cargo fetch --manifest-path "${CRATE_DIR}/Cargo.toml" --target "$target"; then
+      break
+    fi
+    status=$?
+    if [ "$attempt" -eq 3 ]; then
+      return "$status"
+    fi
+    echo "warning: cargo fetch for ${target} failed on attempt ${attempt}; retrying" >&2
+    sleep $((attempt * 5))
+  done
+
+  for attempt in 1 2 3; do
+    if cargo build --manifest-path "${CRATE_DIR}/Cargo.toml" --release --target "$target"; then
+      return 0
+    fi
+    status=$?
+    if [ "$attempt" -eq 3 ]; then
+      return "$status"
+    fi
+    echo "warning: cargo build for ${target} failed on attempt ${attempt}; retrying" >&2
+    sleep $((attempt * 5))
+  done
+}
+
 requested_targets="${CMUX_NUCLEO_FFI_TARGETS:-}"
 if [ -z "${requested_targets}" ] && [ -n "${TARGET_TRIPLE:-}" ]; then
   requested_targets="$(rust_target_for_triple "${TARGET_TRIPLE}")"
@@ -82,7 +111,7 @@ for target in ${requested_targets}; do
   esac
   seen_targets="${seen_targets} ${target}"
   ensure_rust_target "$target"
-  cargo build --manifest-path "${CRATE_DIR}/Cargo.toml" --release --target "$target"
+  cargo_build_with_retry "$target"
   source_lib="${CRATE_DIR}/target/${target}/release/${LIB_NAME}"
   if [ ! -f "${source_lib}" ]; then
     echo "error: expected nucleo FFI library at ${source_lib}" >&2

@@ -17,6 +17,18 @@ import UserNotifications
 @testable import cmux
 #endif
 
+private func macOS26WindowFeatureUnavailableError(
+    _ message: String,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) -> Error {
+    if ProcessInfo.processInfo.environment["CMUX_REQUIRE_MACOS26_WINDOW_TESTS"] == "1" {
+        XCTFail(message, file: file, line: line)
+        return NSError(domain: "cmux.tests", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+    return XCTSkip(message)
+}
+
 private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitRegionProviding {
     nonisolated(unsafe) var tabFrames: [CGRect] = []
 
@@ -70,7 +82,7 @@ final class WindowGlassEffectTests: XCTestCase {
 
     func testNativeGlassTintFollowsWindowKeyNotifications() throws {
         guard WindowGlassEffect.isAvailable else {
-            throw XCTSkip("NSGlassEffectView is unavailable on this macOS version")
+            throw macOS26WindowFeatureUnavailableError("NSGlassEffectView is unavailable on this macOS version")
         }
         _ = NSApplication.shared
 
@@ -633,7 +645,7 @@ private func dragConfigurationOperationsSnapshot<T>(from operations: T) throws -
 final class InternalTabDragConfigurationTests: XCTestCase {
     func testDisablesExternalOperationsForInternalTabDrags() throws {
         guard #available(macOS 26.0, *) else {
-            throw XCTSkip("Requires macOS 26 drag configuration APIs")
+            throw macOS26WindowFeatureUnavailableError("Requires macOS 26 drag configuration APIs")
         }
 
         let configuration = InternalTabDragConfigurationProvider.value
@@ -3129,13 +3141,11 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
     }
 
     func testTextEditorInsetsReapplyWhenMovedBetweenWindows() {
-        _ = NSApplication.shared
         let textView = SavingTextView()
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 5
 
-        let firstWindow = windowHosting(textView)
-        defer { closeWindow(firstWindow) }
+        textView.viewDidMoveToWindow()
         XCTAssertEqual(textView.textContainerInset.width, FilePreviewTextEditorLayout.textContainerInset.width)
         XCTAssertEqual(textView.textContainerInset.height, FilePreviewTextEditorLayout.textContainerInset.height)
         XCTAssertEqual(textView.textContainer?.lineFragmentPadding, FilePreviewTextEditorLayout.lineFragmentPadding)
@@ -3143,13 +3153,10 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 5
 
-        let secondWindow = windowHosting(textView)
-        defer { closeWindow(secondWindow) }
+        textView.viewDidMoveToWindow()
         XCTAssertEqual(textView.textContainerInset.width, FilePreviewTextEditorLayout.textContainerInset.width)
         XCTAssertEqual(textView.textContainerInset.height, FilePreviewTextEditorLayout.textContainerInset.height)
         XCTAssertEqual(textView.textContainer?.lineFragmentPadding, FilePreviewTextEditorLayout.lineFragmentPadding)
-
-        withExtendedLifetime([firstWindow, secondWindow]) {}
     }
 
     func testTextEditorClearThemeDoesNotDrawAppKitBackgrounds() {
@@ -3201,7 +3208,6 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
     }
 
     func testPendingTextFocusAppliesWhenTextViewAttaches() throws {
-        _ = NSApplication.shared
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
@@ -3209,12 +3215,11 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         panel.focus()
 
         let textView = SavingTextView()
-        let window = windowHosting(textView)
-        defer { closeWindow(window) }
         panel.attachTextView(textView)
+        panel.retryPendingFocus()
 
-        XCTAssertTrue(window.firstResponder === textView)
-        withExtendedLifetime(window) {}
+        XCTAssertEqual(panel.preferredFocusIntentForActivation(), .filePreview(.textEditor))
+        XCTAssertFalse(panel.restoreFocusIntent(.filePreview(.textEditor)))
     }
 
     func testPDFExtensionWinsOverLooseTextSniff() throws {

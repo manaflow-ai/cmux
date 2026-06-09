@@ -14,6 +14,10 @@ private final class ShortcutContextMenuActionProbe: NSObject {
     }
 }
 
+private final class ShortcutContextNotificationCounter: @unchecked Sendable {
+    var count = 0
+}
+
 private final class ShortcutContextGhosttyCommandEquivalentProbeView: GhosttyNSView {
     var afterMenuMissCallCount = 0
     var keyDownCallCount = 0
@@ -70,269 +74,221 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
     }
 
     func testDefaultCmdRRequestsRenameTabOnlyWhenBrowserNotFocused() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+        withShortcutAppDelegate(browserPanel: nil) { appDelegate in
+            let renameTabRequests = ShortcutContextNotificationCounter()
+            let renameTabToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteRenameTabRequested,
+                object: nil,
+                queue: nil
+            ) { _ in
+                renameTabRequests.count += 1
+            }
+            defer { NotificationCenter.default.removeObserver(renameTabToken) }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+            let renameWorkspaceRequests = ShortcutContextNotificationCounter()
+            let renameWorkspaceToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteRenameWorkspaceRequested,
+                object: nil,
+                queue: nil
+            ) { _ in
+                renameWorkspaceRequests.count += 1
+            }
+            defer { NotificationCenter.default.removeObserver(renameWorkspaceToken) }
 
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
-        let renameTabExpectation = expectation(description: "Rename tab notification should fire for default Cmd+R")
-        let renameTabToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteRenameTabRequested,
-            object: nil,
-            queue: nil
-        ) { _ in
-            renameTabExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(renameTabToken) }
-
-        let renameWorkspaceExpectation = expectation(description: "Rename workspace notification should not fire for default Cmd+R")
-        renameWorkspaceExpectation.isInverted = true
-        let renameWorkspaceToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteRenameWorkspaceRequested,
-            object: nil,
-            queue: nil
-        ) { _ in
-            renameWorkspaceExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(renameWorkspaceToken) }
-
-        guard let cmdR = makeKeyDownEvent(
-            key: "r",
-            modifiers: [.command],
-            keyCode: 15,
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+R event")
-            return
-        }
+            guard let cmdR = makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command],
+                keyCode: 15,
+                windowNumber: 0
+            ) else {
+                XCTFail("Failed to construct Cmd+R event")
+                return
+            }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: cmdR))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: cmdR))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-        wait(for: [renameTabExpectation, renameWorkspaceExpectation], timeout: 1.0)
+            XCTAssertEqual(renameTabRequests.count, 1)
+            XCTAssertEqual(renameWorkspaceRequests.count, 0)
+        }
     }
 
     func testDefaultCmdShiftRRequestsRenameWorkspaceOnlyWhenBrowserNotFocused() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+        withShortcutAppDelegate(browserPanel: nil) { appDelegate in
+            let renameWorkspaceRequests = ShortcutContextNotificationCounter()
+            let renameWorkspaceToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteRenameWorkspaceRequested,
+                object: nil,
+                queue: nil
+            ) { _ in
+                renameWorkspaceRequests.count += 1
+            }
+            defer { NotificationCenter.default.removeObserver(renameWorkspaceToken) }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+            let renameTabRequests = ShortcutContextNotificationCounter()
+            let renameTabToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteRenameTabRequested,
+                object: nil,
+                queue: nil
+            ) { _ in
+                renameTabRequests.count += 1
+            }
+            defer { NotificationCenter.default.removeObserver(renameTabToken) }
 
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
-        let renameWorkspaceExpectation = expectation(description: "Rename workspace notification should fire for default Cmd+Shift+R")
-        let renameWorkspaceToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteRenameWorkspaceRequested,
-            object: nil,
-            queue: nil
-        ) { _ in
-            renameWorkspaceExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(renameWorkspaceToken) }
-
-        let renameTabExpectation = expectation(description: "Rename tab notification should not fire for default Cmd+Shift+R")
-        renameTabExpectation.isInverted = true
-        let renameTabToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteRenameTabRequested,
-            object: nil,
-            queue: nil
-        ) { _ in
-            renameTabExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(renameTabToken) }
-
-        guard let cmdShiftR = makeKeyDownEvent(
-            key: "r",
-            modifiers: [.command, .shift],
-            keyCode: 15,
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+Shift+R event")
-            return
-        }
+            guard let cmdShiftR = makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command, .shift],
+                keyCode: 15,
+                windowNumber: 0
+            ) else {
+                XCTFail("Failed to construct Cmd+Shift+R event")
+                return
+            }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: cmdShiftR))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: cmdShiftR))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-        wait(for: [renameWorkspaceExpectation, renameTabExpectation], timeout: 1.0)
+            XCTAssertEqual(renameWorkspaceRequests.count, 1)
+            XCTAssertEqual(renameTabRequests.count, 0)
+        }
     }
 
     func testFocusedBrowserCmdRUsesReloadInsteadOfRenameTabDefault() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+        let browserPanel = BrowserPanel(workspaceId: UUID())
+        defer { closeBrowserPanel(browserPanel) }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+        withShortcutAppDelegate(browserPanel: browserPanel) { appDelegate in
+            let renameTabRequests = ShortcutContextNotificationCounter()
+            let renameTabToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteRenameTabRequested,
+                object: nil,
+                queue: nil
+            ) { _ in
+                renameTabRequests.count += 1
+            }
+            defer { NotificationCenter.default.removeObserver(renameTabToken) }
 
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
-              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
-            XCTFail("Expected focused browser panel")
-            return
-        }
+            let browserReloadRequests = ShortcutContextNotificationCounter()
+            let browserReloadToken = NotificationCenter.default.addObserver(
+                forName: .debugBrowserReloadShortcutInvoked,
+                object: browserPanel,
+                queue: nil
+            ) { _ in
+                browserReloadRequests.count += 1
+            }
+            defer { NotificationCenter.default.removeObserver(browserReloadToken) }
 
-        guard manager.focusedBrowserPanel != nil else {
-            XCTFail("Expected openBrowser to focus the browser panel")
-            return
-        }
-
-        let renameTabExpectation = expectation(description: "Focused browser Cmd+R should not request rename tab")
-        renameTabExpectation.isInverted = true
-        let renameTabToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteRenameTabRequested,
-            object: nil,
-            queue: nil
-        ) { _ in
-            renameTabExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(renameTabToken) }
-
-        let browserReloadExpectation = expectation(description: "Focused browser Cmd+R should invoke browser reload")
-        let browserReloadToken = NotificationCenter.default.addObserver(
-            forName: .debugBrowserReloadShortcutInvoked,
-            object: browserPanel,
-            queue: nil
-        ) { _ in
-            browserReloadExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(browserReloadToken) }
-
-        guard let event = makeKeyDownEvent(
-            key: "r",
-            modifiers: [.command],
-            keyCode: 15,
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+R event")
-            return
-        }
+            guard let event = makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command],
+                keyCode: 15,
+                windowNumber: 0
+            ) else {
+                XCTFail("Failed to construct Cmd+R event")
+                return
+            }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-        wait(for: [renameTabExpectation, browserReloadExpectation], timeout: 1.0)
+            XCTAssertEqual(renameTabRequests.count, 0)
+            XCTAssertEqual(browserReloadRequests.count, 1)
+        }
     }
 
     func testFocusedBrowserCmdShiftRDoesNotRequestRenameWorkspaceDefault() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+        let browserPanel = BrowserPanel(workspaceId: UUID())
+        defer { closeBrowserPanel(browserPanel) }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+        withShortcutAppDelegate(browserPanel: browserPanel) { appDelegate in
+            let renameWorkspaceRequests = ShortcutContextNotificationCounter()
+            let renameWorkspaceToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteRenameWorkspaceRequested,
+                object: nil,
+                queue: nil
+            ) { _ in
+                renameWorkspaceRequests.count += 1
+            }
+            defer { NotificationCenter.default.removeObserver(renameWorkspaceToken) }
 
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              manager.openBrowser(inWorkspace: workspace.id) != nil else {
-            XCTFail("Expected focused browser panel")
-            return
-        }
-
-        guard manager.focusedBrowserPanel != nil else {
-            XCTFail("Expected openBrowser to focus the browser panel")
-            return
-        }
-
-        let renameWorkspaceExpectation = expectation(description: "Focused browser Cmd+Shift+R should not request rename workspace")
-        renameWorkspaceExpectation.isInverted = true
-        let renameWorkspaceToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteRenameWorkspaceRequested,
-            object: nil,
-            queue: nil
-        ) { _ in
-            renameWorkspaceExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(renameWorkspaceToken) }
-
-        guard let event = makeKeyDownEvent(
-            key: "r",
-            modifiers: [.command, .shift],
-            keyCode: 15,
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+Shift+R event")
-            return
-        }
+            guard let event = makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command, .shift],
+                keyCode: 15,
+                windowNumber: 0
+            ) else {
+                XCTFail("Failed to construct Cmd+Shift+R event")
+                return
+            }
 
 #if DEBUG
-        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-        wait(for: [renameWorkspaceExpectation], timeout: 1.0)
+            XCTAssertEqual(renameWorkspaceRequests.count, 0)
+        }
     }
 
     func testReactGrabShortcutRoutesFromFocusedTerminalToSingleBrowserPane() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+        let terminalPanelId = UUID()
+        let browserPanelId = UUID()
+        XCTAssertEqual(
+            resolveReactGrabShortcutRoute(
+                panels: [
+                    ReactGrabShortcutPanelSnapshot(
+                        id: terminalPanelId,
+                        panelType: .terminal,
+                        isFocused: true
+                    ),
+                    ReactGrabShortcutPanelSnapshot(
+                        id: browserPanelId,
+                        panelType: .browser,
+                        isFocused: false
+                    ),
+                ]
+            ),
+            ReactGrabShortcutRoute(
+                browserPanelId: browserPanelId,
+                returnTerminalPanelId: terminalPanelId
+            )
+        )
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+        withShortcutAppDelegate(browserPanel: nil) { appDelegate in
+            var handlerCallCount = 0
+            appDelegate.debugToggleReactGrabShortcutHandler = {
+                handlerCallCount += 1
+                return true
+            }
 
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let terminalPanelId = workspace.focusedPanelId,
-              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
-              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
-            XCTFail("Expected terminal plus one browser panel")
-            return
-        }
-
-        workspace.focusPanel(terminalPanelId)
-        XCTAssertNil(manager.focusedBrowserPanel)
-        XCTAssertEqual(workspace.focusedPanelId, terminalPanelId)
-
-        guard let event = makeKeyDownEvent(
-            key: "g",
-            modifiers: [.command, .shift],
-            keyCode: 5,
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+Shift+G event")
-            return
-        }
+            guard let event = makeKeyDownEvent(
+                key: "g",
+                modifiers: [.command, .shift],
+                keyCode: 5,
+                windowNumber: 0
+            ) else {
+                XCTFail("Failed to construct Cmd+Shift+G event")
+                return
+            }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-        XCTAssertEqual(workspace.focusedPanelId, browserPanelId)
-        XCTAssertEqual(browserPanel.pendingReactGrabReturnTargetPanelId, terminalPanelId)
+            XCTAssertEqual(handlerCallCount, 1)
+        }
     }
 
     func testWindowPerformKeyEquivalentForwardsBrowserReloadShortcutToTerminalWhenRenameTabIsUnbound() {
@@ -415,14 +371,27 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
         )
     }
 
-    private func window(withId windowId: UUID) -> NSWindow? {
-        let identifier = "cmux.main.\(windowId.uuidString)"
-        return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
+    private func closeBrowserPanel(_ panel: BrowserPanel) {
+        BrowserWindowPortalRegistry.detach(webView: panel.webView)
+        panel.close()
+        panel.webView.removeFromSuperview()
     }
 
-    private func closeWindow(withId windowId: UUID) {
-        guard let window = window(withId: windowId) else { return }
-        window.performClose(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    private func withShortcutAppDelegate(
+        browserPanel: BrowserPanel? = nil,
+        _ body: (AppDelegate) -> Void
+    ) {
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        appDelegate.debugShortcutEventFocusContextOverride = ShortcutEventFocusContext(
+            browserPanel: browserPanel,
+            markdownPanel: nil,
+            rightSidebarFocused: false
+        )
+        defer {
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+            AppDelegate.shared = previousShared
+        }
+        body(appDelegate)
     }
 }

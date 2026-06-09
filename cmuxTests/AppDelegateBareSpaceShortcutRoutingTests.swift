@@ -7,6 +7,10 @@ import XCTest
 @testable import cmux
 #endif
 
+private final class BareShortcutNotificationCounter: @unchecked Sendable {
+    var count = 0
+}
+
 @MainActor
 final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
@@ -49,23 +53,19 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test window and manager")
-            return
-        }
-
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        let initialCount = manager.tabs.count
         let shortcut = StoredShortcut(key: "space", command: false, shift: false, option: false, control: false)
+        let paletteRequests = BareShortcutNotificationCounter()
+        let paletteToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            paletteRequests.count += 1
+        }
+        defer { NotificationCenter.default.removeObserver(paletteToken) }
 
-        withTemporaryShortcut(action: .newTab, shortcut: shortcut) {
-            guard let event = makeKeyDownEvent(key: " ", keyCode: 49, windowNumber: window.windowNumber) else {
+        withTemporaryShortcut(action: .commandPalette, shortcut: shortcut) {
+            guard let event = makeKeyDownEvent(key: " ", keyCode: 49) else {
                 XCTFail("Failed to construct Space event")
                 return
             }
@@ -77,8 +77,7 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
 #endif
         }
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        XCTAssertEqual(manager.tabs.count, initialCount + 1, "Bare Space should dispatch when explicitly configured")
+        XCTAssertEqual(paletteRequests.count, 1, "Bare Space should dispatch when explicitly configured")
     }
 
     func testBareSpaceChordPrefixArmsConfiguredShortcut() {
@@ -87,19 +86,6 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test window and manager")
-            return
-        }
-
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        let initialCount = manager.tabs.count
         let shortcut = StoredShortcut(
             key: "space",
             command: false,
@@ -108,88 +94,72 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
             control: false,
             chordKey: "n"
         )
+        let paletteRequests = BareShortcutNotificationCounter()
+        let paletteToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            paletteRequests.count += 1
+        }
+        defer { NotificationCenter.default.removeObserver(paletteToken) }
 
-        withTemporaryShortcut(action: .newTab, shortcut: shortcut) {
-            guard let prefixEvent = makeKeyDownEvent(key: " ", keyCode: 49, windowNumber: window.windowNumber),
-                  let actionEvent = makeKeyDownEvent(key: "n", keyCode: 45, windowNumber: window.windowNumber) else {
+        withTemporaryShortcut(action: .commandPalette, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(key: " ", keyCode: 49),
+                  let actionEvent = makeKeyDownEvent(key: "n", keyCode: 45) else {
                 XCTFail("Failed to construct Space chord events")
                 return
             }
 
 #if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
-            XCTAssertEqual(manager.tabs.count, initialCount, "Bare Space prefix must not fire the action early")
+            XCTAssertEqual(paletteRequests.count, 0, "Bare Space prefix must not fire the action early")
+
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: actionEvent))
+            XCTAssertEqual(paletteRequests.count, 1, "Bare Space chord should dispatch on the second stroke")
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
         }
-
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        XCTAssertEqual(manager.tabs.count, initialCount + 1, "Bare Space chord should dispatch on the second stroke")
     }
 
-    func testCreateMainWindowUsesPersistedGeometryWhenNoSourceWindow() throws {
-        let previousShared = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        defer { AppDelegate.shared = previousShared }
+    func testCreateMainWindowUsesPersistedGeometryWhenNoSourceWindow() {
+        let styleMask: NSWindow.StyleMask = [
+            .titled,
+            .closable,
+            .miniaturizable,
+            .resizable,
+            .fullSizeContentView
+        ]
+        let savedFrame = CGRect(x: 160, y: 120, width: 980, height: 700)
 
-        let defaults = UserDefaults.standard
-        let persistedGeometryKey = AppDelegate.debugPersistedWindowGeometryDefaultsKey
-        let previousPersistedGeometry = defaults.object(forKey: persistedGeometryKey)
-        var windowId: UUID?
-        defer {
-            if let windowId {
-                closeWindow(withId: windowId)
-            }
-            restoreDefaultsValue(
-                previousPersistedGeometry,
-                forKey: persistedGeometryKey,
-                defaults: defaults
-            )
+        let initialGeometry = AppDelegate.resolvedMainWindowInitialGeometry(
+            styleMask: styleMask,
+            restoredFrame: nil,
+            sourceFrame: nil,
+            persistedGeometryFrame: savedFrame
+        )
+
+        guard let explicitFrame = initialGeometry.explicitFrame else {
+            XCTFail("Expected persisted geometry to be applied as the explicit initial frame")
+            return
         }
+        XCTAssertEqual(explicitFrame.minX, savedFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(explicitFrame.minY, savedFrame.minY, accuracy: 0.001)
+        XCTAssertEqual(explicitFrame.width, savedFrame.width, accuracy: 0.001)
+        XCTAssertEqual(explicitFrame.height, savedFrame.height, accuracy: 0.001)
 
-        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
-        let visibleFrame = screen.visibleFrame
-        let savedWidth = max(
-            CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-            min(1_100, visibleFrame.width - 40)
-        )
-        let savedHeight = max(
-            CGFloat(SessionPersistencePolicy.minimumWindowHeight),
-            min(760, visibleFrame.height - 40)
-        )
-        let savedFrame = CGRect(
-            x: visibleFrame.midX - savedWidth / 2,
-            y: visibleFrame.midY - savedHeight / 2,
-            width: savedWidth,
-            height: savedHeight
-        )
-        let payload = AppDelegate.PersistedWindowGeometry(
-            version: AppDelegate.persistedWindowGeometrySchemaVersion,
-            frame: SessionRectSnapshot(savedFrame),
-            display: SessionDisplaySnapshot(
-                displayID: screen.cmuxDisplayID,
-                frame: SessionRectSnapshot(screen.frame),
-                visibleFrame: SessionRectSnapshot(screen.visibleFrame)
-            )
-        )
-        defaults.set(try JSONEncoder().encode(payload), forKey: persistedGeometryKey)
-
-        let createdWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
-        windowId = createdWindowId
-
-        let window = try XCTUnwrap(window(withId: createdWindowId))
-        XCTAssertEqual(window.frame.minX, savedFrame.minX, accuracy: 1)
-        XCTAssertEqual(window.frame.minY, savedFrame.minY, accuracy: 1)
-        XCTAssertEqual(window.frame.width, savedFrame.width, accuracy: 1)
-        XCTAssertEqual(window.frame.height, savedFrame.height, accuracy: 1)
+        let expectedContentRect = NSWindow.contentRect(forFrameRect: savedFrame, styleMask: styleMask)
+        XCTAssertEqual(initialGeometry.contentRect.minX, expectedContentRect.minX, accuracy: 0.001)
+        XCTAssertEqual(initialGeometry.contentRect.minY, expectedContentRect.minY, accuracy: 0.001)
+        XCTAssertEqual(initialGeometry.contentRect.width, expectedContentRect.width, accuracy: 0.001)
+        XCTAssertEqual(initialGeometry.contentRect.height, expectedContentRect.height, accuracy: 0.001)
     }
 
     private func makeKeyDownEvent(
         key: String,
         keyCode: UInt16,
-        windowNumber: Int
+        windowNumber: Int = 0
     ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
@@ -223,22 +193,4 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         body()
     }
 
-    private func window(withId windowId: UUID) -> NSWindow? {
-        let identifier = "cmux.main.\(windowId.uuidString)"
-        return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
-    }
-
-    private func closeWindow(withId windowId: UUID) {
-        guard let window = window(withId: windowId) else { return }
-        window.performClose(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-    }
-
-    private func restoreDefaultsValue(_ value: Any?, forKey key: String, defaults: UserDefaults) {
-        if let value {
-            defaults.set(value, forKey: key)
-        } else {
-            defaults.removeObject(forKey: key)
-        }
-    }
 }

@@ -34,7 +34,7 @@ final class BundledCLILinkageTests: XCTestCase {
             return item
         }
 
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        throw bundledCLINotFoundError(appBundleURL: appBundleURL)
     }
 
     private func linkedLibraries(for executableURL: URL) throws -> [String] {

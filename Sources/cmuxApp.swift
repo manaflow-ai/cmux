@@ -46,9 +46,9 @@ struct cmuxApp: App {
     private let authComposition: MacAuthComposition
 
     @StateObject private var tabManager: TabManager
-    @StateObject private var notificationStore = TerminalNotificationStore.shared
+    @StateObject private var notificationStore: TerminalNotificationStore
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
-    @StateObject private var sidebarState = SidebarState()
+    @StateObject private var sidebarState: SidebarState
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
@@ -60,6 +60,7 @@ struct cmuxApp: App {
     @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
+    private let isPureUnitTestAppHost: Bool
 
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
@@ -70,6 +71,8 @@ struct cmuxApp: App {
         // (the catalog, the two stores, the error log) live on this
         // single struct; nothing in the package or app references a
         // shared static.
+        let launchEnvironment = ProcessInfo.processInfo.environment
+        self.isPureUnitTestAppHost = CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost(launchEnvironment)
         let settingsCatalog = SettingCatalog()
         let configFileURL = CmuxConfigLocation().userConfigFile
         // Relocate a pre-existing socket password out of the legacy
@@ -131,6 +134,10 @@ struct cmuxApp: App {
             ),
             hostActions: HostSettingsActions(configFileURL: configFileURL)
         )
+        let launchNotificationStore = TerminalNotificationStore.shared
+        let launchSidebarState = SidebarState()
+        _notificationStore = StateObject(wrappedValue: launchNotificationStore)
+        _sidebarState = StateObject(wrappedValue: launchSidebarState)
 
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
@@ -182,8 +189,15 @@ struct cmuxApp: App {
         )
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
-        StartupBreadcrumbLog.append("app.init.tabManager.begin")
-        _tabManager = StateObject(wrappedValue: TabManager())
+        let shouldCreateInitialWorkspace = CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow(
+            launchEnvironment
+        )
+        StartupBreadcrumbLog.append(
+            "app.init.tabManager.begin",
+            fields: ["initialWorkspace": shouldCreateInitialWorkspace ? "1" : "0"]
+        )
+        let launchTabManager = TabManager(createInitialWorkspace: shouldCreateInitialWorkspace)
+        _tabManager = StateObject(wrappedValue: launchTabManager)
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -213,9 +227,9 @@ struct cmuxApp: App {
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         StartupBreadcrumbLog.append("app.init.delegate.configure.begin")
         appDelegate.configure(
-            tabManager: tabManager,
-            notificationStore: notificationStore,
-            sidebarState: sidebarState,
+            tabManager: launchTabManager,
+            notificationStore: launchNotificationStore,
+            sidebarState: launchSidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition
         )
@@ -370,34 +384,38 @@ struct cmuxApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainWindowBootstrapView()
-                .settingsRuntime(settingsRuntime)
-                .cmuxAppearanceColorScheme(appearanceMode)
-                .onAppear {
-                    SettingsWindowPresenter.configure(
-                        openWindow: {
-                            openWindow(id: SettingsWindowPresenter.windowID)
-                        },
-                        parentWindowProvider: {
-                            AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
-                        }
-                    )
+            if isPureUnitTestAppHost {
+                MainWindowBootstrapView()
+            } else {
+                MainWindowBootstrapView()
+                    .settingsRuntime(settingsRuntime)
+                    .cmuxAppearanceColorScheme(appearanceMode)
+                    .onAppear {
+                        SettingsWindowPresenter.configure(
+                            openWindow: {
+                                openWindow(id: SettingsWindowPresenter.windowID)
+                            },
+                            parentWindowProvider: {
+                                AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
+                            }
+                        )
 #if DEBUG
-                    if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
-                        AppDelegate.shared?.updateLog.append("ui test: cmuxApp onAppear")
-                    }
+                        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
+                            AppDelegate.shared?.updateLog.append("ui test: cmuxApp onAppear")
+                        }
 #endif
-                    bootstrapMainWindowScene()
-                }
-                .onChange(of: appearanceMode) { _ in
-                    applyAppearance()
-                }
-                .onChange(of: socketControlMode) { _ in
-                    updateSocketController()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .browserFocusModeStateDidChange)) { _ in
-                    browserFocusModeMenuRevision &+= 1
-                }
+                        bootstrapMainWindowScene()
+                    }
+                    .onChange(of: appearanceMode) { _ in
+                        applyAppearance()
+                    }
+                    .onChange(of: socketControlMode) { _ in
+                        updateSocketController()
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .browserFocusModeStateDidChange)) { _ in
+                        browserFocusModeMenuRevision &+= 1
+                    }
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -5214,8 +5232,18 @@ enum TelemetrySettings {
         return defaults.bool(forKey: sendAnonymousTelemetryKey)
     }
 
+    static func isEnabledForLaunch(
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        guard !CmuxXCTestLaunchEnvironment.isRunningUnderXCTest(environment) else {
+            return false
+        }
+        return isEnabled(defaults: defaults)
+    }
+
     // Freeze telemetry enablement once per launch. Settings changes apply on next restart.
-    static let enabledForCurrentLaunch = isEnabled()
+    static let enabledForCurrentLaunch = isEnabledForLaunch()
 }
 
 enum CmdClickMarkdownRouteSettings {

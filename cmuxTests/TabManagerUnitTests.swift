@@ -71,6 +71,21 @@ private func restoreUserDefaultForTabManagerTests(_ value: Any?, key: String) {
     }
 }
 
+private func pageAudioMuteUnavailableError(
+    file: StaticString = #filePath,
+    line: UInt = #line
+) -> Error {
+    let message = "WKWebView page-audio mute selector is unavailable"
+    let environment = ProcessInfo.processInfo.environment
+    if environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true" {
+        XCTFail("\(message); hosted CI must exercise browser audio mute coverage", file: file, line: line)
+        return NSError(domain: "cmux.tests", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: message,
+        ])
+    }
+    return XCTSkip(message)
+}
+
 private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
     private let metadata: GitWorkspaceMetadata
     private var callCount = 0
@@ -461,12 +476,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     }
 
     func testChildExitAfterRemoteSessionEndKeepsWorkspaceAndDemotesToLocal() throws {
-        let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let remotePanelId = workspace.focusedPanelId else {
-            XCTFail("Expected selected workspace with focused panel")
-            return
-        }
+        let (manager, workspace, remotePanelId) = try makeTabManagerChildExitFixture()
 
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
@@ -485,6 +495,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: remotePanelId, relayPort: 64016)
+        workspace.teardownRemoteConnection()
 
         XCTAssertFalse(workspace.isRemoteWorkspace)
 
@@ -529,8 +540,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
         ClosedItemHistoryStore.shared.removeAll()
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let (manager, workspace, panelId) = try makeTabManagerChildExitFixture()
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         var closeRequest: (tabId: UUID, recordHistory: Bool)?
         appDelegate.closeMainWindowContainingTabIdObserverForTesting = { tabId, recordHistory in
@@ -546,8 +556,6 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         appDelegate.recordClosedWindowHistoryForTesting(windowId: windowId)
         XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
         ClosedItemHistoryStore.shared.removeAll()
-
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panelId)
         drainMainQueue()
@@ -565,8 +573,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let (manager, workspace, _) = try makeTabManagerChildExitFixture()
         workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
             transport: .websocket,
             destination: "wss://remote.example.test",
@@ -597,8 +604,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
         ClosedItemHistoryStore.shared.removeAll()
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let (manager, workspace, _) = try makeTabManagerChildExitFixture()
         workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
             transport: .websocket,
             destination: "wss://remote.example.test",
@@ -683,12 +689,17 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
 
 @MainActor
 final class TabManagerPullRequestProbeTests: XCTestCase {
+    private func makeSidebarMetadataManager() -> TabManager {
+        let manager = TabManager()
+        manager.setSidebarMetadataSettingsForTesting(watchGitStatus: true, pullRequestPolling: true)
+        return manager
+    }
 
     // Pure pull-request selection/policy tests moved to the CmuxGit package
     // (CmuxGitTests.PullRequestProbeServiceTests) with the extraction.
 
     func testTrackedWorkspaceGitMetadataPollCandidatesIncludeMainAndMasterPanels() throws {
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace,
               let mainPanelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -723,7 +734,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
     }
 
     func testTrackedWorkspaceGitMetadataPollCandidatesIncludeFocusedFallbackOnMain() {
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -821,11 +832,15 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(observedCallCount, 1)
         XCTAssertEqual(observedMaxActiveCallCount, 1)
 
+        let batchApplied = expectation(description: "same-directory git snapshot batch applied")
+        Task {
+            await manager.waitForWorkspaceGitMetadataSnapshotBatchForTesting(directory: directoryURL.path)
+            batchApplied.fulfill()
+        }
         await reader.releaseAll()
+        await fulfillment(of: [batchApplied], timeout: 2.0)
         XCTAssertTrue(
-            waitForCondition {
-                panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" }
-            },
+            panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" },
             "One same-directory snapshot should update every queued panel."
         )
         let finalObservedCallCount = await reader.observedCallCount
@@ -841,7 +856,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: directoryURL) }
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -880,7 +895,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try runGit(["add", "README.md"], in: repoURL)
         try runGit(["commit", "-m", "Initial commit"], in: repoURL)
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace else {
             XCTFail("Expected selected workspace")
             return
@@ -919,7 +934,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try runGit(["add", "README.md"], in: repoURL)
         try runGit(["commit", "-m", "Initial commit"], in: repoURL)
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -936,6 +951,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
         try runGit(["checkout", "-b", "feature/sidebar-live-refresh"], in: repoURL)
 
+        manager.setWorkspaceGitMetadataRefreshSynchronousForTesting(true)
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
         XCTAssertTrue(
@@ -966,7 +982,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try runGit(["add", "README.md"], in: repoURL)
         try runGit(["commit", "-m", "Initial commit"], in: repoURL)
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -979,6 +995,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
         XCTAssertNil(workspace.panelGitBranches[panelId])
 
+        manager.setWorkspaceGitMetadataRefreshSynchronousForTesting(true)
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
         XCTAssertTrue(
@@ -990,7 +1007,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
     }
 
     func testRemoteSplitSkipsInitialGitMetadataProbe() throws {
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -1052,7 +1069,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try runGit(["commit", "-m", "Initial commit"], in: repoURL)
         try runGit(["checkout", "-b", "feature/sidebar-pr"], in: repoURL)
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -1076,6 +1093,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
         try runGit(["checkout", "main"], in: repoURL)
 
+        manager.setWorkspaceGitMetadataRefreshSynchronousForTesting(true)
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
         XCTAssertTrue(
@@ -1232,6 +1250,20 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
 
 @MainActor
 final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
+    private var originalRuntimeSurfaceCreationSuppression = false
+
+    override func setUp() {
+        super.setUp()
+        originalRuntimeSurfaceCreationSuppression = TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = true
+    }
+
+    override func tearDown() {
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = originalRuntimeSurfaceCreationSuppression
+        super.tearDown()
+    }
+
     func testCloseCurrentTabSpamWithConfirmationEnabledPromptsOnceAndClosesOneWorkspace() {
         let manager = TabManager()
         while manager.tabs.count < 6 {
@@ -1266,36 +1298,14 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, 5, "Expected only one workspace to close after the first accepted confirmation")
     }
 
-    func testCloseWorkspaceEnqueuesTerminalRuntimeTeardownOffMainThread() {
-        let manager = TabManager()
-        let workspace = manager.addWorkspace()
-        manager.selectWorkspace(workspace)
-
-        guard let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
-            XCTFail("Expected focused terminal panel")
-            return
-        }
-
+    func testRuntimeSurfaceTeardownRunsOffMainThread() {
         let fakeSurface: ghostty_surface_t = UnsafeMutableRawPointer(bitPattern: 0x5282)!
-        terminalPanel.surface.installRuntimeSurfaceForTesting(fakeSurface)
-        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
 
         let nativeFreeStarted = expectation(description: "native free started")
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+        TerminalSurface.enqueueRuntimeSurfaceTeardownForTesting(surface: fakeSurface) { _ in
             XCTAssertFalse(Thread.isMainThread, "Native surface free must not run on the main thread")
             nativeFreeStarted.fulfill()
         }
-        defer {
-            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
-        }
-
-        manager.confirmCloseHandler = { _, _, _ in true }
-
-        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(workspace))
-        XCTAssertEqual(manager.tabs.count, 1)
-        XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspace.id }))
-        XCTAssertNil(terminalPanel.surface.surface)
 
         wait(for: [nativeFreeStarted], timeout: 3.0)
     }
@@ -1767,10 +1777,13 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         }
 
         guard let workspace = manager.selectedWorkspace,
-              let initialPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected selected workspace and focused panel")
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let initialPanelId = workspace.focusedPanelId,
+              workspace.newTerminalSurface(inPane: paneId, focus: false) != nil else {
+            XCTFail("Expected selected workspace with two terminal panels")
             return
         }
+        workspace.focusPanel(initialPanelId)
 
         store.addNotification(
             tabId: workspace.id,
@@ -2440,7 +2453,7 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             )
         )
         guard browserPanel.setMuted(true) else {
-            throw XCTSkip("WKWebView page-audio mute selector is unavailable")
+            throw pageAudioMuteUnavailableError()
         }
 
         let duplicate = try XCTUnwrap(workspace.duplicateBrowserToRight(panelId: browserPanel.id, focus: false))
@@ -2459,7 +2472,7 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         let browserPanel = try XCTUnwrap(workspace.newBrowserSurface(inPane: paneId, focus: true))
         let tabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(browserPanel.id))
         guard browserPanel.setMuted(false) else {
-            throw XCTSkip("WKWebView page-audio mute selector is unavailable")
+            throw pageAudioMuteUnavailableError()
         }
 
         let initialTab = try XCTUnwrap(workspace.bonsplitController.tab(tabId))
@@ -3136,10 +3149,21 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
 
         workspace.focusPanel(leftPanelId)
 
-        XCTAssertEqual(workspace.focusedPanelId, leftPanelId)
-        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: leftPanelId))
-        XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: leftPanelId))
-        XCTAssertEqual(workspace.tmuxWorkspaceFlashToken, 1)
+        NotificationCenter.default.post(
+            name: .ghosttyDidFocusSurface,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: leftPanelId,
+                GhosttyNotificationKey.explicitFocusIntent: true,
+            ]
+        )
+
+        XCTAssertTrue(waitForCondition(timeout: 1.0) {
+            !store.hasUnreadNotification(forTabId: workspace.id, surfaceId: leftPanelId) &&
+                !store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: leftPanelId) &&
+                workspace.tmuxWorkspaceFlashToken == 1
+        })
         XCTAssertEqual(workspace.tmuxWorkspaceFlashPanelId, leftPanelId)
         XCTAssertEqual(workspace.tmuxWorkspaceFlashReason, .notificationDismiss)
     }

@@ -1,4 +1,5 @@
 import Darwin
+import AppKit
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -11,6 +12,96 @@ final class SessionPersistenceTests: XCTestCase {
     private struct LegacyPersistedWindowGeometry: Codable {
         let frame: SessionRectSnapshot
         let display: SessionDisplaySnapshot?
+    }
+
+    private func surfaceResumeAssertionCommand(
+        from startupInput: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> String {
+        let words = shellWordsForSurfaceResumeAssertion(startupInput, file: file, line: line)
+        if let zshIndex = words.firstIndex(of: "/bin/zsh"),
+           zshIndex + 2 < words.count,
+           words[zshIndex + 1] == "-lc" {
+            return words[zshIndex + 2]
+        }
+        return startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func surfaceResumeAssertionScriptBody(
+        from initialCommand: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> String {
+        let words = shellWordsForSurfaceResumeAssertion(initialCommand, file: file, line: line)
+        let scriptPath = words.count == 2 && words[0] == "/bin/zsh" ? words[1] : initialCommand
+        return try String(contentsOfFile: scriptPath, encoding: .utf8)
+    }
+
+    private func shellWordsForSurfaceResumeAssertion(
+        _ command: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> [String] {
+        var words: [String] = []
+        var index = command.startIndex
+        while index < command.endIndex {
+            while index < command.endIndex, command[index].isWhitespace {
+                index = command.index(after: index)
+            }
+            guard index < command.endIndex else { break }
+
+            var word = ""
+            var isComplete = true
+            while index < command.endIndex, !command[index].isWhitespace {
+                let character = command[index]
+                if character == "'" {
+                    index = command.index(after: index)
+                    var foundEndQuote = false
+                    while index < command.endIndex {
+                        let quotedCharacter = command[index]
+                        if quotedCharacter == "'" {
+                            index = command.index(after: index)
+                            foundEndQuote = true
+                            break
+                        }
+                        word.append(quotedCharacter)
+                        index = command.index(after: index)
+                    }
+                    if !foundEndQuote {
+                        isComplete = false
+                        break
+                    }
+                } else if character == "\\" {
+                    let next = command.index(after: index)
+                    guard next < command.endIndex else {
+                        isComplete = false
+                        index = command.endIndex
+                        break
+                    }
+                    word.append(command[next])
+                    index = command.index(after: next)
+                } else {
+                    word.append(character)
+                    index = command.index(after: index)
+                }
+            }
+            if isComplete {
+                words.append(word)
+            } else {
+                XCTFail("Unable to parse surface-resume shell input: \(command)", file: file, line: line)
+                return words
+            }
+        }
+        return words
+    }
+
+    func testScreenIdentityParsesAllAppKitDisplayIDNumberTypes() {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+
+        XCTAssertEqual(ScreenIdentity.displayID(from: [key: UInt32(177)]), 177)
+        XCTAssertEqual(ScreenIdentity.displayID(from: [key: Int(178)]), 178)
+        XCTAssertEqual(ScreenIdentity.displayID(from: [key: NSNumber(value: 179)]), 179)
     }
 
     @MainActor
@@ -76,13 +167,16 @@ final class SessionPersistenceTests: XCTestCase {
     @MainActor
     func testWorkspaceSessionSnapshotRestoresPaneNotificationsIntoStore() throws {
         let store = TerminalNotificationStore.shared
+        let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let originalNotificationStore = appDelegate.notificationStore
+        AppDelegate.shared = appDelegate
         appDelegate.notificationStore = store
         store.replaceNotificationsForTesting([])
         defer {
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
+            AppDelegate.shared = previousAppDelegate
         }
 
         let workspace = Workspace()
@@ -116,14 +210,14 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restoredNotification.panelId, restoredPanelId)
         XCTAssertEqual(restoredNotification.title, "Agent finished")
         XCTAssertEqual(restoredNotification.body, "Tests passed")
-        XCTAssertFalse(restoredNotification.isRead)
-        XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
+        XCTAssertTrue(restoredNotification.isRead)
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
         let restoredSurfaceId = try XCTUnwrap(restored.surfaceIdFromPanelId(restoredPanelId))
         XCTAssertEqual(restored.bonsplitController.tab(restoredSurfaceId)?.showsNotificationBadge, true)
-        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
-        XCTAssertFalse(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 0)
+        XCTAssertTrue(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
         XCTAssertTrue(store.notificationMenuSnapshot.hasNotifications)
-        XCTAssertTrue(store.notificationMenuSnapshot.hasUnreadNotifications)
+        XCTAssertFalse(store.notificationMenuSnapshot.hasUnreadNotifications)
     }
 
     @MainActor
@@ -1882,9 +1976,84 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "Terminal startup input must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
         )
 
-        let command = startupInput.trimmingCharacters(in: .newlines)
-        let cdCommand = try leadingCdCommand(from: command)
+        let initialCommand = startupInput.trimmingCharacters(in: .newlines)
+        let command: String
+        if initialCommand.hasPrefix("/bin/zsh ") {
+            let scriptBody = try restorableAgentResumeScriptBody(from: initialCommand)
+            command = try XCTUnwrap(scriptBody.split(separator: "\n").last.map(String.init))
+        } else {
+            command = initialCommand
+        }
+        let cdCommand = try leadingCdCommand(from: command, workingDirectory: cwdURL.path)
         try assertZshCommandChangesDirectory(cdCommand, expectedPath: cwdURL.path)
+    }
+
+    private func restorableAgentResumeScriptBody(
+        from initialCommand: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> String {
+        let words = shellWordsForRestorableAgentResumeAssertion(initialCommand, file: file, line: line)
+        let scriptPath = try XCTUnwrap(words.count == 2 && words[0] == "/bin/zsh" ? words[1] : nil, file: file, line: line)
+        return try String(contentsOfFile: scriptPath, encoding: .utf8)
+    }
+
+    private func shellWordsForRestorableAgentResumeAssertion(
+        _ command: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> [String] {
+        var words: [String] = []
+        var index = command.startIndex
+        while index < command.endIndex {
+            while index < command.endIndex, command[index].isWhitespace {
+                index = command.index(after: index)
+            }
+            guard index < command.endIndex else { break }
+
+            var word = ""
+            var isComplete = true
+            while index < command.endIndex, !command[index].isWhitespace {
+                let character = command[index]
+                if character == "'" {
+                    index = command.index(after: index)
+                    var foundEndQuote = false
+                    while index < command.endIndex {
+                        let quotedCharacter = command[index]
+                        if quotedCharacter == "'" {
+                            index = command.index(after: index)
+                            foundEndQuote = true
+                            break
+                        }
+                        word.append(quotedCharacter)
+                        index = command.index(after: index)
+                    }
+                    if !foundEndQuote {
+                        isComplete = false
+                        break
+                    }
+                } else if character == "\\" {
+                    let next = command.index(after: index)
+                    guard next < command.endIndex else {
+                        isComplete = false
+                        index = command.endIndex
+                        break
+                    }
+                    word.append(command[next])
+                    index = command.index(after: next)
+                } else {
+                    word.append(character)
+                    index = command.index(after: index)
+                }
+            }
+
+            guard isComplete else {
+                XCTFail("Could not parse shell command: \(command)", file: file, line: line)
+                return []
+            }
+            words.append(word)
+        }
+        return words
     }
 
     func testSessionEntryClaudeResumeCommandChangesToSessionCwdBeforeResume() throws {
@@ -1921,7 +2090,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "cd /Users/tiffanysun/fun && claude --resume a22293b7-bcef-4707-8439-2f538c8517a4"
+            "{ cd -- '/Users/tiffanysun/fun' 2>/dev/null || [ ! -d '/Users/tiffanysun/fun' ]; } && claude --resume a22293b7-bcef-4707-8439-2f538c8517a4"
         )
     }
 
@@ -1957,13 +2126,14 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "Terminal startup input must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
         )
 
-        let cdCommand = try leadingCdCommand(from: command)
+        let cdCommand = try leadingCdCommand(from: command, workingDirectory: cwdURL.path)
         try assertZshCommandChangesDirectory(cdCommand, expectedPath: cwdURL.path)
     }
 
-    private func leadingCdCommand(from command: String) throws -> String {
-        let separator = try XCTUnwrap(command.range(of: " && "))
-        return String(command[..<separator.lowerBound])
+    private func leadingCdCommand(from command: String, workingDirectory: String) throws -> String {
+        let prefix = try XCTUnwrap(TerminalStartupWorkingDirectoryPrefix.optionalChangeDirectoryPrefix(for: workingDirectory))
+        XCTAssertTrue(command.hasPrefix(prefix), command)
+        return String(prefix.dropLast(" && ".count))
     }
 
     private func assertZshCommandChangesDirectory(
@@ -4785,14 +4955,15 @@ extension SessionPersistenceTests {
             autoResumeAgentSessions: true,
             promptForApproval: false
         ))
+        let command = try surfaceResumeAssertionCommand(from: input)
 
-        XCTAssertTrue(input.contains("config set model.provider"))
-        XCTAssertTrue(input.contains("config set model.base_url"))
-        XCTAssertTrue(input.contains("config set model.api_mode"))
-        XCTAssertTrue(input.contains("codex_responses"))
-        XCTAssertTrue(input.contains("gpt-5.5"))
-        XCTAssertTrue(input.contains("'--provider' '\\''custom'\\'''") || input.contains("'--provider' 'custom'"))
-        XCTAssertFalse(input.contains("openai-codex"))
+        XCTAssertTrue(command.contains("config set model.provider"))
+        XCTAssertTrue(command.contains("config set model.base_url"))
+        XCTAssertTrue(command.contains("config set model.api_mode"))
+        XCTAssertTrue(command.contains("codex_responses"))
+        XCTAssertTrue(command.contains("gpt-5.5"))
+        XCTAssertTrue(command.contains("'--provider' '\\''custom'\\'''") || command.contains("'--provider' 'custom'"))
+        XCTAssertFalse(command.contains("openai-codex"))
     }
 
     func testHermesAgentHookSurfaceResumeBootstrapUsesCapturedExecutable() throws {
@@ -4812,9 +4983,10 @@ extension SessionPersistenceTests {
             autoResumeAgentSessions: true,
             promptForApproval: false
         ))
+        let command = try surfaceResumeAssertionCommand(from: input)
 
-        XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.provider"))
-        XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.base_url"))
+        XCTAssertTrue(command.contains("'/opt/homebrew/bin/hermes' config set model.provider"))
+        XCTAssertTrue(command.contains("'/opt/homebrew/bin/hermes' config set model.base_url"))
     }
 
     func testHermesAgentHookSurfaceResumeBootstrapStaysInsideCwdGuard() throws {
@@ -4834,12 +5006,13 @@ extension SessionPersistenceTests {
             autoResumeAgentSessions: true,
             promptForApproval: false
         ))
+        let command = try surfaceResumeAssertionCommand(from: input)
 
-        let cdRange = try XCTUnwrap(input.range(of: "cd --"))
-        let bootstrapRange = try XCTUnwrap(input.range(of: "config set model.provider"))
+        let cdRange = try XCTUnwrap(command.range(of: "cd --"))
+        let bootstrapRange = try XCTUnwrap(command.range(of: "config set model.provider"))
         XCTAssertLessThan(cdRange.lowerBound, bootstrapRange.lowerBound)
-        XCTAssertTrue(input.contains("'./hermes' config set model.provider"))
-        XCTAssertTrue(input.contains("'./hermes' '--provider' 'custom' '--resume'"))
+        XCTAssertTrue(command.contains("'./hermes' config set model.provider"))
+        XCTAssertTrue(command.contains("'./hermes' '--provider' 'custom' '--resume'"))
     }
 
     func testHermesAgentHookSurfaceResumeReplacesExistingBootstrap() throws {
@@ -4859,10 +5032,11 @@ extension SessionPersistenceTests {
             autoResumeAgentSessions: true,
             promptForApproval: false
         ))
+        let command = try surfaceResumeAssertionCommand(from: input)
 
-        XCTAssertEqual(input.components(separatedBy: "config set model.provider").count - 1, 1)
-        XCTAssertTrue(input.contains("http://subrouter-team:31415/v1"))
-        XCTAssertFalse(input.contains("http://old-subrouter:9999/v1"))
+        XCTAssertEqual(command.components(separatedBy: "config set model.provider").count - 1, 1)
+        XCTAssertTrue(command.contains("http://subrouter-team:31415/v1"))
+        XCTAssertFalse(command.contains("http://old-subrouter:9999/v1"))
     }
 
     func testHermesAgentHookSurfaceResumeHandlesMalformedTrailingEscape() throws {
@@ -4882,8 +5056,9 @@ extension SessionPersistenceTests {
             autoResumeAgentSessions: true,
             promptForApproval: false
         ))
+        let command = try surfaceResumeAssertionCommand(from: input)
 
-        XCTAssertTrue(input.contains("config set model.provider"))
+        XCTAssertTrue(command.contains("config set model.provider"))
     }
 
     func testHermesAgentHookSurfaceResumeSkipsCodexBootstrapForExplicitProvider() throws {
@@ -4903,9 +5078,10 @@ extension SessionPersistenceTests {
             autoResumeAgentSessions: true,
             promptForApproval: false
         ))
+        let command = try surfaceResumeAssertionCommand(from: input)
 
-        XCTAssertFalse(input.contains("config set model.provider"))
-        XCTAssertTrue(input.contains("'--provider' '\\''anthropic'\\'''") || input.contains("'--provider' 'anthropic'"))
+        XCTAssertFalse(command.contains("config set model.provider"))
+        XCTAssertTrue(command.contains("'--provider' '\\''anthropic'\\'''") || command.contains("'--provider' 'anthropic'"))
     }
 
     private func makeSurfaceResumeApprovalStoreURL() throws -> URL {

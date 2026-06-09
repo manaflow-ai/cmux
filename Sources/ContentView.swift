@@ -3114,7 +3114,6 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSubmitRequested)) { notification in
-            guard isCommandPalettePresented else { return }
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(
                 observedWindow: observedWindow,
@@ -3122,6 +3121,13 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
+            if let commandID = notification.userInfo?["command_id"] as? String,
+               !commandID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let handled = runCommandPaletteResult(commandID: commandID)
+                (notification.userInfo?["acknowledgement"] as? CommandPaletteSubmitAcknowledgement)?.handled = handled
+                return
+            }
+            guard isCommandPalettePresented else { return }
             handleCommandPaletteSubmitRequest()
         })
 
@@ -3191,6 +3197,26 @@ struct ContentView: View {
             ) else { return }
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
             moveCommandPaletteSelection(by: delta)
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteQuerySetRequested)) { notification in
+            guard isCommandPalettePresented else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            guard let query = notification.userInfo?["query"] as? String else { return }
+            let requestedMode = notification.userInfo?["mode"] as? String
+            if requestedMode == CommandPaletteListScope.commands.rawValue {
+                commandPaletteQuery = Self.commandPaletteCommandsPrefix + query
+            } else {
+                commandPaletteQuery = query
+            }
+            resetCommandPaletteSearchFocus()
+            syncCommandPaletteDebugStateForObservedWindow()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameInputInteractionRequested)) { notification in
@@ -3919,7 +3945,9 @@ struct ContentView: View {
 
             CommandPaletteCommandListRenderView(
                 renderModel: commandPaletteOverlayRenderModel,
-                onRunResult: runCommandPaletteResult(commandID:)
+                onRunResult: { commandID in
+                    _ = runCommandPaletteResult(commandID: commandID)
+                }
             )
 
             // Keep Esc-to-close behavior without showing footer controls.
@@ -8058,10 +8086,10 @@ struct ContentView: View {
             sidebarMatchTerminalBackground.toggle()
         }
         registry.register(commandId: "palette.enableMinimalMode") {
-            workspacePresentationMode = WorkspacePresentationModeSettings.Mode.minimal.rawValue
+            WorkspacePresentationModeSettings.setMode(.minimal)
         }
         registry.register(commandId: "palette.disableMinimalMode") {
-            workspacePresentationMode = WorkspacePresentationModeSettings.Mode.standard.rawValue
+            WorkspacePresentationModeSettings.setMode(.standard)
         }
         registerViewCommandHandlers(&registry)
         registry.register(commandId: "palette.showNotifications") {
@@ -8866,7 +8894,23 @@ struct ContentView: View {
         }
     }
 
-    private func runCommandPaletteResult(commandID: String) {
+    @discardableResult
+    private func runCommandPaletteResult(commandID: String) -> Bool {
+        if let command = cachedCommandPaletteResults.first(where: { $0.id == commandID })?.command {
+            runCommandPaletteCommand(command)
+            return true
+        }
+        if let command = commandPaletteSearchCommandsByID[commandID] {
+            runCommandPaletteCommand(command)
+            return true
+        }
+        if let command = commandPaletteCommands(
+            commandsContext: commandPaletteCachedCommandsContext()
+        ).first(where: { $0.id == commandID }) {
+            runCommandPaletteCommand(command)
+            return true
+        }
+
         guard commandPaletteHasCurrentResolvedResults else {
             if isCommandPalettePresented {
                 commandPalettePendingActivation = .command(
@@ -8874,9 +8918,9 @@ struct ContentView: View {
                     commandID: commandID
                 )
             }
-            return
+            return false
         }
-        runCommandPaletteResolvedActivation(.command(commandID: commandID))
+        return false
     }
 
     private func runSelectedCommandPaletteResult() {
@@ -12816,6 +12860,13 @@ private enum FeedbackComposerSettings {
     }
 }
 
+@MainActor
+private final class FeedbackComposerDebugMessageStore: ObservableObject {
+    static let shared = FeedbackComposerDebugMessageStore()
+
+    @Published var payload = ""
+}
+
 private struct FeedbackComposerAttachment: Identifiable {
     let id = UUID()
     let url: URL
@@ -13661,7 +13712,7 @@ private struct FeedbackComposerMessageEditor: NSViewRepresentable {
     let accessibilityIdentifier: String
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
+        Coordinator(text: $text)
     }
 
     func makeNSView(context: Context) -> FeedbackComposerMessageEditorView {
@@ -13669,6 +13720,7 @@ private struct FeedbackComposerMessageEditor: NSViewRepresentable {
         view.placeholder = placeholder
         view.textView.string = text
         view.textView.delegate = context.coordinator
+        view.configureTextChangeHandler(context.coordinator.applyTextChange)
         view.textView.setAccessibilityLabel(accessibilityLabel)
         view.textView.setAccessibilityIdentifier(accessibilityIdentifier)
         view.setAccessibilityIdentifier(accessibilityIdentifier)
@@ -13676,6 +13728,9 @@ private struct FeedbackComposerMessageEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: FeedbackComposerMessageEditorView, context: Context) {
+        context.coordinator.text = $text
+        nsView.textView.delegate = context.coordinator
+        nsView.configureTextChangeHandler(context.coordinator.applyTextChange)
         if nsView.textView.string != text {
             nsView.textView.string = text
             nsView.refreshTextLayout()
@@ -13687,21 +13742,55 @@ private struct FeedbackComposerMessageEditor: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: FeedbackComposerMessageEditor
+        var text: Binding<String>
 
-        init(parent: FeedbackComposerMessageEditor) {
-            self.parent = parent
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func applyTextChange(_ nextText: String) {
+            text.wrappedValue = nextText
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            parent.text = textView.string
+            applyTextChange(textView.string)
         }
     }
 }
 
 private final class FeedbackComposerPassthroughLabel: NSTextField {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+private final class FeedbackComposerTextView: NSTextView {
+    var onTextChanged: ((String) -> Void)?
+
+    override func didChangeText() {
+        super.didChangeText()
+        onTextChanged?(string)
+    }
+
+    override func setAccessibilityValue(_ value: Any?) {
+        let nextText: String
+        switch value {
+        case let text as String:
+            nextText = text
+        case let attributedText as NSAttributedString:
+            nextText = attributedText.string
+        default:
+            super.setAccessibilityValue(value)
+            return
+        }
+
+        guard string != nextText else {
+            super.setAccessibilityValue(value)
+            return
+        }
+
+        string = nextText
+        onTextChanged?(string)
+    }
 }
 
 final class FeedbackComposerMessageScrollView: NSScrollView {
@@ -13724,8 +13813,12 @@ final class FeedbackComposerMessageEditorView: NSView {
     }()
 
     let scrollView = FeedbackComposerMessageScrollView()
-    let textView = NSTextView()
+    fileprivate let textView = FeedbackComposerTextView()
     private let placeholderField = FeedbackComposerPassthroughLabel(labelWithString: "")
+
+    var textViewForTesting: NSTextView {
+        textView
+    }
 
     var placeholder: String = "" {
         didSet {
@@ -13787,13 +13880,6 @@ final class FeedbackComposerMessageEditorView: NSView {
         placeholderField.maximumNumberOfLines = 0
         scrollView.contentView.addSubview(placeholderField)
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(textDidChange(_:)),
-            name: NSText.didChangeNotification,
-            object: textView
-        )
-
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -13826,17 +13912,15 @@ final class FeedbackComposerMessageEditorView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    @objc
-    private func textDidChange(_ notification: Notification) {
-        refreshTextLayout(scrollSelection: true)
-    }
-
     private func updatePlaceholderVisibility() {
         placeholderField.isHidden = textView.string.isEmpty == false
+    }
+
+    func configureTextChangeHandler(_ handler: @escaping (String) -> Void) {
+        textView.onTextChanged = { [weak self] text in
+            handler(text)
+            self?.refreshTextLayout(scrollSelection: true)
+        }
     }
 
     func refreshTextLayout(scrollSelection: Bool = false) {
@@ -13892,7 +13976,7 @@ final class FeedbackComposerMessageEditorView: NSView {
     }
 }
 
-private enum SidebarHelpMenuAction {
+enum SidebarHelpMenuAction {
     case importBrowserData
     case keyboardShortcuts
     case docs
@@ -13903,12 +13987,46 @@ private enum SidebarHelpMenuAction {
     case checkForUpdates
     case sendFeedback
     case welcome
+
+    init?(debugName rawName: String) {
+        let name = rawName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+
+        switch name {
+        case "check_for_updates", "checkforupdates":
+            self = .checkForUpdates
+        case "send_feedback", "sendfeedback":
+            self = .sendFeedback
+        default:
+            return nil
+        }
+    }
+}
+
+enum SidebarHelpMenuActionPerformer {
+    static func performCheckForUpdates() {
+        Task { @MainActor in
+            AppDelegate.shared?.checkForUpdates(nil)
+        }
+    }
+
+    static func requestFeedbackComposer(onSendFeedback: (() -> Void)? = nil, targetWindow: NSWindow? = nil) {
+        if let onSendFeedback {
+            onSendFeedback()
+            return
+        }
+
+        FeedbackComposerBridge.openComposer(in: targetWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)
+    }
 }
 
 private struct SidebarFeedbackComposerSheet: View {
     private static let formMaxHeight: CGFloat = 560
 
     @AppStorage(FeedbackComposerSettings.storedEmailKey) private var email = ""
+    @ObservedObject private var debugMessageStore = FeedbackComposerDebugMessageStore.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var message = ""
@@ -13948,6 +14066,21 @@ private struct SidebarFeedbackComposerSheet: View {
         .padding(20)
         .frame(width: 520)
         .accessibilityIdentifier("SidebarFeedbackDialog")
+        .onReceive(NotificationCenter.default.publisher(for: .feedbackComposerMessageSetRequested)) { notification in
+            guard let nextMessage = notification.userInfo?["message"] as? String else { return }
+            message = nextMessage
+        }
+        .onAppear {
+            applyDebugMessagePayload(debugMessageStore.payload)
+        }
+        .onChange(of: debugMessageStore.payload) { _, payload in
+            applyDebugMessagePayload(payload)
+        }
+    }
+
+    private func applyDebugMessagePayload(_ payload: String) {
+        guard let separatorRange = payload.range(of: "\n") else { return }
+        message = String(payload[separatorRange.upperBound...])
     }
 
     private var successView: some View {
@@ -14002,13 +14135,17 @@ private struct SidebarFeedbackComposerSheet: View {
                     Text(String(localized: "sidebar.help.feedback.message", defaultValue: "Message"))
                         .font(.system(size: 12, weight: .medium))
                     Spacer(minLength: 0)
-                    Text("\(message.count)/\(FeedbackComposerSettings.maxMessageLength)")
+                    let messageCounterText = "\(message.count)/\(FeedbackComposerSettings.maxMessageLength)"
+                    Text(messageCounterText)
                         .font(.system(size: 11))
                         .foregroundStyle(
                             message.count > FeedbackComposerSettings.maxMessageLength
                                 ? Color.red
                                 : Color.secondary
                         )
+                        .accessibilityIdentifier("SidebarFeedbackMessageCounter")
+                        .accessibilityLabel(messageCounterText)
+                        .accessibilityValue(messageCounterText)
                 }
 
                 FeedbackComposerMessageEditor(
@@ -14318,6 +14455,17 @@ enum FeedbackComposerBridge {
         NotificationCenter.default.post(name: .feedbackComposerRequested, object: window)
     }
 
+    @MainActor
+    static func setDebugMessageForTesting(_ message: String, in window: NSWindow?) {
+        let payload = UUID().uuidString + "\n" + message
+        FeedbackComposerDebugMessageStore.shared.payload = payload
+        NotificationCenter.default.post(
+            name: .feedbackComposerMessageSetRequested,
+            object: window,
+            userInfo: ["message": message]
+        )
+    }
+
     static func submit(
         email: String,
         message: String,
@@ -14553,11 +14701,13 @@ private struct SidebarHelpMenuButton: View {
                     helpOptionTrailingIcon(systemName: "arrow.up.right", size: 8)
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 24)
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .frame(height: 24)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
         .accessibilityIdentifier(accessibilityIdentifier)
     }
 
@@ -14615,12 +14765,10 @@ private struct SidebarHelpMenuButton: View {
             guard let discordURL else { return }
             NSWorkspace.shared.open(discordURL)
         case .checkForUpdates:
-            Task { @MainActor in
-                AppDelegate.shared?.checkForUpdates(nil)
-            }
+            SidebarHelpMenuActionPerformer.performCheckForUpdates()
         case .sendFeedback:
             isPopoverPresented = false
-            onSendFeedback()
+            SidebarHelpMenuActionPerformer.requestFeedbackComposer(onSendFeedback: onSendFeedback)
         case .welcome:
             isPopoverPresented = false
             Task { @MainActor in

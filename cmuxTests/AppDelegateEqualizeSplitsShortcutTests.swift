@@ -10,6 +10,19 @@ import XCTest
 
 @MainActor
 final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
+    private var originalRuntimeSurfaceCreationSuppression = false
+
+    override func setUp() {
+        super.setUp()
+        originalRuntimeSurfaceCreationSuppression = TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = true
+    }
+
+    override func tearDown() {
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = originalRuntimeSurfaceCreationSuppression
+        super.tearDown()
+    }
+
     func testCmdShiftReturnFocusedBrowserTogglesSplitZoom() {
         withTemporaryShortcut(action: .toggleSplitZoom) {
             guard let appDelegate = AppDelegate.shared else {
@@ -62,98 +75,90 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
     }
 
     func testConfiguredEqualizeSplitsShortcutBalancesWorkspaceDividers() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        appDelegate.tabManager = manager
+        appDelegate.debugSuppressSplitShortcutForTransientTerminalFocusStateOverride = false
+        defer { AppDelegate.shared = previousShared }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let leftPanelId = workspace.focusedPanelId,
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
-              workspace.newTerminalSplit(from: rightPanel.id, orientation: .horizontal) != nil else {
-            XCTFail("Expected asymmetric horizontal split setup")
-            return
-        }
-
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        let seededSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
-        XCTAssertGreaterThanOrEqual(seededSplits.count, 2, "Expected nested splits")
-
-        var seededTargetsBySplitId: [String: Double] = [:]
-        for (index, split) in seededSplits.enumerated() {
-            guard let splitId = UUID(uuidString: split.id) else {
-                XCTFail("Expected split ID to be a UUID")
+        withTemporaryShortcut(action: .equalizeSplits) {
+            guard let workspace = manager.selectedWorkspace,
+                  let leftPanelId = workspace.focusedPanelId,
+                  let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+                  workspace.newTerminalSplit(from: rightPanel.id, orientation: .horizontal) != nil else {
+                XCTFail("Expected asymmetric horizontal split setup")
                 return
             }
-            let targetPosition: CGFloat = index.isMultiple(of: 2) ? 0.2 : 0.8
-            seededTargetsBySplitId[split.id] = Double(targetPosition)
-            XCTAssertTrue(workspace.bonsplitController.setDividerPosition(targetPosition, forSplit: splitId))
-        }
 
-        let postSeedSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
-        XCTAssertEqual(postSeedSplits.count, seededSplits.count)
-        for split in postSeedSplits {
-            guard let targetPosition = seededTargetsBySplitId[split.id] else {
-                XCTFail("Expected seeded split to remain present")
+            let seededSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
+            XCTAssertGreaterThanOrEqual(seededSplits.count, 2, "Expected nested splits")
+
+            var seededTargetsBySplitId: [String: Double] = [:]
+            for (index, split) in seededSplits.enumerated() {
+                guard let splitId = UUID(uuidString: split.id) else {
+                    XCTFail("Expected split ID to be a UUID")
+                    return
+                }
+                let targetPosition: CGFloat = index.isMultiple(of: 2) ? 0.2 : 0.8
+                seededTargetsBySplitId[split.id] = Double(targetPosition)
+                XCTAssertTrue(workspace.bonsplitController.setDividerPosition(targetPosition, forSplit: splitId))
+            }
+
+            let postSeedSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
+            XCTAssertEqual(postSeedSplits.count, seededSplits.count)
+            for split in postSeedSplits {
+                guard let targetPosition = seededTargetsBySplitId[split.id] else {
+                    XCTFail("Expected seeded split to remain present")
+                    return
+                }
+                XCTAssertEqual(split.dividerPosition, targetPosition, accuracy: 0.000_1)
+                XCTAssertNotEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
+            }
+
+            workspace.splitTabBar(workspace.bonsplitController, didChangeGeometry: workspace.bonsplitController.layoutSnapshot())
+            guard let seededLayoutSnapshot = workspace.tmuxLayoutSnapshot else {
+                XCTFail("Expected cached layout snapshot after seeding split geometry")
                 return
             }
-            XCTAssertEqual(split.dividerPosition, targetPosition, accuracy: 0.000_1)
-            XCTAssertNotEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
-        }
+            XCTAssertEqual(shortcutRoutingPaneFramesById(in: seededLayoutSnapshot).count, 3)
+            let expectedEqualizedPositions = shortcutRoutingExpectedEqualizedDividerPositions(
+                in: workspace.bonsplitController.treeSnapshot()
+            )
 
-        workspace.splitTabBar(workspace.bonsplitController, didChangeGeometry: workspace.bonsplitController.layoutSnapshot())
-        guard let seededLayoutSnapshot = workspace.tmuxLayoutSnapshot else {
-            XCTFail("Expected cached layout snapshot after seeding split geometry")
-            return
-        }
-        let expectedEqualizedPositions = shortcutRoutingExpectedEqualizedDividerPositions(
-            in: workspace.bonsplitController.treeSnapshot()
-        )
-
-        guard let event = makeKeyDownEvent(key: "=", modifiers: [.command, .control], keyCode: 24, windowNumber: window.windowNumber) else {
-            XCTFail("Failed to construct Cmd+Ctrl+= event")
-            return
-        }
+            guard let event = makeKeyDownEvent(key: "=", modifiers: [.command, .control], keyCode: 24, windowNumber: 0) else {
+                XCTFail("Failed to construct Cmd+Ctrl+= event")
+                return
+            }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-        return
-#endif
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.35))
-
-        let equalizedSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
-        XCTAssertEqual(equalizedSplits.count, seededSplits.count)
-        let equalizedLeafCount = shortcutRoutingAssertProportionalEqualizedTree(
-            workspace.bonsplitController.treeSnapshot()
-        )
-        XCTAssertEqual(equalizedLeafCount, 3)
-        for split in equalizedSplits {
-            guard let expectedPosition = expectedEqualizedPositions[split.id] else {
-                XCTFail("Expected equalized split ID to remain present")
-                continue
-            }
-            XCTAssertEqual(split.dividerPosition, expectedPosition, accuracy: 0.000_1)
-        }
-
-        let liveEqualizedLayout = workspace.bonsplitController.layoutSnapshot()
-        guard let cachedEqualizedLayout = workspace.tmuxLayoutSnapshot else {
-            XCTFail("Expected cached layout snapshot after equalizing split geometry")
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
             return
+#endif
+
+            let equalizedSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
+            XCTAssertEqual(equalizedSplits.count, seededSplits.count)
+            let equalizedLeafCount = shortcutRoutingAssertProportionalEqualizedTree(
+                workspace.bonsplitController.treeSnapshot()
+            )
+            XCTAssertEqual(equalizedLeafCount, 3)
+            for split in equalizedSplits {
+                guard let expectedPosition = expectedEqualizedPositions[split.id] else {
+                    XCTFail("Expected equalized split ID to remain present")
+                    continue
+                }
+                XCTAssertEqual(split.dividerPosition, expectedPosition, accuracy: 0.000_1)
+            }
+
+            let liveEqualizedLayout = workspace.bonsplitController.layoutSnapshot()
+            guard let cachedEqualizedLayout = workspace.tmuxLayoutSnapshot else {
+                XCTFail("Expected cached layout snapshot after equalizing split geometry")
+                return
+            }
+            shortcutRoutingAssertPaneFramesMatch(cachedEqualizedLayout, liveEqualizedLayout)
         }
-        XCTAssertNotEqual(
-            shortcutRoutingPaneFramesById(in: seededLayoutSnapshot),
-            shortcutRoutingPaneFramesById(in: liveEqualizedLayout)
-        )
-        shortcutRoutingAssertPaneFramesMatch(cachedEqualizedLayout, liveEqualizedLayout)
     }
 
     private func shortcutRoutingSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
@@ -280,8 +285,6 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
     }
 
     private func closeWindow(withId windowId: UUID) {
-        guard let window = window(withId: windowId) else { return }
-        window.performClose(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        AppDelegate.shared?.closeMainWindowForXCTest(windowId: windowId)
     }
 }

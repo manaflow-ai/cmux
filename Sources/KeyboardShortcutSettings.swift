@@ -889,8 +889,6 @@ enum KeyboardShortcutSettings {
     }
 
     static func setShortcut(_ shortcut: StoredShortcut, for action: Action) {
-        guard !isManagedBySettingsFile(action) else { return }
-
         guard let storedShortcut = storedShortcutForPersistence(shortcut, action: action) else {
             return
         }
@@ -1023,10 +1021,9 @@ enum SystemWideHotkeySettings {
 
     static func shortcut() -> StoredShortcut {
         migrateLegacyShortcutIfNeeded()
-        if let managedShortcut = KeyboardShortcutSettings.settingsFileStore.override(for: action) {
-            return managedShortcut
-        }
-        return storedShortcut() ?? defaultShortcut
+        return KeyboardShortcutSettings.settingsFileStore.override(for: action)
+            ?? storedShortcut()
+            ?? defaultShortcut
     }
 
     static func setShortcut(_ shortcut: StoredShortcut) {
@@ -1072,7 +1069,7 @@ enum SystemWideHotkeySettings {
     private static func storedShortcut(defaults: UserDefaults = .standard) -> StoredShortcut? {
         guard let data = defaults.data(forKey: action.defaultsKey),
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return KeyboardShortcutSettings.settingsFileStore.override(for: action)
+            return nil
         }
         return shortcut
     }

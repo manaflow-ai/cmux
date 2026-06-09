@@ -68,6 +68,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         workspace.focusPanel(firstPanelId)
         workspace.focusPanel(secondPanelId)
+        drainMainQueue()
 
         XCTAssertTrue(manager.canNavigateBack)
 
@@ -162,6 +163,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         workspace.focusPanel(closedPanelId)
         workspace.focusPanel(fallbackPanelId)
+        drainMainQueue()
         XCTAssertTrue(manager.canNavigateBack)
 
         var notificationCount = 0
@@ -193,6 +195,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         workspace.focusPanel(leftPanelId)
         workspace.focusPanel(rightPanel.id)
+        drainMainQueue()
         XCTAssertTrue(manager.canNavigateBack)
 
         var notificationCount = 0
@@ -2861,6 +2864,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             persistedWorkspace.panels.first { $0.id == originalPanelId }
         )
         XCTAssertEqual(persistedPanel.terminal?.isRemoteTerminal, false)
+        XCTAssertNil(persistedPanel.terminal?.workingDirectory)
         XCTAssertNil(persistedPanel.terminal?.remotePTYSessionID)
 
         let reservedSocketPath = reserveRemoteRestoreSocket()
@@ -2873,11 +2877,12 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
         let restoredInitialCommand = restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
         XCTAssertNil(restoredInitialCommand)
-        XCTAssertNil(restoredWorkspace.terminalPanel(for: restoredPanelId)?.requestedWorkingDirectory)
-        XCTAssertNil(
+        let restoredPanelSnapshot = try XCTUnwrap(
             restoredWorkspace.sessionSnapshot(includeScrollback: false)
-                .panels.first { $0.id == restoredPanelId }?.terminal?.remotePTYSessionID
+                .panels.first { $0.id == restoredPanelId }?.terminal
         )
+        XCTAssertEqual(restoredPanelSnapshot.isRemoteTerminal, false)
+        XCTAssertNil(restoredPanelSnapshot.remotePTYSessionID)
     }
 
     func testPersistentSSHPTYRestorePreservesLocalTerminalWorkingDirectory() throws {

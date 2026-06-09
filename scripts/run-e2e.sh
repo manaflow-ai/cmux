@@ -10,6 +10,8 @@ set -euo pipefail
 
 REPO="manaflow-ai/cmux"
 WORKFLOW="test-e2e.yml"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Defaults
 REF=""
@@ -65,6 +67,12 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+NORMALIZED_TEST_FILTER="$("$ROOT_DIR/scripts/ci/validate-e2e-test-filter.sh" "$TEST_FILTER")"
+if [ "$NORMALIZED_TEST_FILTER" != "$TEST_FILTER" ]; then
+  echo "Normalized test_filter=$NORMALIZED_TEST_FILTER"
+fi
+TEST_FILTER="$NORMALIZED_TEST_FILTER"
 
 # Build workflow dispatch fields
 FIELDS=(-f "test_filter=$TEST_FILTER" -f "record_video=$RECORD_VIDEO" -f "test_timeout=$TIMEOUT")

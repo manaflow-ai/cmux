@@ -44,11 +44,42 @@ jobs:
     env:
       PERF_TAG: perfci
     steps:
+      - name: Prepare self-hosted workspace
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE"
+          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo -n chown -R "$(id -un):$(id -gn)" "$GITHUB_WORKSPACE"
+          fi
+          chmod -R u+rwX "$GITHUB_WORKSPACE" || true
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref || github.ref }}
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
+
+      - name: Validate workflow inputs
+        run: |
+          set -euo pipefail
+          validate_numeric() {
+            local name="$1"
+            local value="$2"
+            if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+              echo "$name must be numeric, got '$value'" >&2
+              exit 1
+            fi
+            echo "$name=$value" >> "$GITHUB_ENV"
+          }
+
+          validate_numeric WORKSPACE_COUNT "${{ inputs.workspace_count || '12' }}"
+          validate_numeric HEAVY_SCROLLBACK_LINES "${{ inputs.heavy_scrollback_lines || '2400' }}"
+          validate_numeric OTHER_SCROLLBACK_LINES "${{ inputs.other_scrollback_lines || '1400' }}"
 
       - name: Select Xcode
         run: |
@@ -86,6 +117,12 @@ jobs:
         run: |
           ./scripts/install-zig-ci.sh
 
+      - name: Cache Zig packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
@@ -120,27 +157,66 @@ jobs:
       - name: Build tagged app
         run: |
           set -euo pipefail
-          CMUX_SKIP_ZIG_BUILD=1 \
-            CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
-            CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=1 \
-            ./scripts/reload.sh --tag "$PERF_TAG"
+          sudo -n rm -rf \
+            "/tmp/cmux-${PERF_TAG}" \
+            "/tmp/cmux-debug-${PERF_TAG}.sock" \
+            "/tmp/cmux-debug-${PERF_TAG}.log" \
+            "/tmp/cmux-dev-${PERF_TAG}-last-socket-path" \
+            "/tmp/cmux-launch-${PERF_TAG}.out" || true
+          for attempt in 1 2 3 4; do
+            set +e
+            CMUX_SKIP_ZIG_BUILD=1 \
+              CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+              CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=1 \
+              ./scripts/reload.sh --tag "$PERF_TAG" 2>&1 | tee /tmp/cmux-perf-reload-output.txt
+            exit_code=${PIPESTATUS[0]}
+            set -e
+            if [ "$exit_code" -eq 0 ]; then
+              exit 0
+            fi
+            if ! grep -Eq "(bad HTTP response code: '5[0-9][0-9]|curl: \\([0-9]+\\) The requested URL returned error: 5[0-9][0-9])" /tmp/cmux-perf-reload-output.txt; then
+              exit "$exit_code"
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo "Tagged app build failed after 4 attempts" >&2
+              exit "$exit_code"
+            fi
+            delay=$((attempt * 20))
+            echo "Tagged app build hit a transient Zig package download failure on attempt $attempt, retrying in ${delay}s..."
+            sleep "$delay"
+          done
 
       - name: Run activation session benchmark
         run: |
           set -euo pipefail
+          CONSOLE_USER="$(stat -f %Su /dev/console)"
+          CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+          sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
+            env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" \
+            PERF_TAG="$PERF_TAG" GITHUB_WORKSPACE="$PWD" \
+            WORKSPACE_COUNT="$WORKSPACE_COUNT" \
+            HEAVY_SCROLLBACK_LINES="$HEAVY_SCROLLBACK_LINES" \
+            OTHER_SCROLLBACK_LINES="$OTHER_SCROLLBACK_LINES" \
+            bash -s <<'BENCH_SCRIPT'
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           mkdir -p perf-results
           python3 scripts/perf-activation-session.py \
             --tag "$PERF_TAG" \
-            --workspace-count "${{ inputs.workspace_count || '12' }}" \
-            --heavy-scrollback-lines "${{ inputs.heavy_scrollback_lines || '2400' }}" \
-            --other-scrollback-lines "${{ inputs.other_scrollback_lines || '1400' }}" \
+            --workspace-count "$WORKSPACE_COUNT" \
+            --heavy-scrollback-lines "$HEAVY_SCROLLBACK_LINES" \
+            --other-scrollback-lines "$OTHER_SCROLLBACK_LINES" \
             --synthetic-scrollback-fallback \
             --output perf-results/activation-session.json \
             --junit perf-results/activation-session.junit.xml
+          BENCH_SCRIPT
+          sudo -n chown -R "$(id -un):$(id -gn)" perf-results
 
       - name: Run Cmd-Tab activation benchmark
         run: |
           set -euo pipefail
+          mkdir -p perf-results
+          sudo -n chown -R "$(id -un):$(id -gn)" perf-results
           APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
           # The GitHub Actions runner process runs in launchd's system
           # bootstrap, not the console user's Aqua session, so windows
@@ -150,11 +226,13 @@ jobs:
           # the bench so visibility polling sees real on-screen windows.
           CONSOLE_USER="$(stat -f %Su /dev/console)"
           CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+          BENCH_WORKSPACE="$PWD"
+          PERF_BUNDLE_ID="com.cmuxterm.app.debug.$PERF_TAG"
           sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
             env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" \
-            bash -c "cd '$PWD' && swift scripts/bench-window-visibility.swift '$APP_PATH' 'com.cmuxterm.app.debug.$PERF_TAG' 30 --cmd-tab-activation --cg-visibility" \
-            > perf-results/cmd-tab-activation.txt
-          cat perf-results/cmd-tab-activation.txt
+            BENCH_WORKSPACE="$BENCH_WORKSPACE" APP_PATH="$APP_PATH" PERF_BUNDLE_ID="$PERF_BUNDLE_ID" \
+            bash -c 'cd "$BENCH_WORKSPACE" && swift scripts/bench-window-visibility.swift "$APP_PATH" "$PERF_BUNDLE_ID" 30 --cmd-tab-activation --cg-visibility' \
+            | tee perf-results/cmd-tab-activation.txt
 
       - name: Write benchmark summary
         if: always()
@@ -162,7 +240,7 @@ jobs:
           set -euo pipefail
           if [ ! -f perf-results/activation-session.json ]; then
             echo "No benchmark results were written." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            exit 1
           fi
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
@@ -207,15 +285,35 @@ jobs:
           PY
 
       - name: Upload benchmark results
+        id: upload-benchmark-results
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: activation-session-performance
           path: perf-results/
-          if-no-files-found: ignore
+          if-no-files-found: error
+
+      - name: Retry benchmark results upload
+        if: always() && steps.upload-benchmark-results.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: activation-session-performance
+          path: perf-results/
+          if-no-files-found: error
+          overwrite: true
 
       - name: Cleanup tagged app
         if: always()
         run: |
-          pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
-          rm -f "/tmp/cmux-debug-${PERF_TAG}.sock"
+          set -euo pipefail
+          CONSOLE_USER="$(stat -f %Su /dev/console)"
+          CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+          sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
+            pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
+          sudo -n rm -rf \
+            "/tmp/cmux-${PERF_TAG}" \
+            "/tmp/cmux-debug-${PERF_TAG}.sock" \
+            "/tmp/cmux-debug-${PERF_TAG}.log" \
+            "/tmp/cmux-dev-${PERF_TAG}-last-socket-path" \
+            "/tmp/cmux-launch-${PERF_TAG}.out" || true

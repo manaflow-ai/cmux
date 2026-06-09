@@ -6960,7 +6960,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     ) -> [NSView] {
         var relatedSubviews: [NSView] = []
         var seen = Set<ObjectIdentifier>()
-        let inspectorFrontend = primaryWebView.cmuxInspectorFrontendWebView()
+        let inspectorFrontend = primaryWebView.cmuxInspectorFrontendView()
 
         func append(_ candidate: NSView?) {
             guard let candidate, candidate !== sourceSuperview else { return }
@@ -7106,6 +7106,14 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private func updateUsingLocalInlineHosting(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
+        return updateUsingLocalInlineHosting(host: host, coordinator: context.coordinator, webView: webView)
+    }
+
+    private func updateUsingLocalInlineHosting(
+        host: HostContainerView,
+        coordinator: Coordinator,
+        webView: WKWebView
+    ) -> Bool {
         let slotView = host.ensureLocalInlineSlotView()
         let isAlreadyInLocalHost = host.containsManagedLocalInlineContent(webView)
         let shouldPreserveExternalFullscreenHost = Self.shouldPreserveExternalFullscreenHost(
@@ -7115,7 +7123,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         let didAttachWebViewToLocalHost =
             !isAlreadyInLocalHost && !shouldPreserveExternalFullscreenHost
 
-        let coordinator = context.coordinator
         coordinator.desiredPortalVisibleInUI = false
         coordinator.desiredPortalZPriority = 0
         coordinator.attachGeneration += 1
@@ -7294,6 +7301,22 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
         return !shouldPreserveExternalFullscreenHost
     }
+
+#if DEBUG
+    @discardableResult
+    func debugUpdateUsingLocalInlineHostingForTesting(
+        host: HostContainerView,
+        coordinator: Coordinator = Coordinator()
+    ) -> Bool {
+        coordinator.panel = panel
+        coordinator.webView = panel.webView
+        return updateUsingLocalInlineHosting(
+            host: host,
+            coordinator: coordinator,
+            webView: panel.webView
+        )
+    }
+#endif
 
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }

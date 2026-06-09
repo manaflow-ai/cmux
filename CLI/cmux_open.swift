@@ -3844,17 +3844,17 @@ extension CMUXCLI {
         } catch let error as EmptyDiffSourceError where page.allowsSourceFallback {
             for source in DiffSource.allCases where source != page.source {
                 guard let fallback = page.sourceFallbacks[source] else { continue }
+                let fallbackPage = DiffViewerDeferredSourcePage(
+                    source: source,
+                    url: fallback.url,
+                    viewerURL: fallback.viewerURL,
+                    titleOverride: page.titleOverride,
+                    context: fallback.context,
+                    sourceOptions: fallback.sourceOptions,
+                    repoOptions: fallback.repoOptions,
+                    baseOptions: fallback.baseOptions
+                )
                 do {
-                    let fallbackPage = DiffViewerDeferredSourcePage(
-                        source: source,
-                        url: fallback.url,
-                        viewerURL: fallback.viewerURL,
-                        titleOverride: page.titleOverride,
-                        context: fallback.context,
-                        sourceOptions: fallback.sourceOptions,
-                        repoOptions: fallback.repoOptions,
-                        baseOptions: fallback.baseOptions
-                    )
                     var completion = try writeDeferredDiffViewerSource(
                         page: fallbackPage,
                         source: source,
@@ -3874,7 +3874,8 @@ extension CMUXCLI {
                 } catch is EmptyDiffSourceError {
                     continue
                 } catch let fallbackError {
-                    throw fallbackError
+                    writeDeferredDiffViewerError(fallbackError, page: fallbackPage, sourceSet: sourceSet)
+                    continue
                 }
             }
             // No source has changes: render the selected source's friendly empty

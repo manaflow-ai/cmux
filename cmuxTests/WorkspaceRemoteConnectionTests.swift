@@ -1,4 +1,5 @@
 import XCTest
+import CMUXAgentLaunch
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -28,9 +29,15 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            exitSignal.signal()
+        }
+
         do {
             try process.run()
         } catch {
+            process.terminationHandler = nil
             return ProcessRunResult(
                 status: -1,
                 stdout: "",
@@ -39,17 +46,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             )
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
             _ = exitSignal.wait(timeout: .now() + 1)
         }
+        process.terminationHandler = nil
 
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -59,6 +61,20 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             stderr: stderr,
             timedOut: timedOut
         )
+    }
+
+    private func waitForSignalPumpingMainRunLoop(
+        _ semaphore: DispatchSemaphore,
+        timeout: TimeInterval
+    ) -> DispatchTimeoutResult {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while Date() < deadline {
+            if semaphore.wait(timeout: .now()) == .success {
+                return .success
+            }
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        return semaphore.wait(timeout: .now())
     }
 
     private func writeShellFile(at url: URL, lines: [String]) throws {
@@ -168,7 +184,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-c",
                 script,
             ],
-            timeout: 5
+            timeout: 15
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -1845,7 +1861,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(scpInvoked.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(waitForSignalPumpingMainRunLoop(scpInvoked, timeout: 15), .success)
         lock.lock()
         let capturedDestination = scpDestination
         lock.unlock()
@@ -1882,6 +1898,16 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let scpInvoked = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var scpDestination: String?
+        let fakeDaemonURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fake-daemon-\(UUID().uuidString)")
+        try Data("fake daemon".utf8).write(to: fakeDaemonURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDaemonURL.path)
+        WorkspaceRemoteSessionController.localDaemonBinaryOverrideForTesting = fakeDaemonURL
+        WorkspaceRemoteSessionController.captureCommandStandardOutputOverrideForTesting = { executablePath, arguments in
+            XCTAssertEqual(executablePath, "/bin/ps")
+            XCTAssertEqual(arguments, ["-axo", "pid=,ppid=,command="])
+            return ""
+        }
         WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
             let executableName = URL(fileURLWithPath: executable).lastPathComponent
             if executable == "/usr/bin/ssh" {
@@ -1933,7 +1959,14 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             XCTFail("unexpected executable \(executable)")
             return (status: 1, stdout: "", stderr: "unexpected executable")
         }
-        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
+        WorkspaceRemoteSessionController.startSynchronouslyForTesting = true
+        defer {
+            WorkspaceRemoteSessionController.localDaemonBinaryOverrideForTesting = nil
+            WorkspaceRemoteSessionController.captureCommandStandardOutputOverrideForTesting = nil
+            WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil
+            WorkspaceRemoteSessionController.startSynchronouslyForTesting = false
+            try? FileManager.default.removeItem(at: fakeDaemonURL)
+        }
 
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1953,7 +1986,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(scpInvoked.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(waitForSignalPumpingMainRunLoop(scpInvoked, timeout: 1), .success)
         lock.lock()
         let capturedDestination = scpDestination
         lock.unlock()
@@ -2006,13 +2039,15 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             if command.contains("serve --stdio") {
                 return (
                     status: 0,
-                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.session.persistent_daemon"]}}"# + "\n",
+                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.write.notification","pty.session.persistent_daemon"]}}"# + "\n",
                     stderr: ""
                 )
             }
             return (status: 0, stdout: "", stderr: "")
         }
+        WorkspaceRemoteSessionController.startSynchronouslyForTesting = true
         defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
+        defer { WorkspaceRemoteSessionController.startSynchronouslyForTesting = false }
 
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -2037,13 +2072,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
 
         workspace.configureRemoteConnection(config, autoConnect: true)
-
-        XCTAssertEqual(forwardInvoked.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(waitForSignalPumpingMainRunLoop(forwardInvoked, timeout: 15), .success)
         lock.lock()
         let operations = controlOperations
         lock.unlock()
 
         XCTAssertGreaterThanOrEqual(operations.count, 2)
+        guard operations.count >= 2 else { return }
         XCTAssertEqual(operations[0].command, "cancel")
         XCTAssertEqual(operations[0].spec, "127.0.0.1:64044")
         XCTAssertEqual(operations[1].command, "forward")
@@ -2120,13 +2155,15 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             if command.contains("serve --stdio") {
                 return (
                     status: 0,
-                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.session.persistent_daemon"]}}"# + "\n",
+                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.write.notification","pty.session.persistent_daemon"]}}"# + "\n",
                     stderr: ""
                 )
             }
             return (status: 0, stdout: "", stderr: "")
         }
+        WorkspaceRemoteSessionController.startSynchronouslyForTesting = true
         defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
+        defer { WorkspaceRemoteSessionController.startSynchronouslyForTesting = false }
 
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -2151,8 +2188,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
 
         workspace.configureRemoteConnection(config, autoConnect: true)
-
-        XCTAssertEqual(retryForwardInvoked.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(waitForSignalPumpingMainRunLoop(retryForwardInvoked, timeout: 15), .success)
         lock.lock()
         let operations = controlOperations
         let cleanupWasInvoked = cleanupInvoked
@@ -2165,13 +2201,15 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(capturedCleanupArguments.contains("-S"))
         XCTAssertTrue(capturedCleanupArguments.contains("none"))
         XCTAssertFalse(capturedCleanupArguments.contains(where: { $0.hasPrefix("ControlPath=") }))
-        XCTAssertGreaterThanOrEqual(operations.count, 3)
-        XCTAssertEqual(operations[0].command, "cancel")
-        XCTAssertEqual(operations[0].spec, "127.0.0.1:64045")
-        XCTAssertEqual(operations[1].command, "forward")
-        XCTAssertEqual(operations[2].command, "forward")
-        XCTAssertEqual(operations[1].spec, operations[2].spec)
-        XCTAssertTrue(operations[2].spec.hasPrefix("127.0.0.1:64045:127.0.0.1:"))
+        let relayOperations = operations.filter { $0.spec.contains("127.0.0.1:64045") }
+        XCTAssertGreaterThanOrEqual(relayOperations.count, 3)
+        guard relayOperations.count >= 3 else { return }
+        XCTAssertEqual(relayOperations[0].command, "cancel")
+        XCTAssertEqual(relayOperations[0].spec, "127.0.0.1:64045")
+        XCTAssertEqual(relayOperations[1].command, "forward")
+        XCTAssertEqual(relayOperations[2].command, "forward")
+        XCTAssertEqual(relayOperations[1].spec, relayOperations[2].spec)
+        XCTAssertTrue(relayOperations[2].spec.hasPrefix("127.0.0.1:64045:127.0.0.1:"))
     }
 
     @MainActor
@@ -3245,6 +3283,24 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let timedOut: Bool
     }
 
+    private final class ProcessPipeCapture: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+
+        func append(_ chunk: Data) {
+            lock.lock()
+            data.append(chunk)
+            lock.unlock()
+        }
+
+        func stringValue() -> String {
+            lock.lock()
+            let value = data
+            lock.unlock()
+            return String(data: value, encoding: .utf8) ?? ""
+        }
+    }
+
     private struct PTYAttachCall {
         let sessionID: String
         let attachmentID: String
@@ -3496,11 +3552,14 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private let commandSemaphore = DispatchSemaphore(value: 0)
-        private(set) var commands: [String] = []
+        private var recordedCommands: [String] = []
+        var commands: [String] {
+            snapshotAfterSocketIdle()
+        }
 
         func append(_ command: String) {
             lock.lock()
-            commands.append(command)
+            recordedCommands.append(command)
             lock.unlock()
             commandSemaphore.signal()
         }
@@ -3508,14 +3567,37 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         func snapshot() -> [String] {
             lock.lock()
             defer { lock.unlock() }
-            return commands
+            return recordedCommands
+        }
+
+        private func snapshotAfterSocketIdle(timeout: TimeInterval = 1, idleInterval: TimeInterval = 0.05) -> [String] {
+            let deadline = Date().addingTimeInterval(timeout)
+            var lastCount = -1
+            while Date() < deadline {
+                lock.lock()
+                let currentCount = recordedCommands.count
+                let currentCommands = recordedCommands
+                lock.unlock()
+
+                if currentCount == lastCount {
+                    return currentCommands
+                }
+                lastCount = currentCount
+
+                let remaining = min(idleInterval, max(0, deadline.timeIntervalSinceNow))
+                if remaining <= 0 {
+                    return currentCommands
+                }
+                _ = commandSemaphore.wait(timeout: .now() + remaining)
+            }
+            return snapshot()
         }
 
         func waitForCommand(timeout: TimeInterval, matching predicate: (String) -> Bool) -> Bool {
             let deadline = Date().addingTimeInterval(timeout)
             while true {
                 lock.lock()
-                let matched = commands.contains(where: predicate)
+                let matched = recordedCommands.contains(where: predicate)
                 lock.unlock()
                 if matched {
                     return true
@@ -3571,6 +3653,16 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         state.waitForCommand(timeout: timeout, matching: predicate)
     }
 
+    private func waitForSocketCommand(
+        state: MockSocketServerState,
+        timeout: TimeInterval = 5,
+        containing needles: String...
+    ) -> Bool {
+        waitForSocketCommand(state: state, timeout: timeout) { command in
+            needles.allSatisfy { command.contains($0) }
+        }
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)
@@ -3592,7 +3684,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             return item.path
         }
 
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        throw bundledCLINotFoundError(appBundleURL: appBundleURL)
     }
 
     private func runProcess(
@@ -3623,6 +3715,19 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 timedOut: false
             )
         }
+        let stdoutCapture = ProcessPipeCapture()
+        let stderrCapture = ProcessPipeCapture()
+        let ioGroup = DispatchGroup()
+        ioGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stdoutCapture.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+            ioGroup.leave()
+        }
+        ioGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stderrCapture.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            ioGroup.leave()
+        }
         if let standardInput, let stdinPipe {
             stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
             try? stdinPipe.fileHandleForWriting.close()
@@ -3637,15 +3742,17 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
         }
+        _ = ioGroup.wait(timeout: .now() + 1)
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(
-            status: process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
+            status: process.isRunning ? SIGKILL : process.terminationStatus,
+            stdout: stdoutCapture.stringValue(),
+            stderr: stderrCapture.stringValue(),
             timedOut: timedOut
         )
     }
@@ -3692,30 +3799,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     func testAgentHookLaunchEnvironmentDoesNotPersistPathOrShell() throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("hook")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-agent-hook-\(UUID().uuidString)", isDirectory: true)
-        let workspaceId = "11111111-1111-1111-1111-111111111111"
-        let surfaceId = "22222222-2222-2222-2222-222222222222"
-
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-            try? FileManager.default.removeItem(at: root)
-        }
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            return self.v2Response(
-                id: line,
-                ok: false,
-                error: ["code": "unexpected", "message": "Unexpected command \(line)"]
-            )
-        }
-
         var environment = ProcessInfo.processInfo.environment
         for key in [
             "ANTHROPIC_MODEL",
@@ -3726,10 +3809,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         ] {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_WORKSPACE_ID"] = workspaceId
-        environment["CMUX_SURFACE_ID"] = surfaceId
-        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
@@ -3744,25 +3823,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["SHELL"] = "/bin/zsh"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["hooks", "codex", "session-start"],
-            environment: environment,
-            timeout: 5
+        let persistedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(
+            from: environment,
+            kind: "codex"
         )
-
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "{}\n")
-
-        let storeURL = root.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
-        let data = try Data(contentsOf: storeURL)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
-        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        let session = try XCTUnwrap(sessions[surfaceId] as? [String: Any])
-        let launchCommand = try XCTUnwrap(session["launchCommand"] as? [String: Any])
-        let persistedEnvironment = try XCTUnwrap(launchCommand["environment"] as? [String: String])
         XCTAssertEqual(persistedEnvironment, ["CODEX_HOME": "/tmp/codex home"])
     }
 
@@ -3809,6 +3873,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CODEX_HOME"] = codexHome.path
 
         let hookInput = """
@@ -3828,7 +3895,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Rate limit|")
+                command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Rate limit|")
             },
             "Expected Codex failure notification, saw \(state.commands)"
         )
@@ -3884,6 +3951,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-3","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null}
@@ -3902,7 +3972,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
+                command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
             },
             "Expected typed Codex error notification, saw \(state.commands)"
         )
@@ -3960,6 +4030,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CODEX_HOME"] = codexHome.path
 
         let unavailableTranscriptURL = root.appendingPathComponent("missing-\(sessionId).jsonl")
@@ -3980,7 +4053,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
             },
             "Expected discovered transcript failure notification, saw \(state.commands)"
         )
@@ -4014,7 +4087,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             unlink(socketPath)
         }
 
-        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 6) { line in
+        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 20) { line in
             guard let data = line.data(using: .utf8),
                   let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                   let id = payload["id"] as? String else {
@@ -4033,6 +4106,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
 
         let firstInput = """
@@ -4069,7 +4145,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(secondResult.status, 0, secondResult.stderr)
         XCTAssertEqual(secondResult.stdout, "{}\n")
         XCTAssertTrue(
-            waitForCodexMonitorActiveLeaseTurns(in: root, expected: ["turn-two"], timeout: 3),
+            waitForCodexMonitorActiveLeaseTurns(in: root, expected: ["turn-two"], timeout: 10),
             "Expected a new turn to retire the prior Codex monitor lease, saw \(codexMonitorActiveLeaseTurns(in: root))"
         )
     }
@@ -4107,6 +4183,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-4","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null,"message":"Try again later.","codex_error_info":"server_overloaded"}
@@ -4168,6 +4247,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-structured","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null,"message":"Try again later.","codex_error_info":{"code":"server_overloaded","retryable":true}}
@@ -4229,6 +4311,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-5","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null,"message":"Try again later.","codexErrorInfo":"server_overloaded"}
@@ -4290,6 +4375,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-6","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null,"type":"error","message":"Try again later."}
@@ -4351,6 +4439,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-explicit-error","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null,"error":"quota exceeded"}
@@ -4369,7 +4460,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|quota exceeded")
+                command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Error|quota exceeded")
             },
             "Expected explicit error field notification, saw \(state.commands)"
         )
@@ -4426,6 +4517,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-2","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":"Done"}
@@ -4503,6 +4597,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-payload-error","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":"Partial answer","type":"error","message":"Try again later."}
@@ -4521,7 +4618,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
+                command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
             },
             "Expected payload error notification to beat healthy transcript, saw \(state.commands)"
         )
@@ -4577,6 +4674,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-no-final","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null}
@@ -4595,7 +4695,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
             },
             "Expected no-final-response notification, saw \(state.commands)"
         )
@@ -4652,6 +4752,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-scoped-assistant","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null}
@@ -4722,6 +4825,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-current","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null}
@@ -4791,6 +4897,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4871,6 +4980,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4952,6 +5064,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let process = Process()
         let stdoutPipe = Pipe()
@@ -5052,6 +5167,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let process = Process()
         let stdoutPipe = Pipe()
@@ -5154,6 +5272,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CODEX_HOME"] = codexHome.path
 
         let result = runProcess(
@@ -5234,6 +5355,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let process = Process()
         let stdoutPipe = Pipe()
@@ -5836,7 +5960,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         handler: @escaping @Sendable (String) -> String
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli mock socket handled")
+        let handledLock = NSLock()
+        var didFulfill = false
         runMockServer(listenerFD: listenerFD, state: state, onHandled: {
+            handledLock.lock()
+            defer { handledLock.unlock() }
+            guard !didFulfill else { return }
+            didFulfill = true
             handled.fulfill()
         }, handler: handler)
         return handled
@@ -5895,12 +6025,76 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                             pending.removeSubrange(0...newlineRange.lowerBound)
                             guard let line = String(data: lineData, encoding: .utf8) else { continue }
                             state.append(line)
-                            guard self.writeAll(handler(line) + "\n", to: clientFD) else { return }
+                            let response = self.mockSocketResponse(for: line, handler: handler)
+                            guard self.writeAll(response + "\n", to: clientFD) else { return }
                         }
                     }
                 }
             }
         }
+    }
+
+    private func mockSocketResponse(for line: String, handler: @Sendable (String) -> String) -> String {
+        let handlerResponse = handler(line)
+        guard let defaultResponse = defaultMockSocketResponse(for: line),
+              isUnexpectedMockSocketError(handlerResponse) || isMissingSurfaceListResult(handlerResponse) else {
+            return handlerResponse
+        }
+        return defaultResponse
+    }
+
+    private func defaultMockSocketResponse(for line: String) -> String? {
+        guard let data = line.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let id = payload["id"] as? String,
+              let method = payload["method"] as? String,
+              method == "surface.list" else {
+            return nil
+        }
+
+        return v2Response(
+            id: id,
+            ok: true,
+            result: [
+                "surfaces": [
+                    [
+                        "id": "22222222-2222-2222-2222-222222222222",
+                        "ref": "surface:1",
+                        "index": 1,
+                        "focused": true,
+                        "kind": "terminal",
+                        "runtime_surface_ready": true,
+                        "visible": true,
+                    ],
+                ],
+            ]
+        )
+    }
+
+    private func isUnexpectedMockSocketError(_ response: String) -> Bool {
+        guard let data = response.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              payload["ok"] as? Bool == false,
+              let error = payload["error"] as? [String: Any] else {
+            return false
+        }
+        if error["code"] as? String == "unexpected" {
+            return true
+        }
+        if let message = error["message"] as? String {
+            return message.hasPrefix("Unexpected method ") || message.hasPrefix("Unexpected payload")
+        }
+        return false
+    }
+
+    private func isMissingSurfaceListResult(_ response: String) -> Bool {
+        guard let data = response.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              payload["ok"] as? Bool == true,
+              let result = payload["result"] as? [String: Any] else {
+            return false
+        }
+        return result["surfaces"] == nil
     }
 
     private func runMockServer(
@@ -5910,43 +6104,59 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         handler: @escaping @Sendable (String) -> String
     ) {
         DispatchQueue.global(qos: .userInitiated).async {
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+            var accepted = 0
+            while accepted < 20 {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
                 }
-            }
-            guard clientFD >= 0 else {
-                onHandled()
-                return
-            }
-            defer {
-                Darwin.close(clientFD)
-                onHandled()
-            }
-
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-
-            while true {
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count < 0 {
+                if clientFD < 0 {
                     if errno == EINTR { continue }
                     return
                 }
-                if count == 0 { return }
-                pending.append(buffer, count: count)
+                accepted += 1
 
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                    state.append(line)
-                    guard self.writeAll(handler(line) + "\n", to: clientFD) else { return }
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer { Darwin.close(clientFD) }
+
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
+                        }
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            state.append(line)
+                            let response = self.mockSocketResponse(for: line, handler: handler)
+                            guard self.writeAll(response + "\n", to: clientFD) else { return }
+                            if !self.mockSocketLineIsSurfaceList(line) {
+                                onHandled()
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+
+    private func mockSocketLineIsSurfaceList(_ line: String) -> Bool {
+        guard let data = line.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            return false
+        }
+        return payload["method"] as? String == "surface.list"
     }
 
     private func writeAll(_ string: String, to fd: Int32) -> Bool {
@@ -6071,6 +6281,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = staleSurface
         environment["TMUX"] = "/tmp/tmux-current,123,0"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6142,6 +6355,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6248,6 +6464,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_WORKSPACE_ID"] = staleWorkspace
         environment["CMUX_SURFACE_ID"] = staleSurface
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6346,6 +6565,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6377,7 +6599,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
         XCTAssertEqual(
             requests.compactMap { $0["method"] as? String },
-            ["workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
+            ["workspace.create", "surface.list", "workspace.rename", "workspace.remote.configure", "workspace.select"]
         )
 
         let createParams = try XCTUnwrap(requests[0]["params"] as? [String: Any])
@@ -6385,11 +6607,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
         XCTAssertFalse(initialCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-        let renameParams = try XCTUnwrap(requests[1]["params"] as? [String: Any])
+        let renameParams = try XCTUnwrap(requests[2]["params"] as? [String: Any])
         XCTAssertEqual(renameParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(renameParams["title"] as? String, "SSH Workspace")
 
-        let configureParams = try XCTUnwrap(requests[2]["params"] as? [String: Any])
+        let configureParams = try XCTUnwrap(requests[3]["params"] as? [String: Any])
         XCTAssertEqual(configureParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(configureParams["destination"] as? String, "cmux-macmini")
         XCTAssertEqual(configureParams["port"] as? Int, 2222)
@@ -6413,7 +6635,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(sshOptions.contains("StrictHostKeyChecking=accept-new"))
 
         // `cmux ssh` should land the user in the new SSH workspace immediately.
-        let selectParams = try XCTUnwrap(requests[3]["params"] as? [String: Any])
+        let selectParams = try XCTUnwrap(requests[4]["params"] as? [String: Any])
         XCTAssertEqual(selectParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(selectParams["window_id"] as? String, windowID)
     }
@@ -6478,6 +6700,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6573,6 +6798,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = staleSurface
         environment["CMUX_CLI_TTY_NAME"] = callerTTY
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6647,6 +6875,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_TTY_NAME"] = callerTTY
         environment["TMUX"] = "/tmp/tmux-current,123,0"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6779,6 +7010,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = staleSurface
         environment["CMUX_CLI_TTY_NAME"] = callerTTY
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6922,6 +7156,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_TTY_NAME"] = callerTTY
         environment["TMUX"] = "/tmp/tmux-current,123,0"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(

@@ -65,6 +65,22 @@ enum ProcessPipeReader {
 
     static func readDataToEndOfFile(
         fileDescriptor: Int32,
+        chunkSize: Int = defaultChunkSize
+    ) -> ProcessPipeEndRead {
+        readDataToEndOfFile(
+            fileDescriptor: fileDescriptor,
+            chunkSize: chunkSize
+        ) { fileDescriptor, maxLength, operation in
+            readOnce(
+                fileDescriptor: fileDescriptor,
+                maxLength: maxLength,
+                operation: operation
+            )
+        }
+    }
+
+    static func readDataToEndOfFile(
+        fileDescriptor: Int32,
         chunkSize: Int = defaultChunkSize,
         readChunk: (Int32, Int, String) -> Result<Data, ProcessPipeReadError>
     ) -> ProcessPipeEndRead {

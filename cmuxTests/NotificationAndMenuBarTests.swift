@@ -1590,10 +1590,6 @@ final class FocusedNotificationIndicatorTests: XCTestCase {
         store.markRead(forTabId: workspace.id, surfaceId: panelId)
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
-        XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
-
-        store.clearFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
-
         XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
     }
 

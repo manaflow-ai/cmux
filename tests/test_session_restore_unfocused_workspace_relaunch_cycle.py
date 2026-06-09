@@ -139,10 +139,16 @@ def main() -> int:
     app_path_str = os.environ.get("CMUX_APP_PATH", "").strip()
     if not app_path_str:
         print("SKIP: set CMUX_APP_PATH to a built cmux DEV .app path")
+        if os.environ.get("CMUX_VM_SOCKET_RUNNER"):
+            print("CMUX_VM_SOCKET_RUNNER is set, so runner-managed app relaunch coverage cannot skip.")
+            return 1
         return 0
     app_path = Path(app_path_str)
     if not app_path.exists():
         print(f"SKIP: CMUX_APP_PATH does not exist: {app_path}")
+        if os.environ.get("CMUX_VM_SOCKET_RUNNER"):
+            print("CMUX_VM_SOCKET_RUNNER is set, so runner-managed app relaunch coverage cannot skip.")
+            return 1
         return 0
 
     bundle_id = _bundle_id(app_path)

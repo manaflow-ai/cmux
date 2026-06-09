@@ -248,7 +248,6 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             selectionAfterByKeyCode[probe.keyCode] = probe.selectionAfter
         }
 
-        AppDelegate.installWindowResponderSwizzlesForTesting()
         KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
         installCJKIMEInterpretKeyEventsSwizzle()
         cjkIMEInterpretKeyEventsHook = { candidateView, events in
@@ -273,6 +272,10 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         }
 
         window.makeFirstResponder(surfaceView)
+        XCTAssertTrue(
+            window.firstResponder === surfaceView,
+            "Expected the hosted surface to receive Korean arrow keyDown events"
+        )
         try withExtendedLifetime(terminalSurface) {
             for probe in probes {
                 surfaceView.setMarkedText(
@@ -285,7 +288,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                     keyCode: probe.keyCode,
                     windowNumber: window.windowNumber
                 )
-                window.sendEvent(event)
+                surfaceView.keyDown(with: event)
                 XCTAssertEqual(
                     surfaceView.selectedRange(),
                     probe.selectionAfter,

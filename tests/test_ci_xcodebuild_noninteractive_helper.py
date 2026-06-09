@@ -3,9 +3,13 @@
 
 from __future__ import annotations
 
+import select
+import signal
 import subprocess
 import sys
+import tempfile
 import textwrap
+import time
 from pathlib import Path
 
 
@@ -15,6 +19,10 @@ PROMPT = "Press space to interact, D to debug, or any other key to quit"
 
 
 def main() -> int:
+    signal_result = test_signal_forwarding()
+    if signal_result != 0:
+        return signal_result
+
     child = textwrap.dedent(
         f"""
         import sys
@@ -55,6 +63,78 @@ def main() -> int:
         return 1
 
     print("PASS: xcodebuild noninteractive helper dismisses crash prompts")
+    return 0
+
+
+def test_signal_forwarding() -> int:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        marker = Path(tmp_dir) / "terminated"
+        child = textwrap.dedent(
+            f"""
+            import signal
+            import time
+            from pathlib import Path
+
+            marker = Path({str(marker)!r})
+
+            def handle_term(signum, frame):
+                marker.write_text("terminated", encoding="utf-8")
+                raise SystemExit(0)
+
+            signal.signal(signal.SIGTERM, handle_term)
+            print("ready", flush=True)
+            while True:
+                time.sleep(1)
+            """
+        )
+
+        process = subprocess.Popen(
+            [sys.executable, str(HELPER), sys.executable, "-c", child],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert process.stdout is not None
+
+        deadline = time.monotonic() + 5
+        output = ""
+        while time.monotonic() < deadline and "ready" not in output:
+            readable, _, _ = select.select([process.stdout], [], [], 0.1)
+            if process.stdout in readable:
+                output += process.stdout.readline()
+
+        if "ready" not in output:
+            process.kill()
+            stdout, stderr = process.communicate()
+            print(output + stdout, end="")
+            print(stderr, end="", file=sys.stderr)
+            print("FAIL: helper child did not become ready")
+            return 1
+
+        process.send_signal(signal.SIGTERM)
+        try:
+            stdout, stderr = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()
+            print(output + stdout, end="")
+            print(stderr, end="", file=sys.stderr)
+            print("FAIL: helper did not exit after SIGTERM")
+            return 1
+
+        if process.returncode not in (0, 128 + signal.SIGTERM):
+            print(output + stdout, end="")
+            print(stderr, end="", file=sys.stderr)
+            print(f"FAIL: expected helper SIGTERM exit, got {process.returncode}")
+            return 1
+
+        if not marker.exists():
+            print(output + stdout, end="")
+            print(stderr, end="", file=sys.stderr)
+            print("FAIL: helper did not forward SIGTERM to its child")
+            return 1
+
     return 0
 
 

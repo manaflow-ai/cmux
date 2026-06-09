@@ -82,10 +82,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         var maxDiagnosticsUpdatedAt = baselineStats.diagnosticsUpdatedAt
         var lastStats = baselineStats
 
-        // When pre-launched from CI, the display helper uses --start-delay-ms
-        // instead of a start signal file (sandbox prevents writing to /tmp/).
-        // displayStartPath is empty when the harness manifest omits startPath.
-        if prelaunch == nil && !displayStartPath.isEmpty {
+        if !displayStartPath.isEmpty {
             do {
                 try Data("start\n".utf8).write(to: URL(fileURLWithPath: displayStartPath), options: .atomic)
             } catch {
@@ -161,8 +158,6 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             }
             displayReadyPath = readyPath
             self.displayIDPath = displayIDPath
-            // startPath is optional — CI uses --start-delay-ms instead of a start
-            // signal file because the XCTest sandbox can't write to /tmp/.
             if let startPath = externalHarness.startPath, !startPath.isEmpty {
                 displayStartPath = startPath
             } else {
@@ -221,6 +216,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         proc.arguments = [
             "-framework", "Foundation",
             "-framework", "CoreGraphics",
+            "-framework", "AppKit",
             "-o", helperBinaryPath,
             sourceURL.path,
         ]

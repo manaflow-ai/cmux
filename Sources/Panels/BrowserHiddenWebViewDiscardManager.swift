@@ -75,7 +75,7 @@ final class BrowserHiddenWebViewDiscardManager {
         if !snapshot.shouldRenderWebView { blockers.append("not_rendered") }
         if snapshot.hasPendingRemoteNavigation { blockers.append("pending_remote_navigation") }
         if !snapshot.hasCurrentURL { blockers.append("no_url") }
-        if snapshot.isLoading || snapshot.webViewIsLoading { blockers.append("loading") }
+        if snapshot.webViewIsLoading { blockers.append("loading") }
         if snapshot.hasActiveMainFrameProvisionalNavigation { blockers.append("provisional_navigation") }
         if snapshot.isDownloading || snapshot.activeDownloadCount != 0 { blockers.append("download") }
         if snapshot.isCapturingMedia { blockers.append("media_capture") }
@@ -90,7 +90,7 @@ final class BrowserHiddenWebViewDiscardManager {
         return blockers
     }
 
-    func scheduleIfNeeded(reason: String) {
+    func scheduleIfNeeded(reason: String, now: Date = Date()) {
         scheduleGeneration &+= 1
         discardTimer?.cancel()
         discardTimer = nil
@@ -100,13 +100,13 @@ final class BrowserHiddenWebViewDiscardManager {
 
         let observedWebViewInstanceID = delegate.hiddenWebViewDiscardWebViewInstanceID
         let generation = scheduleGeneration
-        let hiddenAt = delegate.hiddenWebViewDiscardHiddenAt ?? Date()
+        let hiddenAt = delegate.hiddenWebViewDiscardHiddenAt ?? now
         // Restart the countdown from the latest wake: WebKit pages reconnect and
         // re-navigate right after wake, and replacing/releasing a WKWebView in
         // that window crashed in WebPageProxy::updateActivityState
         // (https://github.com/manaflow-ai/cmux/issues/5261).
         let effectiveHiddenAt = lastSystemWakeAt.map { max(hiddenAt, $0) } ?? hiddenAt
-        let elapsed = Date().timeIntervalSince(effectiveHiddenAt)
+        let elapsed = now.timeIntervalSince(effectiveHiddenAt)
         let remaining = max(0, BrowserHiddenWebViewDiscardPolicy.hiddenDelay - elapsed)
         if remaining <= 0 {
             delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)

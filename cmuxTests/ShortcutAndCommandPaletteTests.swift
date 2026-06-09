@@ -1134,11 +1134,15 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     ]
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
+    private var savedFeedEnabled: Any?
+    private var savedDockEnabled: Any?
     private var temporaryDirectoryURL: URL?
 
     override func setUpWithError() throws {
         try super.setUpWithError()
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        savedFeedEnabled = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+        savedDockEnabled = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         savedShortcutData = Dictionary(
             uniqueKeysWithValues: touchedShortcutActions.map { action in
                 (action, UserDefaults.standard.data(forKey: action.defaultsKey))
@@ -1157,6 +1161,8 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         for action in touchedShortcutActions {
             UserDefaults.standard.removeObject(forKey: action.defaultsKey)
         }
+        UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+        UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         KeyboardShortcutSettings.notifySettingsFileDidChange()
     }
 
@@ -1168,12 +1174,22 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
                 UserDefaults.standard.removeObject(forKey: action.defaultsKey)
             }
         }
+        restore(savedFeedEnabled, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+        restore(savedDockEnabled, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         KeyboardShortcutSettings.notifySettingsFileDidChange()
         if let temporaryDirectoryURL {
             try? FileManager.default.removeItem(at: temporaryDirectoryURL)
         }
         try super.tearDownWithError()
+    }
+
+    private func restore(_ value: Any?, forKey key: String) {
+        if let value {
+            UserDefaults.standard.set(value, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     func testModeShortcutActionsMatchModeSwitchingActions() {

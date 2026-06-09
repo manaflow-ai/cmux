@@ -291,6 +291,8 @@ enum MobileHostPortApplyOutcome: Equatable {
 final class MobileHostService {
     static let shared = MobileHostService()
     nonisolated private static let maximumActiveConnectionCount = 10
+    nonisolated private static let maximumStickyViewportClientIDsPerConnection = 16
+    nonisolated private static let maximumViewportClientIDLength = 128
 
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
@@ -328,7 +330,7 @@ final class MobileHostService {
     /// restart. `nil` while stopped.
     private var appliedPreferredPort: Int?
     private var activeConnections: [UUID: MobileHostConnection] = [:]
-    private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
+    private var stickyViewportClientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
     /// Injected once via `configure(auth:)` at app startup, before the
     /// listener starts accepting connections.
@@ -621,7 +623,7 @@ final class MobileHostService {
             Task { await connection.close(reason: "pairing port changed") }
         }
         activeConnections.removeAll()
-        clientIDsByConnectionID.removeAll()
+        stickyViewportClientIDsByConnectionID.removeAll()
 
         listener = candidate
         listenerGeneration = generation
@@ -751,7 +753,7 @@ final class MobileHostService {
             Task { await connection.close(reason: "service stopped") }
         }
         activeConnections.removeAll()
-        clientIDsByConnectionID.removeAll()
+        stickyViewportClientIDsByConnectionID.removeAll()
         MobileHostEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.update(routes: [])
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
@@ -961,7 +963,7 @@ final class MobileHostService {
                     guard let clientID = Self.clientID(from: request.params) else {
                         return
                     }
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
+                    await MobileHostService.shared.recordClientID(clientID, method: request.method, for: id)
                 },
                 handleRequest: { request in
                     if request.method == "mobile.host.status" {
@@ -1074,7 +1076,7 @@ final class MobileHostService {
             },
             onAuthorizedRequest: { request in
                 if let clientID = Self.clientID(from: request.params) {
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
+                    await MobileHostService.shared.recordClientID(clientID, method: request.method, for: id)
                 }
             },
             handleRequest: { request in
@@ -1130,29 +1132,35 @@ final class MobileHostService {
     private func removeConnection(id: UUID) {
         MobileHostConnectionRegistry.shared.remove(id: id)
         activeConnections.removeValue(forKey: id)
-        // Drop this connection's sticky viewport reports so a disconnected
-        // device stops pinning the shared grid (and its macOS viewport border
-        // clears) even though it never sent an explicit clear.
-        let clientIDs = clientIDsByConnectionID[id] ?? []
-        clientIDsByConnectionID.removeValue(forKey: id)
-        if !clientIDs.isEmpty {
-            TerminalController.shared.clearMobileViewportReports(
-                clientIDs: clientIDs,
-                reason: "mobile.connection.closed"
-            )
-        }
+        let stickyClientIDs = stickyViewportClientIDsByConnectionID.removeValue(forKey: id) ?? []
+        TerminalController.shared.clearMobileViewportReports(
+            clientIDs: stickyClientIDs,
+            reason: "mobile.host.connectionClosed"
+        )
         MobileHostRequestActivity.endConnection()
     }
 
-    private func recordClientID(_ clientID: String, for connectionID: UUID) {
-        var clientIDs = clientIDsByConnectionID[connectionID] ?? []
+    private func recordClientID(_ clientID: String, method: String, for connectionID: UUID) {
+        guard method == "mobile.terminal.viewport" || method == "terminal.viewport" else {
+            return
+        }
+        var clientIDs = stickyViewportClientIDsByConnectionID[connectionID] ?? []
+        guard clientIDs.contains(clientID) || clientIDs.count < Self.maximumStickyViewportClientIDsPerConnection else {
+            return
+        }
         clientIDs.insert(clientID)
-        clientIDsByConnectionID[connectionID] = clientIDs
+        stickyViewportClientIDsByConnectionID[connectionID] = clientIDs
     }
 
     private nonisolated static func clientID(from params: [String: Any]) -> String? {
         let trimmed = (params["client_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
+        guard let trimmed,
+              !trimmed.isEmpty,
+              trimmed.count <= maximumViewportClientIDLength,
+              trimmed.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) else {
+            return nil
+        }
+        return trimmed
     }
 
     func debugAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
@@ -1498,13 +1506,17 @@ extension MobileHostService {
         listenerUsesEphemeralFallback = false
         listenerPort = nil
         activeConnections.removeAll()
-        clientIDsByConnectionID.removeAll()
+        stickyViewportClientIDsByConnectionID.removeAll()
         MobileHostRequestActivity.resetForTesting()
         MobileHostEventSubscriptionTracker.resetForTesting()
     }
 
     func debugRecordClientIDForTesting(_ clientID: String, connectionID: UUID) {
-        recordClientID(clientID, for: connectionID)
+        recordClientID(clientID, method: "terminal.input", for: connectionID)
+    }
+
+    func debugRecordStickyViewportClientIDForTesting(_ clientID: String, connectionID: UUID) {
+        recordClientID(clientID, method: "mobile.terminal.viewport", for: connectionID)
     }
 
     func debugRemoveConnectionForTesting(id: UUID) {
@@ -1512,7 +1524,7 @@ extension MobileHostService {
     }
 
     func debugTrackedClientIDsForTesting(connectionID: UUID) -> Set<String>? {
-        clientIDsByConnectionID[connectionID]
+        stickyViewportClientIDsByConnectionID[connectionID]
     }
 
     func debugSetListenerStateForTesting(

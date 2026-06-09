@@ -30,6 +30,16 @@ enum WorkspacePresentationModeSettings {
         mode(for: defaults.string(forKey: modeKey))
     }
 
+    static func setMode(_ mode: Mode, defaults: UserDefaults = .standard) {
+        defaults.set(mode.rawValue, forKey: modeKey)
+        var argumentDomain = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        if argumentDomain[modeKey] != nil {
+            argumentDomain[modeKey] = mode.rawValue
+            defaults.setVolatileDomain(argumentDomain, forName: UserDefaults.argumentDomain)
+        }
+        defaults.synchronize()
+    }
+
     static func isMinimal(defaults: UserDefaults = .standard) -> Bool {
         mode(defaults: defaults) == .minimal
     }

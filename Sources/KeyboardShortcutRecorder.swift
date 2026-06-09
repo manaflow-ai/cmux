@@ -464,6 +464,20 @@ final class ShortcutRecorderNSButton: NSButton {
         hasPendingRejection
     }
 
+    func debugBeginRecordingWithoutEventMonitorForTesting() {
+        guard !isRecording else { return }
+        KeyboardShortcutRecorderActivity.resetForTesting()
+        isRecording = true
+        hasPendingRejection = false
+        pendingChordStart = nil
+        Self.activeRecorder = self
+        previousFirstResponder = nil
+        registerRecordingActivityIfNeeded()
+        onRecordingChanged?(true)
+        onRecorderFeedbackChanged?(nil)
+        updateTitle()
+    }
+
     func debugSetPendingChordStart(_ stroke: ShortcutStroke?) {
         isRecording = true
         pendingChordStart = stroke

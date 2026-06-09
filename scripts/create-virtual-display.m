@@ -3,12 +3,14 @@
 // The display stays alive as long as this process runs and can optionally churn
 // through multiple display modes after a start signal file appears.
 //
-// Build: clang -framework Foundation -framework CoreGraphics -o create-virtual-display create-virtual-display.m
+// Build: clang -framework Foundation -framework CoreGraphics -framework AppKit -o create-virtual-display create-virtual-display.m
 // Usage: ./create-virtual-display &
 
 #import <Foundation/Foundation.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <AppKit/AppKit.h>
 #import <unistd.h>
+#import <stdlib.h>
 #import <objc/runtime.h>
 
 // Private CoreGraphics classes (declared here since they're not in public headers)
@@ -41,6 +43,9 @@
 static NSArray<NSDictionary<NSString *, NSNumber *> *> *defaultModeSpecs(void) {
     return @[
         @{@"width": @1920, @"height": @1080},
+        @{@"width": @1728, @"height": @1117},
+        @{@"width": @1600, @"height": @900},
+        @{@"width": @1440, @"height": @810},
     ];
 }
 
@@ -51,6 +56,119 @@ static void writeString(NSString *value, NSString *path) {
     if (!ok && error) {
         fprintf(stderr, "ERROR: Failed to write %s (%s)\n", path.UTF8String, error.localizedDescription.UTF8String);
     }
+}
+
+static BOOL displayIsOnline(CGDirectDisplayID displayID) {
+    if (CGDisplayIsOnline(displayID)) {
+        return YES;
+    }
+
+    uint32_t count = 0;
+    if (CGGetOnlineDisplayList(0, NULL, &count) != kCGErrorSuccess || count == 0) {
+        return NO;
+    }
+
+    CGDirectDisplayID *displayIDs = calloc(count, sizeof(CGDirectDisplayID));
+    if (!displayIDs) {
+        return NO;
+    }
+
+    CGError error = CGGetOnlineDisplayList(count, displayIDs, &count);
+    BOOL found = NO;
+    if (error == kCGErrorSuccess) {
+        for (uint32_t i = 0; i < count; i += 1) {
+            if (displayIDs[i] == displayID) {
+                found = YES;
+                break;
+            }
+        }
+    }
+
+    free(displayIDs);
+    return found;
+}
+
+static CGDirectDisplayID screenDisplayID(NSScreen *screen) {
+    NSNumber *screenNumber = screen.deviceDescription[@"NSScreenNumber"];
+    if (!screenNumber) {
+        return 0;
+    }
+    return (CGDirectDisplayID)screenNumber.unsignedIntValue;
+}
+
+static BOOL displayHasAppKitScreen(CGDirectDisplayID displayID) {
+    for (NSScreen *screen in NSScreen.screens) {
+        if (screenDisplayID(screen) == displayID) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+static BOOL waitForAppKitScreen(CGDirectDisplayID displayID, int attempts) {
+    for (int attempt = 0; attempt < attempts; attempt += 1) {
+        if (displayHasAppKitScreen(displayID)) {
+            return YES;
+        }
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
+    }
+    return NO;
+}
+
+static BOOL freshAppKitProcessSeesDisplay(CGDirectDisplayID displayID) {
+    NSString *executablePath = [NSProcessInfo processInfo].arguments.firstObject;
+    if (executablePath.length == 0) {
+        return NO;
+    }
+
+    NSTask *probe = [[NSTask alloc] init];
+    probe.executableURL = [NSURL fileURLWithPath:executablePath];
+    probe.arguments = @[@"--probe-display-id", [NSString stringWithFormat:@"%u", displayID]];
+    probe.standardOutput = [NSFileHandle fileHandleWithStandardOutput];
+    probe.standardError = [NSFileHandle fileHandleWithStandardError];
+
+    @try {
+        [probe launch];
+    } @catch (NSException *exception) {
+        fprintf(stderr, "ERROR: Failed to launch fresh AppKit display probe: %s\n", exception.reason.UTF8String);
+        return NO;
+    }
+
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:30.0];
+    while (probe.isRunning && [deadline timeIntervalSinceNow] > 0) {
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
+    }
+
+    if (probe.isRunning) {
+        [probe terminate];
+        fprintf(stderr, "ERROR: Fresh AppKit display probe timed out for display %u\n", displayID);
+        return NO;
+    }
+
+    return probe.terminationStatus == 0;
+}
+
+static BOOL waitForReadyDisplay(CGDirectDisplayID displayID) {
+    for (int attempt = 0; attempt < 1800; attempt += 1) {
+        if (displayIsOnline(displayID)) { break; }
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
+    }
+    if (!displayIsOnline(displayID)) { return NO; }
+
+    if (waitForAppKitScreen(displayID, 200)) {
+        printf("Virtual display %u is visible to AppKit NSScreen\n", displayID);
+        fflush(stdout);
+        return YES;
+    }
+
+    if (freshAppKitProcessSeesDisplay(displayID)) {
+        printf("Virtual display %u is visible to AppKit NSScreen in a fresh probe\n", displayID);
+        fflush(stdout);
+        return YES;
+    }
+
+    fprintf(stderr, "ERROR: Virtual display %u is online in CoreGraphics but not visible in this helper's NSScreen list\n", displayID);
+    return NO;
 }
 
 static NSDictionary<NSString *, NSNumber *> *parseModeSpec(NSString *raw) {
@@ -150,9 +268,25 @@ static NSString *argumentValue(NSArray<NSString *> *arguments, NSString *flag) {
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        [NSApplication sharedApplication];
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        [NSApp finishLaunching];
+
         NSArray<NSString *> *arguments = [[NSProcessInfo processInfo] arguments];
 
         NSString *modesArgument = argumentValue(arguments, @"--modes");
+        NSString *probeDisplayIDArgument = argumentValue(arguments, @"--probe-display-id");
+        if (probeDisplayIDArgument.length > 0) {
+            CGDirectDisplayID displayID = (CGDirectDisplayID)strtoul(probeDisplayIDArgument.UTF8String, NULL, 10);
+            if (waitForAppKitScreen(displayID, 600)) {
+                printf("Fresh AppKit probe saw virtual display %u\n", displayID);
+                fflush(stdout);
+                return 0;
+            }
+            fprintf(stderr, "ERROR: Fresh AppKit probe could not see virtual display %u\n", displayID);
+            return 1;
+        }
+
         NSArray<NSDictionary<NSString *, NSNumber *> *> *modeSpecs = parseModeList(modesArgument);
         if (!modeSpecs) {
             return 1;
@@ -203,7 +337,7 @@ int main(int argc, const char *argv[]) {
         descriptor.vendorID = 0x1234;
         descriptor.productID = 0x5678;
         descriptor.serialNum = 0x0001;
-        descriptor.queue = dispatch_get_main_queue();
+        descriptor.queue = dispatch_queue_create("ai.manaflow.cmux.virtual-display", DISPATCH_QUEUE_SERIAL);
 
         // Create virtual display
         CGVirtualDisplay *display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor];
@@ -223,6 +357,13 @@ int main(int argc, const char *argv[]) {
             return 1;
         }
 
+        printf("Virtual display allocated: displayID=%u, waiting for CoreGraphics online display\n", display.displayID);
+        fflush(stdout);
+        if (!waitForReadyDisplay(display.displayID)) {
+            fprintf(stderr, "ERROR: Virtual display %u was not visible to CoreGraphics after settings were applied\n", display.displayID);
+            return 1;
+        }
+
         printf("Virtual display created: %ux%u@60Hz (displayID: %u)\n", width, height, display.displayID);
         printf("PID: %d\n", getpid());
         fflush(stdout);
@@ -239,6 +380,8 @@ int main(int argc, const char *argv[]) {
                     }
                 }
 
+                printf("Display churn starting\n");
+                fflush(stdout);
                 NSArray *resolvedModes = resolveRequestedModes(display.displayID, modeSpecs);
                 if (resolvedModes.count < 2) {
                     writeString(@"error:no_modes\n", donePath);
@@ -265,6 +408,8 @@ int main(int argc, const char *argv[]) {
                 }
 
                 writeString(@"done\n", donePath);
+                printf("Display churn done\n");
+                fflush(stdout);
             });
         }
 

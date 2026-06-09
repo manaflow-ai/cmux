@@ -12,6 +12,11 @@ let package = Package(
             name: "CmuxFoundation",
             targets: ["CmuxFoundation"]
         ),
+        .library(
+            name: "CmuxFoundationStatic",
+            type: .static,
+            targets: ["CmuxFoundation"]
+        ),
     ],
     targets: [
         .target(

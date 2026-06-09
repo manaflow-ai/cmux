@@ -65,15 +65,41 @@ jobs:
               ;;
           esac
 
+      - name: Prepare self-hosted workspace
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE"
+          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo -n chown -R "$(id -un):$(id -gn)" "$GITHUB_WORKSPACE"
+          fi
+          chmod -R u+rwX "$GITHUB_WORKSPACE" || true
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
 
       - name: Capture SHA
         id: sha
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Validate test filter
+        id: validate-filter
+        env:
+          TEST_FILTER: ${{ inputs.test_filter }}
+        run: |
+          set -euo pipefail
+          normalized="$(./scripts/ci/validate-e2e-test-filter.sh "$TEST_FILTER")"
+          echo "test_filter=$normalized" >> "$GITHUB_OUTPUT"
+          echo "TEST_FILTER=$normalized" >> "$GITHUB_ENV"
+          if [ "$normalized" != "$TEST_FILTER" ]; then
+            echo "Normalized test filter: $normalized"
+          fi
 
       - name: Select Xcode
         run: |
@@ -136,33 +162,49 @@ jobs:
           ./scripts/install-rust-ci.sh
 
       - name: Install Bun for Feed sidebar tests
-        if: ${{ inputs.test_filter == 'FeedSidebarUITests' || startsWith(inputs.test_filter, 'FeedSidebarUITests/') }}
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: latest
+        if: ${{ steps.validate-filter.outputs.test_filter == 'FeedSidebarUITests' || startsWith(steps.validate-filter.outputs.test_filter, 'FeedSidebarUITests/') }}
+        run: ./scripts/ci/setup-bun-with-retry.sh 1.3.13
 
       - name: Create virtual display
-        if: ${{ inputs.test_filter != 'DisplayResolutionRegressionUITests' }}
+        if: ${{ steps.validate-filter.outputs.test_filter != 'DisplayResolutionRegressionUITests' }}
         run: |
           set -euo pipefail
           echo "=== Display before ==="
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
           echo ""
           clang -framework Foundation -framework CoreGraphics \
+            -framework AppKit \
             -o /tmp/create-virtual-display scripts/create-virtual-display.m
+          VDISPLAY_COMMAND=(/tmp/create-virtual-display)
+          CURRENT_USER="$(id -un)"
+          CURRENT_UID="$(id -u)"
+          GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+          if [ -n "$GUI_USER" ] &&
+             [ "$GUI_USER" != "root" ] &&
+             GUI_UID="$(id -u "$GUI_USER" 2>/dev/null)" &&
+             command -v sudo >/dev/null 2>&1 &&
+             sudo -n true 2>/dev/null; then
+            echo "Launching virtual display helper in console GUI bootstrap for $GUI_USER ($GUI_UID); current user: $CURRENT_USER"
+            VDISPLAY_COMMAND=(sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" /usr/bin/env /tmp/create-virtual-display)
+          elif launchctl print "gui/$CURRENT_UID" >/dev/null 2>&1; then
+            echo "Launching virtual display helper in current user GUI bootstrap for $CURRENT_USER ($CURRENT_UID)"
+            VDISPLAY_COMMAND=(launchctl asuser "$CURRENT_UID" /usr/bin/env /tmp/create-virtual-display)
+          else
+            echo "Launching virtual display helper in current bootstrap"
+          fi
           VDISPLAY_READY="$RUNNER_TEMP/cmux-virtual-display.ready"
           VDISPLAY_ID_PATH="$RUNNER_TEMP/cmux-virtual-display.id"
           VDISPLAY_LOG="$RUNNER_TEMP/cmux-virtual-display.log"
           rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
 
-          /tmp/create-virtual-display \
+          "${VDISPLAY_COMMAND[@]}" \
             --ready-path "$VDISPLAY_READY" \
             --display-id-path "$VDISPLAY_ID_PATH" \
             >"$VDISPLAY_LOG" 2>&1 &
           VDISPLAY_PID=$!
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
 
-          for _ in $(seq 1 100); do
+          for _ in $(seq 1 900); do
             if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
               break
             fi
@@ -174,7 +216,7 @@ jobs:
             sleep 0.1
           done
           if [ ! -s "$VDISPLAY_READY" ] || [ ! -s "$VDISPLAY_ID_PATH" ]; then
-            echo "Timed out waiting for virtual display readiness" >&2
+            echo "Timed out waiting for virtual display readiness after 90s" >&2
             cat "$VDISPLAY_LOG" >&2 || true
             exit 1
           fi
@@ -257,7 +299,6 @@ jobs:
       - name: Run UI tests
         id: tests
         env:
-          TEST_FILTER: ${{ inputs.test_filter }}
           TEST_TIMEOUT: ${{ inputs.test_timeout || '120' }}
           RECORD_VIDEO: ${{ inputs.record_video }}
         run: |
@@ -274,6 +315,7 @@ jobs:
             trap 'rm -f "$MANIFEST_PATH"' EXIT
 
             clang -framework Foundation -framework CoreGraphics \
+              -framework AppKit \
               -o "$HELPER_PATH" scripts/create-virtual-display.m
 
             printf '%s\n' "{\"helperBinaryPath\":\"$HELPER_PATH\"}" > "$MANIFEST_PATH"
@@ -283,28 +325,43 @@ jobs:
           # The display churn regression creates its own virtual display above,
           # so recording must start after that harness is ready.
           if [ "$RECORD_VIDEO" = "true" ]; then
-            DEVLIST=$( ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true )
-            echo "Available devices:"
-            echo "$DEVLIST" | grep -E "AVFoundation|Capture screen"
-
-            SCREEN_INDEX=$( echo "$DEVLIST" | grep "Capture screen" | head -1 \
-              | sed 's/.*\[\([0-9]*\)\].*/\1/' )
-            SCREEN_INDEX="${SCREEN_INDEX:-0}"
-            echo "Using screen device index: $SCREEN_INDEX"
-
-            ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 \
-              -i "${SCREEN_INDEX}:none" \
-              -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
-              /tmp/test-recording-raw.mp4 </dev/null >/tmp/ffmpeg.log 2>&1 &
-            RECORD_PID=$!
-            echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
-            sleep 2
-
-            if kill -0 "$RECORD_PID" 2>/dev/null; then
-              echo "Recording started (PID $RECORD_PID)"
+            printf '%s\n' \
+              '#include <CoreGraphics/CoreGraphics.h>' \
+              '' \
+              'int main(void) {' \
+              '  return CGPreflightScreenCaptureAccess() ? 0 : 1;' \
+              '}' > /tmp/cmux-screen-capture-preflight.c
+            if ! clang -framework CoreGraphics -o /tmp/cmux-screen-capture-preflight /tmp/cmux-screen-capture-preflight.c; then
+              echo "::warning::Could not build screen-capture permission preflight; skipping recording"
+            elif ! /tmp/cmux-screen-capture-preflight; then
+              echo "::warning::Screen capture permission is unavailable; skipping recording to avoid blocking UI tests with a privacy prompt"
             else
-              echo "::warning::ffmpeg screen recording failed to start"
-              cat /tmp/ffmpeg.log
+              DEVLIST=$( ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true )
+              echo "Available devices:"
+              echo "$DEVLIST" | grep -E "AVFoundation|Capture screen" || true
+
+              SCREEN_INDEX=$( echo "$DEVLIST" | grep "Capture screen" | head -1 \
+                | sed 's/.*\[\([0-9]*\)\].*/\1/' )
+              if [ -z "$SCREEN_INDEX" ]; then
+                echo "::warning::No AVFoundation screen capture device found; skipping recording"
+              else
+                echo "Using screen device index: $SCREEN_INDEX"
+
+                ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 \
+                  -i "${SCREEN_INDEX}:none" \
+                  -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+                  /tmp/test-recording-raw.mp4 </dev/null >/tmp/ffmpeg.log 2>&1 &
+                RECORD_PID=$!
+                sleep 2
+
+                if kill -0 "$RECORD_PID" 2>/dev/null; then
+                  echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
+                  echo "Recording started (PID $RECORD_PID)"
+                else
+                  echo "::warning::ffmpeg screen recording failed to start"
+                  cat /tmp/ffmpeg.log
+                fi
+              fi
             fi
           fi
 
@@ -316,6 +373,7 @@ jobs:
             "LOGNAME=${LOGNAME:-$USER}"
             "CI=${CI:-true}"
             "GITHUB_ACTIONS=${GITHUB_ACTIONS:-true}"
+            "CMUX_SKIP_ZIG_BUILD=1"
             "RUNNER_TEMP=${RUNNER_TEMP:-}"
             "TMPDIR=${TMPDIR:-/tmp}"
           )
@@ -364,7 +422,7 @@ jobs:
           echo "$OUTPUT"
 
           # Save summary for the issue
-          SUMMARY=$(echo "$OUTPUT" | grep -E "(Test Suite|Executed|FAIL|PASS)" | tail -20)
+          SUMMARY=$(grep -E "(Test Suite|Executed|FAIL|PASS)" <<<"$OUTPUT" | tail -20)
           {
             echo "test_summary<<EOFSUM"
             echo "$SUMMARY"
@@ -372,6 +430,16 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
           if [ "$EXIT_CODE" -eq 0 ]; then
+            if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
+              echo "test_result=failed" >> "$GITHUB_OUTPUT"
+              {
+                echo "test_output<<EOFOUT"
+                echo "$OUTPUT" | tail -200
+                echo "EOFOUT"
+              } >> "$GITHUB_OUTPUT"
+              echo "UI test workflow completed without executing any tests" >&2
+              exit 1
+            fi
             echo "test_result=passed" >> "$GITHUB_OUTPUT"
           else
             echo "test_result=failed" >> "$GITHUB_OUTPUT"
@@ -426,15 +494,15 @@ jobs:
             | xargs -I{} echo "Duration: {}s"
 
       - name: Upload recording artifact
-        if: ${{ always() && inputs.record_video }}
+        if: ${{ always() && inputs.record_video && env.RECORD_PID != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-recording
           path: /tmp/test-recording.mp4
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Post results to cmux-dev-artifacts
-        if: always()
+        if: ${{ always() && !cancelled() }}
         env:
           GH_TOKEN: ${{ secrets.DEV_ARTIFACTS_TOKEN }}
           TEST_RESULT: ${{ steps.tests.outputs.test_result || 'failed' }}

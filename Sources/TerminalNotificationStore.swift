@@ -867,6 +867,10 @@ final class TerminalNotificationStore: ObservableObject {
     private var suppressNotificationDiffPublishing = false
 
     private let center = UNUserNotificationCenter.current()
+    private static var suppressSystemNotificationsForUITests: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS"] == "1"
+            || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
     private var hasRequestedAutomaticAuthorization = false
     private var hasDeferredAuthorizationRequest = false
     private var hasPromptedForSettings = false
@@ -1042,6 +1046,16 @@ final class TerminalNotificationStore: ObservableObject {
             content.body = "Desktop notifications are enabled."
             content.sound = NotificationSoundSettings.sound()
             content.categoryIdentifier = Self.categoryIdentifier
+
+            if Self.suppressSystemNotificationsForUITests {
+                self.logAuthorization("settings test system notification suppressed for UI test")
+                NotificationSoundSettings.runCustomCommand(
+                    title: content.title,
+                    subtitle: content.subtitle,
+                    body: content.body
+                )
+                return
+            }
 
             let request = UNNotificationRequest(
                 identifier: "cmux.settings.test.\(UUID().uuidString)",
@@ -1625,6 +1639,9 @@ final class TerminalNotificationStore: ObservableObject {
             content.body = String(format: format, failure.hookId)
             content.sound = NotificationSoundSettings.sound()
             content.categoryIdentifier = Self.categoryIdentifier
+            if Self.suppressSystemNotificationsForUITests {
+                return
+            }
             let request = UNNotificationRequest(
                 identifier: "cmux.notification-hook.failure.\(UUID().uuidString)",
                 content: content,
@@ -2027,6 +2044,16 @@ final class TerminalNotificationStore: ObservableObject {
                 }
             }
 
+            if Self.suppressSystemNotificationsForUITests {
+                self.playLocalNotificationFeedback(
+                    title: content.title,
+                    subtitle: content.subtitle,
+                    body: content.body,
+                    effects: effects
+                )
+                return
+            }
+
             let request = UNNotificationRequest(
                 identifier: notification.id.uuidString,
                 content: content,
@@ -2104,6 +2131,12 @@ final class TerminalNotificationStore: ObservableObject {
         }
 
         logAuthorization("ensure start origin=\(origin.rawValue)")
+        if Self.suppressSystemNotificationsForUITests {
+            logAuthorization("ensure suppressed origin=\(origin.rawValue) for UI test")
+            completion(false)
+            return
+        }
+
         center.getNotificationSettings { [weak self] settings in
             DispatchQueue.main.async {
                 guard let self else {

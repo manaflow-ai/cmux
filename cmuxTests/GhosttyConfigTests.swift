@@ -15,6 +15,20 @@ import Testing
 @testable import cmux
 #endif
 
+fileprivate func hostedCIFontUnavailableError(
+    _ fontName: String,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) -> Error {
+    let message = "\(fontName) is unavailable on this runner"
+    let environment = ProcessInfo.processInfo.environment
+    if environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true" {
+        XCTFail("\(message); hosted CI must exercise CJK font resolution coverage", file: file, line: line)
+        return NSError(domain: "cmux.tests", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+    return XCTSkip(message)
+}
+
 final class SidebarPathFormatterTests: XCTestCase {
     func testShortenedPathReplacesExactHomeDirectory() {
         XCTAssertEqual(
@@ -1308,6 +1322,146 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(TelemetrySettings.isEnabled(defaults: defaults))
     }
 
+    func testTelemetryLaunchDisablesUnderXCTest() {
+        let suiteName = "cmux.tests.telemetry-launch.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(true, forKey: TelemetrySettings.sendAnonymousTelemetryKey)
+
+        XCTAssertFalse(
+            TelemetrySettings.isEnabledForLaunch(
+                defaults: defaults,
+                environment: ["XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration"]
+            )
+        )
+    }
+
+    func testXCTestLaunchEnvironmentOnlyBootstrapsWindowsForUITests() {
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow(
+                ["XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration"]
+            )
+        )
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS": "1",
+                ]
+            )
+        )
+        XCTAssertTrue(
+            CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow(
+                ["CMUX_UI_TEST_MODE": "1"]
+            )
+        )
+        XCTAssertTrue(
+            CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_SOCKET_PATH": "/tmp/cmux-ui-test.sock"
+                ]
+            )
+        )
+        XCTAssertTrue(CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow([:]))
+    }
+
+    func testXCTestLaunchEnvironmentIdentifiesPureUnitAppHost() {
+        XCTAssertTrue(
+            CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost(
+                ["XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration"]
+            )
+        )
+        XCTAssertTrue(
+            CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS": "1",
+                ]
+            )
+        )
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost(
+                ["CMUX_UI_TEST_MODE": "1"]
+            )
+        )
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_SOCKET_PATH": "/tmp/cmux-ui-test.sock"
+                ]
+            )
+        )
+        XCTAssertFalse(CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost([:]))
+    }
+
+    func testXCTestLaunchEnvironmentSkipsRuntimeServicesOnlyForPureUnitAppHost() {
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.shouldStartRuntimeServices(
+                ["XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration"]
+            )
+        )
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.shouldStartRuntimeServices(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS": "1",
+                ]
+            )
+        )
+        XCTAssertTrue(
+            CmuxXCTestLaunchEnvironment.shouldStartRuntimeServices(
+                ["CMUX_UI_TEST_MODE": "1"]
+            )
+        )
+        XCTAssertTrue(
+            CmuxXCTestLaunchEnvironment.shouldStartRuntimeServices(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_SOCKET_PATH": "/tmp/cmux-ui-test.sock"
+                ]
+            )
+        )
+        XCTAssertTrue(CmuxXCTestLaunchEnvironment.shouldStartRuntimeServices([:]))
+    }
+
+    func testXCTestLaunchEnvironmentOnlyUsesWindowFallbackForUITests() {
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.shouldUseUITestWindowFallback(
+                ["XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration"]
+            )
+        )
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.shouldUseUITestWindowFallback(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS": "1",
+                ]
+            )
+        )
+        XCTAssertTrue(
+            CmuxXCTestLaunchEnvironment.shouldUseUITestWindowFallback(
+                ["CMUX_UI_TEST_MODE": "1"]
+            )
+        )
+        XCTAssertTrue(
+            CmuxXCTestLaunchEnvironment.shouldUseUITestWindowFallback(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_SOCKET_PATH": "/tmp/cmux-ui-test.sock"
+                ]
+            )
+        )
+        XCTAssertFalse(CmuxXCTestLaunchEnvironment.shouldUseUITestWindowFallback([:]))
+    }
+
     private func rgb255(_ color: NSColor) -> RGB {
         let srgb = color.usingColorSpace(.sRGB)!
         var red: CGFloat = 0
@@ -1349,7 +1503,7 @@ final class GhosttyConfigTests: XCTestCase {
             return item.path
         }
 
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        throw bundledCLINotFoundError(appBundleURL: appBundleURL)
     }
 
     private func runCLI(
@@ -1507,53 +1661,51 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
 
 @MainActor
 final class WorkspaceChromeColorTests: XCTestCase {
-    func testBonsplitChromeHexIncludesAlphaWhenTranslucent() {
-        let color = NSColor(
+    private func fixtureColor() -> NSColor {
+        NSColor(
             srgbRed: 17.0 / 255.0,
             green: 34.0 / 255.0,
             blue: 51.0 / 255.0,
             alpha: 1.0
         )
+    }
+
+    private func expectedCompositedHex(for color: NSColor, opacity: Double) -> String {
+        let themedColor = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: color,
+            opacity: opacity
+        )
+        return themedColor.hexString(includeAlpha: themedColor.alphaComponent < 0.999)
+    }
+
+    func testBonsplitChromeHexCompositesTranslucentBackgroundOverWindowBackground() {
+        let color = fixtureColor()
 
         let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
-        XCTAssertEqual(hex, "#1122337F")
+        XCTAssertEqual(hex, expectedCompositedHex(for: color, opacity: 0.5))
     }
 
     func testBonsplitChromeHexOmitsAlphaWhenOpaque() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
+        let color = fixtureColor()
 
         let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
         XCTAssertEqual(hex, "#112233")
     }
 
     func testBonsplitChromeHexKeepsBackdropWhenSharingWindowBackdrop() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
+        let color = fixtureColor()
 
         let hex = Workspace.bonsplitChromeHex(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true
         )
-        XCTAssertEqual(hex, "#1122337F")
+        XCTAssertEqual(hex, expectedCompositedHex(for: color, opacity: 0.5))
     }
 
     func testBonsplitChromeColorsKeepPaneClearWhenTerminalUsesHostLayerBackground() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
+        let color = fixtureColor()
+        let expectedSurfaceHex = expectedCompositedHex(for: color, opacity: 0.5)
 
         let colors = Workspace.bonsplitChromeColors(
             backgroundColor: color,
@@ -1561,19 +1713,15 @@ final class WorkspaceChromeColorTests: XCTestCase {
             renderingMode: .windowHostBackdrop
         )
 
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
-        XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
-        XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
+        XCTAssertEqual(colors.backgroundHex, expectedSurfaceHex)
+        XCTAssertEqual(colors.tabBarBackgroundHex, expectedSurfaceHex)
+        XCTAssertEqual(colors.splitButtonBackdropHex, expectedSurfaceHex)
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
     }
 
     func testBonsplitChromeColorsKeepSemanticBackgroundButClearLocalBackdropsWhenSharingWindowBackdrop() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
+        let color = fixtureColor()
+        let expectedSurfaceHex = expectedCompositedHex(for: color, opacity: 0.5)
 
         let colors = Workspace.bonsplitChromeColors(
             backgroundColor: color,
@@ -1582,7 +1730,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             renderingMode: .windowHostBackdrop
         )
 
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
+        XCTAssertEqual(colors.backgroundHex, expectedSurfaceHex)
         XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
@@ -1971,6 +2119,58 @@ final class BrowserPanelPopupContextTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelWebViewLifecycleTests: XCTestCase {
+    private func withHiddenWebViewDiscardPolicyEnabled(_ body: () throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        let previousDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        defer {
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            }
+            if let previousDelay {
+                defaults.set(previousDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            }
+        }
+        defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(60, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        try body()
+    }
+
+    private func waitForHiddenDiscardEligibility(
+        _ panel: BrowserPanel,
+        timeout: TimeInterval = 2.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if panel.webViewLifecycleState == .discarded ||
+                panel.hiddenWebViewDiscardBlockersForTesting().isEmpty {
+                return
+            }
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        XCTFail(
+            "Timed out waiting for hidden WebView discard eligibility. Blockers=\(panel.hiddenWebViewDiscardBlockersForTesting())",
+            file: file,
+            line: line
+        )
+    }
+
+    private func settleInitialBlankLoad(_ webView: WKWebView, timeout: TimeInterval = 2.0) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        if webView.isLoading {
+            webView.stopLoading()
+        }
+    }
+
     func testHiddenDiscardPolicyReadsUserDefaults() throws {
         let suiteName = "cmux.browserHiddenDiscardPolicyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -2085,42 +2285,34 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertTrue(panel.hasBackgroundPreloadHost)
     }
 
-    func testBackgroundPreloadIsConsumedByInitialNavigation() {
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: URL(string: "about:blank")!,
-            preloadInitialNavigationInBackground: true,
-            isRemoteWorkspace: false
+    func testBackgroundPreloadReleaseDecisionRequiresRealWindowAttachment() {
+        let preloadWindow = NSObject()
+        let realHostWindow = NSObject()
+
+        XCTAssertFalse(
+            BrowserPanel.shouldReleaseBackgroundPreloadHost(
+                preloadWindow: nil,
+                attachedWindow: realHostWindow
+            )
         )
-        defer { panel.close() }
-
-        XCTAssertTrue(panel.hasBackgroundPreloadHost)
-
-        let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
-        let realHostWindow = NSWindow(
-            contentRect: frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
+        XCTAssertFalse(
+            BrowserPanel.shouldReleaseBackgroundPreloadHost(
+                preloadWindow: preloadWindow,
+                attachedWindow: nil
+            )
         )
-        defer {
-            realHostWindow.contentView = nil
-            realHostWindow.close()
-        }
-        let contentView = NSView(frame: frame)
-        realHostWindow.contentView = contentView
-        panel.webView.removeFromSuperview()
-        contentView.addSubview(panel.webView)
-
-        panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "test.realWindow")
-
-        XCTAssertFalse(panel.hasBackgroundPreloadHost)
-
-        panel.webView.removeFromSuperview()
-        realHostWindow.contentView = nil
-        panel.navigate(to: URL(string: "about:blank#second")!)
-
-        XCTAssertFalse(panel.hasBackgroundPreloadHost)
+        XCTAssertFalse(
+            BrowserPanel.shouldReleaseBackgroundPreloadHost(
+                preloadWindow: preloadWindow,
+                attachedWindow: preloadWindow
+            )
+        )
+        XCTAssertTrue(
+            BrowserPanel.shouldReleaseBackgroundPreloadHost(
+                preloadWindow: preloadWindow,
+                attachedWindow: realHostWindow
+            )
+        )
     }
 
     func testLifecycleTracksVisibleHiddenAndClosingStates() {
@@ -2159,47 +2351,54 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
     }
 
     func testDiscardReplacesHiddenWebViewAndRestoresOnDemand() {
-        let discardedAt = Date(timeIntervalSince1970: 200)
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: URL(string: "about:blank")!,
-            isRemoteWorkspace: false
-        )
-        defer { panel.close() }
+        withHiddenWebViewDiscardPolicyEnabled {
+            let discardedAt = Date(timeIntervalSince1970: 200)
+            let panel = BrowserPanel(
+                workspaceId: UUID(),
+                initialURL: URL(string: "about:blank")!,
+                isRemoteWorkspace: false
+            )
+            defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+            settleInitialBlankLoad(panel.webView)
 
-        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
-        let originalWebView = panel.webView
+            panel.restoreSessionNavigationHistory(
+                backHistoryURLStrings: [],
+                forwardHistoryURLStrings: [],
+                currentURLString: "about:blank"
+            )
+            let originalWebView = panel.webView
+            panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+            if panel.webViewLifecycleState != .discarded {
+                waitForHiddenDiscardEligibility(panel)
+                if panel.webViewLifecycleState != .discarded {
+                    XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+                }
+            }
+            XCTAssertFalse(panel.webView === originalWebView)
+            XCTAssertFalse(panel.shouldRenderWebView)
+            XCTAssertEqual(panel.webViewLifecycleState, .discarded)
 
-        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
-        XCTAssertFalse(panel.webView === originalWebView)
-        XCTAssertFalse(panel.shouldRenderWebView)
-        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+            let discardedPayload = panel.webViewLifecycleTopPayload(now: discardedAt)
+            XCTAssertEqual(discardedPayload["state"] as? String, "discarded")
+            XCTAssertNotNil(discardedPayload["last_discard_reason"] as? String)
+            XCTAssertNotNil(discardedPayload["discarded_at"] as? String)
 
-        let discardedPayload = panel.webViewLifecycleTopPayload(now: discardedAt)
-        XCTAssertEqual(discardedPayload["state"] as? String, "discarded")
-        XCTAssertEqual(discardedPayload["last_discard_reason"] as? String, "test.discard")
-        XCTAssertNotNil(discardedPayload["discarded_at"] as? String)
+            var observedStates: [BrowserWebViewLifecycleState] = []
+            var cancellable: AnyCancellable?
+            cancellable = panel.$webViewLifecycleState.sink { state in
+                observedStates.append(state)
+            }
+            defer { cancellable?.cancel() }
 
-        var observedStates: [BrowserWebViewLifecycleState] = []
-        var cancellable: AnyCancellable?
-        cancellable = panel.$webViewLifecycleState.sink { state in
-            observedStates.append(state)
+            XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
+            XCTAssertTrue(panel.shouldRenderWebView)
+            XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+            XCTAssertFalse(observedStates.contains(.newTab), "Restore emitted unexpected states: \(observedStates)")
+
+            panel.noteWebViewVisibility(true, reason: "test.visible")
+            XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
         }
-        defer { cancellable?.cancel() }
-
-        XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
-        XCTAssertTrue(panel.shouldRenderWebView)
-        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
-        XCTAssertFalse(observedStates.contains(.newTab), "Restore emitted unexpected states: \(observedStates)")
-
-        panel.noteWebViewVisibility(true, reason: "test.visible")
-        XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
     }
 
     /// Regression guard for the issue #5303 render loop: `BrowserPanelView.onAppear`
@@ -2216,11 +2415,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        settleInitialBlankLoad(panel.webView)
 
         panel.noteWebViewVisibility(true, reason: "test.visible.first")
         XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
@@ -2255,42 +2450,47 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
     }
 
     func testRestoredHistoryBackDoesNotEmitNewTabLifecycleState() {
-        let discardedAt = Date(timeIntervalSince1970: 300)
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: URL(string: "about:blank")!,
-            isRemoteWorkspace: false
-        )
-        defer { panel.close() }
+        withHiddenWebViewDiscardPolicyEnabled {
+            let discardedAt = Date(timeIntervalSince1970: 300)
+            let panel = BrowserPanel(
+                workspaceId: UUID(),
+                initialURL: URL(string: "about:blank")!,
+                isRemoteWorkspace: false
+            )
+            defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+            settleInitialBlankLoad(panel.webView)
 
-        panel.restoreSessionNavigationHistory(
-            backHistoryURLStrings: ["https://example.test/back"],
-            forwardHistoryURLStrings: [],
-            currentURLString: "https://example.test/current"
-        )
-        XCTAssertTrue(panel.canGoBack)
+            panel.restoreSessionNavigationHistory(
+                backHistoryURLStrings: ["https://example.test/back"],
+                forwardHistoryURLStrings: [],
+                currentURLString: "https://example.test/current"
+            )
+            XCTAssertTrue(panel.canGoBack)
 
-        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
-        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
-        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+            let originalWebView = panel.webView
+            panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+            if panel.webViewLifecycleState != .discarded {
+                waitForHiddenDiscardEligibility(panel)
+                if panel.webViewLifecycleState != .discarded {
+                    XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+                }
+            }
+            XCTAssertFalse(panel.webView === originalWebView)
+            XCTAssertEqual(panel.webViewLifecycleState, .discarded)
 
-        var observedStates: [BrowserWebViewLifecycleState] = []
-        var cancellable: AnyCancellable?
-        cancellable = panel.$webViewLifecycleState.sink { state in
-            observedStates.append(state)
+            var observedStates: [BrowserWebViewLifecycleState] = []
+            var cancellable: AnyCancellable?
+            cancellable = panel.$webViewLifecycleState.sink { state in
+                observedStates.append(state)
+            }
+            defer { cancellable?.cancel() }
+
+            panel.goBack()
+
+            XCTAssertFalse(observedStates.contains(.newTab), "Back restore emitted unexpected states: \(observedStates)")
+            XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
         }
-        defer { cancellable?.cancel() }
-
-        panel.goBack()
-
-        XCTAssertFalse(observedStates.contains(.newTab), "Back restore emitted unexpected states: \(observedStates)")
-        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
     }
 }
 
@@ -2385,25 +2585,28 @@ final class BrowserNewTabNavigationSeedTests: XCTestCase {
 @MainActor
 final class BrowserPanelRemoteStoreTests: XCTestCase {
     func testRemoteWorkspacePanelsShareWorkspaceScopedWebsiteDataStore() {
-        let localPanel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
+        let localPanel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
+            isRemoteWorkspace: false
+        )
         let remoteWorkspaceId = UUID()
         let firstRemotePanel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
         let secondRemotePanel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
 
-        XCTAssertTrue(localPanel.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
-        XCTAssertFalse(firstRemotePanel.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
-        XCTAssertTrue(
-            firstRemotePanel.webView.configuration.websiteDataStore ===
-                secondRemotePanel.webView.configuration.websiteDataStore
-        )
+        XCTAssertNil(localPanel.webView.configuration.websiteDataStore.identifier)
+        XCTAssertEqual(firstRemotePanel.webView.configuration.websiteDataStore.identifier, remoteWorkspaceId)
+        XCTAssertEqual(secondRemotePanel.webView.configuration.websiteDataStore.identifier, remoteWorkspaceId)
     }
 
     func testRemoteWorkspaceDefersInitialNavigationUntilProxyEndpointIsReady() {
@@ -2526,9 +2729,15 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
     func testBrowserMoveIntoRemoteWorkspaceRebuildsWebsiteDataStoreScope() throws {
         let source = Workspace()
         let sourcePaneId = try XCTUnwrap(source.bonsplitController.allPaneIds.first)
-        let sourceBrowser = try XCTUnwrap(source.newBrowserSurface(inPane: sourcePaneId, focus: false))
+        let sourceBrowser = try XCTUnwrap(
+            source.newBrowserSurface(
+                inPane: sourcePaneId,
+                focus: false,
+                preferredProfileID: BrowserProfileStore.shared.builtInDefaultProfileID
+            )
+        )
         let localStore = sourceBrowser.webView.configuration.websiteDataStore
-        XCTAssertTrue(localStore === WKWebsiteDataStore.default())
+        XCTAssertNil(localStore.identifier)
 
         let destination = Workspace()
         destination.configureRemoteConnection(
@@ -2547,9 +2756,15 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
             autoConnect: false
         )
         let destinationPaneId = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
-        let destinationBrowser = try XCTUnwrap(destination.newBrowserSurface(inPane: destinationPaneId, focus: false))
+        let destinationBrowser = try XCTUnwrap(
+            destination.newBrowserSurface(
+                inPane: destinationPaneId,
+                focus: false,
+                preferredProfileID: BrowserProfileStore.shared.builtInDefaultProfileID
+            )
+        )
         let destinationStore = destinationBrowser.webView.configuration.websiteDataStore
-        XCTAssertFalse(destinationStore === WKWebsiteDataStore.default())
+        XCTAssertEqual(destinationStore.identifier, destination.id)
 
         let detached = try XCTUnwrap(source.detachSurface(panelId: sourceBrowser.id))
         let attachedPanelId = try XCTUnwrap(
@@ -2557,8 +2772,8 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         )
         let movedBrowser = try XCTUnwrap(destination.panels[attachedPanelId] as? BrowserPanel)
 
-        XCTAssertTrue(movedBrowser.webView.configuration.websiteDataStore === destinationStore)
-        XCTAssertFalse(movedBrowser.webView.configuration.websiteDataStore === localStore)
+        XCTAssertEqual(movedBrowser.webView.configuration.websiteDataStore.identifier, destinationStore.identifier)
+        XCTAssertNotEqual(movedBrowser.webView.configuration.websiteDataStore.identifier, localStore.identifier)
     }
 
     func testBrowserMoveOutOfRemoteWorkspaceRestoresDefaultWebsiteDataStore() throws {
@@ -2579,10 +2794,22 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
             autoConnect: false
         )
         let sourcePaneId = try XCTUnwrap(source.bonsplitController.allPaneIds.first)
-        let movedBrowser = try XCTUnwrap(source.newBrowserSurface(inPane: sourcePaneId, focus: false))
-        let remainingRemoteBrowser = try XCTUnwrap(source.newBrowserSurface(inPane: sourcePaneId, focus: false))
+        let movedBrowser = try XCTUnwrap(
+            source.newBrowserSurface(
+                inPane: sourcePaneId,
+                focus: false,
+                preferredProfileID: BrowserProfileStore.shared.builtInDefaultProfileID
+            )
+        )
+        let remainingRemoteBrowser = try XCTUnwrap(
+            source.newBrowserSurface(
+                inPane: sourcePaneId,
+                focus: false,
+                preferredProfileID: BrowserProfileStore.shared.builtInDefaultProfileID
+            )
+        )
         let remoteStore = remainingRemoteBrowser.webView.configuration.websiteDataStore
-        XCTAssertFalse(remoteStore === WKWebsiteDataStore.default())
+        XCTAssertEqual(remoteStore.identifier, source.id)
 
         let destination = Workspace()
         let destinationPaneId = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
@@ -2592,9 +2819,12 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         )
         let attachedBrowser = try XCTUnwrap(destination.panels[attachedPanelId] as? BrowserPanel)
 
-        XCTAssertTrue(attachedBrowser.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
-        XCTAssertTrue(remainingRemoteBrowser.webView.configuration.websiteDataStore === remoteStore)
-        XCTAssertFalse(remainingRemoteBrowser.webView.configuration.websiteDataStore === attachedBrowser.webView.configuration.websiteDataStore)
+        XCTAssertNil(attachedBrowser.webView.configuration.websiteDataStore.identifier)
+        XCTAssertEqual(remainingRemoteBrowser.webView.configuration.websiteDataStore.identifier, remoteStore.identifier)
+        XCTAssertNotEqual(
+            remainingRemoteBrowser.webView.configuration.websiteDataStore.identifier,
+            attachedBrowser.webView.configuration.websiteDataStore.identifier
+        )
     }
 
     func testNewTerminalSurfaceStaysRemoteWhileBrowserPanelsKeepWorkspaceRemote() throws {
@@ -4028,7 +4258,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
               let pinned = GhosttyApp.discoveredCTFont(
                   named: GhosttyApp.resolvedInjectedCJKFontName(named: "Hiragino Sans")
               ) else {
-            throw XCTSkip("Hiragino Sans is unavailable on this runner")
+            throw hostedCIFontUnavailableError("Hiragino Sans")
         }
 
         let plainFullName = CTFontCopyFullName(plain) as String
@@ -4046,7 +4276,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     func testResolvedInjectedCJKFontNameLeavesPingFangSCStable() throws {
         guard GhosttyApp.discoveredCTFont(named: "PingFang SC") != nil else {
-            throw XCTSkip("PingFang SC is unavailable on this runner")
+            throw hostedCIFontUnavailableError("PingFang SC")
         }
 
         XCTAssertEqual(

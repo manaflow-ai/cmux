@@ -1221,6 +1221,12 @@ class TabManager: ObservableObject {
     private var workspaceGitSnapshotTasksByDirectory: [String: Task<Void, Never>] = [:]
     private var workspaceGitSnapshotDirectoryByProbeKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitMetadataFallbackTask: Task<Void, Never>?
+#if DEBUG
+    private var sidebarGitMetadataWatchEnabledOverrideForTesting: Bool?
+    private var sidebarPullRequestPollingEnabledOverrideForTesting: Bool?
+    private var workspaceGitMetadataRefreshDelaysOverrideForTesting: [TimeInterval]?
+    private var workspaceGitMetadataSnapshotBatchWaitersForTesting: [String: [CheckedContinuation<Void, Never>]] = [:]
+#endif
     private var lastSidebarGitMetadataWatchEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     private var lastSidebarPullRequestPollingEnabled = SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
     private var workspacePullRequestProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
@@ -1297,6 +1303,7 @@ class TabManager: ObservableObject {
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
+        createInitialWorkspace: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
@@ -1314,12 +1321,14 @@ class TabManager: ObservableObject {
 #else
         self.pullRequestProbeService = PullRequestProbeService(commandRunner: commandRunner)
 #endif
-        addWorkspace(
-            title: initialWorkspaceTitle,
-            workingDirectory: initialWorkingDirectory,
-            initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded
-        )
+        if createInitialWorkspace {
+            addWorkspace(
+                title: initialWorkspaceTitle,
+                workingDirectory: initialWorkingDirectory,
+                initialTerminalInput: initialTerminalInput,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded
+            )
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -1376,6 +1385,30 @@ class TabManager: ObservableObject {
         setupChildExitKeyboardUITestIfNeeded()
 #endif
     }
+
+#if DEBUG
+    convenience init(
+        initialWorkspaceTitle: String? = nil,
+        initialWorkingDirectory: String? = nil,
+        initialTerminalInput: String? = nil,
+        autoWelcomeIfNeeded: Bool = true,
+        debugCreateInitialWorkspace: Bool,
+        commandRunner: any CommandRunning = CommandRunner(),
+        gitMetadataService: GitMetadataService = GitMetadataService(),
+        gitPollClock: any GitPollClock = SystemGitPollClock()
+    ) {
+        self.init(
+            initialWorkspaceTitle: initialWorkspaceTitle,
+            initialWorkingDirectory: initialWorkingDirectory,
+            initialTerminalInput: initialTerminalInput,
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+            createInitialWorkspace: debugCreateInitialWorkspace,
+            commandRunner: commandRunner,
+            gitMetadataService: gitMetadataService,
+            gitPollClock: gitPollClock
+        )
+    }
+#endif
 
     deinit {
         workspaceCycleCooldownTask?.cancel()
@@ -1507,11 +1540,21 @@ class TabManager: ObservableObject {
     }
 
     private var sidebarGitMetadataWatchEnabled: Bool {
-        SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
+#if DEBUG
+        if let sidebarGitMetadataWatchEnabledOverrideForTesting {
+            return sidebarGitMetadataWatchEnabledOverrideForTesting
+        }
+#endif
+        return SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     }
 
     private var sidebarPullRequestPollingEnabled: Bool {
-        SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
+#if DEBUG
+        if let sidebarPullRequestPollingEnabledOverrideForTesting {
+            return sidebarPullRequestPollingEnabledOverrideForTesting
+        }
+#endif
+        return SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
     }
 
     private func sidebarMetadataSettingsDidChange() {
@@ -2180,9 +2223,55 @@ class TabManager: ObservableObject {
         refreshTrackedWorkspaceGitMetadata(reason: "test")
     }
 
+    func applyWorkspaceGitMetadataForTesting(workspaceId: UUID, panelId: UUID, directory: String) async {
+        let normalizedDirectory = normalizeDirectory(directory)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        cancelWorkspaceGitProbeTask(for: key)
+        workspaceGitProbeStateByKey[key] = .inFlight(rerunPending: false)
+        let snapshot = await Self.initialWorkspaceGitMetadataSnapshot(
+            for: normalizedDirectory,
+            reader: workspaceGitMetadataReader
+        )
+        applyWorkspaceGitMetadataSnapshot(
+            snapshot,
+            probeKey: key,
+            expectedDirectory: normalizedDirectory,
+            isLastAttempt: true
+        )
+    }
+
     func sidebarGitMetadataWatchSettingsDidChangeForTesting() {
         sidebarMetadataSettingsDidChange()
     }
+
+#if DEBUG
+    func setSidebarMetadataSettingsForTesting(
+        watchGitStatus: Bool?,
+        pullRequestPolling: Bool?
+    ) {
+        let previousWatchGitStatus = sidebarGitMetadataWatchEnabled
+        let previousPullRequestPolling = sidebarPullRequestPollingEnabled
+        sidebarGitMetadataWatchEnabledOverrideForTesting = watchGitStatus
+        sidebarPullRequestPollingEnabledOverrideForTesting = pullRequestPolling
+        lastSidebarGitMetadataWatchEnabled = previousWatchGitStatus
+        lastSidebarPullRequestPollingEnabled = previousPullRequestPolling
+        sidebarMetadataSettingsDidChange()
+    }
+
+    func setWorkspaceGitMetadataRefreshSynchronousForTesting(_ enabled: Bool) {
+        workspaceGitMetadataRefreshDelaysOverrideForTesting = enabled ? [0] : nil
+    }
+
+    func waitForWorkspaceGitMetadataSnapshotBatchForTesting(directory: String) async {
+        let normalizedDirectory = normalizeDirectory(directory)
+        let hasPendingBatch = workspaceGitSnapshotTasksByDirectory[normalizedDirectory] != nil ||
+            workspaceGitSnapshotRequestsByDirectory[normalizedDirectory]?.isEmpty == false
+        guard hasPendingBatch else { return }
+        await withCheckedContinuation { continuation in
+            workspaceGitMetadataSnapshotBatchWaitersForTesting[normalizedDirectory, default: []].append(continuation)
+        }
+    }
+#endif
 
     func trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
         let activeProbeKeys = activeWorkspaceGitProbeKeys
@@ -2826,14 +2915,20 @@ class TabManager: ObservableObject {
         )
 #endif
 
+        let effectiveDelays: [TimeInterval]
+#if DEBUG
+        effectiveDelays = workspaceGitMetadataRefreshDelaysOverrideForTesting ?? delays
+#else
+        effectiveDelays = delays
+#endif
         let clock = gitPollClock
         workspaceGitProbeTasksByKey[key] = Task { @MainActor [weak self] in
             // The retry delays are absolute offsets from scheduling time; walk
             // them as sequential gaps on the injected clock (bounded,
             // cancellable; cancellation replaces the old timer cancels).
             var previousDelay: TimeInterval = 0
-            for (index, delay) in delays.enumerated() {
-                let isLastAttempt = index == delays.count - 1
+            for (index, delay) in effectiveDelays.enumerated() {
+                let isLastAttempt = index == effectiveDelays.count - 1
                 do {
                     try await clock.sleep(for: .seconds(delay - previousDelay))
                 } catch {
@@ -2956,6 +3051,12 @@ class TabManager: ObservableObject {
                 isLastAttempt: request.isLastAttempt
             )
         }
+#if DEBUG
+        let waiters = workspaceGitMetadataSnapshotBatchWaitersForTesting.removeValue(forKey: expectedDirectory) ?? []
+        for waiter in waiters {
+            waiter.resume()
+        }
+#endif
     }
 
     private func removeWorkspaceGitSnapshotRequest(for key: WorkspaceGitProbeKey) {
@@ -3740,6 +3841,12 @@ class TabManager: ObservableObject {
                 count += 1
             }
         }
+        if !draggedWorkspace.isPinned,
+           let targetWorkspaceId,
+           tabs.contains(where: { $0.id == targetWorkspaceId && $0.groupId == groupId && $0.isPinned }),
+           let noOpInsertion = tabs.firstIndex(where: { $0.id == draggedWorkspaceId }) {
+            return noOpInsertion...noOpInsertion
+        }
         if draggedWorkspace.isPinned {
             let lower = min(firstIndex + 1, tabs.count)
             let upper = min(firstIndex + 1 + pinnedMemberCount, tabs.count)
@@ -4160,7 +4267,7 @@ class TabManager: ObservableObject {
         // reject those silently and let the user explicitly ungroup first.
         let existingAnchorIds = Set(workspaceGroups.map(\.anchorWorkspaceId))
         let eligibleChildren = childWorkspaceIds.compactMap { id -> UUID? in
-            guard tabs.contains(where: { $0.id == id }),
+            guard tabs.contains(where: { $0.id == id && !$0.isPinned }),
                   !existingAnchorIds.contains(id) else { return nil }
             return id
         }
@@ -5266,10 +5373,10 @@ class TabManager: ObservableObject {
 
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
+        guard let closingIndex = tabs.firstIndex(where: { $0 === workspace }) else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         if recordHistory,
-           workspace.isRestorableInSessionSnapshot,
-           let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
+           workspace.isRestorableInSessionSnapshot {
             // Prefer the warm cached agent index over a synchronous
             // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
             // workspace does not freeze the main thread; fall back to a fresh load only
@@ -5282,7 +5389,7 @@ class TabManager: ObservableObject {
             ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,
                 windowId: AppDelegate.shared?.windowId(for: self),
-                workspaceIndex: index,
+                workspaceIndex: closingIndex,
                 snapshot: snapshot
             )))
         }
@@ -5300,22 +5407,20 @@ class TabManager: ObservableObject {
         recentlyClosedBrowsers.removeSnapshots(forWorkspaceId: workspace.id)
         workspace.owningTabManager = nil
 
-        if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            tabs.remove(at: index)
-            // Real-close path: if the closed workspace anchored a group, the
-            // group dissolves now and its remaining members survive as
-            // ungrouped workspaces. This lives at the explicit close site (not
-            // in the tabs didSet) so transient remove/insert reorders never
-            // trigger dissolve.
-            dissolveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
+        tabs.remove(at: closingIndex)
+        // Real-close path: if the closed workspace anchored a group, the
+        // group dissolves now and its remaining members survive as
+        // ungrouped workspaces. This lives at the explicit close site (not
+        // in the tabs didSet) so transient remove/insert reorders never
+        // trigger dissolve.
+        dissolveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
-            if selectedTabId == workspace.id {
-                // Keep the "focused index" stable when possible:
-                // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
-                // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
-                let newIndex = min(index, max(0, tabs.count - 1))
-                selectedTabId = tabs[newIndex].id
-            }
+        if selectedTabId == workspace.id {
+            // Keep the "focused index" stable when possible:
+            // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
+            // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
+            let newIndex = min(closingIndex, max(0, tabs.count - 1))
+            selectedTabId = tabs[newIndex].id
         }
         publishCmuxWorkspaceClosed(workspace)
     }
@@ -5963,6 +6068,9 @@ class TabManager: ObservableObject {
         }
         tab.markCloseHistoryEligible(panelId: panelId)
         let closed = tab.closePanel(panelId)
+        if closed {
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: panelId)
+        }
 #if DEBUG
         cmuxDebugLog(
             "surface.close.shortcut tab=\(tab.id.uuidString.prefix(5)) " +
@@ -9860,6 +9968,10 @@ enum SidebarMultiSelectionHideKey {
     static let focusedWorkspaceId = "focusedWorkspaceId"
 }
 
+final class CommandPaletteSubmitAcknowledgement {
+    var handled = false
+}
+
 extension Notification.Name {
     /// Posted when keyboard-nav focuses a single workspace and the sidebar's
     /// multi-selection state (SwiftUI @State Set<UUID> in VerticalTabsSidebar)
@@ -9878,6 +9990,7 @@ extension Notification.Name {
     static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")
     static let commandPaletteSubmitRequested = Notification.Name("cmux.commandPaletteSubmitRequested")
     static let commandPaletteDismissRequested = Notification.Name("cmux.commandPaletteDismissRequested")
+    static let commandPaletteQuerySetRequested = Notification.Name("cmux.commandPaletteQuerySetRequested")
     static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")
     static let commandPaletteRenameWorkspaceRequested = Notification.Name("cmux.commandPaletteRenameWorkspaceRequested")
     static let commandPaletteEditWorkspaceDescriptionRequested = Notification.Name("cmux.commandPaletteEditWorkspaceDescriptionRequested")
@@ -9885,6 +9998,7 @@ extension Notification.Name {
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
     static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
     static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
+    static let feedbackComposerMessageSetRequested = Notification.Name("cmux.feedbackComposerMessageSetRequested")
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")

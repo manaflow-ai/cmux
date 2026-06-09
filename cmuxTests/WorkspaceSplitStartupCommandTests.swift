@@ -324,7 +324,12 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             "Restored HUD panes must launch through a fresh script, not a deleted tmux temp script"
         )
         XCTAssertTrue(restoredStartupScript.contains("cmux-session-terminal-command"))
-        XCTAssertEqual(restoredHudPanel.requestedWorkingDirectory, requestedDirectory)
+        XCTAssertNil(
+            restoredHudPanel.requestedWorkingDirectory,
+            "Restored HUD panes launch through a guarded script, so Ghostty should not reject a stale cwd before the script can run."
+        )
+        let restoredScriptBody = try String(contentsOfFile: restoredStartupScript, encoding: .utf8)
+        XCTAssertTrue(restoredScriptBody.contains(requestedDirectory))
     }
 
     func testSessionSnapshotDoesNotPersistGenericTmuxStartCommand() throws {

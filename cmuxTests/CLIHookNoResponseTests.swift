@@ -13,6 +13,71 @@ struct CLIHookNoResponseTests {
         let timedOut: Bool
     }
 
+    final class RunningProcess {
+        private let process: Process?
+        private let stdout: Pipe?
+        private let stderr: Pipe?
+        private let finished: DispatchSemaphore?
+        private let stdinHandle: FileHandle?
+        private let stdinURL: URL?
+        private let immediateResult: ProcessRunResult?
+
+        init(
+            process: Process,
+            stdout: Pipe,
+            stderr: Pipe,
+            finished: DispatchSemaphore,
+            stdinHandle: FileHandle?,
+            stdinURL: URL?
+        ) {
+            self.process = process
+            self.stdout = stdout
+            self.stderr = stderr
+            self.finished = finished
+            self.stdinHandle = stdinHandle
+            self.stdinURL = stdinURL
+            immediateResult = nil
+        }
+
+        init(immediateResult: ProcessRunResult) {
+            process = nil
+            stdout = nil
+            stderr = nil
+            finished = nil
+            stdinHandle = nil
+            stdinURL = nil
+            self.immediateResult = immediateResult
+        }
+
+        func wait(timeout: TimeInterval) -> ProcessRunResult {
+            if let immediateResult {
+                return immediateResult
+            }
+            guard let process, let stdout, let stderr, let finished else {
+                return ProcessRunResult(status: -1, stdout: "", stderr: "process was not started", timedOut: false)
+            }
+
+            let timedOut = finished.wait(timeout: .now() + timeout) != .success
+            if timedOut {
+                process.terminate()
+                _ = finished.wait(timeout: .now() + 1)
+            }
+
+            let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+            let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+            try? stdinHandle?.close()
+            if let stdinURL {
+                try? FileManager.default.removeItem(at: stdinURL)
+            }
+            return ProcessRunResult(
+                status: process.terminationStatus,
+                stdout: String(data: stdoutData, encoding: .utf8) ?? "",
+                stderr: String(data: stderrData, encoding: .utf8) ?? "",
+                timedOut: timedOut
+            )
+        }
+    }
+
     final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private var commands: [String] = []
@@ -164,7 +229,7 @@ struct CLIHookNoResponseTests {
             }
         }
 
-        let result = Self.runProcess(
+        let running = Self.startProcess(
             executablePath: cliPath,
             arguments: ["hooks", "kiro", "session-start"],
             environment: [
@@ -189,11 +254,12 @@ struct CLIHookNoResponseTests {
                 "CMUX_CLI_SENTRY_DISABLED": "1",
                 "CMUX_SOCKET_PASSWORD": "test-password",
             ],
-            standardInput: #"{"session_id":"kiro-lifecycle-no-response","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 0.5
+            standardInput: #"{"session_id":"kiro-lifecycle-no-response","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
         )
 
-        #expect(server.wait(timeout: 5), "socket server did not observe lifecycle feed.push")
+        let observedFeedPush = server.wait(timeout: 5)
+        let result = running.wait(timeout: observedFeedPush ? 2.0 : 0.0)
+        #expect(observedFeedPush, "socket server did not observe lifecycle feed.push")
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
@@ -348,6 +414,7 @@ struct CLIHookNoResponseTests {
                 fulfillOnce()
                 return
             }
+            disableSigPipe(on: clientFD)
             defer { Darwin.close(clientFD) }
 
             readLines(from: clientFD) { line in
@@ -399,6 +466,7 @@ struct CLIHookNoResponseTests {
                     fulfillOnce()
                     return
                 }
+                disableSigPipe(on: clientFD)
                 accepted += 1
 
                 DispatchQueue.global(qos: .userInitiated).async {
@@ -431,6 +499,7 @@ struct CLIHookNoResponseTests {
                 handled.signal()
                 return
             }
+            disableSigPipe(on: clientFD)
             handled.signal()
             _ = DispatchSemaphore(value: 0).wait(timeout: .now() + holdFor)
             Darwin.close(clientFD)
@@ -463,6 +532,19 @@ struct CLIHookNoResponseTests {
         let response = line + "\n"
         _ = response.withCString { ptr in
             Darwin.write(fd, ptr, strlen(ptr))
+        }
+    }
+
+    private static func disableSigPipe(on fd: Int32) {
+        var value: Int32 = 1
+        _ = withUnsafePointer(to: &value) { pointer in
+            Darwin.setsockopt(
+                fd,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                pointer,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
         }
     }
 
@@ -511,6 +593,20 @@ struct CLIHookNoResponseTests {
         standardInput: String? = nil,
         timeout: TimeInterval
     ) -> ProcessRunResult {
+        startProcess(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput
+        ).wait(timeout: timeout)
+    }
+
+    private static func startProcess(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: String? = nil
+    ) -> RunningProcess {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
@@ -534,17 +630,11 @@ struct CLIHookNoResponseTests {
                 stdinURL = url
             } catch {
                 try? FileManager.default.removeItem(at: url)
-                return ProcessRunResult(status: -1, stdout: "", stderr: "\(error)", timedOut: false)
+                return RunningProcess(immediateResult: ProcessRunResult(status: -1, stdout: "", stderr: "\(error)", timedOut: false))
             }
         } else {
             stdinHandle = nil
             stdinURL = nil
-        }
-        defer {
-            try? stdinHandle?.close()
-            if let stdinURL {
-                try? FileManager.default.removeItem(at: stdinURL)
-            }
         }
 
         let finished = DispatchSemaphore(value: 0)
@@ -553,22 +643,20 @@ struct CLIHookNoResponseTests {
         do {
             try process.run()
         } catch {
-            return ProcessRunResult(status: -1, stdout: "", stderr: "\(error)", timedOut: false)
+            try? stdinHandle?.close()
+            if let stdinURL {
+                try? FileManager.default.removeItem(at: stdinURL)
+            }
+            return RunningProcess(immediateResult: ProcessRunResult(status: -1, stdout: "", stderr: "\(error)", timedOut: false))
         }
 
-        let timedOut = finished.wait(timeout: .now() + timeout) != .success
-        if timedOut {
-            process.terminate()
-            _ = finished.wait(timeout: .now() + 1)
-        }
-
-        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
-        return ProcessRunResult(
-            status: process.terminationStatus,
-            stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-            stderr: String(data: stderrData, encoding: .utf8) ?? "",
-            timedOut: timedOut
+        return RunningProcess(
+            process: process,
+            stdout: stdout,
+            stderr: stderr,
+            finished: finished,
+            stdinHandle: stdinHandle,
+            stdinURL: stdinURL
         )
     }
 

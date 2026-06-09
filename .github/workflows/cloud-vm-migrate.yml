@@ -33,10 +33,10 @@ jobs:
           ref: refs/heads/main
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        run: ../scripts/ci/setup-bun-with-retry.sh 1.3.13
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: ../scripts/ci/bun-install-frozen.sh
 
       - name: Cloud VM migration preflight
         run: bun run cloud-vm:preflight -- --schema-only .
@@ -66,10 +66,10 @@ jobs:
           ref: refs/heads/main
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        run: ../scripts/ci/setup-bun-with-retry.sh 1.3.13
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: ../scripts/ci/bun-install-frozen.sh
 
       - name: Prepare AWS web identity credentials
         run: |
@@ -89,9 +89,11 @@ jobs:
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" \
             | jq -e -r '.value' > "$token_file"
-          echo "AWS_WEB_IDENTITY_TOKEN_FILE=$token_file" >> "$GITHUB_ENV"
-          echo "AWS_ROLE_ARN=$AWS_ROLE_ARN" >> "$GITHUB_ENV"
-          echo "AWS_REGION=$AWS_REGION" >> "$GITHUB_ENV"
+          {
+            echo "AWS_WEB_IDENTITY_TOKEN_FILE=$token_file"
+            echo "AWS_ROLE_ARN=$AWS_ROLE_ARN"
+            echo "AWS_REGION=$AWS_REGION"
+          } >> "$GITHUB_ENV"
           export AWS_WEB_IDENTITY_TOKEN_FILE="$token_file"
           aws sts get-caller-identity --no-cli-pager >/dev/null
 
@@ -123,10 +125,10 @@ jobs:
           ref: refs/heads/main
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        run: ../scripts/ci/setup-bun-with-retry.sh 1.3.13
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: ../scripts/ci/bun-install-frozen.sh
 
       - name: Prepare AWS web identity credentials
         run: |
@@ -146,9 +148,11 @@ jobs:
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" \
             | jq -e -r '.value' > "$token_file"
-          echo "AWS_WEB_IDENTITY_TOKEN_FILE=$token_file" >> "$GITHUB_ENV"
-          echo "AWS_ROLE_ARN=$AWS_ROLE_ARN" >> "$GITHUB_ENV"
-          echo "AWS_REGION=$AWS_REGION" >> "$GITHUB_ENV"
+          {
+            echo "AWS_WEB_IDENTITY_TOKEN_FILE=$token_file"
+            echo "AWS_ROLE_ARN=$AWS_ROLE_ARN"
+            echo "AWS_REGION=$AWS_REGION"
+          } >> "$GITHUB_ENV"
           export AWS_WEB_IDENTITY_TOKEN_FILE="$token_file"
           aws sts get-caller-identity --no-cli-pager >/dev/null
 

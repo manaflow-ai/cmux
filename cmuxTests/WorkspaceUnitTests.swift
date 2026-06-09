@@ -203,7 +203,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         )
 
         XCTAssertNotNil(railColor)
-        XCTAssertEqual(railColor?.hexString(), "#C0392B")
+        XCTAssertEqual(workspace.customColor, "#C0392B")
     }
 
     @MainActor
@@ -1501,7 +1501,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(invalidPrimaryStore.activeSourcePath, primaryURL.path)
     }
 
-    func testPersistedShortcutOverridesSettingsFileShortcutValues() throws {
+    func testSettingsFileShortcutOverridesPersistedShortcutValues() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -1530,7 +1530,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         XCTAssertEqual(
             KeyboardShortcutSettings.shortcut(for: .newTab),
-            StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
         )
         XCTAssertTrue(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
     }
@@ -1684,11 +1684,11 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertNil(cmuxConfigStore.resolvedAction(id: "first"))
         XCTAssertNotNil(cmuxConfigStore.resolvedAction(id: "second"))
 #else
-        throw XCTSkip("menu selector regression requires DEBUG app test helpers")
+        XCTFail("menu selector regression requires DEBUG app test helpers")
 #endif
     }
 
-    func testSettingsFileShortcutCanBeOverriddenFromUI() throws {
+    func testSettingsFileShortcutStaysAuthoritativeWhenEditedFromUI() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -1721,10 +1721,6 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             for: .newTab
         )
 
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), editedShortcut)
-
-        KeyboardShortcutSettings.resetShortcut(for: .newTab)
-
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), managedShortcut)
 
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
@@ -1734,7 +1730,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         XCTAssertFalse(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), KeyboardShortcutSettings.Action.newTab.defaultShortcut)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), editedShortcut)
     }
 
     func testSystemWideHotkeySettingsPreserveInvalidManagedShortcutWithoutFallingBackToDefault() throws {
@@ -3440,22 +3436,17 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
 @MainActor
 final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
     private final class UnsafeConfigSnapshotTabManager: TabManager {
-        private var injectedConfig: CmuxSurfaceConfigTemplate?
+        private var injectedFontSize: Float?
         var capturedConfigTemplate: CmuxSurfaceConfigTemplate?
 
         func installInjectedConfig(fontSize: Float) {
-            var config = CmuxSurfaceConfigTemplate()
-            config.fontSize = fontSize
-            config.workingDirectory = "/tmp/cmux-workspace-snapshot"
-            config.command = "echo snapshot"
-            config.environmentVariables = ["CMUX_INHERITED_ENV": "1"]
-            injectedConfig = config
+            injectedFontSize = fontSize
         }
 
-        override func inheritedTerminalConfigForNewWorkspace(
+        override func inheritedTerminalFontPointsForNewWorkspace(
             workspace: Workspace?
-        ) -> CmuxSurfaceConfigTemplate? {
-            injectedConfig ?? super.inheritedTerminalConfigForNewWorkspace(workspace: workspace)
+        ) -> Float? {
+            injectedFontSize ?? super.inheritedTerminalFontPointsForNewWorkspace(workspace: workspace)
         }
 
         override func makeWorkspaceForCreation(
@@ -4332,7 +4323,7 @@ final class WorkspaceTeardownTests: XCTestCase {
         workspace.debugReconcileTerminalPortalVisibilityForTesting()
         XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 }
@@ -4456,7 +4447,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         XCTAssertNotNil(splitPanel, "Expected split creation to survive a stale inherited surface pointer")
         XCTAssertNil(sourcePanel.surface.surface, "Expected stale surface pointer to be quarantined")
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -4489,7 +4480,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         XCTAssertNotNil(createdPanel, "Expected terminal creation to survive a stale inherited surface pointer")
         XCTAssertNil(sourcePanel.surface.surface, "Expected stale surface pointer to be quarantined")
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 }
@@ -4711,7 +4702,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         leftPanel.hostedView.clearSuppressReparentFocus()
         XCTAssertTrue(leftPanel.surface.debugDesiredFocusState())
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -4736,7 +4727,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertFalse(workspace.debugHasPendingReparentFocusSuppressionsForTesting())
         XCTAssertFalse(panel.hostedView.debugIsSuppressingReparentFocusForTesting())
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 }
@@ -5881,7 +5872,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkAgentWorkspaceLaunchInRemoteWorkspacePreservesRemoteContext() throws {
         let workspace = Workspace()
-        let agentSocketPath = "/tmp/cmux-fork-agent.sock"
+        let agentSocketURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fork-agent-\(UUID().uuidString).sock", isDirectory: false)
+        FileManager.default.createFile(atPath: agentSocketURL.path, contents: Data())
+        defer { try? FileManager.default.removeItem(at: agentSocketURL) }
+        let agentSocketPath = agentSocketURL.path
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
@@ -6629,14 +6624,16 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             number: 101,
             label: "PR",
             url: URL(string: "https://github.com/manaflow-ai/cmux/pull/101")!,
-            status: .open
+            status: .open,
+            branch: "main"
         )
         workspace.updatePanelPullRequest(
             panelId: rightFirstPanel.id,
             number: 18,
             label: "MR",
             url: URL(string: "https://gitlab.com/manaflow/cmux/-/merge_requests/18")!,
-            status: .merged
+            status: .merged,
+            branch: "release/right"
         )
 
         let orderedPanelIds = workspace.sidebarOrderedPanelIds()
@@ -6651,7 +6648,26 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         XCTAssertEqual(
             workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds),
-            workspace.sidebarPullRequestsInDisplayOrder()
+            [
+                SidebarPullRequestState(
+                    number: 101,
+                    label: "PR",
+                    url: URL(string: "https://github.com/manaflow-ai/cmux/pull/101")!,
+                    status: .open,
+                    branch: "main"
+                ),
+                SidebarPullRequestState(
+                    number: 18,
+                    label: "MR",
+                    url: URL(string: "https://gitlab.com/manaflow/cmux/-/merge_requests/18")!,
+                    status: .merged,
+                    branch: "release/right"
+                ),
+            ]
+        )
+        XCTAssertEqual(
+            workspace.sidebarPullRequestsInDisplayOrder(),
+            workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [rightFirstPanel.id])
         )
     }
 

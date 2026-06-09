@@ -11,9 +11,24 @@ final class PortScannerProcessCaptureTests: XCTestCase {
         try? FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count
     }
 
+    private func fdInspectionUnavailableError(
+        _ message: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> Error {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true" {
+            XCTFail("\(message); hosted CI must exercise PortScanner pipe FD leak coverage", file: file, line: line)
+            return NSError(domain: "cmux.tests", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
+        }
+        return XCTSkip(message)
+    }
+
     func testCaptureStandardOutputDoesNotLeakPipeFDs() throws {
         guard let baseline = openFDCount() else {
-            throw XCTSkip("Unable to inspect /dev/fd on this runner")
+            throw fdInspectionUnavailableError("Unable to inspect /dev/fd on this runner")
         }
 
         var maxCount = baseline
@@ -29,7 +44,7 @@ final class PortScannerProcessCaptureTests: XCTestCase {
         }
 
         guard let finalCount = openFDCount() else {
-            throw XCTSkip("Unable to inspect final /dev/fd count on this runner")
+            throw fdInspectionUnavailableError("Unable to inspect final /dev/fd count on this runner")
         }
 
         XCTAssertLessThanOrEqual(maxCount - baseline, 8)

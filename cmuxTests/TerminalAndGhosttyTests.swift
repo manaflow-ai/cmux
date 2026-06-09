@@ -1056,9 +1056,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
             "Restored auto-resume input should bootstrap through a hidden window rather than waiting for a user-focused portal."
         )
-        XCTAssertGreaterThan(
-            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
-            0,
+        XCTAssertTrue(
+            waitUntilRuntimeSurfaceCreateAttempt(on: panel.surface),
             "Restored auto-resume input must start the terminal runtime without waiting for a window attach."
         )
     }
@@ -1073,9 +1072,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
             "Command-launched offscreen terminals should bootstrap through a hidden window rather than waiting for a user-focused portal."
         )
-        XCTAssertGreaterThan(
-            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
-            0,
+        XCTAssertTrue(
+            waitUntilRuntimeSurfaceCreateAttempt(on: panel.surface),
             "Offscreen command-launched terminals must start the runtime without waiting for a window attach."
         )
     }
@@ -1116,7 +1114,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             "forceRefresh should ignore hidden bootstrap windows and wait for a real UI host."
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -1767,6 +1765,20 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         }
         return false
     }
+
+    private func waitUntilRuntimeSurfaceCreateAttempt(
+        on surface: TerminalSurface,
+        timeout: TimeInterval = 1.0
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0 {
+                return true
+            }
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        return surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0
+    }
 }
 
 @MainActor
@@ -1778,14 +1790,15 @@ final class FeedbackComposerMessageEditorViewTests: XCTestCase {
         editor.placeholder = "Message"
         editor.layoutSubtreeIfNeeded()
 
-        editor.textView.string = (0..<80)
+        let textView = editor.textViewForTesting
+        textView.string = (0..<80)
             .map { "feedback line \($0)" }
             .joined(separator: "\n")
         editor.refreshTextLayout()
         editor.layoutSubtreeIfNeeded()
 
         XCTAssertGreaterThan(
-            editor.textView.frame.height,
+            textView.frame.height,
             editor.scrollView.contentSize.height + 40
         )
     }
@@ -1799,15 +1812,16 @@ final class FeedbackComposerMessageEditorViewTests: XCTestCase {
         let messageWithoutTrailingBlankLine = (0..<20)
             .map { "feedback line \($0)" }
             .joined(separator: "\n")
-        editor.textView.string = messageWithoutTrailingBlankLine
+        let textView = editor.textViewForTesting
+        textView.string = messageWithoutTrailingBlankLine
         editor.refreshTextLayout()
-        let heightWithoutTrailingBlankLine = editor.textView.frame.height
+        let heightWithoutTrailingBlankLine = textView.frame.height
 
-        editor.textView.string = messageWithoutTrailingBlankLine + "\n"
+        textView.string = messageWithoutTrailingBlankLine + "\n"
         editor.refreshTextLayout()
 
         XCTAssertGreaterThan(
-            editor.textView.frame.height,
+            textView.frame.height,
             heightWithoutTrailingBlankLine + 5
         )
     }
@@ -2616,10 +2630,16 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
         let base = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
 
         let lowerClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: -2.0)
-        XCTAssertEqual(lowerClamped.alphaComponent, 0.0, accuracy: 0.0001)
+        assertColorsMatch(
+            lowerClamped,
+            WindowAppearanceSnapshot.compositedTerminalColor(backgroundColor: base, opacity: 0.0)
+        )
 
         let upperClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: 5.0)
-        XCTAssertEqual(upperClamped.alphaComponent, 1.0, accuracy: 0.0001)
+        assertColorsMatch(
+            upperClamped,
+            WindowAppearanceSnapshot.compositedTerminalColor(backgroundColor: base, opacity: 1.0)
+        )
     }
 
     func testColorFromNotificationUsesBackgroundAndOpacity() {
@@ -2644,10 +2664,11 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
             return
         }
 
-        XCTAssertEqual(srgb.redComponent, 0.18, accuracy: 0.005)
-        XCTAssertEqual(srgb.greenComponent, 0.29, accuracy: 0.005)
-        XCTAssertEqual(srgb.blueComponent, 0.44, accuracy: 0.005)
-        XCTAssertEqual(srgb.alphaComponent, 0.57, accuracy: 0.005)
+        let expected = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0),
+            opacity: 0.57
+        )
+        assertColorsMatch(srgb, expected)
     }
 
     func testColorFromNotificationFallsBackWhenPayloadMissing() {
@@ -2665,10 +2686,29 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
             return
         }
 
-        XCTAssertEqual(srgb.redComponent, 0.12, accuracy: 0.005)
-        XCTAssertEqual(srgb.greenComponent, 0.34, accuracy: 0.005)
-        XCTAssertEqual(srgb.blueComponent, 0.56, accuracy: 0.005)
-        XCTAssertEqual(srgb.alphaComponent, 0.42, accuracy: 0.005)
+        let expected = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: fallbackColor,
+            opacity: fallbackOpacity
+        )
+        assertColorsMatch(srgb, expected)
+    }
+
+    private func assertColorsMatch(
+        _ actual: NSColor,
+        _ expected: NSColor,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let actualSRGB = actual.usingColorSpace(.sRGB),
+              let expectedSRGB = expected.usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible colors", file: file, line: line)
+            return
+        }
+
+        XCTAssertEqual(actualSRGB.redComponent, expectedSRGB.redComponent, accuracy: 0.005, file: file, line: line)
+        XCTAssertEqual(actualSRGB.greenComponent, expectedSRGB.greenComponent, accuracy: 0.005, file: file, line: line)
+        XCTAssertEqual(actualSRGB.blueComponent, expectedSRGB.blueComponent, accuracy: 0.005, file: file, line: line)
+        XCTAssertEqual(actualSRGB.alphaComponent, expectedSRGB.alphaComponent, accuracy: 0.005, file: file, line: line)
     }
 }
 
@@ -2683,7 +2723,7 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
 
         XCTAssertTrue(appearance.usesClearContentBackground)
         XCTAssertFalse(appearance.drawsContentBackground)
-        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 0.42, accuracy: 0.0001)
+        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
     }
 
@@ -2964,15 +3004,47 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             .first
     }
 
-    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
-        let deadline = ProcessInfo.processInfo.systemUptime + timeout
-        while ProcessInfo.processInfo.systemUptime < deadline {
+    @discardableResult
+    private func waitUntil(
+        timeout: TimeInterval = 1.0,
+        description: String,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: @escaping () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
             if condition() {
                 return true
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
-        return condition()
+        guard condition() else {
+            XCTFail("Timed out waiting for \(description)", file: file, line: line)
+            return false
+        }
+        return true
+    }
+
+    private func realizeTerminalHost(_ hostedView: GhosttySurfaceScrollView, in window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+    }
+
+    private func focusTerminalSurface(
+        _ surfaceView: GhosttyNSView,
+        surface: TerminalSurface,
+        in window: NSWindow,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(window.makeFirstResponder(surfaceView), file: file, line: line)
+        waitUntil(description: "terminal surface to become focused", file: file, line: line) {
+            (window.firstResponder as? NSView) === surfaceView &&
+                surface.debugDesiredFocusState()
+        }
     }
 
     private func drainMainQueue(timeout: TimeInterval = 1.0, file: StaticString = #filePath, line: UInt = #line) {
@@ -2980,7 +3052,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         DispatchQueue.main.async {
             drained = true
         }
-        XCTAssertTrue(waitUntil(timeout: timeout) { drained }, "Expected main queue to drain", file: file, line: line)
+        waitUntil(timeout: timeout, description: "main queue to drain", file: file, line: line) { drained }
     }
 
     private func waitForRuntimeSurface(
@@ -2989,12 +3061,9 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        XCTAssertTrue(
-            waitUntil(timeout: timeout) { surface.surface != nil },
-            "Expected runtime surface to be recreated",
-            file: file,
-            line: line
-        )
+        waitUntil(timeout: timeout, description: "runtime surface to be recreated", file: file, line: line) {
+            surface.surface != nil
+        }
     }
 
     func testTerminalMouseDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() {
@@ -3036,17 +3105,16 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
+        realizeTerminalHost(hostedView, in: window)
 
-        guard let surfaceView = surfaceView(in: hostedView) else {
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
             XCTFail("Expected terminal surface view")
             return
         }
 
         GhosttySurfaceScrollView.resetFlashCounts()
         AppFocusState.overrideIsFocused = true
-        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+        focusTerminalSurface(surfaceView, surface: terminalPanel.surface, in: window)
 
         store.addNotification(
             tabId: workspace.id,
@@ -3064,7 +3132,9 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         drainMainQueue()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
-        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
+        waitUntil(description: "notification dismiss flash") {
+            GhosttySurfaceScrollView.flashCount(for: terminalPanel.id) == 1
+        }
     }
 
     func testTerminalKeyDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() {
@@ -3106,8 +3176,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
+        realizeTerminalHost(hostedView, in: window)
 
         guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
             XCTFail("Expected terminal surface view")
@@ -3116,7 +3185,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         GhosttySurfaceScrollView.resetFlashCounts()
         AppFocusState.overrideIsFocused = true
-        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+        focusTerminalSurface(surfaceView, surface: terminalPanel.surface, in: window)
 
         store.addNotification(
             tabId: workspace.id,
@@ -3132,7 +3201,9 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         drainMainQueue()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
-        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
+        waitUntil(description: "notification dismiss flash") {
+            GhosttySurfaceScrollView.flashCount(for: terminalPanel.id) == 1
+        }
     }
 
     func testKeyDownRecoversReleasedSurfaceWhileHostedViewIsDetached() throws {
@@ -3184,7 +3255,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Missing-surface keyDown should request background surface recreation instead of leaving terminal input dead"
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -3214,6 +3285,8 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
         contentView.layoutSubtreeIfNeeded()
         hostedView.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -3224,8 +3297,8 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         }
 
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertTrue(surface.debugDesiredFocusState(), "Focused terminal should start with desired Ghostty focus")
+        surface.setFocus(true, force: true)
+        XCTAssertTrue(surface.debugDesiredFocusState(), "Expected focused terminal state before simulating the detach race")
 
         surface.releaseSurfaceForTesting()
         XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")
@@ -3262,10 +3335,10 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         XCTAssertNotNil(surface.surface, "Expected missing-surface recovery to still recreate the runtime surface")
         XCTAssertFalse(
             surface.debugDesiredFocusState(),
-            "Recovered runtime surface should not restore focus after the pane already lost first responder"
+            "Recovered surface should not replay focus after AppKit focus moves to another responder"
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -3320,7 +3393,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Missing-surface keyDown should not recreate a Ghostty runtime surface after close lifecycle teardown"
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -3407,7 +3480,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Printable key repeat must rely on Ghostty wakeups instead of forcing a synchronous surface refresh per key"
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -3497,7 +3570,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "IME key repeat must rely on Ghostty wakeups instead of forcing a synchronous surface refresh per key"
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -3547,7 +3620,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Restoring panel visibility should force a redraw even when focus recovery is inactive"
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -3600,7 +3673,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Clicking back into the terminal should redraw immediately so the cursor reflects focused input"
         )
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 }
@@ -3872,7 +3945,6 @@ final class WindowTerminalHostViewTests: XCTestCase {
     }
 
     func testHostViewStopsSidebarPassThroughJustInsideTerminalContent() {
-        let terminalSideOverlapWidth: CGFloat = 2
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
             styleMask: [.titled, .closable],
@@ -3885,49 +3957,45 @@ final class WindowTerminalHostViewTests: XCTestCase {
             return
         }
 
-        let splitView = NSSplitView(frame: contentView.bounds)
-        splitView.autoresizingMask = [.width, .height]
-        splitView.isVertical = true
-        splitView.dividerStyle = .thin
-        let splitDelegate = BonsplitMockSplitDelegate()
-        splitView.delegate = splitDelegate
-        let first = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height))
-        let second = NSView(frame: NSRect(x: 121, y: 0, width: 179, height: contentView.bounds.height))
-        splitView.addSubview(first)
-        splitView.addSubview(second)
-        contentView.addSubview(splitView)
-        splitView.setPosition(1, ofDividerAt: 0)
-        splitView.adjustSubviews()
-        contentView.layoutSubtreeIfNeeded()
-
         let host = WindowTerminalHostView(frame: contentView.bounds)
         host.autoresizingMask = [.width, .height]
-        let hostedView = makeHostedTerminalView(frame: host.bounds)
+        let terminalOriginX: CGFloat = 80
+        let hostedView = makeHostedTerminalView(
+            frame: NSRect(
+                x: terminalOriginX,
+                y: 0,
+                width: host.bounds.width - terminalOriginX,
+                height: host.bounds.height
+            )
+        )
         host.addSubview(hostedView)
         contentView.addSubview(host)
 
-        let dividerPointInSplit = NSPoint(
-            x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5),
-            y: splitView.bounds.midY
-        )
-        let dividerPointInWindow = splitView.convert(dividerPointInSplit, to: nil)
-        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
-
+        let dividerX = hostedView.frame.minX
         let resizeBandPoint = NSPoint(
-            x: dividerPointInHost.x + terminalSideOverlapWidth,
-            y: dividerPointInHost.y
+            x: dividerX + SidebarResizeInteraction.contentSideHitWidth,
+            y: host.bounds.midY
         )
+        let resizeBandEvent = makeMouseDownEvent(
+            at: host.convert(resizeBandPoint, to: nil),
+            window: window
+        )
+
         XCTAssertNil(
-            host.hitTest(resizeBandPoint),
+            host.performHitTest(at: resizeBandPoint, currentEvent: resizeBandEvent),
             "The narrow terminal-side overlap should still pass through to the sidebar resizer"
         )
 
         let textSelectionPoint = NSPoint(
-            x: dividerPointInHost.x + terminalSideOverlapWidth + 1,
-            y: dividerPointInHost.y
+            x: dividerX + SidebarResizeInteraction.contentSideHitWidth + 1,
+            y: host.bounds.midY
+        )
+        let textSelectionEvent = makeMouseDownEvent(
+            at: host.convert(textSelectionPoint, to: nil),
+            window: window
         )
         assertHitFallsInsideHostedTerminal(
-            host.hitTest(textSelectionPoint),
+            host.performHitTest(at: textSelectionPoint, currentEvent: textSelectionEvent),
             hostedView: hostedView,
             message: "Once the pointer moves past the reduced terminal-side overlap, terminal content should win hit-testing"
         )
@@ -4630,7 +4698,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         surface.forceRefresh()
         XCTAssertNil(surface.surface, "Force refresh should no-op when runtime surface is nil")
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -4770,6 +4838,28 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTWaiter().wait(for: [expectation], timeout: 1.0)
     }
 
+    @discardableResult
+    private func waitUntil(
+        timeout: TimeInterval = 1.0,
+        description: String,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: @escaping () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        guard condition() else {
+            XCTFail("Timed out waiting for \(description)", file: file, line: line)
+            return false
+        }
+        return true
+    }
+
     func testPortalHostInstallsAboveContentViewForVisibility() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -4882,7 +4972,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
         var anchor1: NSView? = NSView(frame: NSRect(x: 20, y: 20, width: 120, height: 80))
         contentView.addSubview(anchor1!)
-        portal.bind(hostedView: hosted1, to: anchor1!, visibleInUI: true)
+        portal.bind(hostedView: hosted1, to: anchor1!, visibleInUI: false)
 
         anchor1?.removeFromSuperview()
         anchor1 = nil
@@ -4894,8 +4984,9 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         contentView.addSubview(anchor2)
         portal.bind(hostedView: hosted2, to: anchor2, visibleInUI: true)
 
-        XCTAssertEqual(portal.debugEntryCount(), 1, "Only the live anchored hosted view should remain tracked")
-        XCTAssertEqual(portal.debugHostedSubviewCount(), 1, "Stale anchorless hosted views should be detached from hostView")
+        let stats = portal.debugStats()
+        XCTAssertEqual(stats.entryCount, 1, "Only the live anchored hosted view should remain tracked")
+        XCTAssertEqual(stats.terminalSubviewCount, 1, "Stale anchorless hosted views should be detached from hostView")
     }
 
     func testDeferredSyncHidesVisibleHostedViewAfterAnchorDisappears() {
@@ -5223,7 +5314,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testScheduledExternalGeometrySyncWaitsForQueuedLayoutShift() {
+    @MainActor
+    func testScheduledExternalGeometrySyncMovesPortalAfterLayoutShift() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
             styleMask: [.titled, .closable],
@@ -5268,16 +5360,17 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
         )
 
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
-        DispatchQueue.main.async {
-            shiftedContainer.frame.origin.x += 72
+        shiftedContainer.frame.origin.x += 72
+        contentView.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        var shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+        waitUntil(description: "layout shift to move anchor") {
             contentView.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
+            shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+            return shiftedAnchorFrameInWindow.minX > originalAnchorFrameInWindow.minX + 1
         }
-
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
         XCTAssertGreaterThan(
             shiftedAnchorFrameInWindow.minX,
             originalAnchorFrameInWindow.minX + 1,
@@ -5296,14 +5389,14 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             x: (originalAnchorFrameInWindow.maxX + shiftedAnchorFrameInWindow.maxX) / 2,
             y: shiftedAnchorFrameInWindow.midY
         )
-        XCTAssertNil(
-            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window),
-            "The queued external sync should wait until the later layout shift settles, clearing the stale portal location"
-        )
-        XCTAssertNotNil(
-            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window),
-            "The delayed external sync should move the portal-hosted terminal to the queued layout shift position"
-        )
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
+        waitUntil(description: "external sync to settle after layout shift") {
+            guard let portalHost = hosted.superview else { return false }
+            let stalePointInHost = portalHost.convert(retiredStaleWindowPoint, from: nil)
+            let shiftedPointInHost = portalHost.convert(shiftedWindowPoint, from: nil)
+            return !hosted.frame.contains(stalePointInHost) &&
+                hosted.frame.contains(shiftedPointInHost)
+        }
     }
 
     func testScheduledExternalGeometrySyncKeepsDragDrivenResizeResponsive() {

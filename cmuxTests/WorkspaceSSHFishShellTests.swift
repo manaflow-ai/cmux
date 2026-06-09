@@ -324,11 +324,21 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             return item.path
         }
 
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        throw bundledCLINotFoundError(appBundleURL: appBundleURL)
     }
 
     private func requireExecutable(_ candidates: [String], name: String) throws -> String {
-        guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { throw XCTSkip("\(name) is not installed") }
+        guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+            let message = "\(name) is not installed"
+            let environment = ProcessInfo.processInfo.environment
+            if environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true" {
+                XCTFail("\(message); hosted CI must exercise SSH bootstrap fish shell coverage")
+                throw NSError(domain: "cmux.tests", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: message,
+                ])
+            }
+            throw XCTSkip(message)
+        }
         return path
     }
 
@@ -394,7 +404,14 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
-        guard path.utf8.count < maxPathLength else { Darwin.close(fd); throw XCTSkip("Unix socket path too long for sockaddr_un: \(path)") }
+        guard path.utf8.count < maxPathLength else {
+            Darwin.close(fd)
+            let message = "Unix socket path too long for sockaddr_un: \(path)"
+            XCTFail(message)
+            throw NSError(domain: "cmux.tests", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
+        }
         path.withCString { ptr in
             withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
                 let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)

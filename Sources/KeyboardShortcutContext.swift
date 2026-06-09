@@ -110,6 +110,11 @@ extension AppDelegate {
     }
 
     func shortcutEventFocusContext(_ event: NSEvent) -> ShortcutEventFocusContext {
+#if DEBUG
+        if let debugShortcutEventFocusContextOverride {
+            return debugShortcutEventFocusContextOverride
+        }
+#endif
         if let cache = shortcutEventFocusContextCache, cache.event === event {
             return cache.context
         }

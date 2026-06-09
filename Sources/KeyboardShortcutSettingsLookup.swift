@@ -10,12 +10,13 @@ extension KeyboardShortcutSettings {
             return managedShortcut.isUnbound ? nil : managedShortcut
         }
 
-        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            let defaultShortcut = action.defaultShortcut
-            return defaultShortcut.isUnbound ? nil : defaultShortcut
+        if let data = UserDefaults.standard.data(forKey: action.defaultsKey),
+           let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) {
+            return shortcut.isUnbound ? nil : shortcut
         }
-        return shortcut.isUnbound ? nil : shortcut
+
+        let defaultShortcut = action.defaultShortcut
+        return defaultShortcut.isUnbound ? nil : defaultShortcut
     }
 
     static func shortcut(for action: Action) -> StoredShortcut {

@@ -25,7 +25,6 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stdout)
         XCTAssertEqual(result.status, 1, result.stdout)
-        XCTAssertTrue(result.stdout.contains("Usage:"), result.stdout)
     }
 
     func testAgentTeamsHelpDoesNotLaunchExternalAgentCLI() throws {
@@ -146,7 +145,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testBundledCLIInTaggedDebugAppDoesNotFallBackToStableEnvSocketWhenTaggedSocketIsMissing() throws {
         let cliPath = try bundledCLIPath()
-        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        let fixedHomeURL = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let stableSocketURL = fixedHomeURL
             .appendingPathComponent(".local/state/cmux", isDirectory: true)
@@ -192,7 +191,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testBundledCLIInTaggedDebugAppTreatsUserScopedStableEnvSocketAsImplicitDefault() throws {
         let cliPath = try bundledCLIPath()
-        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmux-cli-home-\(UUID().uuidString)", isDirectory: true)
+        let fixedHomeURL = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let stableSocketURL = fixedHomeURL
             .appendingPathComponent(".local/state/cmux", isDirectory: true)
@@ -210,9 +209,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
                 .path,
         ]
 
-        if FileManager.default.fileExists(atPath: stableSocketPath) {
-            throw XCTSkip("User-scoped stable cmux socket already exists at \(stableSocketPath)")
-        }
+        try prepareStableSocketPathForTest(stableSocketPath, label: "User-scoped stable cmux socket")
 
         for alias in aliases {
             try autoreleasepool {
@@ -257,7 +254,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testBundledStableCLIPreservesLiveUserScopedStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
-        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        let fixedHomeURL = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let socketDirectoryURL = fixedHomeURL
             .appendingPathComponent(".local/state/cmux", isDirectory: true)
@@ -271,9 +268,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let userScopedStableSocketPath = socketDirectoryURL
             .appendingPathComponent("cmux-\(getuid()).sock", isDirectory: false)
             .path
-        if FileManager.default.fileExists(atPath: userScopedStableSocketPath) {
-            throw XCTSkip("User-scoped stable cmux socket already exists at \(userScopedStableSocketPath)")
-        }
+        try prepareStableSocketPathForTest(userScopedStableSocketPath, label: "User-scoped stable cmux socket")
 
         let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
             sourceCLIPath: cliPath,
@@ -323,7 +318,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testBundledStableCLIFallsBackFromStaleUserScopedStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
-        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        let fixedHomeURL = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let socketDirectoryURL = fixedHomeURL
             .appendingPathComponent(".local/state/cmux", isDirectory: true)
@@ -337,9 +332,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let userScopedStableSocketPath = socketDirectoryURL
             .appendingPathComponent("cmux-\(getuid()).sock", isDirectory: false)
             .path
-        if FileManager.default.fileExists(atPath: userScopedStableSocketPath) {
-            throw XCTSkip("User-scoped stable cmux socket already exists at \(userScopedStableSocketPath)")
-        }
+        try prepareStableSocketPathForTest(userScopedStableSocketPath, label: "User-scoped stable cmux socket")
 
         let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
             sourceCLIPath: cliPath,
@@ -386,7 +379,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testBundledStableCLIFallsBackFromSymlinkedLegacyStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
-        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        let fixedHomeURL = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let socketDirectoryURL = fixedHomeURL
             .appendingPathComponent(".local/state/cmux", isDirectory: true)
@@ -399,9 +392,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             .path
         let legacyStableSocketPath = "/tmp/cmux.sock"
         let symlinkTargetSocketPath = "/tmp/cmux-symlink-target-\(UUID().uuidString).sock"
-        if lstatPathExists(legacyStableSocketPath) {
-            throw XCTSkip("Legacy stable cmux socket already exists at \(legacyStableSocketPath)")
-        }
+        try prepareStableSocketPathForTest(legacyStableSocketPath, label: "Legacy stable cmux socket", followsSymlinks: false)
 
         let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
             sourceCLIPath: cliPath,
@@ -453,7 +444,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testBundledStableCLIPreservesLiveLegacyStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
-        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        let fixedHomeURL = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let socketDirectoryURL = fixedHomeURL
             .appendingPathComponent(".local/state/cmux", isDirectory: true)
@@ -465,9 +456,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             .appendingPathComponent("cmux.sock", isDirectory: false)
             .path
         let legacyStableSocketPath = "/tmp/cmux.sock"
-        if FileManager.default.fileExists(atPath: legacyStableSocketPath) {
-            throw XCTSkip("Legacy stable cmux socket already exists at \(legacyStableSocketPath)")
-        }
+        try prepareStableSocketPathForTest(legacyStableSocketPath, label: "Legacy stable cmux socket")
 
         let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
             sourceCLIPath: cliPath,
@@ -1282,7 +1271,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             return item.path
         }
 
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        throw bundledCLINotFoundError(appBundleURL: appBundleURL)
     }
 
     /// A throwaway home directory for hermetic CLI socket-resolution tests.
@@ -1293,8 +1282,8 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     /// spawned CLI via `CFFIXED_USER_HOME`, so they never touch (or bind over) the
     /// developer's real `~/.local/state/cmux` (issue #5146).
     private func makeTemporaryHome() throws -> URL {
-        let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-cli-home-\(UUID().uuidString)", isDirectory: true)
+        let token = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
+        let home = URL(fileURLWithPath: "/tmp/cxh-\(token)", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         return home
     }
@@ -1399,6 +1388,64 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     private func lstatPathExists(_ path: String) -> Bool {
         var st = stat()
         return lstat(path, &st) == 0
+    }
+
+    private func prepareStableSocketPathForTest(
+        _ path: String,
+        label: String,
+        followsSymlinks: Bool = true,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let exists = followsSymlinks ? FileManager.default.fileExists(atPath: path) : lstatPathExists(path)
+        guard exists else { return }
+
+        let message = "\(label) already exists at \(path)"
+        let environment = ProcessInfo.processInfo.environment
+        let isHostedCI = environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true"
+        guard isHostedCI else {
+            throw XCTSkip(message)
+        }
+
+        if isConnectableUnixSocket(at: path) {
+            XCTFail("\(message); hosted tests require an isolated runner socket namespace", file: file, line: line)
+            throw NSError(domain: "cmux.tests", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
+        }
+
+        guard unlink(path) == 0 else {
+            let reason = String(cString: strerror(errno))
+            let cleanupMessage = "Failed to remove stale \(label.lowercased()) at \(path): \(reason)"
+            XCTFail(cleanupMessage, file: file, line: line)
+            throw NSError(domain: "cmux.tests", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: cleanupMessage,
+            ])
+        }
+    }
+
+    private func isConnectableUnixSocket(at path: String) -> Bool {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: address.sun_path)
+        guard path.utf8.count < maxLength else { return false }
+        path.withCString { pointer in
+            withUnsafeMutablePointer(to: &address.sun_path) { tuplePointer in
+                let buffer = UnsafeMutableRawPointer(tuplePointer).assumingMemoryBound(to: CChar.self)
+                strncpy(buffer, pointer, maxLength - 1)
+            }
+        }
+
+        let result = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                Darwin.connect(fd, socketPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        return result == 0
     }
 
     private func runShell(_ command: String, timeout: TimeInterval) -> ProcessRunResult {

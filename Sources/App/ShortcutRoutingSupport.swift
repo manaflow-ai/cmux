@@ -2,6 +2,154 @@ import AppKit
 import Bonsplit
 import Foundation
 
+enum SplitShortcutTargetSource: Equatable {
+    case focusedTerminal
+    case activeSelection
+}
+
+struct SplitShortcutTarget: Equatable {
+    let workspaceId: UUID
+    let panelId: UUID
+    let source: SplitShortcutTargetSource
+}
+
+func splitShortcutTarget(
+    focusedTerminalWorkspaceId: UUID?,
+    focusedTerminalPanelId: UUID?,
+    activeWorkspaceId: UUID?,
+    activeFocusedPanelId: UUID?
+) -> SplitShortcutTarget? {
+    if let focusedTerminalWorkspaceId, let focusedTerminalPanelId {
+        return SplitShortcutTarget(
+            workspaceId: focusedTerminalWorkspaceId,
+            panelId: focusedTerminalPanelId,
+            source: .focusedTerminal
+        )
+    }
+    if let activeWorkspaceId, let activeFocusedPanelId {
+        return SplitShortcutTarget(
+            workspaceId: activeWorkspaceId,
+            panelId: activeFocusedPanelId,
+            source: .activeSelection
+        )
+    }
+    return nil
+}
+
+@discardableResult
+func performConfirmedCloseWindowShortcut<Window>(
+    targetWindow: Window?,
+    confirm: (Window) -> Bool,
+    close: (Window) -> Void,
+    missingTarget: () -> Void = {}
+) -> Bool {
+    guard let targetWindow else {
+        missingTarget()
+        return true
+    }
+    guard confirm(targetWindow) else { return true }
+    close(targetWindow)
+    return true
+}
+
+func shouldMarkExplicitCloseForLastSurfaceShortcut(
+    closesWorkspaceOnLastSurfaceShortcut: Bool,
+    panelCount: Int,
+    panelExists: Bool
+) -> Bool {
+    closesWorkspaceOnLastSurfaceShortcut && panelCount <= 1 && panelExists
+}
+
+enum WorkspaceCloseDestination: Equatable {
+    case window
+    case workspace
+}
+
+func workspaceCloseDestination(workspaceCount: Int) -> WorkspaceCloseDestination {
+    workspaceCount <= 1 ? .window : .workspace
+}
+
+func shouldBypassShortcutRoutingForUnresolvedEventWindow(
+    hasEventWindowContext: Bool,
+    didSynchronizeShortcutContext: Bool,
+    allowsFocusedCloseShortcutFallback: Bool
+) -> Bool {
+    hasEventWindowContext && !didSynchronizeShortcutContext && !allowsFocusedCloseShortcutFallback
+}
+
+enum ShortcutRoutingContextSelectionReason: String, Equatable {
+    case debugPreferredWindow = "debug_preferred_window"
+    case eventWindow = "event_window"
+    case eventContextRequiredNoFallback = "event_context_required_no_fallback"
+    case keyWindow = "key_window"
+    case mainWindow = "main_window"
+    case activeManager = "active_manager"
+    case fallbackFirstContext = "fallback_first_context"
+}
+
+struct ShortcutRoutingContextSelection: Equatable {
+    let windowId: UUID?
+    let reason: ShortcutRoutingContextSelectionReason
+}
+
+func selectShortcutRoutingContextAfterEventResolution(
+    debugPreferredWindowId: UUID?,
+    eventWindowId: UUID?,
+    hasAddressableEventWindow: Bool,
+    eventWindowAllowsFallback: Bool,
+    keyWindowId: UUID?,
+    mainWindowId: UUID?,
+    activeManagerWindowId: UUID?,
+    fallbackWindowId: UUID?
+) -> ShortcutRoutingContextSelection {
+    if let debugPreferredWindowId {
+        return ShortcutRoutingContextSelection(
+            windowId: debugPreferredWindowId,
+            reason: .debugPreferredWindow
+        )
+    }
+
+    if let eventWindowId {
+        return ShortcutRoutingContextSelection(
+            windowId: eventWindowId,
+            reason: .eventWindow
+        )
+    }
+
+    if hasAddressableEventWindow && !eventWindowAllowsFallback {
+        return ShortcutRoutingContextSelection(
+            windowId: nil,
+            reason: .eventContextRequiredNoFallback
+        )
+    }
+
+    if let keyWindowId {
+        return ShortcutRoutingContextSelection(
+            windowId: keyWindowId,
+            reason: .keyWindow
+        )
+    }
+
+    if let mainWindowId {
+        return ShortcutRoutingContextSelection(
+            windowId: mainWindowId,
+            reason: .mainWindow
+        )
+    }
+
+    if let activeManagerWindowId {
+        return ShortcutRoutingContextSelection(
+            windowId: activeManagerWindowId,
+            reason: .activeManager
+        )
+    }
+
+    return ShortcutRoutingContextSelection(
+        windowId: fallbackWindowId,
+        reason: .fallbackFirstContext
+    )
+}
+
 func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
     flags: NSEvent.ModifierFlags,
@@ -330,6 +478,30 @@ func shouldRouteCommandPaletteSelectionNavigation(
     return !usesInlineTextHandling
 }
 
+func shouldBypassCommandPaletteEscapeForMarkedText(
+    isCommandPaletteEffectivelyVisible: Bool,
+    hasMarkedTextInput: Bool
+) -> Bool {
+    isCommandPaletteEffectivelyVisible && hasMarkedTextInput
+}
+
+enum CommandPaletteEscapeTargetResolution: Equatable {
+    case targetWindow
+    case activePaletteWindow
+    case none
+}
+
+func commandPaletteEscapeTargetResolution(
+    hasTargetWindow: Bool,
+    targetWindowIsEffective: Bool,
+    hasActivePaletteWindow: Bool
+) -> CommandPaletteEscapeTargetResolution {
+    if hasTargetWindow {
+        return targetWindowIsEffective ? .targetWindow : .none
+    }
+    return hasActivePaletteWindow ? .activePaletteWindow : .none
+}
+
 func shouldConsumeShortcutWhileCommandPaletteVisible(
     isCommandPaletteVisible: Bool,
     normalizedFlags: NSEvent.ModifierFlags,
@@ -418,6 +590,50 @@ func shouldHandleCommandPaletteShortcutEvent(
         return keyWindow === paletteWindow
     }
     return false
+}
+
+func selectFocusedCloseShortcutTarget<Window>(
+    debugFocusedWindow: Window?,
+    keyWindow: Window?,
+    mainWindow: Window?,
+    orderedWindows: [Window],
+    eventWindow: Window?
+) -> Window? {
+    if let debugFocusedWindow {
+        return debugFocusedWindow
+    }
+    if let keyWindow {
+        return keyWindow
+    }
+    if let mainWindow {
+        return mainWindow
+    }
+    if let orderedWindow = orderedWindows.first {
+        return orderedWindow
+    }
+    return eventWindow
+}
+
+func selectAuxiliaryCloseShortcutTarget<Window>(
+    debugWindow: Window?,
+    keyWindow: Window?,
+    mainWindow: Window?,
+    eventWindow: Window?,
+    ownsCloseShortcut: (Window) -> Bool
+) -> Window? {
+    if let debugWindow, ownsCloseShortcut(debugWindow) {
+        return debugWindow
+    }
+    if let keyWindow, ownsCloseShortcut(keyWindow) {
+        return keyWindow
+    }
+    if let mainWindow, ownsCloseShortcut(mainWindow) {
+        return mainWindow
+    }
+    if let eventWindow, ownsCloseShortcut(eventWindow) {
+        return eventWindow
+    }
+    return nil
 }
 
 enum BrowserZoomShortcutAction: Equatable {

@@ -43,8 +43,10 @@ public actor RenderWorkerClient {
     private var child: RenderChild?
     private var generation = 0
     private var nextSceneSeq: UInt64 = 1
-    /// Highest scene seq we are still waiting on an ack for, with its watchdog.
-    private var pendingAckSeq: UInt64?
+    /// Outstanding scene acks. A single watchdog follows the oldest pending
+    /// seq so sidebar churn cannot create an unbounded number of tasks.
+    private var pendingAckSeqs: Set<UInt64> = []
+    private var watchedAckSeq: UInt64?
     private var ackWatchdog: Task<Void, Never>?
     /// Replayed on every (re)spawn so the worker can rebuild the current view.
     private var lastScene: RenderScene?
@@ -171,35 +173,47 @@ public actor RenderWorkerClient {
         }
     }
 
-    /// Arms (or extends) the hang watchdog for `seq`.
+    /// Tracks `seq` and arms the bounded hang watchdog if needed.
     ///
-    /// Bounded, cancellable deadline (mirrors ``InterpreterClient``'s render
-    /// watchdog): if the worker hasn't acked by `ackTimeout` it is hung —
-    /// discard it so the next scene update relaunches a fresh one. Cancelled
-    /// by the matching ack; not a poll.
+    /// Bounded, cancellable deadline: if the oldest pending scene has not been
+    /// acked by `ackTimeout`, the worker is treated as hung and discarded. One
+    /// watchdog task covers all pending acks so a stuck worker cannot amplify
+    /// rapid scene updates into task growth.
     private func armAckWatchdog(for seq: UInt64) {
-        pendingAckSeq = seq
-        guard ackWatchdog == nil else { return } // oldest deadline stands
+        pendingAckSeqs.insert(seq)
+        guard ackWatchdog == nil else { return }
+        armNextAckWatchdog()
+    }
+
+    private func armNextAckWatchdog() {
+        guard let seq = pendingAckSeqs.min() else {
+            watchedAckSeq = nil
+            ackWatchdog = nil
+            return
+        }
+        watchedAckSeq = seq
         ackWatchdog = Task { [weak self, ackTimeout] in
             try? await Task.sleep(for: ackTimeout)
             guard !Task.isCancelled, let self else { return }
-            await self.ackDeadlineExpired()
+            await self.ackDeadlineExpired(seq: seq)
         }
     }
 
-    private func ackDeadlineExpired() {
+    private func ackDeadlineExpired(seq: UInt64) {
+        guard watchedAckSeq == seq, pendingAckSeqs.remove(seq) != nil else { return }
+        watchedAckSeq = nil
         ackWatchdog = nil
-        guard pendingAckSeq != nil else { return }
-        pendingAckSeq = nil
         discardWorker()
     }
 
     private func acked(_ seq: UInt64, generation gen: Int) {
         guard gen == generation else { return }
-        guard let pending = pendingAckSeq, seq >= pending else { return }
-        pendingAckSeq = nil
+        guard pendingAckSeqs.remove(seq) != nil else { return }
+        guard watchedAckSeq == seq else { return }
         ackWatchdog?.cancel()
         ackWatchdog = nil
+        watchedAckSeq = nil
+        armNextAckWatchdog()
     }
 
     // MARK: - Worker lifecycle
@@ -214,9 +228,7 @@ public actor RenderWorkerClient {
     private func launch() throws -> LengthPrefixedMessageChannel {
         generation &+= 1
         let gen = generation
-        pendingAckSeq = nil
-        ackWatchdog?.cancel()
-        ackWatchdog = nil
+        cancelAckWatchdogs()
 
         let process = Process()
         process.executableURL = executableURL
@@ -300,9 +312,7 @@ public actor RenderWorkerClient {
     private func discardWorker() {
         child?.process.terminate()
         child = nil
-        ackWatchdog?.cancel()
-        ackWatchdog = nil
-        pendingAckSeq = nil
+        cancelAckWatchdogs()
         currentContextId = nil // the layer died with the worker
         Task { @MainActor [contextCache] in contextCache.contextId = nil }
     }
@@ -310,11 +320,16 @@ public actor RenderWorkerClient {
     private func workerEnded(generation gen: Int) {
         guard gen == generation else { return }
         child = nil
-        ackWatchdog?.cancel()
-        ackWatchdog = nil
-        pendingAckSeq = nil
+        cancelAckWatchdogs()
         currentContextId = nil // the layer died with the worker
         Task { @MainActor [contextCache] in contextCache.contextId = nil }
+    }
+
+    private func cancelAckWatchdogs() {
+        ackWatchdog?.cancel()
+        ackWatchdog = nil
+        watchedAckSeq = nil
+        pendingAckSeqs.removeAll()
     }
 }
 

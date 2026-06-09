@@ -126,7 +126,7 @@ final class WindowTerminalHostView: NSView {
         let eventType = routingContext.eventType
 
         if routingContext.allowsPortalPointerHitTesting {
-            if shouldPassThroughToTitlebar(at: point) {
+            if shouldPassThroughToTitlebar(at: point), hostedTerminalHitView(at: point) == nil {
                 clearActiveDividerCursor(restoreArrow: false)
                 return nil
             }
@@ -218,9 +218,6 @@ final class WindowTerminalHostView: NSView {
             eventType: eventType
         ) else { return false }
         guard decision.result else { return false }
-        if decision.registryHit {
-            return true
-        }
         return hostedTerminalHitView(at: point) == nil
     }
 
@@ -228,10 +225,12 @@ final class WindowTerminalHostView: NSView {
         for subview in subviews.reversed() {
             guard let hostedView = subview as? GhosttySurfaceScrollView,
                   !hostedView.isHidden,
-                  hostedView.alphaValue > 0,
-                  hostedView.frame.contains(point) else { continue }
+                  hostedView.alphaValue > 0 else { continue }
 
-            return hostedView.hitTest(point) ?? hostedView
+            let pointInHostedView = hostedView.convert(point, from: self)
+            guard hostedView.bounds.contains(pointInHostedView) else { continue }
+
+            return hostedView.hitTest(pointInHostedView) ?? hostedView
         }
         return nil
     }
@@ -1109,8 +1108,11 @@ final class WindowTerminalPortal: NSObject {
             "anchor=\(portalDebugToken(entry.anchorView)) hadSuperview=\(hadSuperview)"
         )
 #endif
-        if let hostedView = entry.hostedView, hostedView.superview === hostView {
-            hostedView.removeFromSuperview()
+        if let hostedView = entry.hostedView {
+            hostedView.isHidden = true
+            if hostedView.superview === hostView {
+                hostedView.removeFromSuperview()
+            }
         }
     }
 
@@ -1678,9 +1680,11 @@ final class WindowTerminalPortal: NSObject {
                 return entry.visibleInUI ? nil : hostedId
             }
 
+            if anchor.superview == nil {
+                return entry.visibleInUI ? nil : hostedId
+            }
             let anchorInvalidForCurrentHost =
                 anchor.window !== currentWindow ||
-                anchor.superview == nil ||
                 (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false)
             if anchorInvalidForCurrentHost {
                 // During aggressive tab drag/reorder churn, SwiftUI/AppKit can briefly
@@ -1699,6 +1703,16 @@ final class WindowTerminalPortal: NSObject {
             entry.anchorView.map { ObjectIdentifier($0) }
         })
         hostedByAnchorId = hostedByAnchorId.filter { validAnchorIds.contains($0.key) }
+
+        let validHostedIds = Set(entriesByHostedId.keys)
+        for subview in hostView.subviews {
+            guard let hostedView = subview as? GhosttySurfaceScrollView,
+                  !validHostedIds.contains(ObjectIdentifier(hostedView)) else {
+                continue
+            }
+            hostedView.isHidden = true
+            hostedView.removeFromSuperview()
+        }
     }
 
     func hostedIds() -> Set<ObjectIdentifier> {

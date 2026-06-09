@@ -9,12 +9,72 @@ struct SettingCatalogTests {
         #expect(ids.count == Set(ids).count)
     }
 
-    @Test func userDefaultsStorageKeysAreUnique() {
-        let keys = SettingCatalog().all.compactMap { entry -> String? in
-            if case let .userDefaults(key, _, _) = entry.kind { return key }
-            return nil
+    @Test func userDefaultsStorageKeysAreUniqueExceptDocumentedAliases() {
+        let documentedAliases: [String: Set<String>] = [
+            "claudeCodeHooksEnabled": [
+                "automation.claudeCodeIntegration",
+                "integrations.claudeCode.hooksEnabled",
+            ],
+            "claudeCodeCustomClaudePath": [
+                "automation.claudeBinaryPath",
+                "integrations.claudeCode.customClaudePath",
+            ],
+            "ampHooksEnabled": [
+                "automation.ampIntegration",
+                "integrations.amp.hooksEnabled",
+            ],
+            "cursorHooksEnabled": [
+                "automation.cursorIntegration",
+                "integrations.cursor.hooksEnabled",
+            ],
+            "geminiHooksEnabled": [
+                "automation.geminiIntegration",
+                "integrations.gemini.hooksEnabled",
+            ],
+            "kiroHooksEnabled": [
+                "automation.kiroIntegration",
+                "integrations.kiro.hooksEnabled",
+            ],
+            "kiroNotificationLevel": [
+                "automation.kiroNotificationLevel",
+                "integrations.kiro.notificationLevel",
+            ],
+            "ripgrepCustomBinaryPath": [
+                "automation.ripgrepBinaryPath",
+                "integrations.ripgrep.customBinaryPath",
+            ],
+            "sidebarActiveTabIndicatorStyle": [
+                "sidebar.activeTabIndicatorStyle",
+                "workspaceColors.indicatorStyle",
+            ],
+            "sidebarSelectionColorHex": [
+                "sidebar.selectionColor",
+                "workspaceColors.selectionColor",
+            ],
+            "sidebarNotificationBadgeColorHex": [
+                "sidebar.notificationBadgeColor",
+                "workspaceColors.notificationBadgeColor",
+            ],
+            "suppressSubagentNotifications": [
+                "automation.suppressSubagentNotifications",
+                "integrations.suppressSubagentNotifications",
+            ],
+        ]
+        var idsByStorageKey: [String: [String]] = [:]
+        for entry in SettingCatalog().all {
+            if case let .userDefaults(storageKey, _, _) = entry.kind {
+                idsByStorageKey[storageKey, default: []].append(entry.id)
+            }
         }
-        #expect(keys.count == Set(keys).count)
+
+        for (storageKey, ids) in idsByStorageKey {
+            let idSet = Set(ids)
+            if ids.count > 1 {
+                #expect(idSet == documentedAliases[storageKey])
+            } else {
+                #expect(documentedAliases[storageKey] == nil)
+            }
+        }
     }
 
     @Test func jsonBackedKeysUseTheirIdAsPath() {

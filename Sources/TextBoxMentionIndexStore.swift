@@ -98,16 +98,16 @@ actor TextBoxMentionIndexStore {
             .map { $0.suggestion(trigger: query.trigger) }
         }
 
-        let index = await fileIndex(rootDirectory: rootDirectory, now: now)
+        let cachedLookup = await fileIndex(rootDirectory: rootDirectory, now: now)
         if Task.isCancelled { return [] }
 
-        var matches = index.rankedCandidates(
+        var matches = cachedLookup.index.rankedCandidates(
             matching: query.query,
             limit: Self.suggestionLimit,
             shouldCancel: { Task.isCancelled }
         )
         if Task.isCancelled { return [] }
-        if matches.isEmpty {
+        if matches.isEmpty && !cachedLookup.refreshed {
             let refreshed = await refreshFileIndex(
                 rootDirectory: rootDirectory,
                 now: Date(),
@@ -151,11 +151,11 @@ actor TextBoxMentionIndexStore {
     private func fileIndex(
         rootDirectory: String,
         now: Date
-    ) async -> TextBoxMentionCandidateIndex {
+    ) async -> (index: TextBoxMentionCandidateIndex, refreshed: Bool) {
         if let cachedIndex = cachedFileIndex(rootDirectory: rootDirectory, now: now) {
-            return cachedIndex
+            return (cachedIndex, false)
         }
-        return await refreshFileIndex(rootDirectory: rootDirectory, now: now)
+        return (await refreshFileIndex(rootDirectory: rootDirectory, now: now), true)
     }
 
     private func refreshFileIndex(

@@ -11,9 +11,6 @@ import LocalAuthentication
 #if canImport(Security)
 import Security
 #endif
-#if canImport(Sentry)
-import Sentry
-#endif
 
 struct CLIError: Error, CustomStringConvertible {
     let message: String
@@ -48,273 +45,11 @@ private enum CLISocketEnvironment {
 }
 
 private final class CLISocketSentryTelemetry {
-    private struct PendingBreadcrumb {
-        let message: String
-        let data: [String: Any]
-    }
+    init(command: String, commandArgs: [String], socketPath: String, processEnv: [String: String]) {}
 
-    private let command: String
-    private let subcommand: String
-    private let socketPath: String
-    private let envSocketPath: String?
-    private let processEnv: [String: String]
-    private let workspaceId: String?
-    private let surfaceId: String?
-    private let disabledByEnv: Bool
-    private var pendingBreadcrumbs: [PendingBreadcrumb] = []
+    func breadcrumb(_ message: String, data: [String: Any] = [:]) {}
 
-#if canImport(Sentry)
-    private static let startupLock = NSLock()
-    private static var started = false
-    private static let dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
-
-    private static func currentSentryReleaseName() -> String? {
-        guard let bundleIdentifier = currentSentryBundleIdentifier(),
-              let version = currentBundleVersionValue(forKey: "CFBundleShortVersionString"),
-              let build = currentBundleVersionValue(forKey: "CFBundleVersion")
-        else {
-            return nil
-        }
-        return "\(bundleIdentifier)@\(version)+\(build)"
-    }
-
-    private static func currentSentryBundleIdentifier() -> String? {
-        if let bundleIdentifier = ProcessInfo.processInfo.environment["CMUX_BUNDLE_ID"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !bundleIdentifier.isEmpty {
-            return bundleIdentifier
-        }
-
-        if let bundleIdentifier = currentSentryBundle()?.bundleIdentifier?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !bundleIdentifier.isEmpty {
-            return bundleIdentifier
-        }
-
-        return nil
-    }
-
-    private static func currentBundleVersionValue(forKey key: String) -> String? {
-        guard let value = currentSentryBundle()?.infoDictionary?[key] as? String else {
-            return nil
-        }
-
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !trimmed.contains("$(") else {
-            return nil
-        }
-        return trimmed
-    }
-
-    private static func currentSentryBundle() -> Bundle? {
-        if Bundle.main.bundleIdentifier?.isEmpty == false {
-            return Bundle.main
-        }
-
-        if let bundle = CLIExecutableLocator.enclosingAppBundle() {
-            return bundle
-        }
-
-        return Bundle.main
-    }
-
-#endif
-
-    init(command: String, commandArgs: [String], socketPath: String, processEnv: [String: String]) {
-        self.command = command.lowercased()
-        self.subcommand = commandArgs.first?.lowercased() ?? "help"
-        self.socketPath = socketPath
-        self.envSocketPath = CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
-        self.processEnv = processEnv
-        self.workspaceId = processEnv["CMUX_WORKSPACE_ID"]
-        self.surfaceId = processEnv["CMUX_SURFACE_ID"]
-        self.disabledByEnv =
-            processEnv["CMUX_CLI_SENTRY_DISABLED"] == "1" ||
-            processEnv["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] == "1"
-    }
-
-    func breadcrumb(_ message: String, data: [String: Any] = [:]) {
-        guard shouldEmit else { return }
-#if canImport(Sentry)
-        pendingBreadcrumbs.append(PendingBreadcrumb(message: message, data: data))
-#endif
-    }
-
-    func captureError(stage: String, error: Error, data: [String: Any] = [:]) {
-        guard shouldEmit else { return }
-#if canImport(Sentry)
-        Self.ensureStarted()
-        flushPendingBreadcrumbs()
-        var context = baseContext()
-        context["stage"] = stage
-        context["error"] = String(describing: error)
-        for (key, value) in socketDiagnostics() {
-            context[key] = value
-        }
-        for (key, value) in data {
-            context[key] = value
-        }
-        let subcommand = self.subcommand
-        let command = self.command
-        _ = SentrySDK.capture(error: error) { scope in
-            scope.setLevel(.error)
-            scope.setTag(value: "cmux-cli", key: "component")
-            scope.setTag(value: command, key: "cli_command")
-            scope.setTag(value: subcommand, key: "cli_subcommand")
-            scope.setContext(value: context, key: "cli_socket")
-        }
-        SentrySDK.flush(timeout: 2.0)
-#endif
-    }
-
-    private var shouldEmit: Bool {
-        !disabledByEnv
-    }
-
-#if canImport(Sentry)
-    private func flushPendingBreadcrumbs() {
-        for pending in pendingBreadcrumbs {
-            addBreadcrumb(message: pending.message, data: pending.data)
-        }
-        pendingBreadcrumbs.removeAll()
-    }
-
-    private func addBreadcrumb(message: String, data: [String: Any]) {
-        var payload = baseContext()
-        for (key, value) in data {
-            payload[key] = value
-        }
-        let crumb = Breadcrumb(level: .info, category: "cmux.cli")
-        crumb.message = message
-        crumb.data = payload
-        SentrySDK.addBreadcrumb(crumb)
-    }
-#endif
-
-    private func baseContext() -> [String: Any] {
-        var context: [String: Any] = [
-            "command": command,
-            "subcommand": subcommand,
-            "requested_socket_path": socketPath,
-            "env_socket_path": envSocketPath ?? "<unset>"
-        ]
-        if let workspaceId {
-            context["workspace_id"] = workspaceId
-        }
-        if let surfaceId {
-            context["surface_id"] = surfaceId
-        }
-        return context
-    }
-
-    private func socketDiagnostics() -> [String: Any] {
-        var context: [String: Any] = [
-            "cwd": FileManager.default.currentDirectoryPath,
-            "uid": Int(getuid()),
-            "euid": Int(geteuid())
-        ]
-
-        var st = stat()
-        if lstat(socketPath, &st) == 0 {
-            context["socket_exists"] = true
-            context["socket_mode"] = String(format: "%o", Int(st.st_mode & 0o7777))
-            context["socket_owner_uid"] = Int(st.st_uid)
-            context["socket_owner_gid"] = Int(st.st_gid)
-            context["socket_file_type"] = Self.fileTypeDescription(mode: st.st_mode)
-        } else {
-            let code = errno
-            context["socket_exists"] = false
-            context["socket_errno"] = Int(code)
-            context["socket_errno_description"] = String(cString: strerror(code))
-        }
-
-        let tmpSockets = Self.discoverSockets(in: "/tmp", limit: 10)
-        if !tmpSockets.isEmpty {
-            context["tmp_cmux_sockets"] = tmpSockets
-        }
-        let taggedSockets = tmpSockets.filter { $0 != CLISocketPathResolver.legacyDefaultSocketPath }
-        if CLISocketPathResolver.isImplicitDefaultPath(
-            socketPath,
-            bundleIdentifier: CLISocketPathResolver.currentAppBundleIdentifier(),
-            environment: processEnv
-        ),
-           (envSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
-           !taggedSockets.isEmpty {
-            context["possible_root_cause"] = "CMUX_SOCKET_PATH missing while tagged sockets exist"
-        }
-
-        return context
-    }
-
-    private static func fileTypeDescription(mode: mode_t) -> String {
-        switch mode & mode_t(S_IFMT) {
-        case mode_t(S_IFSOCK):
-            return "socket"
-        case mode_t(S_IFREG):
-            return "regular"
-        case mode_t(S_IFDIR):
-            return "directory"
-        case mode_t(S_IFLNK):
-            return "symlink"
-        default:
-            return "other"
-        }
-    }
-
-    private static func discoverSockets(in directory: String, limit: Int) -> [String] {
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
-            return []
-        }
-        var sockets: [String] = []
-        for name in entries.sorted() {
-            guard name.hasPrefix("cmux"), name.hasSuffix(".sock") else { continue }
-            let fullPath = URL(fileURLWithPath: directory)
-                .appendingPathComponent(name, isDirectory: false)
-                .path
-            var st = stat()
-            guard lstat(fullPath, &st) == 0 else { continue }
-            guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
-            sockets.append(fullPath)
-            if sockets.count >= limit {
-                break
-            }
-        }
-        return sockets
-    }
-
-#if canImport(Sentry)
-    private static func ensureStarted() {
-        startupLock.lock()
-        defer { startupLock.unlock() }
-        guard !started else { return }
-        SentrySDK.start { options in
-            options.dsn = dsn
-            options.releaseName = currentSentryReleaseName()
-#if DEBUG
-            options.environment = "development-cli"
-#else
-            options.environment = "production-cli"
-#endif
-            options.debug = false
-            // Defense-in-depth: keep default PII (user, IP, etc.) off the wire.
-            // The scrubber below additionally redacts any user fields that slip in.
-            options.sendDefaultPii = false
-            options.attachStacktrace = true
-            options.tracesSampleRate = 0.0
-            options.enableAppHangTracking = false
-            options.enableWatchdogTerminationTracking = false
-            options.enableAutoSessionTracking = false
-            options.enableCaptureFailedRequests = false
-            options.enableMetricKit = false
-            // Redact file paths, emails, and secrets from every outgoing event
-            // and breadcrumb before it leaves the device.
-            let scrubber = SentryEventScrubber()
-            options.beforeSend = { event in scrubber.scrub(event) }
-            options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
-        }
-        started = true
-    }
-#endif
+    func captureError(stage: String, error: Error, data: [String: Any] = [:]) {}
 }
 
 struct WindowInfo {
@@ -607,7 +342,25 @@ private final class ClaudeHookSessionStore {
                 markPromptTurnActive(normalizedTurnId, on: &record)
                 var turnStack = activePromptTurnStack(from: record)
                 let legacyDepth = max(0, record.activePromptDepth ?? 0)
+                if turnStack.isEmpty,
+                   let previousTurnId = normalizeOptional(record.lastPromptTurnId),
+                   previousTurnId != normalizedTurnId,
+                   !terminalPromptTurnSet(from: record).contains(previousTurnId) {
+                    turnStack = [previousTurnId, normalizedTurnId]
+                    setActivePromptTurnStack(turnStack, totalDepth: max(2, legacyDepth + 1), on: &record)
+                    record.lastPromptTurnId = normalizedTurnId
+                    state.sessions[normalized] = record
+                    return true
+                }
                 if turnStack.isEmpty, legacyDepth > 0 {
+                    if let previousTurnId = normalizeOptional(record.lastPromptTurnId),
+                       previousTurnId != normalizedTurnId {
+                        turnStack = [previousTurnId, normalizedTurnId]
+                        setActivePromptTurnStack(turnStack, totalDepth: legacyDepth + 1, on: &record)
+                        record.lastPromptTurnId = normalizedTurnId
+                        state.sessions[normalized] = record
+                        return true
+                    }
                     record.activePromptDepth = legacyDepth + 1
                     record.activePromptTurnId = nil
                     record.activePromptTurnIds = nil
@@ -665,6 +418,7 @@ private final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         turnId: String? = nil,
         terminalActivePromptTurnIds: Set<String> = [],
+        terminalPromptTurnIdsFromTranscript: ((String, Set<String>) -> Set<String>)? = nil,
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
@@ -686,7 +440,11 @@ private final class ClaudeHookSessionStore {
                 surfaceId: surfaceId,
                 now: now
             )
-            let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
+            let activeTurnStackBeforeStop = activePromptTurnStack(from: record)
+            let depthBeforeStop = max(
+                max(0, record.activePromptDepth ?? 0),
+                activeTurnStackBeforeStop.count
+            )
             let depthAfterStop = max(0, depthBeforeStop - 1)
             update(
                 &record,
@@ -710,7 +468,16 @@ private final class ClaudeHookSessionStore {
             if let normalizedTurnId {
                 var turnStack = activePromptTurnStack(from: record)
                 var totalDepthBeforeStop = max(depthBeforeStop, turnStack.count)
-                let terminalTurnIdsToPrune = terminalActivePromptTurnIds.subtracting([normalizedTurnId])
+                var terminalPromptTurnIds = terminalActivePromptTurnIds
+                let storedTurnIdsToCheck = Set(turnStack.filter { $0 != normalizedTurnId })
+                if !storedTurnIdsToCheck.isEmpty,
+                   let transcriptPath = normalizeOptional(transcriptPath ?? record.transcriptPath),
+                   let terminalPromptTurnIdsFromTranscript {
+                    terminalPromptTurnIds.formUnion(
+                        terminalPromptTurnIdsFromTranscript(transcriptPath, storedTurnIdsToCheck)
+                    )
+                }
+                let terminalTurnIdsToPrune = terminalPromptTurnIds.subtracting([normalizedTurnId])
                 if !terminalTurnIdsToPrune.isEmpty {
                     var removedTerminalTurnIds: [String] = []
                     turnStack.removeAll { activeTurnId in
@@ -728,7 +495,8 @@ private final class ClaudeHookSessionStore {
                 }
                 if let lastTurnId = turnStack.last {
                     if lastTurnId == normalizedTurnId {
-                        let nested = totalDepthBeforeStop > 1
+                        let terminalCoverageClosesDepth = terminalPromptTurnIds.count + 1 >= totalDepthBeforeStop
+                        let nested = totalDepthBeforeStop > 1 && !terminalCoverageClosesDepth
                         turnStack.removeLast()
                         setActivePromptTurnStack(
                             turnStack,
@@ -767,6 +535,13 @@ private final class ClaudeHookSessionStore {
                     state.sessions[normalized] = record
                     return false
                 }
+                if terminalPromptTurnIds.count + 1 >= totalDepthBeforeStop {
+                    record.activePromptDepth = nil
+                    record.activePromptTurnId = nil
+                    record.activePromptTurnIds = nil
+                    state.sessions[normalized] = record
+                    return false
+                }
                 let depthAfterTurnStop = max(0, totalDepthBeforeStop - 1)
                 if depthAfterTurnStop == 0 {
                     record.activePromptDepth = nil
@@ -783,10 +558,11 @@ private final class ClaudeHookSessionStore {
                 record.activePromptTurnId = nil
                 record.activePromptTurnIds = nil
             } else {
-                let turnStack = activePromptTurnStack(from: record)
+                var turnStack = activePromptTurnStack(from: record)
                 if !turnStack.isEmpty {
+                    turnStack.removeLast()
                     setActivePromptTurnStack(
-                        Array(turnStack.prefix(depthAfterStop)),
+                        turnStack,
                         totalDepth: depthAfterStop,
                         on: &record
                     )
@@ -1756,11 +1532,15 @@ final class SocketClient {
             operation.sawNewline = sawNewline
             operation.timeout = currentTimeout
             recordOperation(operation)
-            if lastConfiguredReceiveTimeout != currentTimeout {
-                try configureReceiveTimeout(currentTimeout)
-            }
 
             var buffer = [UInt8](repeating: 0, count: 8192)
+            if try !waitForReadable(timeout: currentTimeout) {
+                if sawNewline {
+                    receivedCompleteResponse = true
+                    break
+                }
+                throw CLIError(message: "Command timed out")
+            }
             let count = Darwin.read(socketFD, &buffer, buffer.count)
             if count < 0 {
                 if errno == EINTR {
@@ -2265,6 +2045,37 @@ final class SocketClient {
         lastConfiguredReceiveTimeout = timeout
     }
 
+    private func waitForReadable(timeout: TimeInterval) throws -> Bool {
+        let sanitizedTimeout = timeout.isFinite ? timeout : Self.defaultResponseTimeoutSeconds
+        let milliseconds = ceil(max(sanitizedTimeout, 0.001) * 1000)
+        let timeoutMilliseconds = Int32(min(max(milliseconds, 1), Double(Int32.max)))
+        while true {
+            var descriptor = pollfd(
+                fd: socketFD,
+                events: Int16(POLLIN | POLLHUP | POLLERR),
+                revents: 0
+            )
+            let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+            if ready > 0 {
+                if descriptor.revents & Int16(POLLNVAL) != 0 {
+                    throw CLIError(message: "Socket is not valid")
+                }
+                let readableEvents = Int16(POLLIN | POLLHUP | POLLERR)
+                if descriptor.revents & readableEvents != 0 {
+                    return true
+                }
+                continue
+            }
+            if ready == 0 {
+                return false
+            }
+            if errno == EINTR {
+                continue
+            }
+            throw CLIError(message: "Socket read wait failed")
+        }
+    }
+
     static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
         let client = SocketClient(path: path)
         if (try? client.connect()) != nil {
@@ -2565,8 +2376,10 @@ final class SocketClient {
 
     private func readStreamLine(maxBytes: Int = 4 * 1024 * 1024) throws -> String {
         var data = Data()
-        try configureReceiveTimeout(45)
         while data.count < maxBytes {
+            if try !waitForReadable(timeout: 45) {
+                throw CLIError(message: "Timed out waiting for event stream frame")
+            }
             var byte: UInt8 = 0
             let count = Darwin.read(socketFD, &byte, 1)
             if count < 0 {
@@ -7780,6 +7593,10 @@ struct CMUXCLI {
             do {
                 workspaceInitialSurfaceId = try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
             } catch {
+                cliDebugLog(
+                    "cli.ssh.workspace.surface.resolve.unavailable workspace=\(String(workspaceId.prefix(8))) " +
+                    "error=\(String(describing: error))"
+                )
                 do {
                     _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
                 } catch {
@@ -7787,7 +7604,8 @@ struct CMUXCLI {
                     FileHandle.standardError.write(Data(warning.utf8))
                 }
                 throw CLIError(
-                    message: "cmux could not resolve the initial terminal surface for persistent SSH PTY startup"
+                    message: "workspace.create did not return surface_id and surface.list could not resolve " +
+                        "an initial surface for persistent SSH PTY"
                 )
             }
         }
@@ -21608,12 +21426,23 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
-            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
-                preferred: nil,
-                fallback: surfaceArg,
-                workspaceId: workspaceId,
-                client: client
-            )
+            let surfaceId: String
+            do {
+                surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                    preferred: nil,
+                    fallback: surfaceArg,
+                    workspaceId: workspaceId,
+                    client: client
+                )
+            } catch {
+                if shouldIgnoreClaudeHookTeardownError(error) {
+                    telemetry.breadcrumb("claude-hook.session-start.ignored", data: ["error": String(describing: error)])
+                    sendClaudeFeedTelemetry(workspaceId: workspaceId)
+                    print("OK")
+                    return
+                }
+                throw error
+            }
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
@@ -23367,8 +23196,10 @@ struct CMUXCLI {
 
     private func codexTranscriptTerminalTurnIds(path: String, turnIds: Set<String>) -> Set<String> {
         let expectedTurnIds = Set(turnIds.compactMap { normalizedHookValue($0) })
-        guard !expectedTurnIds.isEmpty,
-              let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
+        if expectedTurnIds.isEmpty {
+            return []
+        }
+        guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
             return []
         }
 
@@ -23403,12 +23234,59 @@ struct CMUXCLI {
             switch eventType {
             case "task_complete", "turn_complete", "turn_aborted":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId
-                if let payloadTurnId, expectedTurnIds.contains(payloadTurnId) {
+                if let payloadTurnId,
+                   expectedTurnIds.contains(payloadTurnId) {
                     terminalTurnIds.insert(payloadTurnId)
                 }
             default:
                 break
             }
+        }
+
+        return terminalTurnIds
+    }
+
+    private func codexTranscriptRecentTerminalTurnIds(path: String) -> [String] {
+        guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
+            return []
+        }
+
+        var terminalTurnIds: [String] = []
+        var seen = Set<String>()
+        var currentTurnId: String?
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let data = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let objectType = object["type"] as? String else {
+                continue
+            }
+
+            if objectType == "turn_context",
+               let payload = object["payload"] as? [String: Any] {
+                currentTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                continue
+            }
+
+            guard objectType == "event_msg",
+                  let payload = object["payload"] as? [String: Any],
+                  let eventType = payload["type"] as? String else {
+                continue
+            }
+
+            if eventType == "task_started" {
+                currentTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                continue
+            }
+
+            guard eventType == "task_complete" || eventType == "turn_complete" || eventType == "turn_aborted",
+                  let turnId = firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId,
+                  !seen.contains(turnId) else {
+                continue
+            }
+            seen.insert(turnId)
+            terminalTurnIds.append(turnId)
         }
 
         return terminalTurnIds
@@ -24899,7 +24777,13 @@ struct CMUXCLI {
 
     // MARK: - Agent PID inference
 
-    private func inferredAgentPID() -> Int? {
+    private func inferredAgentPID(env: [String: String] = ProcessInfo.processInfo.environment) -> Int? {
+        if let rawPID = env["CMUX_AGENT_HOOK_PID_OVERRIDE"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let pid = Int(rawPID),
+           pid > 0 {
+            return pid
+        }
+
         var candidate = getppid()
         var remainingWrapperSkips = 8
 
@@ -27848,79 +27732,89 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Workspace/surface resolution: prefer --workspace/--surface flags,
         // then env, then the caller process. Grok strips CMUX_* from hook
         // subprocesses, so PID attribution is the only reliable live binding.
-        let inferredPID = inferredAgentPID()
+        let inferredPID = inferredAgentPID(env: env)
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
-        let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
+        let ambientWorkspaceArg = normalizedHookValue(env["CMUX_WORKSPACE_ID"])
+        let directWorkspaceArg = hookWsFlag ?? ambientWorkspaceArg
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
+        let ambientSurfaceArg = normalizedHookValue(env["CMUX_SURFACE_ID"])
         let directSurfaceArg = explicitSurfaceFlag
-            ?? (hookWsFlag == nil ? normalizedHookValue(env["CMUX_SURFACE_ID"]) : nil)
+            ?? (hookWsFlag == nil ? ambientSurfaceArg : nil)
+        enum SurfaceListLookup {
+            case found([[String: Any]])
+            case unavailable
+            case unknown
+        }
+        var surfaceListCache: [String: SurfaceListLookup] = [:]
+        func listedSurfaces(workspaceId: String) -> SurfaceListLookup {
+            if let cached = surfaceListCache[workspaceId] {
+                return cached
+            }
+            let lookup: SurfaceListLookup
+            do {
+                let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+                if let surfaces = listed["surfaces"] as? [[String: Any]] {
+                    lookup = .found(surfaces)
+                } else {
+                    lookup = .unknown
+                }
+            } catch {
+                let message = String(describing: error)
+                lookup = message.hasPrefix("not_found:") || message.hasPrefix("workspace_not_found:")
+                    ? .unavailable
+                    : .unknown
+            }
+            surfaceListCache[workspaceId] = lookup
+            return lookup
+        }
+        func workspaceIsAccessible(_ workspaceId: String) -> Bool {
+            switch listedSurfaces(workspaceId: workspaceId) {
+            case .found:
+                return true
+            case .unavailable, .unknown:
+                return false
+            }
+        }
+        func surfaceIsAccessible(_ surfaceId: String, workspaceId: String) -> Bool {
+            switch listedSurfaces(workspaceId: workspaceId) {
+            case .found(let surfaces):
+                return surfaces.contains {
+                    ($0["id"] as? String) == surfaceId || ($0["ref"] as? String) == surfaceId
+                }
+            case .unavailable, .unknown:
+                return false
+            }
+        }
         func resolveAccessibleWorkspaceId(_ raw: String?) -> String? {
             guard let raw = nonEmptyClaudeHookIdentifier(raw) else {
                 return nil
             }
-            guard let candidate = try? resolveWorkspaceId(raw, client: client),
-                  (try? client.sendV2(method: "surface.list", params: ["workspace_id": candidate])) != nil else {
+            guard let workspaceId = try? resolveWorkspaceId(raw, client: client),
+                  workspaceIsAccessible(workspaceId) else {
                 return nil
             }
-            return candidate
+            return workspaceId
         }
         func resolveAccessibleSurfaceId(_ raw: String?, workspaceId: String) -> String? {
-            guard let raw = nonEmptyClaudeHookIdentifier(raw),
-                  let candidate = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
-                  let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) else {
+            guard let raw = nonEmptyClaudeHookIdentifier(raw) else {
                 return nil
             }
-            let items = listed["surfaces"] as? [[String: Any]] ?? []
-            return items.contains(where: {
-                ($0["id"] as? String) == candidate || ($0["ref"] as? String) == candidate
-            }) ? candidate : nil
+            guard let surfaceId = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
+                  surfaceIsAccessible(surfaceId, workspaceId: workspaceId) else {
+                return nil
+            }
+            return surfaceId
         }
         func resolveDefaultSurfaceId(workspaceId: String) -> String? {
-            try? resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
-        }
-        let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
-        // Only an EXPLICIT --workspace flag that fails to resolve is a hard, hook-dropping error. A
-        // stale/invalid AMBIENT CMUX_WORKSPACE_ID must not abort routing — treated as absent, it falls
-        // through to the PID/TTY binding below, which is ground truth.
-        let hasInvalidDirectWorkspaceArg = hookWsFlag != nil && resolvedDirectWorkspaceArg == nil
-        var processBindingCache: CallerTerminalBinding?
-        var didResolveProcessBinding = false
-        func processBinding() -> CallerTerminalBinding? {
-            if !didResolveProcessBinding {
-                didResolveProcessBinding = true
-                // Always resolve the agent process's own terminal binding (TTY first, then PID), even
-                // when env supplies both ids. Historically this was suppressed whenever both env ids
-                // were present, which made a leaked/stale CMUX_SURFACE_ID impossible to correct — the
-                // codex jumble class, where a session routes to the wrong surface and the no-pid-gate
-                // resume binding persists it across reload. resolveAgentHookTarget now uses this
-                // binding to OVERRIDE a disagreeing ambient-env surface; the binding stays nil (env
-                // trusted) under remote/SSH where no local TTY maps to a surface.
-                processBindingCache = resolveCallerTerminalBindingByTTY(client: client)
-                    ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
+            switch listedSurfaces(workspaceId: workspaceId) {
+            case .found(let surfaces):
+                return surfaces.first(where: { ($0["focused"] as? Bool) == true })?["id"] as? String
+            case .unknown:
+                return try? resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
+            case .unavailable:
+                return nil
             }
-            return processBindingCache
         }
-#if DEBUG
-        func processBindingDebugState() -> String {
-            guard didResolveProcessBinding else { return "deferred" }
-            return processBindingCache == nil ? "nil" : "resolved"
-        }
-#endif
-        let resolvedDirectSurfaceArg: String? = {
-            guard let directSurfaceArg else { return nil }
-            guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
-            return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
-        }()
-        // Same asymmetry for the surface: an explicit --surface flag that fails to resolve is a hard
-        // error, but a stale/invalid ambient CMUX_SURFACE_ID (a surface that was closed, or belongs to
-        // another workspace) must fall through to the PID/TTY binding instead of dropping the hook —
-        // that is the stale-env variant of the codex jumble.
-        let hasInvalidDirectSurfaceArg = explicitSurfaceFlag != nil && resolvedDirectSurfaceArg == nil
-        let hasUnusableDirectBinding = hasInvalidDirectWorkspaceArg || hasInvalidDirectSurfaceArg
-        func workspaceArg() -> String? {
-            resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
-        }
-
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
 
@@ -27936,6 +27830,71 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             ?? normalizedHookValue(env["PWD"])
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
         let action = Self.subcommandActions[subcommand] ?? .noop
+        var processBindingCache: CallerTerminalBinding?
+        var didResolveProcessBinding = false
+        func processBinding() -> CallerTerminalBinding? {
+            if !didResolveProcessBinding {
+                didResolveProcessBinding = true
+                // Always resolve the agent process's own terminal binding (TTY first, then PID), even
+                // when env supplies both ids. Historically this was suppressed whenever both env ids
+                // were present, which made a leaked/stale CMUX_SURFACE_ID impossible to correct. This is the
+                // codex jumble class, where a session routes to the wrong surface and the no-pid-gate
+                // resume binding persists it across reload. resolveAgentHookTarget now uses this
+                // binding to override a disagreeing ambient-env surface; the binding stays nil (env
+                // trusted) under remote/SSH where no local TTY maps to a surface.
+                processBindingCache = resolveCallerTerminalBindingByTTY(client: client)
+                    ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
+            }
+            return processBindingCache
+        }
+#if DEBUG
+        func processBindingDebugState() -> String {
+            guard didResolveProcessBinding else { return "deferred" }
+            return processBindingCache == nil ? "nil" : "resolved"
+        }
+#endif
+        let earlyCodexPromptTTYTarget: CallerTerminalBinding? = {
+            guard hookWsFlag == nil,
+                  explicitSurfaceFlag == nil,
+                  case .promptSubmit = action,
+                  def.name == "codex",
+                  let ambientWorkspaceId = ambientWorkspaceArg,
+                  ambientSurfaceArg != nil,
+                  let binding = processBinding(),
+                  nonEmptyClaudeHookIdentifier(binding.workspaceId) == ambientWorkspaceId,
+                  let boundSurfaceId = nonEmptyClaudeHookIdentifier(binding.surfaceId),
+                  surfaceIsAccessible(boundSurfaceId, workspaceId: ambientWorkspaceId) else {
+                return nil
+            }
+            return binding
+        }()
+        let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
+        // Only an EXPLICIT --workspace flag that fails to resolve is a hard, hook-dropping error. A
+        // stale/invalid AMBIENT CMUX_WORKSPACE_ID must not abort routing. Treated as absent, it falls
+        // through to the PID/TTY binding below, which is ground truth.
+        let hasInvalidDirectWorkspaceArg = hookWsFlag != nil && resolvedDirectWorkspaceArg == nil
+        let hasInvalidAmbientWorkspaceArg = hookWsFlag == nil
+            && ambientWorkspaceArg != nil
+            && resolvedDirectWorkspaceArg == nil
+        let resolvedDirectSurfaceArg: String? = {
+            guard let directSurfaceArg else { return nil }
+            guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
+            return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
+        }()
+        // Same asymmetry for the surface: an explicit --surface flag that fails to resolve is a hard
+        // error, but a stale/invalid ambient CMUX_SURFACE_ID (a surface that was closed, or belongs to
+        // another workspace) must fall through to the PID/TTY binding instead of dropping the hook —
+        // that is the stale-env variant of the codex jumble.
+        let hasInvalidDirectSurfaceArg = explicitSurfaceFlag != nil && resolvedDirectSurfaceArg == nil
+        let hasInvalidAmbientSurfaceArg = explicitSurfaceFlag == nil
+            && ambientSurfaceArg != nil
+            && resolvedDirectSurfaceArg == nil
+        let hasUnusableDirectBinding = hasInvalidDirectWorkspaceArg || hasInvalidDirectSurfaceArg
+        func workspaceArg() -> String? {
+            guard !hasUnusableDirectBinding else { return nil }
+            return resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
+        }
+
 #if DEBUG
         agentHookDebugLog(
             "agentHook.start agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) inputSession=\(agentHookDebugShort(input.sessionId)) rawBytes=\(rawInput.utf8.count) hasCwd=\(hookCwd == nil ? 0 : 1) envWorkspace=\(env["CMUX_WORKSPACE_ID"] == nil ? 0 : 1) envSurface=\(env["CMUX_SURFACE_ID"] == nil ? 0 : 1) directWorkspace=\(directWorkspaceArg == nil ? 0 : 1) directSurface=\(directSurfaceArg == nil ? 0 : 1) invalidDirect=\(hasUnusableDirectBinding ? 1 : 0) processBinding=\(processBindingDebugState()) socketName=\(agentHookDebugSocketName(client.socketPath))",
@@ -28071,6 +28030,35 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             try? store.markNotificationEmitted(sessionId: sessionId, fingerprint: fingerprint)
         }
         func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
+            if let binding = earlyCodexPromptTTYTarget,
+               let boundWorkspace = nonEmptyClaudeHookIdentifier(binding.workspaceId),
+               let boundSurface = nonEmptyClaudeHookIdentifier(binding.surfaceId) {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=early-process-bound-codex workspace=\(agentHookDebugShort(boundWorkspace)) surface=\(agentHookDebugShort(boundSurface)) mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return (boundWorkspace, boundSurface)
+            }
+
+            if hookWsFlag != nil,
+               explicitSurfaceFlag != nil,
+               case .promptSubmit = action,
+               def.name == "codex",
+               let workspaceId = resolvedDirectWorkspaceArg,
+               let surfaceId = resolvedDirectSurfaceArg {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=explicit-rebind workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return (workspaceId, surfaceId)
+            }
+
             guard !hasUnusableDirectBinding else {
 #if DEBUG
                 agentHookDebugLog(
@@ -28102,6 +28090,62 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return (workspaceId, surfaceId)
             }
 
+            func processBoundCodexPromptTarget() -> (workspaceId: String, surfaceId: String)? {
+                guard hookWsFlag == nil,
+                      explicitSurfaceFlag == nil,
+                      let ambientWorkspaceId = ambientWorkspaceArg,
+                      ambientSurfaceArg != nil,
+                      case .promptSubmit = action,
+                      def.name == "codex",
+                      let binding = processBinding(),
+                      let boundWorkspace = nonEmptyClaudeHookIdentifier(binding.workspaceId),
+                      boundWorkspace == ambientWorkspaceId,
+                      let boundSurface = nonEmptyClaudeHookIdentifier(binding.surfaceId) else {
+                    return nil
+                }
+
+                if hasInvalidAmbientSurfaceArg || boundSurface != resolvedDirectSurfaceArg {
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process-bound-codex workspace=\(agentHookDebugShort(boundWorkspace)) surface=\(agentHookDebugShort(boundSurface)) mapped=\(mapped == nil ? 0 : 1)",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
+                    return (boundWorkspace, boundSurface)
+                }
+
+                return nil
+            }
+
+            if let target = processBoundCodexPromptTarget() {
+                return target
+            }
+
+            if hookWsFlag == nil,
+               explicitSurfaceFlag == nil,
+               ambientWorkspaceArg != nil,
+               ambientSurfaceArg != nil,
+               mapped == nil,
+               case .promptSubmit = action,
+               def.name == "codex",
+               let ambientWorkspaceId = try? resolveWorkspaceId(ambientWorkspaceArg, client: client),
+               let binding = processBinding(),
+               let boundWorkspaceRaw = nonEmptyClaudeHookIdentifier(binding.workspaceId),
+               let boundWorkspace = resolveAccessibleWorkspaceId(boundWorkspaceRaw),
+               boundWorkspace == ambientWorkspaceId,
+               let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
+               let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: boundWorkspace) {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process-ambient-codex workspace=\(agentHookDebugShort(boundWorkspace)) surface=\(agentHookDebugShort(boundSurface)) mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return (boundWorkspace, boundSurface)
+            }
+
             // G3 (codex jumble defense-in-depth): the surface id can arrive from the ambient env
             // (CMUX_SURFACE_ID), which a launcher or an inherited subprocess can leak as the operator's
             // FOCUSED pane rather than the agent's own pane. When the agent process's controlling TTY
@@ -28113,6 +28157,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             func correctedDirectSurfaceId(workspaceId: String) -> String? {
                 guard let envSurface = resolvedDirectSurfaceArg else { return nil }
                 guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return envSurface }
+                guard case .promptSubmit = action, def.name == "codex" else { return envSurface }
                 guard let binding = processBinding(),
                       let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
                       let boundWorkspaceRaw = nonEmptyClaudeHookIdentifier(binding.workspaceId),
@@ -28129,6 +28174,29 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
 #endif
                 return boundSurface
+            }
+
+            if hookWsFlag == nil,
+               explicitSurfaceFlag == nil,
+               let ambientSurface = ambientSurfaceArg,
+               let ambientWorkspace = resolvedDirectWorkspaceArg,
+               !surfaceIsAccessible(ambientSurface, workspaceId: ambientWorkspace),
+               case .promptSubmit = action,
+               def.name == "codex",
+               let binding = processBinding(),
+               let boundWorkspaceRaw = nonEmptyClaudeHookIdentifier(binding.workspaceId),
+               let boundWorkspace = resolveAccessibleWorkspaceId(boundWorkspaceRaw),
+               boundWorkspace == ambientWorkspace,
+               let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
+               let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: boundWorkspace) {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process-first workspace=\(agentHookDebugShort(boundWorkspace)) surface=\(agentHookDebugShort(boundSurface)) mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return (boundWorkspace, boundSurface)
             }
 
             if let workspaceId = resolvedDirectWorkspaceArg {
@@ -28160,6 +28228,28 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
 #endif
                 return target
+            }
+
+            if hasInvalidAmbientWorkspaceArg || hasInvalidAmbientSurfaceArg {
+                if let workspaceId = resolveAccessibleWorkspaceId(mapped?.workspaceId),
+                   let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: nil, mapped: mapped) {
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=mapped-invalid-ambient workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId)) mapped=1",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
+                    return target
+                }
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.nil agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=invalidAmbientBinding mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return nil
             }
 
             guard let workspaceId = resolveAccessibleWorkspaceId(mapped?.workspaceId) else {
@@ -28535,6 +28625,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let activePromptTurnStack = mapped?.activePromptTurnIds?
                     .compactMap({ normalizedHookValue($0) }) ?? []
                 let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
+                let mappedPromptDepth = max(
+                    mapped?.activePromptDepth ?? 0,
+                    activePromptTurnStack.count,
+                    activePromptTurnId == nil ? 0 : 1
+                )
                 let activeTurnIds = activePromptTurnStack.isEmpty
                     ? activePromptTurnId.map { [$0] } ?? []
                     : activePromptTurnStack
@@ -28546,6 +28641,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         path: transcriptPath,
                         turnIds: Set(activeTurnIdsToCheck)
                     )
+                } else if activePromptTurnStack.count <= 1,
+                          mappedPromptDepth > activePromptTurnStack.count,
+                          let transcriptPath = normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath)
+                              ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
+                    let terminalTurnIds = codexTranscriptRecentTerminalTurnIds(path: transcriptPath)
+                    if terminalTurnIds.last == incomingTurnId {
+                        terminalActivePromptTurnIdsForStop = Set(
+                            terminalTurnIds.dropLast().suffix(max(0, mappedPromptDepth - 1))
+                        )
+                    } else {
+                        terminalActivePromptTurnIdsForStop = []
+                    }
                 } else {
                     terminalActivePromptTurnIdsForStop = []
                 }
@@ -28554,7 +28661,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let nestedPromptStop: Bool
             if !sessionId.isEmpty, !staleIdleStopHasNewerRunningSession {
-                nestedPromptStop = (try? store.recordPromptStop(
+                let mappedPromptDepthBeforeStop = max(
+                    mapped?.activePromptDepth ?? 0,
+                    mapped?.activePromptTurnIds?.compactMap({ normalizedHookValue($0) }).count ?? 0,
+                    normalizedHookValue(mapped?.activePromptTurnId) == nil ? 0 : 1
+                )
+                let legacyStopWithoutTurnIdIsNested = def.name == "codex"
+                    && normalizedHookValue(input.turnId) == nil
+                    && mappedPromptDepthBeforeStop > 1
+                let recordedNestedPromptStop = (try? store.recordPromptStop(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -28562,12 +28677,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     turnId: input.turnId,
                     terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
+                    terminalPromptTurnIdsFromTranscript: def.name == "codex" ? { path, turnIds in
+                        self.codexTranscriptTerminalTurnIds(path: path, turnIds: turnIds)
+                    } : nil,
                     pid: pid,
                     launchCommand: launchCommand,
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
                     lastBody: nil
                 )) ?? false
+                nestedPromptStop = legacyStopWithoutTurnIdIsNested || recordedNestedPromptStop
             } else {
                 nestedPromptStop = false
             }
@@ -29263,6 +29382,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         _ source: String,
         env: [String: String] = ProcessInfo.processInfo.environment
     ) -> Int {
+        if let pid = agentPIDForHookAgent(source, env: env) {
+            return pid
+        }
+        return Int(getppid())
+    }
+
+    private func agentPIDForHookAgent(
+        _ source: String,
+        env: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Int? {
         let envKey: String
         switch source {
         case "claude": envKey = "CMUX_CLAUDE_PID"
@@ -29282,7 +29411,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
            pid > 0 {
             return pid
         }
-        return Int(getppid())
+        return nil
     }
 
     private func stableFallbackFeedSessionId(

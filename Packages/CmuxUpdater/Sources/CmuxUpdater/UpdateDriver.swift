@@ -40,7 +40,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
               reply: @escaping @Sendable (SUUpdatePermissionResponse) -> Void) {
 #if DEBUG
         let env = ProcessInfo.processInfo.environment
-        if env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" || env["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] == "1" {
+        let shouldAutoAllowTriggeredCheck = env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1"
+            && env["CMUX_UI_TEST_DEFER_UPDATE_CHECK_TO_ACTION"] != "1"
+        if env["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] == "1" || shouldAutoAllowTriggeredCheck {
             log.append("auto-allow update permission (ui test)")
             Task { @MainActor in reply(SUUpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false)) }
             return

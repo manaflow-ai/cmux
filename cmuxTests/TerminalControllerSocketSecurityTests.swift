@@ -136,7 +136,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(debugType.insideSuppressed)
         XCTAssertFalse(debugType.insideAllowsFocus)
 #else
-        throw XCTSkip("Socket command policy snapshot helper is debug-only.")
+        XCTFail("Socket command policy snapshot helper must run in DEBUG")
 #endif
     }
 
@@ -171,7 +171,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             XCTAssertEqual(error["message"] as? String, "surface_id cannot be empty")
         }
 #else
-        throw XCTSkip("Debug-only regression test")
+        XCTFail("Debug-only regression test must run in DEBUG")
 #endif
     }
 
@@ -522,8 +522,6 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                 "terminal.replay",
                 "mobile.terminal.viewport",
                 "terminal.viewport",
-                "mobile.events.subscribe",
-                "mobile.events.unsubscribe",
             ]
             XCTAssertTrue(
                 expectedMethods.isSubset(of: advertisedMethods),
@@ -780,30 +778,18 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         defer { AppDelegate.shared = previousAppDelegate }
 
         let windowId = UUID()
-        let tabManager = TabManager()
-        let sidebarState = SidebarState()
-        let sidebarSelectionState = SidebarSelectionState()
+        let tabManager = TabManager(createInitialWorkspace: false)
         let fileExplorerState = FileExplorerState()
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
 
         appDelegate.fileExplorerState = fileExplorerState
-        appDelegate.registerMainWindow(
-            window,
+        appDelegate.registerMainWindowContextForTesting(
             windowId: windowId,
             tabManager: tabManager,
-            sidebarState: sidebarState,
-            sidebarSelectionState: sidebarSelectionState,
-            fileExplorerState: fileExplorerState
+            fileExplorerState: fileExplorerState,
+            notifyObservers: false
         )
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            window.close()
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId, notifyObservers: false)
         }
 
         fileExplorerState.setVisible(false)
@@ -911,7 +897,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             }
         }
 #else
-        throw XCTSkip("Right sidebar parser helper is debug-only.")
+        XCTFail("Right sidebar parser helper must run in DEBUG")
 #endif
     }
 
@@ -938,7 +924,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             )
         }
 #else
-        throw XCTSkip("Right sidebar focus policy helper is debug-only.")
+        XCTFail("Right sidebar focus policy helper must run in DEBUG")
 #endif
     }
 

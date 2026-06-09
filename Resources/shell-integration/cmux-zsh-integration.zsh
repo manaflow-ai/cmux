@@ -311,6 +311,7 @@ typeset -g _CMUX_GIT_HEAD_LAST_PWD=""
 typeset -g _CMUX_GIT_HEAD_PATH=""
 typeset -g _CMUX_GIT_HEAD_SIGNATURE=""
 typeset -g _CMUX_GIT_HEAD_WATCH_PID=""
+typeset -g _CMUX_GIT_WATCH_DISABLED_CLEARED="${_CMUX_GIT_WATCH_DISABLED_CLEARED:-0}"
 typeset -g _CMUX_GIT_ACTIVE_PWD_FILE="${_CMUX_GIT_ACTIVE_PWD_FILE:-$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-git-active-pwd.XXXXXX" 2>/dev/null || true)}"
 typeset -g _CMUX_PR_POLL_PID=""
 typeset -g _CMUX_PR_POLL_PWD=""
@@ -888,6 +889,19 @@ _cmux_emit_pr_command_hint() {
 
 _cmux_clear_pr_for_panel() {
     [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]] && return 0
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _cmux_send_bg "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+}
+
+_cmux_clear_pr_command_hint_file() {
+    [[ -n "${_CMUX_PR_ACTION_HINT_FILE:-}" ]] || return 0
+    /bin/rm -f -- "$_CMUX_PR_ACTION_HINT_FILE" >/dev/null 2>&1 || true
+}
+
+_cmux_clear_pr_for_disabled_git_watch() {
+    _cmux_clear_pr_command_hint_file
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
@@ -1618,6 +1632,22 @@ _cmux_precmd() {
         _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=0
     fi
     _cmux_tmux_sync_cmux_environment
+    if [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]]; then
+        _CMUX_GIT_FORCE=0
+        _CMUX_GIT_HEAD_LAST_PWD=""
+        _CMUX_GIT_HEAD_PATH=""
+        _CMUX_GIT_HEAD_SIGNATURE=""
+        _CMUX_GIT_LAST_PWD=""
+        _CMUX_PR_FORCE=0
+        _CMUX_LAST_PR_ACTION=""
+        _CMUX_LAST_PR_TARGET=""
+        if [[ "$_CMUX_GIT_WATCH_DISABLED_CLEARED" != "1" ]]; then
+            _CMUX_GIT_WATCH_DISABLED_CLEARED=1
+            _cmux_clear_pr_for_disabled_git_watch
+        fi
+    else
+        _CMUX_GIT_WATCH_DISABLED_CLEARED=0
+    fi
 
     local cmux_has_unix_socket=0
     _cmux_socket_is_unix && cmux_has_unix_socket=1

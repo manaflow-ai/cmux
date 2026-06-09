@@ -97,6 +97,14 @@ public struct SSHAgentSocketResolver: Sendable {
     public func normalizedAgentSocketPath(_ value: String?) -> String? {
         guard let trimmed = normalizedOptional(value) else { return nil }
         guard trimmed.hasPrefix("~") else { return trimmed }
+        if trimmed == "~" {
+            return normalizedOptional(environment["HOME"])
+                ?? normalizedOptional((trimmed as NSString).expandingTildeInPath)
+                ?? trimmed
+        }
+        if trimmed.hasPrefix("~/"), let home = normalizedOptional(environment["HOME"]) {
+            return (home as NSString).appendingPathComponent(String(trimmed.dropFirst(2)))
+        }
         return normalizedOptional((trimmed as NSString).expandingTildeInPath) ?? trimmed
     }
 

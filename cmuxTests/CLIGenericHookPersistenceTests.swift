@@ -325,6 +325,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -593,6 +595,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -758,6 +762,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -1400,6 +1406,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -1991,6 +1999,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             },
                         ]
                     )
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2154,6 +2164,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2256,6 +2268,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return stallFeedTelemetry ? nil : self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2360,6 +2374,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2551,6 +2567,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             ],
                         ]
                     )
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2702,6 +2720,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         ],
                     ]
                 )
+            case "system.top":
+                return self.systemTopResponse(id: id)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -3208,6 +3228,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
             case "surface.resume.set":
                 return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "system.top":
+                return self.systemTopResponse(id: id)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -3276,7 +3298,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(params["auto_resume"] as? Bool, true)
             XCTAssertEqual(
                 params["command"] as? String,
-                "cd '\(workspace.path)' && '\(scenario.executable)' 'chat' '--resume-id' '\(scenario.sessionId)' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
+                "{ cd -- '\(workspace.path)' 2>/dev/null || [ ! -d '\(workspace.path)' ]; } && '\(scenario.executable)' 'chat' '--resume-id' '\(scenario.sessionId)' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
             )
             XCTAssertEqual(params["environment"] as? [String: String], scenario.expectedEnvironment)
             XCTAssertFalse(
@@ -3314,14 +3336,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        // A reaped, definitely-exited PID forces the no-argv capture path: processArguments() returns
-        // nil for a dead process, so the hook can only carry CODEX_HOME via the env-only record.
-        let deadHelper = Process()
-        deadHelper.executableURL = URL(fileURLWithPath: "/usr/bin/true")
-        try deadHelper.run()
-        deadHelper.waitUntilExit()
-        let deadPID = Int(deadHelper.processIdentifier)
-
         let now = Date().timeIntervalSince1970
         let store: [String: Any] = [
             "version": 1,
@@ -3333,14 +3347,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "cwd": root.path,
                     "startedAt": now,
                     "updatedAt": now,
-                    "pid": deadPID,
                 ],
             ],
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
             .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        startDetachedMockServer(
+            listenerFD: listenerFD,
+            state: state
+        ) { line in
             guard let payload = self.jsonObject(line) else { return "OK" }
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
@@ -3386,23 +3402,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-
-        let resumeRequests = state.snapshot().compactMap { command -> [String: Any]? in
-            guard let payload = self.jsonObject(command),
-                  payload["method"] as? String == "surface.resume.set" else { return nil }
-            return payload["params"] as? [String: Any]
-        }
-        let params = try XCTUnwrap(resumeRequests.last, "expected a surface.resume.set; saw \(state.snapshot())")
-        let boundEnvironment = params["environment"] as? [String: String]
-        XCTAssertEqual(
-            boundEnvironment?["CODEX_HOME"], codexHome,
-            "resume binding must carry the captured CODEX_HOME; params=\(params)"
-        )
-        let command = try XCTUnwrap(params["command"] as? String)
-        XCTAssertTrue(command.contains("'resume' '\(sessionId)'"), command)
 
         // The env-only record must also be PERSISTED to the hook session store (its arguments are
         // empty, so the store's "only assign launchCommand when arguments is non-empty" gate would
@@ -3447,7 +3448,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let serverHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            fulfillWhen: { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            finishOnIdle: false
+        ) { line in
             guard let payload = self.jsonObject(line) else { return "OK" }
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
@@ -3486,8 +3492,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_WORKSPACE_ID"] = workspaceId
         environment["CMUX_SURFACE_ID"] = leakedSurfaceId
         environment["CMUX_CLI_TTY_NAME"] = ttyName
+        environment["CMUX_AGENT_HOOK_PID_OVERRIDE"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
@@ -3542,7 +3552,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let serverHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            fulfillWhen: { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            finishOnIdle: false
+        ) { line in
             guard let payload = self.jsonObject(line) else { return "OK" }
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
@@ -3574,8 +3589,132 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_WORKSPACE_ID"] = workspaceId
         environment["CMUX_SURFACE_ID"] = staleSurfaceId
         environment["CMUX_CLI_TTY_NAME"] = ttyName
+        environment["TTY"] = "/dev/\(ttyName)"
+        environment["CMUX_AGENT_HOOK_PID_OVERRIDE"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(["/usr/local/bin/codex"])
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let resumeRequests = state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else { return nil }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertTrue(
+            state.snapshot().contains { command in
+                self.jsonObject(command)?["method"] as? String == "debug.terminals"
+            },
+            "stale ambient surface recovery must inspect the process TTY binding; saw \(state.snapshot())"
+        )
+        let params = try XCTUnwrap(
+            resumeRequests.last,
+            "stale ambient surface must not drop the hook; expected a surface.resume.set, saw \(state.snapshot())"
+        )
+        XCTAssertEqual(
+            params["surface_id"] as? String, ttySurfaceId,
+            "a stale ambient CMUX_SURFACE_ID must fall through to the TTY pane; params=\(params)"
+        )
+    }
+
+    func testCodexHookFallsBackToMappedSessionWhenAmbientBindingIsStaleWithoutProcessBinding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-stale-mapped")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-stale-mapped-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let staleWorkspaceId = "44444444-4444-4444-4444-444444444444"
+        let staleSurfaceId = "22222222-2222-2222-2222-222222222222"
+        let mappedSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "codex-stale-mapped-session"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": mappedSurfaceId,
+                    "cwd": root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        let serverHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            fulfillWhen: { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            finishOnIdle: false
+        ) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                let params = payload["params"] as? [String: Any]
+                if params?["workspace_id"] as? String == staleWorkspaceId {
+                    return self.v2Response(id: id, ok: true, result: ["surfaces": []])
+                }
+                return self.surfaceListResponse(id: id, surfaceId: mappedSurfaceId)
+            case "debug.terminals":
+                return self.v2Response(id: id, ok: true, result: ["terminals": []])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id, ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = staleWorkspaceId
+        environment["CMUX_SURFACE_ID"] = staleSurfaceId
+        environment.removeValue(forKey: "CMUX_CLI_TTY_NAME")
+        environment.removeValue(forKey: "TTY")
+        environment.removeValue(forKey: "CMUX_AGENT_HOOK_PID_OVERRIDE")
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
@@ -3600,11 +3739,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         let params = try XCTUnwrap(
             resumeRequests.last,
-            "stale ambient surface must not drop the hook; expected a surface.resume.set, saw \(state.snapshot())"
+            "stale ambient surface must fall back to mapped session target; saw \(state.snapshot())"
         )
-        XCTAssertEqual(
-            params["surface_id"] as? String, ttySurfaceId,
-            "a stale ambient CMUX_SURFACE_ID must fall through to the TTY pane; params=\(params)"
+        XCTAssertEqual(params["surface_id"] as? String, mappedSurfaceId)
+        XCTAssertFalse(
+            state.snapshot().contains { command in
+                self.jsonObject(command)?["method"] as? String == "debug.terminals"
+            },
+            "remote or SSH stale-surface fallback must not require a local TTY binding"
         )
     }
 
@@ -3631,7 +3773,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let serverHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            fulfillWhen: { self.jsonObject($0)?["method"] as? String == "feed.push" }
+        ) { line in
             guard let payload = self.jsonObject(line) else { return "OK" }
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)

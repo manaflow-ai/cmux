@@ -26,6 +26,7 @@
     "db:url": "bash scripts/db-local.sh url",
     "start": "next start",
     "test": "bun test",
+    "test:db:behavior": "bash scripts/run-db-behavior-tests.sh",
     "lint": "eslint"
   },
   "dependencies": {
@@ -74,6 +75,7 @@
     "drizzle-kit": "^1.0.0-beta.23",
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.6",
+    "linkedom": "^0.18.12",
     "pagefind": "^1.5.2",
     "tailwindcss": "^4",
     "typescript": "^5"

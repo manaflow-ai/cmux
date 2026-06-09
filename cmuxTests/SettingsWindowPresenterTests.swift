@@ -10,13 +10,22 @@ import XCTest
 #if DEBUG
 @MainActor
 final class SettingsWindowPresenterTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        SettingsWindowPresenter.resetForTests()
+    }
+
     override func tearDown() {
         SettingsWindowPresenter.resetForTests()
         super.tearDown()
     }
 
     func testConfigureWindowLeavesPendingNavigationForSettingsViews() {
-        let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
+        for window in NSApp.windows where window.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier {
+            window.identifier = nil
+            window.orderOut(nil)
+        }
+        let settingsWindow = makeWindow(identifier: "cmux.pending-settings.\(UUID().uuidString)")
         var didOpen = false
         defer {
             settingsWindow.orderOut(nil)
@@ -171,7 +180,15 @@ final class SettingsWindowPresenterTests: XCTestCase {
 
     func testConfigureClampsOversizedSettingsFrameToVisibleArea() throws {
         guard let screen = NSScreen.main else {
-            throw XCTSkip("No screen available for Settings frame clamping")
+            let message = "No screen available for Settings frame clamping"
+            let environment = ProcessInfo.processInfo.environment
+            if environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true" {
+                XCTFail("\(message); hosted CI must exercise Settings frame clamping")
+                throw NSError(domain: "cmux.tests", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: message,
+                ])
+            }
+            throw XCTSkip(message)
         }
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
         let visibleFrame = screen.visibleFrame

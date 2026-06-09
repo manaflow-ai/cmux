@@ -8,7 +8,7 @@ import Testing
 /// scenes, answers pointers with a canned action, and crashes/hangs on env
 /// tokens), so the spawn → announce → ack → crash → respawn cycle is verified
 /// through a real process boundary without AppKit.
-@Suite struct RenderWorkerClientTests {
+@Suite(.serialized) struct RenderWorkerClientTests {
     @Test func announcesContextOnSpawn() async {
         let client = RenderWorkerClient(executableURL: renderFixtureURL())
         let collector = RenderEventCollector(stream: await client.subscribe())
