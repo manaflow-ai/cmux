@@ -2783,8 +2783,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityRestart")
-            self.restartSocketListenerIfEnabled(source: "uiTest.socketSanity")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
+            let restartTask = self.scheduleSocketListenerRestartIfEnabled(source: "uiTest.socketSanity")
+            Task { @MainActor [weak self] in
+                await restartTask.value
                 self?.writeUITestDiagnosticsIfNeeded(stage: "socketSanityPostRestart")
             }
         }
@@ -3686,7 +3687,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
+                await self?.restartSocketListenerAfterWakeIfNeeded()
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
@@ -3724,6 +3725,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TerminalController.shared.start(tabManager: tabManager, socketPath: path, accessMode: config.mode)
     }
 
+    @discardableResult
+    private func scheduleSocketListenerRestartIfEnabled(source: String) -> Task<Void, Never> {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.restartSocketListenerIfEnabled(source: source)
+        }
+    }
+
     private func ensureSocketListenerIfEnabled(tabManager: TabManager, source: String) {
         guard let config = socketListenerConfigurationIfEnabled() else {
             TerminalController.shared.stop()
@@ -3743,19 +3752,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TerminalController.shared.start(tabManager: tabManager, socketPath: path, accessMode: config.mode)
     }
 
-    private func restartSocketListenerIfEnabled(source: String) {
-        guard let manager = tabManager
+    private func restartSocketListenerAfterWakeIfNeeded() async {
+        guard let tabManager = tabManager
             ?? preferredRegisteredMainWindowContext()?.tabManager
             ?? mainWindowContexts.values.first?.tabManager,
               let config = socketListenerConfigurationIfEnabled() else { return }
         let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
-        sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
-            "mode": config.mode.rawValue,
-            "path": restartPath,
-            "source": source
-        ])
-        TerminalController.shared.stop()
-        TerminalController.shared.start(tabManager: manager, socketPath: restartPath, accessMode: config.mode)
+        await restartSocketListenerIfEnabled(
+            tabManager: tabManager,
+            config: config,
+            restartPath: restartPath,
+            source: "workspace.didWake"
+        )
+    }
+
+    private func restartSocketListenerIfEnabled(source: String) async {
+        guard let tabManager = tabManager
+            ?? preferredRegisteredMainWindowContext()?.tabManager
+            ?? mainWindowContexts.values.first?.tabManager,
+              let config = socketListenerConfigurationIfEnabled() else { return }
+        let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
+        await restartSocketListenerIfEnabled(
+            tabManager: tabManager,
+            config: config,
+            restartPath: restartPath,
+            source: source
+        )
+    }
+
+    private func restartSocketListenerIfEnabled(
+        tabManager: TabManager,
+        config: (mode: SocketControlMode, path: String),
+        restartPath: String,
+        source: String
+    ) async {
+        await TerminalController.shared.restartIfUnhealthy(
+            tabManager: tabManager,
+            socketPath: restartPath,
+            accessMode: config.mode,
+            source: source
+        )
     }
 
     private func disableSuddenTerminationIfNeeded() {
@@ -8342,7 +8378,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             NSSound.beep()
             return
         }
-        restartSocketListenerIfEnabled(source: "menu.command")
+        scheduleSocketListenerRestartIfEnabled(source: "menu.command")
     }
 
     private func setupMenuBarExtra() {
@@ -11661,8 +11697,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         timeoutWorkItem = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 20.0, execute: timeout)
 
-        restartSocketListenerIfEnabled(source: "uiTest.multiWindowNotifications.setup")
-        publishCurrentState(isTimedOut: false)
+        let restartTask = scheduleSocketListenerRestartIfEnabled(source: "uiTest.multiWindowNotifications.setup")
+        Task { @MainActor in
+            await restartTask.value
+            publishCurrentState(isTimedOut: false)
+        }
     }
 
     private func writeMultiWindowNotificationTestData(_ updates: [String: String], at path: String) {

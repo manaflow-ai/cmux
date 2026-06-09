@@ -86,6 +86,15 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 /// Allows automated testing and external control of terminal tabs
 @MainActor
 class TerminalController {
+    struct SocketListenerReadiness: Sendable {
+        let health: SocketListenerHealth
+        let pingResponse: String?
+
+        var isReady: Bool {
+            health.isHealthy && pingResponse == "PONG"
+        }
+    }
+
     static let shared = TerminalController()
 
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
@@ -106,6 +115,8 @@ class TerminalController {
     nonisolated let socketServer: SocketControlServer
     // Per-surface dedupe for high-frequency report_* socket telemetry.
     private nonisolated let socketFastPathState = SocketFastPathState()
+    /// Main-actor restart gate so wake and path-monitor callbacks cannot overlap.
+    private var socketListenerRestartInProgress = false
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
@@ -746,8 +757,90 @@ class TerminalController {
         socketServer.listenerHealth(expectedSocketPath: expectedSocketPath)
     }
 
+    func socketListenerReadiness(
+        expectedSocketPath: String,
+        timeout: TimeInterval
+    ) async -> SocketListenerReadiness {
+        let health = socketListenerHealth(expectedSocketPath: expectedSocketPath)
+        guard health.isHealthy else {
+            return SocketListenerReadiness(health: health, pingResponse: nil)
+        }
+
+        let transport = self.transport
+        // The probe uses blocking socket I/O; keep it off the MainActor.
+        let pingResponse = await Task.detached(priority: .utility) {
+            transport.probeCommand("ping", at: expectedSocketPath, timeout: timeout)
+        }.value
+        return SocketListenerReadiness(health: health, pingResponse: pingResponse)
+    }
+
+    func refreshSocketListenerPermissions(socketPath: String, accessMode: SocketControlMode) {
+        socketServer.start(socketPath: socketPath, accessMode: accessMode)
+    }
+
+    @discardableResult
+    func restartIfUnhealthy(
+        tabManager: TabManager,
+        socketPath requestedSocketPath: String,
+        accessMode restartAccessMode: SocketControlMode,
+        source: String
+    ) async -> Bool {
+        guard !socketListenerRestartInProgress else {
+            sentryBreadcrumb(
+                "socket.listener.restart.skipped",
+                category: "socket",
+                data: [
+                    "path": requestedSocketPath,
+                    "source": source,
+                    "reason": "restart_in_progress",
+                ]
+            )
+            return false
+        }
+
+        socketListenerRestartInProgress = true
+        defer { socketListenerRestartInProgress = false }
+
+        let readiness = await socketListenerReadiness(expectedSocketPath: requestedSocketPath, timeout: 1.0)
+        if readiness.isReady {
+            refreshSocketListenerPermissions(socketPath: requestedSocketPath, accessMode: restartAccessMode)
+            sentryBreadcrumb(
+                "socket.listener.restart.skipped",
+                category: "socket",
+                data: [
+                    "path": requestedSocketPath,
+                    "source": source,
+                    "reason": "healthy",
+                ]
+            )
+            return false
+        }
+
+        sentryBreadcrumb(
+            "socket.listener.restart",
+            category: "socket",
+            data: [
+                "mode": restartAccessMode.rawValue,
+                "path": requestedSocketPath,
+                "source": source,
+                "failureSignals": readiness.health.failureSignals.joined(separator: ","),
+                "pingResponse": readiness.pingResponse ?? "",
+            ]
+        )
+        stop()
+        start(
+            tabManager: tabManager,
+            socketPath: requestedSocketPath,
+            accessMode: restartAccessMode
+        )
+
+        let activePath = activeSocketPath(preferredPath: requestedSocketPath)
+        let restartHealth = socketListenerHealth(expectedSocketPath: activePath)
+        return restartHealth.isHealthy
+    }
+
     private func restartSocketListenerIfPathMissing(path: String, generation: UInt64) {
-        guard let tabManager else { return }
+        guard tabManager != nil else { return }
         let restartMode = socketServer.accessMode
         guard socketServer.shouldRestartForMissingPath(path: path, generation: generation) else { return }
 
@@ -761,8 +854,15 @@ class TerminalController {
                 "generation": generation
             ]
         )
-        stop()
-        start(tabManager: tabManager, socketPath: path, accessMode: restartMode)
+        Task { @MainActor [weak self] in
+            guard let self, let tabManager = self.tabManager else { return }
+            await self.restartIfUnhealthy(
+                tabManager: tabManager,
+                socketPath: path,
+                accessMode: restartMode,
+                source: "path_monitor"
+            )
+        }
     }
 
     nonisolated func stop() {

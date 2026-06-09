@@ -141,17 +141,53 @@ enum CLISocketPathResolver {
         source: CLISocketPathSource,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundleIdentifier: String? = currentAppBundleIdentifier(),
+        warningSink: ((String) -> Void)? = nil,
         currentUserID: uid_t = getuid(),
         inspectSocketPathEntry: (String) -> SocketPathEntry = inspectSocketPathEntry
     ) -> String {
-        guard source == .implicitDefault else {
+        if source == .explicitFlag {
             return requestedPath
         }
 
+        let environmentRequestedPathReachable = source == .environment && canConnect(
+            to: requestedPath,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        )
+        if environmentRequestedPathReachable {
+            return requestedPath
+        }
+
+        let candidateResolution = resolveFromCandidateChain(
+            requestedPath: requestedPath,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        )
+        let resolved = candidateResolution.selectedPath
+            ?? (source == .environment ? requestedPath : candidateResolution.defaultPath ?? requestedPath)
+        if source == .environment, !environmentRequestedPathReachable {
+            emitEnvironmentSocketFallbackWarning(
+                requestedPath: requestedPath,
+                resolved: candidateResolution.selectedPath,
+                warningSink: warningSink ?? writeStandardErrorLine
+            )
+        }
+        return resolved
+    }
+
+    private static func resolveFromCandidateChain(
+        requestedPath: String,
+        environment: [String: String],
+        bundleIdentifier: String?,
+        currentUserID: uid_t,
+        inspectSocketPathEntry: (String) -> SocketPathEntry
+    ) -> (selectedPath: String?, defaultPath: String?) {
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         if case .stable = variant,
            canConnect(to: requestedPath, currentUserID: currentUserID, inspectSocketPathEntry: inspectSocketPathEntry) {
-            return requestedPath
+            return (requestedPath, requestedPath)
         }
 
         let candidates = dedupe(candidatePaths(
@@ -166,7 +202,7 @@ enum CLISocketPathResolver {
             currentUserID: currentUserID,
             inspectSocketPathEntry: inspectSocketPathEntry
         ) {
-            return path
+            return (path, candidates.first)
         }
 
         // If the listener is still starting, prefer existing socket files.
@@ -175,10 +211,10 @@ enum CLISocketPathResolver {
             currentUserID: currentUserID,
             inspectSocketPathEntry: inspectSocketPathEntry
         ) {
-            return path
+            return (path, candidates.first)
         }
 
-        return candidates.first ?? requestedPath
+        return (nil, candidates.first)
     }
 
     private static func candidatePaths(
@@ -523,5 +559,46 @@ enum CLISocketPathResolver {
             }
         }
         return ordered
+    }
+
+    private static func emitEnvironmentSocketFallbackWarning(
+        requestedPath: String,
+        resolved: String?,
+        warningSink: (String) -> Void
+    ) {
+        guard let resolved, !pathsMatch(resolved, requestedPath) else {
+            let format = String(
+                localized: "cli.socketPath.environment.unreachable.noFallback",
+                defaultValue: "cmux: CMUX_SOCKET_PATH=%@ is unreachable; no fallback socket found"
+            )
+            let message = String.localizedStringWithFormat(format, requestedPath)
+            warningSink(message + "\n")
+            return
+        }
+
+        let format = String(
+            localized: "cli.socketPath.environment.unreachable",
+            defaultValue: "cmux: CMUX_SOCKET_PATH=%@ is unreachable; using %@"
+        )
+        let message = String.localizedStringWithFormat(format, requestedPath, resolved)
+        warningSink(message + "\n")
+    }
+
+    private static func writeStandardErrorLine(_ message: String) {
+        message.withCString { pointer in
+            var remaining = strlen(pointer)
+            var cursor = UnsafeRawPointer(pointer)
+            while remaining > 0 {
+                let written = Darwin.write(STDERR_FILENO, cursor, remaining)
+                if written > 0 {
+                    remaining -= written
+                    cursor = cursor.advanced(by: written)
+                } else if written == -1, errno == EINTR {
+                    continue
+                } else {
+                    return
+                }
+            }
+        }
     }
 }
