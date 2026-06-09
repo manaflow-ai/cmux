@@ -245,14 +245,17 @@ extension TerminalController {
     /// small for big workspace lists.
     nonisolated static let mobilePreviewMaxLength = 140
 
-    /// How much raw notification text the sanitizer is willing to process.
-    /// Notification bodies come from terminal output and are not length-capped at
-    /// ingestion, and sanitizing runs on the main actor for every workspace on
-    /// every mobile list refresh, so the work must be bounded before the regex and
-    /// scalar passes, not after. A 16x multiple of the visible cap is plenty to
-    /// fill the preview even when escapes and whitespace inflate the raw text;
-    /// pathological input that is escapes-only past this bound just yields a
-    /// shorter (or no) preview.
+    /// How much raw notification text the sanitizer is willing to process,
+    /// measured in unicode scalars. Notification bodies come from terminal output
+    /// and are not length-capped at ingestion, and sanitizing runs on the main
+    /// actor for every workspace on every mobile list refresh, so the work must
+    /// be bounded before the regex and scalar passes, not after. The bound is in
+    /// scalars rather than `Character`s because a single crafted grapheme cluster
+    /// can carry an arbitrarily long run of combining scalars; a
+    /// Character-counted cap would still scan and emit the whole cluster. A 16x
+    /// multiple of the visible cap is plenty to fill the preview even when
+    /// escapes and whitespace inflate the raw text; pathological input that is
+    /// escapes-only past this bound just yields a shorter (or no) preview.
     nonisolated static let mobilePreviewInputCap = mobilePreviewMaxLength * 16
 
     /// Flattens arbitrary notification text into a single plain-text preview line:
@@ -262,13 +265,21 @@ extension TerminalController {
     /// Input beyond ``mobilePreviewInputCap`` is never scanned; a truncated input
     /// always renders a trailing ellipsis so the row signals there was more.
     nonisolated static func mobilePreviewSanitize(_ raw: String) -> String? {
-        // Bound the work first. `index(_:offsetBy:limitedBy:)` walks at most the
-        // cap, never the full body, so a multi-megabyte notification costs the
-        // same as a small one.
+        // Bound the work first, walking the scalar view: each step advances one
+        // scalar, so `index(_:offsetBy:limitedBy:)` costs at most the cap, never
+        // the full body, and a multi-megabyte notification (or one grapheme
+        // cluster hiding millions of combining scalars) costs the same as a
+        // small one. Scalar-view indices are valid String slice bounds; cutting
+        // mid-cluster at worst leaves a degenerate cluster the later passes
+        // treat like any other text.
+        let scalarView = raw.unicodeScalars
         let bounded: Substring
         let inputWasTruncated: Bool
-        if let cutoff = raw.index(raw.startIndex, offsetBy: mobilePreviewInputCap, limitedBy: raw.endIndex),
-           cutoff < raw.endIndex {
+        if let cutoff = scalarView.index(
+            scalarView.startIndex,
+            offsetBy: mobilePreviewInputCap,
+            limitedBy: scalarView.endIndex
+        ), cutoff < scalarView.endIndex {
             bounded = raw[..<cutoff]
             inputWasTruncated = true
         } else {
