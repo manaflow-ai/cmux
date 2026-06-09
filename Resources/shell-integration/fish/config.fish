@@ -167,7 +167,7 @@ if test "$_cmux_integration_enabled" != 0
         if test "$command_name" = claude
             _cmux_install_cli_command_shim "$command_name" "$wrapper_path"
         end
-        functions -e "$command_name" >/dev/null 2>&1
+        functions -q "$command_name"; and return 0
         switch "$command_name"
             case claude
                 function claude --wraps "$wrapper_path" --inherit-variable wrapper_path
@@ -254,6 +254,26 @@ else if set -q HOME
 end
 
 set -l _cmux_user_config "$_cmux_user_config_home/fish/config.fish"
-if test -n "$_cmux_user_config_home"; and test "$_cmux_user_config_home" != "$XDG_CONFIG_HOME"; and test -r "$_cmux_user_config"
-    source "$_cmux_user_config"
+if not set -q CMUX_FISH_USER_CONFIG_ALREADY_LOADED; and test -n "$_cmux_user_config_home"; and test "$_cmux_user_config_home" != "$XDG_CONFIG_HOME"
+    set -gx XDG_CONFIG_HOME "$_cmux_user_config_home"
+
+    set -l _cmux_user_functions "$_cmux_user_config_home/fish/functions"
+    if test -d "$_cmux_user_functions"; and not contains -- "$_cmux_user_functions" $fish_function_path
+        set -g fish_function_path "$_cmux_user_functions" $fish_function_path
+    end
+
+    set -l _cmux_user_completions "$_cmux_user_config_home/fish/completions"
+    if test -d "$_cmux_user_completions"; and not contains -- "$_cmux_user_completions" $fish_complete_path
+        set -g fish_complete_path "$_cmux_user_completions" $fish_complete_path
+    end
+
+    for _cmux_user_conf in "$_cmux_user_config_home"/fish/conf.d/*.fish
+        if test -r "$_cmux_user_conf"
+            source "$_cmux_user_conf"
+        end
+    end
+
+    if test -r "$_cmux_user_config"
+        source "$_cmux_user_config"
+    end
 end

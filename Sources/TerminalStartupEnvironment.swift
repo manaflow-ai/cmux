@@ -157,24 +157,22 @@ extension TerminalSurface {
         let normalizedIntegrationDir = URL(fileURLWithPath: integrationDir, isDirectory: true)
             .standardizedFileURL
             .path
-        let candidateConfigHome = (environment["XDG_CONFIG_HOME"]?.isEmpty == false ? environment["XDG_CONFIG_HOME"] : nil)
-            ?? (ambientEnvironment["XDG_CONFIG_HOME"]?.isEmpty == false ? ambientEnvironment["XDG_CONFIG_HOME"] : nil)
+        let integrationFile = URL(fileURLWithPath: normalizedIntegrationDir, isDirectory: true)
+            .appendingPathComponent("fish/config.fish")
+            .path
 
-        if let candidateConfigHome, !candidateConfigHome.isEmpty {
-            let normalizedCandidate = URL(fileURLWithPath: candidateConfigHome, isDirectory: true)
-                .standardizedFileURL
-                .path
-            if normalizedCandidate != normalizedIntegrationDir {
-                environment["CMUX_FISH_CONFIG_HOME"] = normalizedCandidate
-                protectedKeys.insert("CMUX_FISH_CONFIG_HOME")
-            }
-        }
-
-        environment["XDG_CONFIG_HOME"] = normalizedIntegrationDir
-        protectedKeys.insert("XDG_CONFIG_HOME")
+        environment["CMUX_FISH_INTEGRATION_FILE"] = integrationFile
+        environment["CMUX_FISH_USER_CONFIG_ALREADY_LOADED"] = "1"
+        protectedKeys.insert("CMUX_FISH_INTEGRATION_FILE")
+        protectedKeys.insert("CMUX_FISH_USER_CONFIG_ALREADY_LOADED")
     }
 
-    private static func shellSingleQuoted(_ value: String) -> String {
+    static func managedFishShellCommand(shell: String) -> String {
+        let initCommand = #"source "$CMUX_FISH_INTEGRATION_FILE""#
+        return "\(shellSingleQuoted(shell)) -il --init-command \(shellSingleQuoted(initCommand))"
+    }
+
+    static func shellSingleQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }

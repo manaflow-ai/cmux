@@ -6496,6 +6496,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
         var envVars: [ghostty_env_var_s] = []
         var envStorage: [(UnsafeMutablePointer<CChar>, UnsafeMutablePointer<CChar>)] = []
+        var managedFishShellCommand: String?
         defer {
             for (key, value) in envStorage {
                 free(key)
@@ -6686,6 +6687,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                     to: &env,
                     protectedKeys: &protectedStartupEnvironmentKeys
                 )
+                managedFishShellCommand = Self.managedFishShellCommand(shell: shell)
             }
         }
         env = Self.mergedStartupEnvironment(
@@ -6729,7 +6731,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
             if let initialCommand, !initialCommand.isEmpty {
                 return initialCommand
             }
-            return baseConfig.command
+            if let command = baseConfig.command, !command.isEmpty {
+                return command
+            }
+            return managedFishShellCommand
         }()
         let runtimeInitialInput = nextRuntimeInitialInput
         let resolvedInitialInput: String? = {

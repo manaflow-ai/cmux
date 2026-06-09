@@ -257,66 +257,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(cmuxBinEntries.count, 1, path)
     }
 
-    func testGeneratedFishBootstrapStagesIntegrationAndPreservesUserConfigHome() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-fish-shell-bootstrap-\(UUID().uuidString)")
-        let home = root.appendingPathComponent("home")
-        let bin = root.appendingPathComponent("bin")
-        let userConfigHome = root.appendingPathComponent("user-config")
-        let capturePath = root.appendingPathComponent("fish-env.txt")
-        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: userConfigHome, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        try writeExecutableShellFile(
-            at: bin.appendingPathComponent("fish"),
-            body: """
-            #!/bin/sh
-            {
-              printf 'XDG_CONFIG_HOME=%s\\n' "$XDG_CONFIG_HOME"
-              printf 'CMUX_FISH_CONFIG_HOME=%s\\n' "$CMUX_FISH_CONFIG_HOME"
-              printf 'ARGS=%s\\n' "$*"
-              printf 'CONFIG<<EOF\\n'
-              cat "$XDG_CONFIG_HOME/fish/config.fish"
-              printf '\\nEOF\\n'
-            } > "$CMUX_CAPTURE_FISH"
-            """
-        )
-
-        let script = RemoteInteractiveShellBootstrapBuilder.script(
-            remoteRelayPort: 0,
-            shellFeatures: "",
-            bundledFishIntegration: "set -gx CMUX_FISH_TEST_INTEGRATION 1"
-        )
-        let result = runProcess(
-            executablePath: "/usr/bin/env",
-            arguments: [
-                "HOME=\(home.path)",
-                "SHELL=\(bin.appendingPathComponent("fish").path)",
-                "PATH=\(bin.path):/usr/bin:/bin",
-                "TERM=xterm-256color",
-                "USER=\(NSUserName())",
-                "XDG_CONFIG_HOME=\(userConfigHome.path)",
-                "CMUX_CAPTURE_FISH=\(capturePath.path)",
-                "/bin/sh",
-                "-c",
-                script,
-            ],
-            timeout: 5
-        )
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-
-        let output = try String(contentsOf: capturePath, encoding: .utf8)
-        XCTAssertTrue(output.contains("XDG_CONFIG_HOME=\(home.path)/.cmux/relay/0.shell"), output)
-        XCTAssertTrue(output.contains("CMUX_FISH_CONFIG_HOME=\(userConfigHome.path)"), output)
-        XCTAssertTrue(output.contains("ARGS=-il"), output)
-        XCTAssertTrue(output.contains("set -gx CMUX_FISH_TEST_INTEGRATION 1"), output)
-    }
-
     func testRemoteRelayMetadataCleanupScriptRemovesMatchingSocketAddr() {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-cleanup-\(UUID().uuidString)")

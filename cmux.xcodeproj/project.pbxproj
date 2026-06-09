@@ -334,6 +334,7 @@
 		C35610000000000000000001 /* FinderFileDropRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C35610000000000000000002 /* FinderFileDropRegressionTests.swift */; };
 		D0E0F0B4A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */; };
 		F1A0C0DE0000000000000002 /* FindTextFieldSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */; };
+		C0F15A000000000000000001 /* FishShellIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F15A000000000000000002 /* FishShellIntegrationTests.swift */; };
 		F0C05170000000000000002 /* FocusHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C05170000000000000001 /* FocusHistory.swift */; };
 		C4160A020000000000000001 /* FocusHistoryMenuInvalidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A020000000000000002 /* FocusHistoryMenuInvalidator.swift */; };
 		C0DEFB100000000000000001 /* FocusSurfaceBroadcaster.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFB100000000000000002 /* FocusSurfaceBroadcaster.swift */; };
@@ -1068,6 +1069,7 @@
 		C35610000000000000000002 /* FinderFileDropRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderFileDropRegressionTests.swift; sourceTree = "<group>"; };
 		D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindSelectionShortcutUITests.swift; sourceTree = "<group>"; };
 		F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/FindTextFieldSupport.swift; sourceTree = "<group>"; };
+		C0F15A000000000000000002 /* FishShellIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FishShellIntegrationTests.swift; sourceTree = "<group>"; };
 		F0C05170000000000000001 /* FocusHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusHistory.swift; sourceTree = "<group>"; };
 		C4160A020000000000000002 /* FocusHistoryMenuInvalidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusHistoryMenuInvalidator.swift; sourceTree = "<group>"; };
 		C0DEFB100000000000000002 /* FocusSurfaceBroadcaster.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusSurfaceBroadcaster.swift; sourceTree = "<group>"; };
@@ -2079,6 +2081,7 @@
 				D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */,
 				1718C0DE1718C0DE17180001 /* GhosttyCommandShiftForwardingTests.swift */,
 				D3284002A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift */,
+				C0F15A000000000000000002 /* FishShellIntegrationTests.swift */,
 				F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */,
 				BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */,
 				A11EB0000000000000000001 /* GhosttyConfigPathResolverTests.swift */,
@@ -3218,6 +3221,7 @@
 				C0DEFC100000000000000001 /* FilePreviewTextEditorTextKitTests.swift in Sources */,
 				FE002103 /* FileSearchRipgrepParserTests.swift in Sources */,
 				C35610000000000000000001 /* FinderFileDropRegressionTests.swift in Sources */,
+				C0F15A000000000000000001 /* FishShellIntegrationTests.swift in Sources */,
 				C0DEFB300000000000000001 /* FocusSurfaceBroadcasterTests.swift in Sources */,
 				AA5269A0C0DE0004FACE0004 /* ForeignFirstResponderPolicyTests.swift in Sources */,
 				1718C0DE1718C0DE17180002 /* GhosttyCommandShiftForwardingTests.swift in Sources */,

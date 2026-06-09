@@ -112,13 +112,9 @@ enum RemoteInteractiveShellBootstrapBuilder {
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
         outerLines += [
-            "    if [ -n \"${XDG_CONFIG_HOME:-}\" ] && [ \"$XDG_CONFIG_HOME\" != \"$cmux_shell_dir\" ]; then",
-            "      export CMUX_FISH_CONFIG_HOME=\"$XDG_CONFIG_HOME\"",
-            "    else",
-            "      export CMUX_FISH_CONFIG_HOME=\"$HOME/.config\"",
-            "    fi",
-            "    export XDG_CONFIG_HOME=\"$cmux_shell_dir\"",
-            "    exec \"$CMUX_LOGIN_SHELL\" -il",
+            "    export CMUX_FISH_INTEGRATION_FILE=\"$cmux_shell_dir/fish/config.fish\"",
+            "    export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1",
+            "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command 'source \"$CMUX_FISH_INTEGRATION_FILE\"'",
             "    ;;",
             "  *)",
         ]
