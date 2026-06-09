@@ -7,7 +7,7 @@
 19052	Sources/ContentView.swift
 17860	Sources/AppDelegate.swift
 16503	Sources/GhosttyTerminalView.swift
-13589	Sources/Panels/BrowserPanel.swift
+5820	Sources/Panels/BrowserPanel.swift
 11756	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9914	Sources/TabManager.swift
 8494	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
@@ -183,3 +183,9 @@
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 502	Sources/CmuxEventPublishing.swift
 502	Sources/Settings/ConfigSource.swift
+914	Sources/Panels/BrowserNavigationPolicies.swift
+1082	Sources/Panels/BrowserWebKitDelegates.swift
+1020	Sources/Panels/InstalledBrowserDetector.swift
+1176	Sources/Panels/BrowserDataImporter.swift
+1287	Sources/Panels/BrowserDataImportCoordinator.swift
+698	Sources/Panels/BrowserHistoryStore.swift
