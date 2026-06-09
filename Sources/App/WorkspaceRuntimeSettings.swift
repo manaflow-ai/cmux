@@ -115,7 +115,6 @@ enum TerminalScrollSpeedSettings {
     static let defaultMultiplier = TerminalCatalogSection.scrollSpeedDefault
     static let minimumMultiplier = TerminalCatalogSection.scrollSpeedMinimum
     static let maximumMultiplier = TerminalCatalogSection.scrollSpeedMaximum
-    static let didChangeNotification = Notification.Name("cmux.terminalScrollSpeedSettingsDidChange")
 
     static func multiplier(defaults: UserDefaults = .standard) -> Double {
         if defaults.object(forKey: multiplierKey) == nil {
@@ -127,10 +126,6 @@ enum TerminalScrollSpeedSettings {
     static func sanitizedMultiplier(_ value: Double) -> Double {
         guard value.isFinite else { return defaultMultiplier }
         return min(max(value, minimumMultiplier), maximumMultiplier)
-    }
-
-    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
-        notificationCenter.post(name: didChangeNotification, object: nil)
     }
 }
 

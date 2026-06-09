@@ -1631,10 +1631,6 @@ final class CmuxSettingsFileStore {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
                 }
 
-                if change.defaultsKey == TerminalScrollSpeedSettings.multiplierKey {
-                    TerminalScrollSpeedSettings.notifyDidChange(notificationCenter: notificationCenter)
-                }
-
                 if change.defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey {
                     TerminalCopyOnSelectSettings.notifyDidChange(notificationCenter: notificationCenter)
                 }

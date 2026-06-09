@@ -387,6 +387,13 @@
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
         },
+        "scrollSpeed": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 3.0,
+          "default": 1.0,
+          "description": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower."
+        },
         "copyOnSelect": {
           "type": "boolean",
           "default": false,

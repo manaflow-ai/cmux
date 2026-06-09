@@ -15,7 +15,6 @@ public struct TerminalSection: View {
     @State private var fontSaveFailed = false
     @State private var fontSaveTask: Task<Void, Never>?
     @State private var scrollSpeed: DefaultsValueModel<Double>
-    @State private var scrollSpeedDraft: Double
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
@@ -33,9 +32,7 @@ public struct TerminalSection: View {
         self.catalog = catalog
         self.hostActions = hostActions
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
-        let scrollSpeedModel = DefaultsValueModel(store: defaultsStore, key: catalog.terminal.scrollSpeed)
-        _scrollSpeed = State(initialValue: scrollSpeedModel)
-        _scrollSpeedDraft = State(initialValue: scrollSpeedModel.current)
+        _scrollSpeed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.scrollSpeed))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
@@ -142,27 +139,24 @@ public struct TerminalSection: View {
             ) {
                 HStack(spacing: 8) {
                     Slider(
-                        value: Binding(get: { scrollSpeedDraft }, set: { scrollSpeedDraft = $0 }),
+                        value: Binding(get: { scrollSpeed.current }, set: { scrollSpeed.set($0) }),
                         in: TerminalCatalogSection.scrollSpeedMinimum...TerminalCatalogSection.scrollSpeedMaximum,
                         step: 0.05
-                    ) { editing in
-                        if !editing { scrollSpeed.set(scrollSpeedDraft) }
-                    }
+                    )
                     .frame(width: 130)
                     .accessibilityIdentifier("SettingsTerminalScrollSpeedSlider")
 
-                    Text(String.localizedStringWithFormat(String(localized: "settings.terminal.scrollSpeed.value", defaultValue: "%.2f×"), scrollSpeedDraft))
+                    Text(String.localizedStringWithFormat(String(localized: "settings.terminal.scrollSpeed.value", defaultValue: "%.2f×"), scrollSpeed.current))
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .monospacedDigit()
                         .frame(width: 44, alignment: .trailing)
 
                     Button(String(localized: "settings.terminal.scrollSpeed.reset", defaultValue: "Reset")) {
-                        scrollSpeedDraft = TerminalCatalogSection.scrollSpeedDefault
                         scrollSpeed.set(TerminalCatalogSection.scrollSpeedDefault)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(abs(scrollSpeedDraft - TerminalCatalogSection.scrollSpeedDefault) < 0.001)
+                    .disabled(abs(scrollSpeed.current - TerminalCatalogSection.scrollSpeedDefault) < 0.001)
                 }
             }
             SettingsCardDivider()
