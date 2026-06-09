@@ -3045,6 +3045,7 @@
 		C57570010000000000000002 /* RightSidebarPanelViewTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57570010000000000000001 /* RightSidebarPanelViewTestSupport.swift */; };
 		B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */; };
 		5F5553CB5553CB5553CB0001 /* RightSidebarRemoteCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F5553CB5553CB5553CB0002 /* RightSidebarRemoteCommandTests.swift */; };
+		94B2B339E12C9583D895BF06 /* RightSidebarSSHTeardownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF69A3A1140315BD094144BB /* RightSidebarSSHTeardownTests.swift */; };
 		07EB8695682FE486A366F22E /* RightSidebarTabCustomizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2217672A4FBF3048C6C17EA3 /* RightSidebarTabCustomizationTests.swift */; };
 		1C0259F302A2495DC4CF701E /* RightSidebarTabPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 477466F318D44362449A491B /* RightSidebarTabPreferences.swift */; };
 		C4CAF70131EA4AB1ABB78678 /* RightSidebarToolDragPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DC68FE25B9640288A48D4E9 /* RightSidebarToolDragPayload.swift */; };
@@ -7446,6 +7447,7 @@
 		C57570010000000000000001 /* RightSidebarPanelViewTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelViewTestSupport.swift; sourceTree = "<group>"; };
 		B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarRemoteCommand.swift; sourceTree = "<group>"; };
 		5F5553CB5553CB5553CB0002 /* RightSidebarRemoteCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarRemoteCommandTests.swift; sourceTree = "<group>"; };
+		AF69A3A1140315BD094144BB /* RightSidebarSSHTeardownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarSSHTeardownTests.swift; sourceTree = "<group>"; };
 		2217672A4FBF3048C6C17EA3 /* RightSidebarTabCustomizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarTabCustomizationTests.swift; sourceTree = "<group>"; };
 		477466F318D44362449A491B /* RightSidebarTabPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarTabPreferences.swift; sourceTree = "<group>"; };
 		9DC68FE25B9640288A48D4E9 /* RightSidebarToolDragPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarToolDragPayload.swift; sourceTree = "<group>"; };
@@ -12735,6 +12737,7 @@
 				120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */,
 				4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */,
 				768CFCBC86433F91FFCBC078 /* TerminalSSHSessionDetectorTitleTests.swift */,
+				AF69A3A1140315BD094144BB /* RightSidebarSSHTeardownTests.swift */,
 				A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */,
 				4C1A7E10B2D34F56A8C90014 /* MobileHostStatusVerificationLimiterTests.swift */,
 				C0DEFB300000000000000002 /* FocusSurfaceBroadcasterTests.swift */,
@@ -18163,6 +18166,7 @@
 				302334DCE6B277B59D309A6E /* RightSidebarModeBarTabWidthsTests.swift in Sources */,
 				C57570010000000000000002 /* RightSidebarPanelViewTestSupport.swift in Sources */,
 				5F5553CB5553CB5553CB0001 /* RightSidebarRemoteCommandTests.swift in Sources */,
+				94B2B339E12C9583D895BF06 /* RightSidebarSSHTeardownTests.swift in Sources */,
 				07EB8695682FE486A366F22E /* RightSidebarTabCustomizationTests.swift in Sources */,
 				C46790000000000000000007 /* RosettaNativeRelaunchTests.swift in Sources */,
 				F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */,
