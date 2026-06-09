@@ -1160,6 +1160,50 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileStoreClampsBelowMinimumTerminalScrollSpeedSetting() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            TerminalScrollSpeedSettings.multiplierKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: TerminalScrollSpeedSettings.multiplierKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "scrollSpeed": 0.1
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(
+                defaults.object(forKey: TerminalScrollSpeedSettings.multiplierKey) as? Double,
+                TerminalScrollSpeedSettings.minimumMultiplier
+            )
+            XCTAssertEqual(
+                TerminalScrollSpeedSettings.multiplier(defaults: defaults),
+                TerminalScrollSpeedSettings.minimumMultiplier
+            )
+        }
+    }
+
     func testSettingsFileStoreAppliesFocusTextBoxOnNewTerminalsSetting() throws {
         let defaults = UserDefaults.standard
         let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
