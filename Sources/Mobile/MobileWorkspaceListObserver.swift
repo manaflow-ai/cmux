@@ -84,6 +84,10 @@ final class MobileWorkspaceListObserver {
                 // a pure pin toggle need not change the panel set or title, so
                 // without this the phone never learns the workspace was pinned.
                 workspace.$isPinned.map { _ in () }.eraseToAnyPublisher(),
+                // The picture (iMessage-style avatar) is iOS-facing: a set/change/
+                // remove must push `workspace.updated` so the phone refetches the
+                // avatar by its new hash. The hash, not the bytes, rides the list.
+                workspace.$pictureHash.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
                 // Pure drag-reorders change spatial order without changing the panel
@@ -135,6 +139,8 @@ final class MobileWorkspaceListObserver {
             hasher.combine(workspace.id)
             hasher.combine(workspace.title)
             hasher.combine(workspace.isPinned)
+            // Picture-hash change must re-emit so the phone refetches the avatar.
+            hasher.combine(workspace.pictureHash)
             // Spatial order is significant: hash the ordered id sequence so a
             // reorder of the same panel set changes the hash.
             let panelIDs = workspace.orderedPanelIds

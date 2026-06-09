@@ -15061,6 +15061,10 @@ struct SidebarWorkspaceSnapshotBuilder {
         let customDescription: String?
         let isPinned: Bool
         let customColorHex: String?
+        /// Content hash of the workspace picture, or nil for none. Carried as a
+        /// value in the row snapshot so the leading avatar re-renders when the
+        /// picture changes without the row holding the picture store.
+        let pictureHash: String?
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String
@@ -15499,6 +15503,14 @@ struct TabItemView: View, Equatable {
                         .font(.system(size: scaledFontSize(9), weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(protectedWorkspaceTooltip)
+                }
+
+                if let pictureHash = workspaceSnapshot.pictureHash {
+                    SidebarWorkspaceAvatarView(
+                        workspaceId: tab.id,
+                        pictureHash: pictureHash,
+                        size: max(16, 18 * fontScale)
+                    )
                 }
 
                 Text(workspaceSnapshot.title)
@@ -16112,6 +16124,43 @@ struct TabItemView: View, Equatable {
             }
         }
 
+        if !isMulti {
+            Menu(String(localized: "contextMenu.workspacePicture", defaultValue: "Workspace Picture")) {
+                Button {
+                    chooseWorkspacePictureFromFile()
+                } label: {
+                    Label(
+                        tab.pictureHash == nil
+                            ? String(localized: "contextMenu.setWorkspacePicture", defaultValue: "Choose Picture…")
+                            : String(localized: "contextMenu.changeWorkspacePicture", defaultValue: "Change Picture…"),
+                        systemImage: "photo"
+                    )
+                }
+
+                if WorkspacePicturePasteboardSupport.hasImage {
+                    Button {
+                        pasteWorkspacePicture()
+                    } label: {
+                        Label(
+                            String(localized: "contextMenu.pasteWorkspacePicture", defaultValue: "Paste Picture"),
+                            systemImage: "doc.on.clipboard"
+                        )
+                    }
+                }
+
+                if tab.pictureHash != nil {
+                    Button {
+                        tabManager.removeWorkspacePicture(tabId: tab.id)
+                    } label: {
+                        Label(
+                            String(localized: "contextMenu.removeWorkspacePicture", defaultValue: "Remove Picture"),
+                            systemImage: "xmark.circle"
+                        )
+                    }
+                }
+            }
+        }
+
         if let copyableSidebarSSHError = workspaceSnapshot.copyableSidebarSSHError {
             Button(String(localized: "contextMenu.copySshError", defaultValue: "Copy SSH Error")) {
                 WorkspaceSurfaceIdentifierClipboardText.copy(copyableSidebarSSHError)
@@ -16523,6 +16572,7 @@ struct TabItemView: View, Equatable {
             customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
             isPinned: tab.isPinned,
             customColorHex: tab.customColor,
+            pictureHash: tab.pictureHash,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
@@ -16938,6 +16988,45 @@ struct TabItemView: View, Equatable {
         applyTabColor(normalized, targetIds: targetIds)
     }
 
+    /// Shared set/change path: pick an image file via NSOpenPanel, then route it
+    /// through the single `TabManager.setWorkspacePicture` mutation. The store
+    /// downscales and persists; the published hash change updates the sidebar
+    /// avatar and pushes to any paired phone.
+    private func chooseWorkspacePictureFromFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.prompt = String(localized: "panel.workspacePicture.choose", defaultValue: "Choose")
+        panel.message = String(
+            localized: "panel.workspacePicture.message",
+            defaultValue: "Choose an image to use as this workspace's picture."
+        )
+        guard panel.runModal() == .OK,
+              let url = panel.url,
+              let image = NSImage(contentsOf: url) else {
+            return
+        }
+        applyWorkspacePicture(image)
+    }
+
+    /// Shared paste path: read an image off the general pasteboard and apply it
+    /// through the same mutation as the file pick.
+    private func pasteWorkspacePicture() {
+        guard let image = WorkspacePicturePasteboardSupport.imageFromPasteboard() else {
+            NSSound.beep()
+            return
+        }
+        applyWorkspacePicture(image)
+    }
+
+    private func applyWorkspacePicture(_ image: NSImage) {
+        if !tabManager.setWorkspacePicture(tabId: tab.id, image: image) {
+            NSSound.beep()
+        }
+    }
+
     private func showInvalidColorAlert(_ value: String) {
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -16979,6 +17068,48 @@ struct TabItemView: View, Equatable {
         tabManager.selectTab(tab)
         setSelectionToTabs()
         _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
+    }
+}
+
+/// Small leading avatar for a workspace that has a picture set. Loads the image
+/// from `WorkspacePictureStore` keyed by the immutable `(workspaceId,
+/// pictureHash)` value passed in, so the row holds no store reference (snapshot-
+/// boundary rule) and the cached `NSImage` only reloads when the hash changes.
+private struct SidebarWorkspaceAvatarView: View {
+    let workspaceId: UUID
+    let pictureHash: String
+    let size: CGFloat
+
+    @State private var image: NSImage?
+    @State private var loadedHash: String?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
+            } else {
+                Circle()
+                    .fill(Color.secondary.opacity(0.2))
+                    .frame(width: size, height: size)
+            }
+        }
+        .accessibilityHidden(true)
+        .task(id: pictureHash) {
+            guard loadedHash != pictureHash else { return }
+            if let data = WorkspacePictureStore.shared.pictureData(
+                for: workspaceId,
+                matchingHash: pictureHash
+            ) {
+                image = NSImage(data: data)
+            } else {
+                image = nil
+            }
+            loadedHash = pictureHash
+        }
     }
 }
 

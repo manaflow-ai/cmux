@@ -1794,6 +1794,11 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitle: String?
     var customDescription: String?
     var customColor: String?
+    /// Content hash of the workspace's picture (iMessage-style avatar). The image
+    /// bytes live on disk in `WorkspacePictureStore` keyed by workspace id; only
+    /// this small hash is persisted here. `nil` for workspaces with no picture and
+    /// for older snapshots.
+    var pictureHash: String? = nil
     var isPinned: Bool
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil

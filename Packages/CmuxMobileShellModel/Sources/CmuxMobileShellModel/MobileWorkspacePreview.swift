@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A lightweight, `Sendable` snapshot of a remote workspace shown in the mobile shell.
 ///
@@ -32,6 +32,16 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// Whether the workspace is pinned on the Mac. Pinned workspaces sort to the
     /// top of the mobile list.
     public var isPinned: Bool
+    /// Content hash of the workspace picture (iMessage-style avatar) reported by
+    /// the Mac, or `nil` when the workspace has no picture. The avatar bytes are
+    /// fetched on demand keyed by this hash and stamped into ``pictureData``; the
+    /// hash itself is what drives a refetch when the picture changes.
+    public var pictureHash: String?
+    /// Resolved avatar image bytes (a small PNG) once fetched and cached by hash,
+    /// or `nil` until fetched (or when the workspace has no picture). Carried in
+    /// the value snapshot so list rows can render the avatar without holding the
+    /// shell store (snapshot-boundary rule).
+    public var pictureData: Data?
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
 
@@ -40,11 +50,22 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - id: The workspace's stable identifier.
     ///   - name: The workspace's user-facing display name.
     ///   - isPinned: Whether the workspace is pinned on the Mac. Defaults to `false`.
+    ///   - pictureHash: Content hash of the workspace picture, or `nil` for none.
+    ///   - pictureData: Resolved avatar bytes once fetched, or `nil`.
     ///   - terminals: The terminals contained in the workspace, in display order.
-    public init(id: ID, name: String, isPinned: Bool = false, terminals: [MobileTerminalPreview]) {
+    public init(
+        id: ID,
+        name: String,
+        isPinned: Bool = false,
+        pictureHash: String? = nil,
+        pictureData: Data? = nil,
+        terminals: [MobileTerminalPreview]
+    ) {
         self.id = id
         self.name = name
         self.isPinned = isPinned
+        self.pictureHash = pictureHash
+        self.pictureData = pictureData
         self.terminals = terminals
     }
 }

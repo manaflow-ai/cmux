@@ -18,6 +18,10 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         /// Whether this workspace is pinned, if the Mac reported it. `nil` when
         /// connected to a Mac old enough not to emit `is_pinned`.
         public let isPinned: Bool?
+        /// Content hash of the workspace picture (iMessage-style avatar), or `nil`
+        /// when the workspace has no picture or the Mac is old enough not to emit
+        /// `picture_hash`. The bytes are fetched on demand keyed by this hash.
+        public let pictureHash: String?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
 
@@ -27,6 +31,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case currentDirectory = "current_directory"
             case isSelected = "is_selected"
             case isPinned = "is_pinned"
+            case pictureHash = "picture_hash"
             case terminals
         }
     }
