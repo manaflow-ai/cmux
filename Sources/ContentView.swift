@@ -10887,32 +10887,18 @@ struct VerticalTabsSidebar: View {
         // Scroll unconditionally: ScrollViewProxy resolves `.id(_:)` values in
         // lazy containers without requiring the row to be realized, and an
         // unknown id is a harmless no-op. The previous design gated this on a
-        // per-row "laid-out row ids" PreferenceKey aggregated across every
-        // sidebar row; that preference fed `@State` writes from inside the
-        // layout/preference update cycle and was the surviving cmux-owned edge
-        // in the sidebar layout livelock
-        // (https://github.com/manaflow-ai/cmux/issues/2586).
-        //
-        // No anchor means SwiftUI scrolls the minimum needed to reveal the row.
-        proxy.scrollTo(sidebarScrollTargetId(for: selectedWorkspaceId, renderContext: renderContext))
+        // per-row "laid-out row ids" PreferenceKey whose sidebar-wide reduce
+        // fed `@State` writes from inside the layout/preference update cycle,
+        // the cmux-owned edge in the sidebar layout livelock
+        // (https://github.com/manaflow-ai/cmux/issues/2586). No anchor means
+        // SwiftUI scrolls the minimum needed to reveal the row.
+        let group = renderContext.workspaceById[selectedWorkspaceId]?.groupId
+            .flatMap { renderContext.workspaceGroupById[$0] }
+        proxy.scrollTo(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+            selectedWorkspaceId: selectedWorkspaceId,
+            group: group
+        ))
         pendingSelectedWorkspaceScrollId = nil
-    }
-
-    /// A member of a collapsed group has no row of its own, so its UUID is not
-    /// a scrollable `.id` and `scrollTo` would no-op. Target the group header
-    /// (which carries the anchor workspace id) so the scroll still lands where
-    /// the workspace lives. Decided purely from render-context data, never
-    /// from what the lazy layout happens to have realized.
-    private func sidebarScrollTargetId(
-        for workspaceId: UUID,
-        renderContext: WorkspaceListRenderContext
-    ) -> UUID {
-        guard let tab = renderContext.workspaceById[workspaceId],
-              let groupId = tab.groupId,
-              let group = renderContext.workspaceGroupById[groupId],
-              group.isCollapsed
-        else { return workspaceId }
-        return group.anchorWorkspaceId
     }
 
     private func shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
