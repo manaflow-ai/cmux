@@ -9,6 +9,9 @@
 /* Begin PBXBuildFile section */
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
+		A6E710010000000000000002 /* AgentChatPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E710010000000000000001 /* AgentChatPresenter.swift */; };
+		A6E710020000000000000002 /* AgentChatTranscriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E710020000000000000001 /* AgentChatTranscriptResolver.swift */; };
+		A6E710030000000000000002 /* AgentChatWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E710030000000000000001 /* AgentChatWindowController.swift */; };
 		A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000001 /* AgentExecutableResolver.swift */; };
 		A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000002 /* AgentExecutableResolverError.swift */; };
 		A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000005 /* AgentExecutableResolverTests.swift */; };
@@ -132,6 +135,10 @@
 		B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmux.swift */; };
 		B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000030A1B2C3D4E5F60719 /* cmux_open.swift */; };
 		A5001654 /* CmuxActionTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001655 /* CmuxActionTrust.swift */; };
+		A6E700010000000000000001 /* CmuxAgentConversation in Frameworks */ = {isa = PBXBuildFile; productRef = A6E700010000000000000003 /* CmuxAgentConversation */; };
+		A6E700010000000000000002 /* CmuxAgentConversation in Frameworks */ = {isa = PBXBuildFile; productRef = A6E700010000000000000003 /* CmuxAgentConversation */; };
+		A6E700020000000000000001 /* CmuxAgentConversationUI in Frameworks */ = {isa = PBXBuildFile; productRef = A6E700020000000000000003 /* CmuxAgentConversationUI */; };
+		A6E700020000000000000002 /* CmuxAgentConversationUI in Frameworks */ = {isa = PBXBuildFile; productRef = A6E700020000000000000003 /* CmuxAgentConversationUI */; };
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00005A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
@@ -392,6 +399,7 @@
 		A17110000000000000000001 /* KeyboardShortcutSpaceKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */; };
 		C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
+		A6E710040000000000000002 /* LocalTranscriptConversationSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E710040000000000000001 /* LocalTranscriptConversationSource.swift */; };
 		53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */; };
 		2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000001 /* MainWindowFocusController.swift */; };
 		B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000006 /* MainWindowFocusTypes.swift */; };
@@ -783,6 +791,9 @@
 /* Begin PBXFileReference section */
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
+		A6E710010000000000000001 /* AgentChatPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentChatPresenter.swift; sourceTree = "<group>"; };
+		A6E710020000000000000001 /* AgentChatTranscriptResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentChatTranscriptResolver.swift; sourceTree = "<group>"; };
+		A6E710030000000000000001 /* AgentChatWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentChatWindowController.swift; sourceTree = "<group>"; };
 		A9F100000000000000000001 /* AgentExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolver.swift; sourceTree = "<group>"; };
 		A9F100000000000000000002 /* AgentExecutableResolverError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverError.swift; sourceTree = "<group>"; };
 		A9E010000000000000000005 /* AgentExecutableResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverTests.swift; sourceTree = "<group>"; };
@@ -1127,6 +1138,7 @@
 		A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSpaceKeyTests.swift; sourceTree = "<group>"; };
 		C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutTestSettingsIsolation.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		A6E710040000000000000001 /* LocalTranscriptConversationSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/LocalTranscriptConversationSource.swift; sourceTree = "<group>"; };
 		53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacAuthComposition.swift; sourceTree = "<group>"; };
 		2F0C05000000000000000001 /* MainWindowFocusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusController.swift; sourceTree = "<group>"; };
 		B37A00000000000000000006 /* MainWindowFocusTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusTypes.swift; sourceTree = "<group>"; };
@@ -1440,6 +1452,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6E700010000000000000001 /* CmuxAgentConversation in Frameworks */,
+				A6E700020000000000000001 /* CmuxAgentConversationUI in Frameworks */,
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
@@ -1487,6 +1501,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6E700010000000000000002 /* CmuxAgentConversation in Frameworks */,
+				A6E700020000000000000002 /* CmuxAgentConversationUI in Frameworks */,
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				C8000314C8000314C8000314 /* CmuxFileWatch in Frameworks */,
 				CF00F00000000000000000A4 /* CmuxFoundation in Frameworks */,
@@ -1695,6 +1711,10 @@
 				C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */,
 				9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */,
 				D36A00010000000000000002 /* AgentHibernationController.swift */,
+				A6E710010000000000000001 /* AgentChatPresenter.swift */,
+				A6E710020000000000000001 /* AgentChatTranscriptResolver.swift */,
+				A6E710030000000000000001 /* AgentChatWindowController.swift */,
+				A6E710040000000000000001 /* LocalTranscriptConversationSource.swift */,
 				243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */,
 				D50D9BCE46701FBA91C2EFB6 /* SidebarWorkspaceSnapshotRefreshPolicy.swift */,
 				D35450020000000000000002 /* SidebarWorkspaceRowHoverTracker.swift */,
@@ -2309,6 +2329,8 @@
 				F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A5354305A5354305A5354305 /* CmuxSocketControl */,
+				A6E700010000000000000003 /* CmuxAgentConversation */,
+				A6E700020000000000000003 /* CmuxAgentConversationUI */,
 				C52830000000000000000004 /* CmuxTerminalCopyMode */,
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
@@ -2346,6 +2368,8 @@
 				A5001251 /* Sentry */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A5354305A5354305A5354305 /* CmuxSocketControl */,
+				A6E700010000000000000003 /* CmuxAgentConversation */,
+				A6E700020000000000000003 /* CmuxAgentConversationUI */,
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
 				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
@@ -2472,6 +2496,8 @@
 				A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
 				A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CmuxSocketControl" */,
+				A6E700010000000000000004 /* XCLocalSwiftPackageReference "CmuxAgentConversation" */,
+				A6E700020000000000000004 /* XCLocalSwiftPackageReference "CmuxAgentConversationUI" */,
 				C52830000000000000000003 /* XCLocalSwiftPackageReference "CmuxTerminalCopyMode" */,
 				C5A1FED000000000000000C4 /* XCLocalSwiftPackageReference "CmuxSwiftRender" */,
 				C5A1FED100000000000000D4 /* XCLocalSwiftPackageReference "CmuxSwiftRenderUI" */,
@@ -2654,6 +2680,9 @@
 			buildActionMask = 2147483647;
 			files = (
 
+				A6E710010000000000000002 /* AgentChatPresenter.swift in Sources */,
+				A6E710020000000000000002 /* AgentChatTranscriptResolver.swift in Sources */,
+				A6E710030000000000000002 /* AgentChatWindowController.swift in Sources */,
 				A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */,
 				A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */,
 				C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */,
@@ -2855,6 +2884,7 @@
 				A5F10013A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift in Sources */,
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
 				C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */,
+				A6E710040000000000000002 /* LocalTranscriptConversationSource.swift in Sources */,
 				53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */,
 				2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */,
 				B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */,
@@ -3750,6 +3780,14 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxSocketControl;
 		};
+		A6E700010000000000000004 /* XCLocalSwiftPackageReference "CmuxAgentConversation" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxAgentConversation;
+		};
+		A6E700020000000000000004 /* XCLocalSwiftPackageReference "CmuxAgentConversationUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxAgentConversationUI;
+		};
 		A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXAgentLaunch;
@@ -3936,6 +3974,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CmuxSocketControl" */;
 			productName = CmuxSocketControl;
+		};
+		A6E700010000000000000003 /* CmuxAgentConversation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A6E700010000000000000004 /* XCLocalSwiftPackageReference "CmuxAgentConversation" */;
+			productName = CmuxAgentConversation;
+		};
+		A6E700020000000000000003 /* CmuxAgentConversationUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A6E700020000000000000004 /* XCLocalSwiftPackageReference "CmuxAgentConversationUI" */;
+			productName = CmuxAgentConversationUI;
 		};
 		C52830000000000000000004 /* CmuxTerminalCopyMode */ = {
 			isa = XCSwiftPackageProductDependency;

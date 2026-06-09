@@ -1,0 +1,9 @@
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-06-02T11:54:43.242Z","sessionId":"sess-claude-1","content":"/start"}
+{"parentUuid":null,"type":"user","message":{"role":"user","content":"List the files in the repo."},"uuid":"u1","timestamp":"2026-06-02T11:54:43.294Z","cwd":"/tmp/demo","sessionId":"sess-claude-1"}
+{"parentUuid":"u1","type":"assistant","message":{"model":"claude-opus-4-8","role":"assistant","content":[{"type":"thinking","thinking":"I should run ls.","signature":"abc"}]},"uuid":"a1","timestamp":"2026-06-02T11:54:45.000Z","sessionId":"sess-claude-1"}
+{"parentUuid":"a1","type":"assistant","message":{"model":"claude-opus-4-8","role":"assistant","content":[{"type":"text","text":"I'll list the files."},{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"ls","description":"List files"}}]},"uuid":"a2","timestamp":"2026-06-02T11:54:46.000Z","sessionId":"sess-claude-1"}
+{"parentUuid":"a2","type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01","type":"tool_result","content":"README.md\nPackage.swift"}]},"uuid":"u2","timestamp":"2026-06-02T11:54:47.000Z","sessionId":"sess-claude-1"}
+{"type":"summary","summary":"Listed files","leafUuid":"u2"}
+{"type":"some-future-unknown-type","payload":{"whatever":true},"sessionId":"sess-claude-1"}
+{"parentUuid":"u2","type":"assistant","message":{"model":"claude-opus-4-8","role":"assistant","content":[{"type":"text","text":"There are two files."}]},"uuid":"a3","timestamp":"2026-06-02T11:54:48.000Z","sessionId":"sess-claude-1"}
+this is not valid json and must be skipped
