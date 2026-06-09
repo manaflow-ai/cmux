@@ -14,6 +14,7 @@ struct ShellStartupMatrixTests {
         let stdout: String
         let stderr: String
         let timedOut: Bool
+        let duration: TimeInterval
     }
 
     @Test
@@ -168,6 +169,36 @@ struct ShellStartupMatrixTests {
         }
     }
 
+    @Test(arguments: ["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh"])
+    func generatedSshBootstrapStartupStaysUnderPerformanceBudget(shellName: String) throws {
+        let result = try runGeneratedBootstrap(shellName: shellName)
+
+        expectEqual(result.process.status, 0, result.process.stderr)
+        expectFalse(result.process.timedOut, result.process.stderr)
+        expectTrue(
+            result.process.duration < 1.0,
+            "\(shellName) cmux ssh bootstrap took \(formatSeconds(result.process.duration)); budget is 1.000s"
+        )
+    }
+
+    @Test
+    func generatedSshBootstrapDoesNotBlockOnRelayCliWarmup() throws {
+        let result = try runGeneratedBootstrap(
+            shellName: "sh",
+            fakeCmuxDelay: 2,
+            workspaceID: "workspace-perf",
+            surfaceID: "surface-perf",
+            bootstrapTTY: "ttys999"
+        )
+
+        expectEqual(result.process.status, 0, result.process.stderr)
+        expectFalse(result.process.timedOut, result.process.stderr)
+        expectTrue(
+            result.process.duration < 1.0,
+            "cmux ssh bootstrap waited for relay CLI warmup: \(formatSeconds(result.process.duration))"
+        )
+    }
+
     struct RemoteShellCase: Sendable, CustomTestStringConvertible {
         let name: String
         let expectedArgs: String
@@ -180,7 +211,13 @@ struct ShellStartupMatrixTests {
         let process: ProcessRunResult
     }
 
-    private func runGeneratedBootstrap(shellName: String) throws -> GeneratedBootstrapResult {
+    private func runGeneratedBootstrap(
+        shellName: String,
+        fakeCmuxDelay: TimeInterval? = nil,
+        workspaceID: String? = nil,
+        surfaceID: String? = nil,
+        bootstrapTTY: String? = nil
+    ) throws -> GeneratedBootstrapResult {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-shell-matrix-\(UUID().uuidString)")
         let home = root.appendingPathComponent("home")
@@ -191,7 +228,10 @@ struct ShellStartupMatrixTests {
         defer { try? fileManager.removeItem(at: root) }
 
         try writeExecutableShellFile(at: bin.appendingPathComponent(shellName), capturePath: capturePath)
-        let script = RemoteInteractiveShellBootstrapBuilder.script(
+        if let fakeCmuxDelay {
+            try writeExecutableCmuxFile(at: bin.appendingPathComponent("cmux"), delay: fakeCmuxDelay)
+        }
+        var script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 64123,
             shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(environment: [
                 "GHOSTTY_SHELL_FEATURES": "existing-feature"
@@ -200,20 +240,32 @@ struct ShellStartupMatrixTests {
             bundledBashIntegration: "cmux_bash_marker=1",
             bundledFishIntegration: "set -gx CMUX_FISH_MARKER 1"
         )
+        if let workspaceID {
+            script = script.replacingOccurrences(of: "__CMUX_WORKSPACE_ID__", with: workspaceID)
+        }
+        if let surfaceID {
+            script = script.replacingOccurrences(of: "__CMUX_SURFACE_ID__", with: surfaceID)
+        }
+        var arguments = [
+            "HOME=\(home.path)",
+            "SHELL=\(bin.appendingPathComponent(shellName).path)",
+            "PATH=\(bin.path):/usr/bin:/bin",
+            "TERM=xterm-256color",
+            "USER=\(NSUserName())",
+            "ZDOTDIR=\(home.path)/user-zdotdir",
+            "CMUX_CAPTURE_PATH=\(capturePath.path)",
+        ]
+        if let bootstrapTTY {
+            arguments.append("CMUX_BOOTSTRAP_TTY=\(bootstrapTTY)")
+        }
+        arguments += [
+            "/bin/sh",
+            "-c",
+            script,
+        ]
         let process = runProcess(
             executablePath: "/usr/bin/env",
-            arguments: [
-                "HOME=\(home.path)",
-                "SHELL=\(bin.appendingPathComponent(shellName).path)",
-                "PATH=\(bin.path):/usr/bin:/bin",
-                "TERM=xterm-256color",
-                "USER=\(NSUserName())",
-                "ZDOTDIR=\(home.path)/user-zdotdir",
-                "CMUX_CAPTURE_PATH=\(capturePath.path)",
-                "/bin/sh",
-                "-c",
-                script,
-            ],
+            arguments: arguments,
             timeout: 5
         )
         let capture = (try? String(contentsOf: capturePath, encoding: .utf8)) ?? ""
@@ -248,12 +300,27 @@ struct ShellStartupMatrixTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
 
+    private func writeExecutableCmuxFile(at url: URL, delay: TimeInterval) throws {
+        try """
+        #!/bin/sh
+        sleep \(String(format: "%.3f", delay))
+        exit 0
+        """
+        .write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private func formatSeconds(_ value: TimeInterval) -> String {
+        String(format: "%.3fs", value)
+    }
+
     private func runProcess(
         executablePath: String,
         arguments: [String],
         timeout: TimeInterval
     ) -> ProcessRunResult {
         let process = Process()
+        let start = Date()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         let stdout = Pipe()
@@ -264,7 +331,13 @@ struct ShellStartupMatrixTests {
         do {
             try process.run()
         } catch {
-            return ProcessRunResult(status: -1, stdout: "", stderr: error.localizedDescription, timedOut: false)
+            return ProcessRunResult(
+                status: -1,
+                stdout: "",
+                stderr: error.localizedDescription,
+                timedOut: false,
+                duration: Date().timeIntervalSince(start)
+            )
         }
 
         let deadline = Date().addingTimeInterval(timeout)
@@ -280,7 +353,8 @@ struct ShellStartupMatrixTests {
             status: process.terminationStatus,
             stdout: String(data: stdoutData, encoding: .utf8) ?? "",
             stderr: String(data: stderrData, encoding: .utf8) ?? "",
-            timedOut: timedOut
+            timedOut: timedOut,
+            duration: Date().timeIntervalSince(start)
         )
     }
 }
