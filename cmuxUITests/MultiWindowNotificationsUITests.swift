@@ -32,9 +32,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
-        app.launch()
+        launchAllowingHeadlessBackgroundActivation(app)
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for multi-window routing test. state=\(app.state.rawValue)"
         )
 
@@ -74,6 +74,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         // Sanity: ensure the second window was actually created.
         XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before sending notification shortcut. state=\(app.state.rawValue)"
+        )
 
         // Jump to latest unread (Cmd+Shift+U). This should bring the owning window forward.
         let beforeToken = loadData()?["focusToken"]
@@ -119,9 +123,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
-        app.launch()
+        launchAllowingHeadlessBackgroundActivation(app)
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for notifications popover shortcut test. state=\(app.state.rawValue)"
         )
 
@@ -136,6 +140,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before opening notifications popover. state=\(app.state.rawValue)"
+        )
 
         app.typeKey("i", modifierFlags: [.command])
         let targetButton = app.buttons["NotificationPopoverRow.\(notifId1)"]
@@ -156,14 +164,18 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
-        app.launch()
+        launchAllowingHeadlessBackgroundActivation(app)
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for jump-to-latest popover test. state=\(app.state.rawValue)"
         )
 
         XCTAssertTrue(waitForData(keys: ["notifId1"], timeout: 15.0), "Expected multi-window notification setup data")
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before opening notifications popover. state=\(app.state.rawValue)"
+        )
 
         app.typeKey("i", modifierFlags: [.command])
 
@@ -187,9 +199,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_EMPTY_NOTIFICATIONS_BLOCKING_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
-        app.launch()
+        launchAllowingHeadlessBackgroundActivation(app)
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for empty popover blocking test. state=\(app.state.rawValue)"
         )
 
@@ -209,6 +221,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertFalse(before.text.contains(marker), "Unexpected marker precondition collision")
         XCTAssertEqual(before.notificationCount, 0, "Expected app-side setup to clear notifications")
 
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before opening empty notifications popover. state=\(app.state.rawValue)"
+        )
         app.typeKey("i", modifierFlags: [.command])
         XCTAssertTrue(app.staticTexts["No notifications yet"].waitForExistence(timeout: 6.0), "Expected empty notifications popover state")
         let jumpButton = app.buttons["notificationsPopover.jumpToLatest"]
@@ -248,9 +264,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_NOTIFY_SOURCE_TERMINAL_READY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
-        app.launch()
+        launchAllowingHeadlessBackgroundActivation(app)
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for notify focus regression test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(
@@ -351,6 +367,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return
         }
 
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before typing delayed notify command. state=\(app.state.rawValue)"
+        )
         app.typeText("sh \(commandScriptPath)")
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
@@ -399,9 +419,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
-        app.launch()
+        launchAllowingHeadlessBackgroundActivation(app)
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for open-notification CLI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(
@@ -522,9 +542,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_WINDOW_ROUTE_CLI"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_WINDOW_ROUTE_CLI_TITLE"] = title
         app.launchEnvironment["CMUX_TAG"] = launchTag
-        app.launch()
+        launchAllowingHeadlessBackgroundActivation(app)
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for CLI --window workspace routing test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(
@@ -652,22 +672,32 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
     }
 
-    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        if app.wait(for: .runningForeground, timeout: timeout) {
-            return true
+    private func launchAllowingHeadlessBackgroundActivation(_ app: XCUIApplication) {
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("Headless CI may launch the app without foreground activation", options: options) {
+            app.launch()
         }
-        if app.state == .runningBackground {
-            app.activate()
-            return app.wait(for: .runningForeground, timeout: 6.0)
-        }
-        return false
     }
 
-    private func waitForAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        if app.wait(for: .runningForeground, timeout: timeout) {
+    private func ensureAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        waitForCondition(timeout: timeout) {
+            app.state == .runningForeground || app.state == .runningBackground
+        }
+    }
+
+    private func ensureAppForegroundForInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.state == .runningForeground {
             return true
         }
-        return app.state == .runningBackground
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App could not be foregrounded on this runner", options: options) {
+            app.activate()
+        }
+        return waitForCondition(timeout: timeout) {
+            app.state == .runningForeground
+        }
     }
 
     private func waitForElementToDisappear(_ element: XCUIElement, timeout: TimeInterval) -> Bool {

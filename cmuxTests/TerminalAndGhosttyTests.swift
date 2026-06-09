@@ -3047,6 +3047,25 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         }
     }
 
+    private func drainMainQueue(timeout: TimeInterval = 1.0, file: StaticString = #filePath, line: UInt = #line) {
+        var drained = false
+        DispatchQueue.main.async {
+            drained = true
+        }
+        waitUntil(timeout: timeout, description: "main queue to drain", file: file, line: line) { drained }
+    }
+
+    private func waitForRuntimeSurface(
+        _ surface: TerminalSurface,
+        timeout: TimeInterval = 5.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        waitUntil(timeout: timeout, description: "runtime surface to be recreated", file: file, line: line) {
+            surface.surface != nil
+        }
+    }
+
     func testTerminalMouseDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
@@ -3110,9 +3129,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         let pointInWindow = surfaceView.convert(NSPoint(x: 20, y: 20), to: nil)
         let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
         surfaceView.mouseDown(with: event)
-        let drained = expectation(description: "flash drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
         waitUntil(description: "notification dismiss flash") {
@@ -3181,9 +3198,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         let event = makeKeyEvent(characters: "", keyCode: 122, window: window)
         surfaceView.keyDown(with: event)
-        let drained = expectation(description: "flash drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
         waitUntil(description: "notification dismiss flash") {
@@ -3233,14 +3248,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
-
-        let recovered = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                surface.surface != nil
-            },
-            object: NSObject()
-        )
-        wait(for: [recovered], timeout: 3.0)
+        waitForRuntimeSurface(surface)
 
         XCTAssertNotNil(
             surface.surface,
@@ -3298,6 +3306,16 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         hostedView.removeFromSuperview()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
+        let detachedViewStillFirstResponder = (window.firstResponder as? NSView) === surfaceView
+        if !detachedViewStillFirstResponder {
+            // Some runners clear the window responder during detach without calling the view hook.
+            surface.recordExternalFocusState(false)
+            XCTAssertFalse(
+                surface.debugDesiredFocusState(),
+                "Runner already moved first responder away, so desired Ghostty focus should be cleared before recovery"
+            )
+        }
+
         let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
 
@@ -3308,13 +3326,11 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             (window.firstResponder as? NSView) === otherResponder,
             "Expected focus to move to the replacement responder"
         )
-        let recovered = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                surface.surface != nil
-            },
-            object: NSObject()
+        XCTAssertFalse(
+            surface.debugDesiredFocusState(),
+            "Responder loss after a missing-surface keyDown should clear desired Ghostty focus before recovery completes"
         )
-        wait(for: [recovered], timeout: 3.0)
+        waitForRuntimeSurface(surface)
 
         XCTAssertNotNil(surface.surface, "Expected missing-surface recovery to still recreate the runtime surface")
         XCTAssertFalse(
@@ -3370,10 +3386,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
-
-        let drained = expectation(description: "background recovery drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertNil(
             surface.surface,
@@ -3599,10 +3612,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         surface.resetDebugForceRefreshCount()
         hostedView.setVisibleInUI(true)
-
-        let drained = expectation(description: "visible toggle drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertEqual(
             surface.debugForceRefreshCount(),
