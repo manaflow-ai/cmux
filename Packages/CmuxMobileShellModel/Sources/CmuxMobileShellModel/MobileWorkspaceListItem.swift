@@ -17,6 +17,9 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// a group header, so the view can inset them.
     case workspace(MobileWorkspacePreview, indented: Bool)
 
+    /// A stable, list-unique identity for SwiftUI diffing. Namespaced by item
+    /// kind (`group.` / `workspace.`) so a group header and a workspace row can
+    /// never collide even though both wrap UUID-backed ids.
     public var id: String {
         switch self {
         case .groupHeader(let group):
