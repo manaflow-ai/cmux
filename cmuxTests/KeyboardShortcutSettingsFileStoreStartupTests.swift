@@ -482,6 +482,91 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileParsesMarkdownCmdClickOpenTarget() throws {
+        let defaults = UserDefaults.standard
+
+        try preservingDefaults(keys: [
+            MarkdownCmdClickOpenSettings.key,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey
+        ]) {
+            defaults.removeObject(forKey: MarkdownCmdClickOpenSettings.key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            // Defaults to opening a new tab until the config opts in.
+            XCTAssertEqual(MarkdownCmdClickOpenSettings.target(defaults: defaults), .newTab)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "markdown": {
+                    "cmdClickOpenTarget": "splitRight"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            withExtendedLifetime(store) {
+                XCTAssertEqual(defaults.string(forKey: MarkdownCmdClickOpenSettings.key), "splitRight")
+                XCTAssertEqual(MarkdownCmdClickOpenSettings.target(defaults: defaults), .splitRight)
+            }
+        }
+    }
+
+    func testSettingsFileRejectsUnknownMarkdownCmdClickOpenTarget() throws {
+        let defaults = UserDefaults.standard
+
+        try preservingDefaults(keys: [
+            MarkdownCmdClickOpenSettings.key,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey
+        ]) {
+            defaults.removeObject(forKey: MarkdownCmdClickOpenSettings.key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "markdown": {
+                    "cmdClickOpenTarget": "newWindow"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            withExtendedLifetime(store) {
+                XCTAssertNil(defaults.string(forKey: MarkdownCmdClickOpenSettings.key))
+                XCTAssertEqual(MarkdownCmdClickOpenSettings.target(defaults: defaults), .newTab)
+            }
+        }
+    }
+
     func testSettingsFileParsesFileEditorWordWrap() throws {
         let defaults = UserDefaults.standard
 

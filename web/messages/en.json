@@ -839,7 +839,8 @@
         "markdown": {
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
-          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers.",
+          "cmdClickOpenTarget": "Where Cmd-clicking a file path link in the markdown viewer opens the file: a new tab in the same pane (newTab) or a split to the right (splitRight)."
         },
         "fileEditor": {
           "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
