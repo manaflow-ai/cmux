@@ -11792,6 +11792,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             y *= 2
         }
 
+        let scrollSpeedMultiplier = CGFloat(TerminalScrollSpeedSettings.multiplier())
+        x *= scrollSpeedMultiplier
+        y *= scrollSpeedMultiplier
+
         var mods: Int32 = 0
         if precision {
             mods |= 0b0000_0001

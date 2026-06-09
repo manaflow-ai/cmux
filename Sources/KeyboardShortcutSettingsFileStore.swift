@@ -535,6 +535,13 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
         }
 
+        if let value = jsonDouble(section["scrollSpeed"]) {
+            snapshot.managedUserDefaults[TerminalScrollSpeedSettings.multiplierKey] =
+                .double(TerminalScrollSpeedSettings.sanitizedMultiplier(value))
+        } else if section.keys.contains("scrollSpeed") {
+            logInvalid("terminal.scrollSpeed", sourcePath: sourcePath)
+        }
+
         if let value = jsonBool(section["copyOnSelect"]) {
             snapshot.managedUserDefaults[TerminalCopyOnSelectSettings.copyOnSelectKey] = .bool(value)
         } else if section.keys.contains("copyOnSelect") {
