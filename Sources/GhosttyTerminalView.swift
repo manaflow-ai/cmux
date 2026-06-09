@@ -6890,7 +6890,29 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let createdSurface = surface else { return }
         TerminalSurfaceRegistry.shared.registerRuntimeSurface(createdSurface, ownerId: id)
         recordRuntimeSurfaceCreation()
-        // Flush any remote-tmux output that arrived before the surface existed.
+        // Size the surface to its grid BEFORE flushing the buffered seed. The
+        // remote-tmux capture seed is full-width (the remote pane's width); flushing
+        // it while the surface is still at ghostty_surface_new's default grid wraps
+        // the wide rows, and the later (no-reflow) set_size can't recover them — so
+        // a seed buffered before surface creation (e.g. a background workspace)
+        // would render mis-wrapped. Plain set_size only — NO render_now / DECAWM
+        // toggle here (that races the renderer during init and caused a SIGBUS;
+        // see updateSize).
+        ghostty_surface_set_content_scale(createdSurface, scaleFactors.x, scaleFactors.y)
+        let initialBackingSize = view.convertToBacking(NSRect(origin: .zero, size: view.bounds.size)).size
+        let initialWpx = pixelDimension(from: initialBackingSize.width)
+        let initialHpx = pixelDimension(from: initialBackingSize.height)
+        if initialWpx > 0, initialHpx > 0 {
+            ghostty_surface_set_size(createdSurface, initialWpx, initialHpx)
+            lastPixelWidth = initialWpx
+            lastPixelHeight = initialHpx
+            lastUncappedPixelWidth = initialWpx
+            lastUncappedPixelHeight = initialHpx
+            lastXScale = scaleFactors.x
+            lastYScale = scaleFactors.y
+        }
+
+        // Now flush the buffered remote-tmux output into the correctly-sized grid.
         flushPendingRemoteOutput(to: createdSurface)
         // Install the PTY tee so MobileTerminalByteTee receives every byte
         // the read thread produces, in order, before the VT parser runs.
@@ -6927,19 +6949,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             ghostty_surface_set_display_id(createdSurface, displayID)
         }
 
-        ghostty_surface_set_content_scale(createdSurface, scaleFactors.x, scaleFactors.y)
-        let backingSize = view.convertToBacking(NSRect(origin: .zero, size: view.bounds.size)).size
-        let wpx = pixelDimension(from: backingSize.width)
-        let hpx = pixelDimension(from: backingSize.height)
-        if wpx > 0, hpx > 0 {
-            ghostty_surface_set_size(createdSurface, wpx, hpx)
-            lastPixelWidth = wpx
-            lastPixelHeight = hpx
-            lastUncappedPixelWidth = wpx
-            lastUncappedPixelHeight = hpx
-            lastXScale = scaleFactors.x
-            lastYScale = scaleFactors.y
-        }
+        // (Surface sizing now happens BEFORE the seed flush above, so the captured
+        // full-width rows paint into the correctly-sized grid.)
 
         // Some GhosttyKit builds can drop inherited font_size during post-create
         // config/scale reconciliation. If runtime points don't match the inherited
