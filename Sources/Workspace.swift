@@ -761,11 +761,22 @@ extension Workspace {
                 anchorPanelId: fallbackAnchorPanelId
             )
         }
-        let restorableAgentIndex = RestorableAgentSessionIndex.load()
+        // Prefer the warm cached agent index over a synchronous
+        // `RestorableAgentSessionIndex.load()` (sysctl-per-record + disk, ~350ms-1.8s on
+        // machines with large agent history) so closing a tab does not freeze the main
+        // thread. Fall back to a fresh load only when the cache has not loaded yet (the
+        // brief window after launch before the first refresh completes; the cache is
+        // prewarmed at launch so this is rare). A cached entry at most one refresh stale
+        // is acceptable here because restore prefers the always-fresh in-memory
+        // resumeBinding and only consults this agent snapshot when no binding exists, so
+        // cmux-launched agents reopen correctly regardless of cache freshness.
+        let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            ?? RestorableAgentSessionIndex.load()
+        let restorableAgent = agentIndex.snapshot(workspaceId: id, panelId: panelId)
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
-            restorableAgent: restorableAgentIndex.snapshot(workspaceId: id, panelId: panelId),
+            restorableAgent: restorableAgent,
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
@@ -10322,6 +10333,18 @@ final class SharedLiveAgentIndex: ObservableObject {
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         scheduleRefreshIfStale()
         return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    /// Current cached index, scheduling a background refresh if stale. Never blocks.
+    /// Used by the workspace-close undo snapshot so closing a tab does not pay the
+    /// synchronous `RestorableAgentSessionIndex.load()` cost (sysctl-per-record live-PID
+    /// probe + hook-store/transcript disk reads) on the main thread. The sidebar keeps
+    /// this warm while the app is open; stale tolerance is fine here because the
+    /// restore/resume path re-reads transcripts from disk and only uses the cached
+    /// snapshot's session identity, not the live PID set.
+    func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex? {
+        scheduleRefreshIfStale()
+        return index
     }
 
     func scheduleRefreshIfStale() {
