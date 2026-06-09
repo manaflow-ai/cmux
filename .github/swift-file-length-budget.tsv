@@ -4,7 +4,7 @@
 32547	CLI/cmux.swift
 21983	Sources/TerminalController.swift
 19875	Sources/Workspace.swift
-19052	Sources/ContentView.swift
+8901	Sources/ContentView.swift
 17860	Sources/AppDelegate.swift
 16503	Sources/GhosttyTerminalView.swift
 13589	Sources/Panels/BrowserPanel.swift
@@ -183,3 +183,9 @@
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 502	Sources/CmuxEventPublishing.swift
 502	Sources/Settings/ConfigSource.swift
+2262	Sources/VerticalTabsSidebar.swift
+1984	Sources/TabItemView.swift
+1442	Sources/SidebarFooterViews.swift
+1216	Sources/SidebarDropDelegates.swift
+777	Sources/WindowCommandPaletteOverlay.swift
+575	Sources/WindowChromeSupport.swift
