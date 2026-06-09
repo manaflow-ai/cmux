@@ -219,7 +219,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "    cat <<'CMUXTERMINFO' | tic -x - >/dev/null 2>&1",
             trimmedTerminfoSource,
             "CMUXTERMINFO",
-            "  ) >/dev/null 2>&1 &",
+            "  ) </dev/null >/dev/null 2>&1 &",
             "fi",
         ]
         return lines
@@ -271,7 +271,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "    fi",
             "    \"$cmux_relay_cli\" rpc surface.report_tty \"$cmux_relay_report_tty\" >/dev/null 2>&1 || true",
             "    \"$cmux_relay_cli\" rpc surface.ports_kick \"$cmux_relay_ports_kick\" >/dev/null 2>&1 || true",
-            "  ) >/dev/null 2>&1 &",
+            "  ) </dev/null >/dev/null 2>&1 &",
             "fi",
             "unset CMUX_BOOTSTRAP_TTY cmux_relay_cli cmux_relay_tty cmux_relay_report_tty cmux_relay_ports_kick",
         ]

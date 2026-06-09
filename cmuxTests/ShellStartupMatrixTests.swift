@@ -303,7 +303,9 @@ struct ShellStartupMatrixTests {
     private func writeExecutableCmuxFile(at url: URL, delay: TimeInterval) throws {
         try """
         #!/bin/sh
-        sleep \(String(format: "%.3f", delay))
+        if [ "$1" = "rpc" ]; then
+          sleep \(String(format: "%.3f", delay))
+        fi
         exit 0
         """
         .write(to: url, atomically: true, encoding: .utf8)

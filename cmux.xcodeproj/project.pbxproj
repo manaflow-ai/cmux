@@ -118,6 +118,7 @@
 		A5D4120BA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120CA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift */; };
 		A5D41203A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41204A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift */; };
 		A5D41205A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */; };
+		C0F16B000000000000000001 /* CLIRemoteShellStartupPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */; };
 		A5D41209A1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */; };
 		B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */; };
 		C10D51700000000000000002 /* ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D51700000000000000001 /* ClosedItemHistory.swift */; };
@@ -892,6 +893,7 @@
 		A5D4120CA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILegacyHookAliasTests.swift; sourceTree = "<group>"; };
 		A5D41204A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyProcessIntegrationRegressionTests.swift; sourceTree = "<group>"; };
 		A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyProcessTestSupport.swift; sourceTree = "<group>"; };
+		C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRemoteShellStartupPerformanceTests.swift; sourceTree = "<group>"; };
 		A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRovoDevHookPersistenceTests.swift; sourceTree = "<group>"; };
 		B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISocketPathResolver.swift; sourceTree = "<group>"; };
 		C10D51700000000000000001 /* ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistory.swift; sourceTree = "<group>"; };
@@ -2229,6 +2231,7 @@
 				A5A5A506A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift */,
 				A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */,
 				A5D41204A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift */,
+				C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */,
 				A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */,
 				A5D41208A1B2C3D4E5F60718 /* CLIGenericHookPersistenceTests.swift */,
 				A5D41212A1B2C3D4E5F60718 /* CLIHookNoResponseTests.swift */,
@@ -3186,6 +3189,7 @@
 				A5D4120BA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift in Sources */,
 				A5D41203A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift in Sources */,
 				A5D41205A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift in Sources */,
+				C0F16B000000000000000001 /* CLIRemoteShellStartupPerformanceTests.swift in Sources */,
 				A5D41209A1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift in Sources */,
 				C0DE31390000000000000105 /* CMUXCLIErrorOutputRegressionTests.swift in Sources */,
 				C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */,
