@@ -7026,7 +7026,7 @@ extension BrowserPanel {
             pendingDeveloperToolsTransitionTargetVisible = targetVisible
             setPreferredDeveloperToolsVisible(targetVisible)
             if !targetVisible {
-                developerToolsDetachedOpenGraceDeadline = nil
+                developerToolsDetachedOpenGraceDeadline = nil; developerToolsLastKnownVisibleAt = nil
                 forceDeveloperToolsRefreshOnNextAttach = false
                 cancelDeveloperToolsRestoreRetry()
             }
@@ -7071,7 +7071,7 @@ extension BrowserPanel {
                     return false
                 }
             }
-            developerToolsDetachedOpenGraceDeadline = nil
+            developerToolsDetachedOpenGraceDeadline = nil; developerToolsLastKnownVisibleAt = nil
         }
 
         if targetVisible {

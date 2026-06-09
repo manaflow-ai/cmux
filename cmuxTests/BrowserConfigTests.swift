@@ -3809,9 +3809,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test")
         XCTAssertTrue(panel.hasPendingDeveloperToolsRefreshAfterAttach())
-
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
         XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+        XCTAssertTrue(panel.hideDeveloperTools()); waitForDeveloperToolsTransitions(); panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test-after-hide"); XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
     }
 
     func testRapidToggleCoalescesToFinalVisibleIntentWithoutExtraInspectorCalls() {
