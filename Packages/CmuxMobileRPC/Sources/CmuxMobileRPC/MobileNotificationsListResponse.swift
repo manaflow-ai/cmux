@@ -13,6 +13,10 @@ public struct MobileNotificationPreview: Identifiable, Equatable, Sendable {
     /// `TerminalNotification.tabId` and the `MobileWorkspacePreview.ID` raw
     /// value, so it maps directly onto the workspace open / deep-link path.
     public let workspaceID: String
+    /// The owning workspace's display name, shown on the feed row so the user can
+    /// tell which workspace/Mac the notification came from. `nil` when the
+    /// workspace has closed or has no title.
+    public let workspaceName: String?
     /// The terminal surface, when the notification was scoped to one.
     public let surfaceID: String?
     /// The notification title shown as the row's primary line.
@@ -30,6 +34,7 @@ public struct MobileNotificationPreview: Identifiable, Equatable, Sendable {
     public init(
         id: String,
         workspaceID: String,
+        workspaceName: String?,
         surfaceID: String?,
         title: String,
         subtitle: String,
@@ -39,6 +44,7 @@ public struct MobileNotificationPreview: Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.workspaceID = workspaceID
+        self.workspaceName = workspaceName
         self.surfaceID = surfaceID
         self.title = title
         self.subtitle = subtitle
@@ -60,6 +66,8 @@ public struct MobileNotificationsListResponse: Decodable, Sendable {
         public let id: String
         /// The owning workspace's id (the Mac's `tabId`).
         public let workspaceID: String
+        /// The owning workspace's display name, or `nil` when unavailable.
+        public let workspaceName: String?
         /// The terminal surface id, when scoped to one; otherwise `nil`.
         public let surfaceID: String?
         /// The notification title.
@@ -76,6 +84,7 @@ public struct MobileNotificationsListResponse: Decodable, Sendable {
         private enum CodingKeys: String, CodingKey {
             case id
             case workspaceID = "workspace_id"
+            case workspaceName = "workspace_name"
             case surfaceID = "surface_id"
             case title
             case subtitle
@@ -106,6 +115,7 @@ public struct MobileNotificationsListResponse: Decodable, Sendable {
             MobileNotificationPreview(
                 id: row.id,
                 workspaceID: row.workspaceID,
+                workspaceName: row.workspaceName,
                 surfaceID: row.surfaceID,
                 title: row.title,
                 subtitle: row.subtitle,

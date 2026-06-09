@@ -20864,6 +20864,11 @@ class TerminalController {
             [
                 "id": notification.id.uuidString,
                 "workspace_id": notification.tabId.uuidString,
+                // The workspace's display title, so the feed row can name which
+                // workspace/Mac the notification came from (titles are activity
+                // strings like "Claude finished" with no workspace context).
+                // Null when the workspace has closed or has no title.
+                "workspace_name": v2OrNull(AppDelegate.shared?.tabTitle(for: notification.tabId)),
                 "surface_id": v2OrNull(notification.surfaceId?.uuidString),
                 "title": notification.title,
                 "subtitle": notification.subtitle,

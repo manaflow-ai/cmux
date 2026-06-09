@@ -72,6 +72,16 @@ struct NotificationsFeedView: View {
 struct NotificationRow: View {
     let notification: MobileNotificationPreview
 
+    /// The workspace name, falling back to a generic label when the Mac did not
+    /// report one (closed or untitled workspace), so the row is never blank.
+    private var workspaceLabel: String {
+        let name = notification.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if name.isEmpty {
+            return L10n.string("mobile.notifications.unknownWorkspace", defaultValue: "Workspace")
+        }
+        return name
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Circle()
@@ -82,7 +92,7 @@ struct NotificationRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(notification.title)
+                    Text(workspaceLabel)
                         .font(.headline)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
@@ -94,6 +104,14 @@ struct NotificationRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+
+                // The title is an activity string ("Claude finished"); show it
+                // under the workspace name so the row reads "<workspace> · <what
+                // happened>".
+                Text(notification.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
 
                 if !notification.subtitle.isEmpty {
                     Text(notification.subtitle)

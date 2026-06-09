@@ -1004,6 +1004,23 @@
         }
       }
     },
+    "mobile.notifications.unknownWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        }
+      }
+    },
     "mobile.notifications.unreadCountFormat": {
       "extractionState": "manual",
       "localizations": {

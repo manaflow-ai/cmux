@@ -17,6 +17,7 @@ import Testing
         MobileNotificationPreview(
             id: id,
             workspaceID: workspace,
+            workspaceName: "Workspace \(workspace)",
             surfaceID: nil,
             title: "Title \(id)",
             subtitle: "",
@@ -133,6 +134,7 @@ import Testing
             {
               "id": "n1",
               "workspace_id": "w1",
+              "workspace_name": "my-feature",
               "surface_id": "s1",
               "title": "Build done",
               "subtitle": "sub",
@@ -149,9 +151,34 @@ import Testing
         let first = try #require(previews.first)
         #expect(first.id == "n1")
         #expect(first.workspaceID == "w1")
+        #expect(first.workspaceName == "my-feature")
         #expect(first.surfaceID == "s1")
         #expect(first.title == "Build done")
         #expect(first.isRead == false)
         #expect(first.createdAt == Date(timeIntervalSince1970: 1_000_000.5))
+    }
+
+    @Test func decodesNotificationWithMissingWorkspaceName() throws {
+        // An older Mac (or a closed/untitled workspace) omits workspace_name;
+        // it must decode to nil rather than throwing.
+        let json = """
+        {
+          "notifications": [
+            {
+              "id": "n1",
+              "workspace_id": "w1",
+              "surface_id": null,
+              "title": "t",
+              "subtitle": "",
+              "body": "",
+              "created_at": 1000000,
+              "is_read": true
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        let previews = try MobileNotificationsListResponse.decode(json).previews()
+        #expect(previews.first?.workspaceName == nil)
+        #expect(previews.first?.surfaceID == nil)
     }
 }
