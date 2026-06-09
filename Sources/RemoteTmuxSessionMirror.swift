@@ -29,6 +29,14 @@ final class RemoteTmuxSessionMirror {
     /// Per-window multi-pane renderers (present once a window has >1 pane).
     private var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private var observerToken: RemoteTmuxControlConnection.ObserverToken?
+    /// Initial client-sizing retry; see ``scheduleInitialClientSizing()``.
+    private var initialSizingTask: Task<Void, Never>?
+    /// Re-arm the initial sizing when one of this workspace's surfaces becomes
+    /// ready / enters a window: a background workspace's surfaces may not even
+    /// EXIST while the rebuild-time retry runs (they are created when the
+    /// workspace is first shown), so that retry alone could expire and leave the
+    /// remote at ssh's default 80×24. Removed in ``detachObserver()``.
+    private var surfaceReadyObservers: [NSObjectProtocol] = []
 
     init(
         host: RemoteTmuxHost,
@@ -65,6 +73,27 @@ final class RemoteTmuxSessionMirror {
             }
         )
         rebuild()
+        installSurfaceReadinessObservers(workspaceId: workspace.id)
+    }
+
+    /// Observes surface readiness/window-attachment for this workspace and re-arms
+    /// ``scheduleInitialClientSizing()`` — the sizing only succeeds once a surface
+    /// is live and in a window, which for a background workspace happens long
+    /// after `rebuild()`. Same observation pattern as
+    /// `BackgroundWorkspacePrimeCoordinator.installReadinessObservers`.
+    private func installSurfaceReadinessObservers(workspaceId: UUID) {
+        let names: [Notification.Name] = [
+            .terminalSurfaceDidBecomeReady, .terminalSurfaceHostedViewDidMoveToWindow,
+        ]
+        for name in names {
+            surfaceReadyObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] notification in
+                guard let readyWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
+                      readyWorkspaceId == workspaceId else { return }
+                Task { @MainActor in self?.scheduleInitialClientSizing() }
+            })
+        }
     }
 
     /// The remote session ended for good (its last tmux window was killed, it was
@@ -91,6 +120,10 @@ final class RemoteTmuxSessionMirror {
     /// multi-pane renderers (called when the mirror is torn down so its callbacks
     /// don't linger on a shared connection and its pane surfaces don't leak).
     func detachObserver() {
+        initialSizingTask?.cancel()
+        initialSizingTask = nil
+        for observer in surfaceReadyObservers { NotificationCenter.default.removeObserver(observer) }
+        surfaceReadyObservers.removeAll()
         if let observerToken {
             connection.removeObserver(observerToken)
             self.observerToken = nil
@@ -113,6 +146,7 @@ final class RemoteTmuxSessionMirror {
     /// local tab(s) once at least one remote tab exists.
     func rebuild() {
         guard let workspace else { return }
+        var createdNewPanel = false
         for windowId in connection.windowOrder {
             guard let window = connection.windowsByID[windowId],
                   let firstPaneId = window.paneIDsInOrder.first else { continue }
@@ -156,9 +190,11 @@ final class RemoteTmuxSessionMirror {
                 connection.requestPanePath(paneId: firstPaneId)
                 connection.subscribePanePath(paneId: firstPaneId)
                 panelId = panel.id
+                createdNewPanel = true
             }
             reconcileWindowMirror(windowId: windowId, panelId: panelId, window: window, in: workspace)
         }
+        if createdNewPanel { scheduleInitialClientSizing() }
         // Close tabs for windows tmux removed, so a closed remote window doesn't
         // leave a frozen tab behind.
         let liveWindows = Set(connection.windowOrder)
@@ -187,6 +223,50 @@ final class RemoteTmuxSessionMirror {
         if desiredPanelOrder.count > 1 {
             workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
         }
+    }
+
+    /// Brief retry that sizes the remote tmux client to a single-pane tab's
+    /// rendered grid on attach. Needed because `createSurface` stamps the final
+    /// grid before the tab is on screen, and `TerminalSurface.updateSize` only
+    /// reports grid CHANGES — so without an initial push the remote would stay at
+    /// ssh's default 80×24 (mangling TUIs) until the user resizes the window.
+    /// This is the single-pane analogue of the multi-pane path's
+    /// `RemoteTmuxWindowMirrorView.scheduleClientSize` (same shape: one synchronous
+    /// attempt, then a sleep-first retry). One push from the first on-screen
+    /// surface suffices (the tmux client has a single size); live resizes
+    /// afterwards flow through the panel's `onResize` hook. Re-armed by the
+    /// surface-readiness observers whenever a surface becomes displayable, so a
+    /// background workspace is sized when first shown even though this retry
+    /// budget expired long before.
+    private func scheduleInitialClientSizing() {
+        initialSizingTask?.cancel()
+        if pushInitialClientSize() { return }
+        initialSizingTask = Task { @MainActor [weak self] in
+            for _ in 0..<20 {
+                do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+                guard let self else { return }
+                if self.pushInitialClientSize() { return }
+            }
+        }
+    }
+
+    /// One initial-sizing attempt. Returns `true` when there is nothing (more) to
+    /// do: the size was pushed from the first single-pane surface with an
+    /// on-screen grid, or no single-pane window remains to size (multi-pane
+    /// windows are skipped — their mirror view owns client sizing).
+    private func pushInitialClientSize() -> Bool {
+        guard let workspace else { return true }
+        let singlePanePanelIds = panelIdByWindow
+            .filter { windowMirrorByWindowId[$0.key] == nil }
+            .values
+        guard !singlePanePanelIds.isEmpty else { return true }
+        for panelId in singlePanePanelIds {
+            guard let panel = workspace.panels[panelId] as? TerminalPanel,
+                  let grid = panel.surface.renderedGridCells() else { continue }
+            connection.setClientSize(columns: grid.columns, rows: grid.rows)
+            return true
+        }
+        return false
     }
 
     /// Creates the in-tab multi-pane renderer the first time a window has more

@@ -5464,29 +5464,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// Last grid reported through ``onManualGridResize`` (so we fire only on a real
     /// column/row change, not on every sub-cell pixel nudge).
     private var lastReportedManualGrid: (columns: Int, rows: Int)?
-    /// For MANUAL-I/O remote tmux display surfaces: whether this pane must NOT
-    /// reflow/rewrap its primary screen on resize. `true` (the safe default) =
-    /// suppress reflow — correct for inline TUIs like claude (whose box-drawing
-    /// can't rewrap) and for alt-screen apps. `false` = a plain shell on the
-    /// primary screen, so ghostty natively reflows its seeded scrollback on resize
-    /// (shrink rewraps, grow restores, scroll position preserved) — the behavior a
-    /// normal terminal attached to tmux has. Driven live by the remote pane's
-    /// classification (`#{alternate_on}` + `#{pane_current_command}`); consulted in
-    /// ``updateSize(...)`` to gate the DECAWM no-reflow toggle. Default `true` so a
-    /// pane is never reflowed before it's classified (a reattached claude can't
-    /// briefly rewrap during the subscription's first-emit latency).
+    /// For MANUAL-I/O remote tmux display surfaces: whether to suppress ghostty's
+    /// primary-screen reflow on resize. `true` (the safe default until classified)
+    /// for inline-TUI / alt-screen panes; `false` for plain shells, which reflow
+    /// like a real terminal. Driven by the remote pane's live classification via
+    /// ``setManualIONoReflow(_:)``; consulted by the DECAWM gate in ``updateSize``.
     private var manualIONoReflow: Bool = true
     /// Retained userdata for the MANUAL-mode `io_write_cb`; released alongside
     /// the surface (see ``teardownSurface()``).
     private var manualIOContext: Unmanaged<RemoteTmuxManualIOWriteBox>?
-    /// Brief retry that guarantees the rendered grid is pushed to the remote tmux
-    /// client on attach even when `createSurface` stamped the final grid (so the
-    /// post-create `updateSize` sees no size change and never reports). See
-    /// ``scheduleInitialManualGridReport()``. Cancelled on teardown.
-    /// ~3s of 150ms ticks, matching `RemoteTmuxWindowMirrorView.scheduleClientSize`.
-    private var manualGridReportRetryTask: Task<Void, Never>?
-    private static let manualGridReportRetryIntervalMs = 150
-    private static let manualGridReportRetryCount = 20
     /// Output delivered via ``processRemoteOutput(_:)`` before the runtime
     /// surface exists (e.g. a background remote-tmux workspace not yet hosted).
     /// Flushed into the surface once it is created so content isn't lost.
@@ -5970,6 +5956,23 @@ final class TerminalSurface: Identifiable, ObservableObject {
         )
     }
 
+    /// The on-screen rendered grid (columns × rows), or `nil` while the runtime
+    /// surface isn't live, isn't in a window, or has no real grid yet. The remote
+    /// tmux mirrors poll this briefly on attach to size the remote client (see
+    /// `RemoteTmuxSessionMirror.scheduleInitialClientSizing`): `updateSize` only
+    /// reports a grid CHANGE, so a surface whose final grid was already stamped
+    /// at creation would otherwise never report it.
+    @MainActor
+    func renderedGridCells() -> (columns: Int, rows: Int)? {
+        guard attachedView?.window != nil,
+              let surface = liveSurfaceForGhosttyAccess(reason: "renderedGridCells") else { return nil }
+        let size = ghostty_surface_size(surface)
+        let cols = Int(size.columns)
+        let rows = Int(size.rows)
+        guard cols > 1, rows > 1 else { return nil }
+        return (cols, rows)
+    }
+
     /// Forward a mobile tap to this real surface as a left mouse click at the
     /// given grid cell. libghostty does the mode-correct thing: a program with
     /// mouse reporting (alt-screen TUIs like lazygit/htop/fzf) gets an encoded
@@ -6203,8 +6206,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // the surface is focused, which a surface being torn down is not.
         manualIOContext?.release()
         manualIOContext = nil
-        manualGridReportRetryTask?.cancel()
-        manualGridReportRetryTask = nil
 
         let surfaceToFree = surface
         if let surfaceToFree {
@@ -6267,8 +6268,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // the surface is focused, which a surface being torn down is not.
         manualIOContext?.release()
         manualIOContext = nil
-        manualGridReportRetryTask?.cancel()
-        manualGridReportRetryTask = nil
 
         let surfaceToFree = surface
         if let surfaceToFree {
@@ -6893,30 +6892,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let createdSurface = surface else { return }
         TerminalSurfaceRegistry.shared.registerRuntimeSurface(createdSurface, ownerId: id)
         recordRuntimeSurfaceCreation()
-        // Size the surface to its grid BEFORE flushing the buffered seed. The
-        // remote-tmux capture seed is full-width (the remote pane's width); flushing
-        // it while the surface is still at ghostty_surface_new's default grid wraps
-        // the wide rows, and the later (no-reflow) set_size can't recover them — so
-        // a seed buffered before surface creation (e.g. a background workspace)
-        // would render mis-wrapped. Plain set_size only — NO render_now / DECAWM
-        // toggle here (that races the renderer during init and caused a SIGBUS;
-        // see updateSize).
-        ghostty_surface_set_content_scale(createdSurface, scaleFactors.x, scaleFactors.y)
-        let initialBackingSize = view.convertToBacking(NSRect(origin: .zero, size: view.bounds.size)).size
-        let initialWpx = pixelDimension(from: initialBackingSize.width)
-        let initialHpx = pixelDimension(from: initialBackingSize.height)
-        if initialWpx > 0, initialHpx > 0 {
-            ghostty_surface_set_size(createdSurface, initialWpx, initialHpx)
-            lastPixelWidth = initialWpx
-            lastPixelHeight = initialHpx
-            lastUncappedPixelWidth = initialWpx
-            lastUncappedPixelHeight = initialHpx
-            lastXScale = scaleFactors.x
-            lastYScale = scaleFactors.y
-        }
-
-        // Now flush the buffered remote-tmux output into the correctly-sized grid.
-        flushPendingRemoteOutput(to: createdSurface)
         // Install the PTY tee so MobileTerminalByteTee receives every byte
         // the read thread produces, in order, before the VT parser runs.
         // Paired iPhones consume these bytes via `terminal.bytes` events
@@ -6952,8 +6927,25 @@ final class TerminalSurface: Identifiable, ObservableObject {
             ghostty_surface_set_display_id(createdSurface, displayID)
         }
 
-        // (Surface sizing now happens BEFORE the seed flush above, so the captured
-        // full-width rows paint into the correctly-sized grid.)
+        ghostty_surface_set_content_scale(createdSurface, scaleFactors.x, scaleFactors.y)
+        let backingSize = view.convertToBacking(NSRect(origin: .zero, size: view.bounds.size)).size
+        let wpx = pixelDimension(from: backingSize.width)
+        let hpx = pixelDimension(from: backingSize.height)
+        if wpx > 0, hpx > 0 {
+            ghostty_surface_set_size(createdSurface, wpx, hpx)
+            lastPixelWidth = wpx
+            lastPixelHeight = hpx
+            lastUncappedPixelWidth = wpx
+            lastUncappedPixelHeight = hpx
+            lastXScale = scaleFactors.x
+            lastYScale = scaleFactors.y
+        }
+
+        // Flush any remote-tmux output that arrived before the surface existed —
+        // AFTER the sizing above, so a buffered capture seed (e.g. a background
+        // remote-tmux workspace) paints into the final grid instead of wrapping at
+        // the default-size grid, which the no-reflow resize could never repair.
+        flushPendingRemoteOutput(to: createdSurface)
 
         // Some GhosttyKit builds can drop inherited font_size during post-create
         // config/scale reconciliation. If runtime points don't match the inherited
@@ -6984,14 +6976,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // transition nudges the renderer.
         view.forceRefreshSurface()
         ghostty_surface_refresh(createdSurface)
-
-        // Push the rendered grid to the remote tmux client now. createSurface stamps
-        // the final grid above and (correctly) doesn't reflow, so the post-create
-        // updateSize sees no size change and would never report it — leaving the
-        // remote at ssh's 80×24 and a single-pane mirror (e.g. claude) rendered into
-        // a sub-region. This retrying push is the single-pane analogue of the
-        // multi-pane mirror's scheduleClientSize. No-op for non-manual surfaces.
-        scheduleInitialManualGridReport()
 
         NotificationCenter.default.post(
             name: .terminalSurfaceDidBecomeReady,
@@ -7069,94 +7053,69 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         if sizeChanged {
-            // Mirror (manual-I/O) panes reflow CONDITIONALLY on resize. A plain
-            // shell's primary-screen scrollback SHOULD reflow (shrink rewraps long
-            // lines, grow restores them, the viewport stays anchored — exactly like
-            // a real terminal attached to tmux); without it a shrink hard-clips the
-            // seeded scrollback and a grow never restores it. But an inline TUI like
-            // claude (and any alt-screen app) must NOT reflow, or its box-drawing
-            // rewraps and corrupts — tmux owns the grid and only streams the app's
-            // post-SIGWINCH redraw, so a client that reflows independently diverges
-            // (iTerm2 likewise doesn't reflow TUI panes). The per-pane choice is
-            // `manualIONoReflow`, driven live by the remote pane's classification
-            // (`#{alternate_on}` + `#{pane_current_command}`) and defaulting to
-            // no-reflow so a not-yet-classified (e.g. reattached) claude is never
-            // rewrapped. (Reflow of a shell pane works from the LIVE %output, which
-            // already carries real soft-wraps; the capture seed is left faithful —
-            // `capture-pane -J` was tried but corrupted TUI seeds, so it was dropped.)
-            // The DECAWM-gated sizing lives in `applyManualAwareSurfaceSize`; it is
-            // used only here on live resizes, never in createSurface (which must not
-            // inject bytes / force a render during surface init — that races the
-            // renderer thread).
-            applyManualAwareSurfaceSize(surface, width: wpx, height: hpx)
+            // Mirror (manual-I/O) surfaces must NOT reflow/rewrap their primary
+            // screen on resize. tmux is the authority on a pane's reflow and only
+            // streams the app's incremental post-SIGWINCH redraw (never a full grid
+            // repaint), so a client that reflows independently diverges from tmux —
+            // inline TUIs like claude then render misaligned after a resize. iTerm2
+            // avoids this by never reflowing locally ("tmux owns the grid"). ghostty
+            // reflows iff DECAWM (wraparound) is on at resize time, so disable it
+            // across the resize and restore it after. No writes occur during this
+            // window, so autowrap is otherwise unaffected. (A ghostty "no-reflow
+            // surface" flag would be cleaner but needs a GhosttyKit rebuild.)
+            //
+            // Exception: a pane whose remote foreground is a plain PRIMARY-screen
+            // shell (`manualIONoReflow == false`, classified live from
+            // `#{alternate_on}` + `#{pane_current_command}`) keeps DECAWM on, so
+            // ghostty natively reflows its seeded scrollback like a real terminal
+            // (shrink rewraps long lines, grow restores them). The default is
+            // no-reflow until classified, so a TUI is never rewrapped.
+            //
+            // Caveat (no-reflow panes): this restores DECAWM to ON unconditionally.
+            // That is correct for the overwhelmingly common case (DECAWM defaults
+            // to on); a remote app that had explicitly turned it OFF is transiently
+            // re-enabled until its next %output re-asserts the mode (self-healing).
+            // A faithful save/restore would need a ghostty read-mode API that
+            // doesn't exist.
+            let suppressManualReflow = manualIO && manualIONoReflow
+            if suppressManualReflow {
+                writeProcessOutputData(Self.decawmDisableSequence, to: surface)
+            }
+            ghostty_surface_set_size(surface, wpx, hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
+            // For manual-I/O surfaces the `.manual` termio backend applies the
+            // terminal resize synchronously inside set_size (with DECAWM off, so it
+            // does not reflow), so the buffer already matches the just-set grid here.
+            // render_now forces a GPU frame so the resized grid is shown promptly
+            // before the post-resize %output arrives; then DECAWM is restored. This
+            // fires only on an actual size change (never while typing).
+            if manualIO {
+                ghostty_surface_render_now(surface)
+                if suppressManualReflow {
+                    writeProcessOutputData(Self.decawmEnableSequence, to: surface)
+                }
+            }
         }
 
         // Remote tmux display surfaces: keep the remote tmux client sized to the
         // rendered grid so a freshly attached session doesn't stay at ssh's
-        // default 80×24 (which mangles TUIs like claude / claude agents). Shared
-        // with the initial-report retry so both size the remote the same way.
-        reportManualGridIfNeeded()
+        // default 80×24 (which mangles TUIs like claude / claude agents). Only
+        // report when actually on screen and when the cell grid — not just the
+        // pixel area — changed.
+        if manualIO, let report = onManualGridResize, attachedView?.window != nil {
+            let grid = ghostty_surface_size(surface)
+            let cols = Int(grid.columns)
+            let rows = Int(grid.rows)
+            if cols > 1, rows > 1,
+               lastReportedManualGrid?.columns != cols || lastReportedManualGrid?.rows != rows {
+                lastReportedManualGrid = (cols, rows)
+                report(cols, rows)
+            }
+        }
 
         // Let Ghostty continue rendering on its own wakeups for steady-state frames.
         return true
-    }
-
-    /// Reports the current rendered grid (cols×rows) to the remote tmux client via
-    /// ``onManualGridResize``, when this is a manual-I/O mirror surface that is
-    /// live, in-window, has a valid grid, and whose grid changed since the last
-    /// report. Returns `true` once a valid in-window grid has been reported (or was
-    /// already current) — the initial-report retry uses that to know it can stop.
-    ///
-    /// This is the SINGLE place a single-pane mirror sizes the remote. It is reached
-    /// two ways: live resizes via ``updateSize(...)``, and ``scheduleInitialManualGridReport()``
-    /// — because `createSurface` stamps the final grid and bypasses this, so the
-    /// post-create `updateSize` sees no size change and would otherwise never report,
-    /// leaving the remote at ssh's 80×24 and claude rendered into a sub-region.
-    @discardableResult
-    @MainActor
-    private func reportManualGridIfNeeded() -> Bool {
-        guard manualIO, let report = onManualGridResize, attachedView?.window != nil else { return false }
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "reportManualGrid") else { return false }
-        let grid = ghostty_surface_size(surface)
-        let cols = Int(grid.columns)
-        let rows = Int(grid.rows)
-        guard cols > 1, rows > 1 else { return false }
-        if lastReportedManualGrid?.columns != cols || lastReportedManualGrid?.rows != rows {
-            lastReportedManualGrid = (cols, rows)
-            report(cols, rows)
-        }
-        return true
-    }
-
-    /// Ensures the remote tmux client is sized to the rendered grid on attach, even
-    /// when `createSurface` stamped the final grid (so the post-create `updateSize`
-    /// sees no size change and never reports — the dominant cause of a single-pane
-    /// mirror rendering at the stale 80×24 width/height). Reports immediately if it
-    /// can, else retries briefly until the surface is live + in-window with a valid
-    /// grid, then reports once; later resizes flow through ``updateSize(...)``. This
-    /// is the single-pane analogue of the multi-pane mirror's `scheduleClientSize`
-    /// retry. No-op for non-manual surfaces or those without a resize hook.
-    @MainActor
-    private func scheduleInitialManualGridReport() {
-        guard manualIO, onManualGridResize != nil else { return }
-        if reportManualGridIfNeeded() { return }
-        manualGridReportRetryTask?.cancel()
-        manualGridReportRetryTask = Task { @MainActor [weak self] in
-            for _ in 0..<Self.manualGridReportRetryCount {
-                do {
-                    try await ContinuousClock().sleep(
-                        for: .milliseconds(Self.manualGridReportRetryIntervalMs))
-                } catch { return }
-                guard let self else { return }
-                // The hook is cleared when a single-pane window is promoted to a
-                // multi-pane mirror — the report can never succeed then, so stop
-                // instead of no-op-ticking out the rest of the retry budget.
-                guard self.onManualGridResize != nil else { return }
-                if self.reportManualGridIfNeeded() { return }
-            }
-        }
     }
 
     @discardableResult
@@ -7952,43 +7911,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func setManualIONoReflow(_ value: Bool) {
         guard manualIONoReflow != value else { return }
         manualIONoReflow = value
-    }
-
-    /// Applies a LIVE-resize surface pixel-size change (from ``updateSize``),
-    /// honoring the manual-I/O no-reflow policy. For a manual-I/O (remote tmux
-    /// mirror) pane classified as no-reflow (``manualIONoReflow``, the default until
-    /// a pane is classified), DECAWM (autowrap) is disabled across
-    /// `ghostty_surface_set_size` so ghostty does not reflow/rewrap the primary
-    /// screen — an inline TUI's box-drawing must not rewrap — then restored; a pane
-    /// classified as a plain shell reflows natively. `render_now` forces a prompt
-    /// GPU frame for manual-I/O surfaces. Non-manual surfaces just set the size
-    /// (no toggle, no render_now), matching prior behavior. Must be on the main actor.
-    ///
-    /// NOT used by `createSurface`: injecting process-output bytes (the DECAWM
-    /// toggle) and forcing a synchronous render during surface init races the
-    /// renderer thread (observed SIGBUS) and can mis-size the initial grid. A fresh
-    /// surface has no prior grid to reflow, so it just calls `ghostty_surface_set_size`.
-    ///
-    /// Caveat (no-reflow panes only): the toggle restores DECAWM to ON
-    /// unconditionally. Correct for the common case (DECAWM defaults on); an app
-    /// that had explicitly turned it OFF is transiently re-enabled until its next
-    /// %output re-asserts the mode (self-healing). A faithful save/restore would
-    /// need a ghostty read-mode API that doesn't exist.
-    @MainActor
-    private func applyManualAwareSurfaceSize(
-        _ surface: ghostty_surface_t, width: UInt32, height: UInt32
-    ) {
-        let suppressReflow = manualIO && manualIONoReflow
-        if suppressReflow {
-            writeProcessOutputData(Self.decawmDisableSequence, to: surface)
-        }
-        ghostty_surface_set_size(surface, width, height)
-        if manualIO {
-            ghostty_surface_render_now(surface)
-            if suppressReflow {
-                writeProcessOutputData(Self.decawmEnableSequence, to: surface)
-            }
-        }
     }
 
     /// Injects raw terminal output bytes into this surface's VT parser, as if
