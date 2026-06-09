@@ -204,6 +204,31 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertEqual(notification.openAnchor, anchor)
     }
 
+    /// Verifies delivered system notifications carry anchors even when store recording is disabled.
+    func testNotificationUserInfoPreservesOpenAnchorForUnrecordedDesktopDelivery() throws {
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        let anchor = TerminalNotificationOpenAnchor(scrollbarOffset: 128)
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: workspaceId,
+            surfaceId: surfaceId,
+            title: "Agent finished",
+            subtitle: "codex",
+            body: "Done",
+            createdAt: Date(),
+            isRead: false,
+            openAnchor: anchor
+        )
+
+        let userInfo = TerminalNotificationStore.userInfo(for: notification)
+
+        XCTAssertEqual(userInfo["tabId"] as? String, workspaceId.uuidString)
+        XCTAssertEqual(userInfo["surfaceId"] as? String, surfaceId.uuidString)
+        XCTAssertEqual(userInfo["notificationId"] as? String, notification.id.uuidString)
+        XCTAssertEqual(TerminalNotificationOpenAnchor(userInfo: userInfo), anchor)
+    }
+
     /// Verifies workspace notification clearing also removes prompt-submit anchors.
     func testClearNotificationsForTabIdRemovesPromptSubmitOpenAnchorsWithoutNotifications() {
         let store = TerminalNotificationStore.shared
@@ -239,6 +264,25 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         )
     }
 
+    /// Verifies global notification clearing also removes prompt-submit anchors.
+    func testClearAllRemovesPromptSubmitOpenAnchorsWithoutNotifications() {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        store.recordPromptSubmitOpenAnchor(
+            TerminalNotificationOpenAnchor(scrollbarOffset: 42),
+            forTabId: workspaceId,
+            surfaceId: surfaceId
+        )
+
+        store.clearAll(discardQueuedNotifications: false)
+
+        XCTAssertNil(store.promptSubmitOpenAnchor(forTabId: workspaceId, surfaceId: surfaceId))
+    }
+
     /// Verifies surface notification clearing removes only the matching prompt-submit anchor.
     func testClearNotificationsForSurfaceRemovesOnlyMatchingPromptSubmitOpenAnchor() {
         let store = TerminalNotificationStore.shared
@@ -269,6 +313,50 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertEqual(
             store.promptSubmitOpenAnchor(forTabId: workspaceId, surfaceId: secondSurfaceId)?.scrollbarOffset,
             64
+        )
+    }
+
+    /// Verifies session restore clears runtime anchors from the previous tab lifetime.
+    func testRestoreSessionNotificationsRemovesPromptSubmitOpenAnchorsForTab() {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        store.recordPromptSubmitOpenAnchor(
+            TerminalNotificationOpenAnchor(scrollbarOffset: 42),
+            forTabId: workspaceId,
+            surfaceId: surfaceId
+        )
+
+        store.restoreSessionNotifications([], forTabId: workspaceId)
+
+        XCTAssertNil(store.promptSubmitOpenAnchor(forTabId: workspaceId, surfaceId: surfaceId))
+    }
+
+    /// Verifies surface rebinds move prompt-submit anchors to the destination workspace.
+    func testRebindSurfaceNotificationsMovesPromptSubmitOpenAnchor() {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let sourceWorkspaceId = UUID()
+        let destinationWorkspaceId = UUID()
+        let surfaceId = UUID()
+        let anchor = TerminalNotificationOpenAnchor(scrollbarOffset: 42)
+        store.recordPromptSubmitOpenAnchor(anchor, forTabId: sourceWorkspaceId, surfaceId: surfaceId)
+
+        store.rebindSurfaceNotifications(
+            fromTabId: sourceWorkspaceId,
+            toTabId: destinationWorkspaceId,
+            surfaceId: surfaceId
+        )
+
+        XCTAssertNil(store.promptSubmitOpenAnchor(forTabId: sourceWorkspaceId, surfaceId: surfaceId))
+        XCTAssertEqual(
+            store.promptSubmitOpenAnchor(forTabId: destinationWorkspaceId, surfaceId: surfaceId),
+            anchor
         )
     }
 

@@ -417,6 +417,7 @@
 		A5C0DE0000000000000000B4 /* ProjectPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B3 /* ProjectPanelView.swift */; };
 		A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */; };
 		A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */; };
+		BEEF55280000000000000001 /* PromptSubmitOpenAnchorStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEF55280000000000000002 /* PromptSubmitOpenAnchorStore.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
 		A5001643 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */; };
 		B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */; };
@@ -1092,6 +1093,7 @@
 		A5C0DE0000000000000000B3 /* ProjectPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectPanelView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectSchemesTabView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectTargetsTabView.swift; sourceTree = "<group>"; };
+		BEEF55280000000000000002 /* PromptSubmitOpenAnchorStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptSubmitOpenAnchorStore.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
 		A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInteractiveShellBootstrapBuilder.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C00002 /* RemoteLoopbackProxyAlias.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteLoopbackProxyAlias.swift; sourceTree = "<group>"; };
@@ -1737,6 +1739,7 @@
 				2F0C05000000000000000001 /* MainWindowFocusController.swift */,
 				A5001091 /* NotificationsPage.swift */,
 				A5001092 /* TerminalNotificationStore.swift */,
+				BEEF55280000000000000002 /* PromptSubmitOpenAnchorStore.swift */,
 				A5001097 /* TerminalNotificationPolicy.swift */,
 				F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */,
 				A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */,
@@ -2668,6 +2671,7 @@
 					A5C0DE0000000000000000B4 /* ProjectPanelView.swift in Sources */,
 					A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */,
 					A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */,
+				BEEF55280000000000000001 /* PromptSubmitOpenAnchorStore.swift in Sources */,
 				A500RG01 /* ReactGrab.swift in Sources */,
 				A5001643 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C00001 /* RemoteLoopbackProxyAlias.swift in Sources */,

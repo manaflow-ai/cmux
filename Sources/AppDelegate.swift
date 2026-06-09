@@ -15545,6 +15545,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         switch response.actionIdentifier {
         case UNNotificationDefaultActionIdentifier, TerminalNotificationStore.actionShowIdentifier:
+            let openAnchor = TerminalNotificationOpenAnchor(
+                userInfo: response.notification.request.content.userInfo
+            )
             let notificationId: UUID? = {
                 if let id = UUID(uuidString: response.notification.request.identifier) {
                     return id
@@ -15565,7 +15568,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
             DispatchQueue.main.async {
-                _ = self.openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+                _ = self.openNotification(
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    notificationId: notificationId,
+                    openAnchor: openAnchor
+                )
             }
         case UNNotificationDismissActionIdentifier:
             DispatchQueue.main.async {

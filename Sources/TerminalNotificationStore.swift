@@ -826,13 +826,39 @@ struct TerminalNotificationOpenAnchor: Codable, Hashable, Sendable {
     let scrollbarOffset: UInt64
 }
 
-@MainActor
-final class TerminalNotificationStore: ObservableObject {
-    private struct TabSurfaceKey: Hashable {
-        let tabId: UUID
-        let surfaceId: UUID?
+extension TerminalNotificationOpenAnchor {
+    static let scrollbarOffsetUserInfoKey = "openAnchorScrollbarOffset"
+
+    /// Returns the notification user-info payload for this anchor.
+    var userInfo: [AnyHashable: Any] {
+        [Self.scrollbarOffsetUserInfoKey: String(scrollbarOffset)]
     }
 
+    /// Creates an anchor from a notification user-info dictionary.
+    ///
+    /// - Parameter userInfo: User-info dictionary attached to a delivered notification.
+    init?(userInfo: [AnyHashable: Any]) {
+        let rawValue = userInfo[Self.scrollbarOffsetUserInfoKey]
+        if let value = rawValue as? String,
+           let scrollbarOffset = UInt64(value) {
+            self.init(scrollbarOffset: scrollbarOffset)
+            return
+        }
+        if let value = rawValue as? NSNumber {
+            self.init(scrollbarOffset: value.uint64Value)
+            return
+        }
+        return nil
+    }
+}
+
+struct TabSurfaceKey: Hashable {
+    let tabId: UUID
+    let surfaceId: UUID?
+}
+
+@MainActor
+final class TerminalNotificationStore: ObservableObject {
     private struct NotificationIndexes {
         var unreadCount = 0
         var unreadCountByTabId: [UUID: Int] = [:]
@@ -917,7 +943,7 @@ final class TerminalNotificationStore: ObservableObject {
     private static let notificationHookFailureThrottle: TimeInterval = 300
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
     private var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
-    private var promptSubmitOpenAnchors: [TabSurfaceKey: TerminalNotificationOpenAnchor] = [:]
+    private var promptSubmitOpenAnchorStore = PromptSubmitOpenAnchorStore()
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -1243,7 +1269,7 @@ final class TerminalNotificationStore: ObservableObject {
         forTabId tabId: UUID,
         surfaceId: UUID?
     ) {
-        promptSubmitOpenAnchors[TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)] = anchor
+        promptSubmitOpenAnchorStore.record(anchor, forTabId: tabId, surfaceId: surfaceId)
     }
 
     /// Returns the prompt-submit turn-start anchor for a workspace/surface notification target.
@@ -1253,12 +1279,7 @@ final class TerminalNotificationStore: ObservableObject {
     ///   - surfaceId: Terminal surface or panel identifier for the notification.
     /// - Returns: The most recent prompt-submit turn-start anchor for the target, if one was recorded.
     func promptSubmitOpenAnchor(forTabId tabId: UUID, surfaceId: UUID?) -> TerminalNotificationOpenAnchor? {
-        let target = TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
-        if let anchor = promptSubmitOpenAnchors[target] {
-            return anchor
-        }
-        guard surfaceId != nil else { return nil }
-        return promptSubmitOpenAnchors[TabSurfaceKey(tabId: tabId, surfaceId: nil)]
+        promptSubmitOpenAnchorStore.anchor(forTabId: tabId, surfaceId: surfaceId)
     }
 
     /// Removes prompt-submit anchors for a tab and the supplied surface aliases.
@@ -1272,13 +1293,11 @@ final class TerminalNotificationStore: ObservableObject {
         surfaceIds: Set<UUID>,
         removesNilFallback: Bool
     ) {
-        promptSubmitOpenAnchors = promptSubmitOpenAnchors.filter { entry in
-            guard entry.key.tabId == tabId else { return true }
-            guard let surfaceId = entry.key.surfaceId else {
-                return !removesNilFallback
-            }
-            return !surfaceIds.contains(surfaceId)
-        }
+        promptSubmitOpenAnchorStore.remove(
+            forTabId: tabId,
+            surfaceIds: surfaceIds,
+            removesNilFallback: removesNilFallback
+        )
     }
 
     func clearLatestNotification(forTabId tabId: UUID) {
@@ -1871,6 +1890,7 @@ final class TerminalNotificationStore: ObservableObject {
         let removedIds = notifications
             .filter { $0.tabId == tabId }
             .map { $0.id.uuidString }
+        promptSubmitOpenAnchorStore.removeAll(forTabId: tabId)
         var usedNotificationIds = Set(notifications.filter { $0.tabId != tabId }.map(\.id))
         let restoredForTab = restoredNotifications
             .filter { $0.tabId == tabId }
@@ -1928,10 +1948,12 @@ final class TerminalNotificationStore: ObservableObject {
             !focusedReadIndicatorByTabId.isEmpty ||
             !manualUnreadWorkspaceIds.isEmpty ||
             !panelDerivedUnreadWorkspaceIds.isEmpty ||
-            !restoredUnreadWorkspaceIds.isEmpty else { return }
+            !restoredUnreadWorkspaceIds.isEmpty ||
+            !promptSubmitOpenAnchorStore.isEmpty else { return }
         let tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds.union(notifications.map(\.tabId))
         let ids = notifications.map { $0.id.uuidString }
         replaceNotificationsForClear([])
+        promptSubmitOpenAnchorStore.removeAll()
         clearWorkspaceManualUnread()
         clearAllWorkspacePanelUnread(forTabIds: tabIdsToClearPanelUnread)
         clearPanelDerivedWorkspaceUnread()
@@ -2020,6 +2042,11 @@ final class TerminalNotificationStore: ObservableObject {
         if didMoveNotification {
             notifications = updated
         }
+        promptSubmitOpenAnchorStore.rebindSurface(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            surfaceId: surfaceId
+        )
 
         if focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
             focusedReadIndicatorByTabId.removeValue(forKey: sourceTabId)
@@ -2031,9 +2058,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId) }
-        promptSubmitOpenAnchors = promptSubmitOpenAnchors.filter { entry in
-            entry.key.tabId != tabId
-        }
+        promptSubmitOpenAnchorStore.removeAll(forTabId: tabId)
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId] != nil
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
@@ -2099,18 +2124,7 @@ final class TerminalNotificationStore: ObservableObject {
             }
             content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
             content.categoryIdentifier = Self.categoryIdentifier
-            content.userInfo = [
-                "tabId": notification.tabId.uuidString,
-                "notificationId": notification.id.uuidString,
-            ]
-            if let surfaceId = notification.surfaceId {
-                content.userInfo["surfaceId"] = surfaceId.uuidString
-            }
-            if let clickAction = notification.clickAction {
-                for (key, value) in clickAction.userInfo {
-                    content.userInfo[key] = value
-                }
-            }
+            content.userInfo = Self.userInfo(for: notification)
 
             let request = UNNotificationRequest(
                 identifier: notification.id.uuidString,
@@ -2140,6 +2154,31 @@ final class TerminalNotificationStore: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Builds the system notification user-info payload for a terminal notification.
+    ///
+    /// - Parameter notification: Terminal notification being delivered to Notification Center.
+    /// - Returns: A user-info payload containing routing and reopen metadata.
+    static func userInfo(for notification: TerminalNotification) -> [AnyHashable: Any] {
+        var userInfo: [AnyHashable: Any] = [
+            "tabId": notification.tabId.uuidString,
+            "notificationId": notification.id.uuidString,
+        ]
+        if let surfaceId = notification.surfaceId {
+            userInfo["surfaceId"] = surfaceId.uuidString
+        }
+        if let clickAction = notification.clickAction {
+            for (key, value) in clickAction.userInfo {
+                userInfo[key] = value
+            }
+        }
+        if let openAnchor = notification.openAnchor {
+            for (key, value) in openAnchor.userInfo {
+                userInfo[key] = value
+            }
+        }
+        return userInfo
     }
 
     private func playSuppressedNotificationFeedback(
@@ -2445,7 +2484,7 @@ final class TerminalNotificationStore: ObservableObject {
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
         TerminalMutationBus.shared.discardPendingNotifications()
         self.notifications = notifications
-        promptSubmitOpenAnchors.removeAll()
+        promptSubmitOpenAnchorStore.removeAll()
         clearWorkspaceManualUnread()
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()

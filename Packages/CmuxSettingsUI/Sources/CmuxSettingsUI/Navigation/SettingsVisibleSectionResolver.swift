@@ -1,48 +1,4 @@
 import CoreGraphics
-import SwiftUI
-
-enum SettingsSectionVisibilityCoordinateSpace {
-    static let name = "SettingsSectionVisibilityCoordinateSpace"
-}
-
-struct SettingsSectionFramePreferenceKey: PreferenceKey {
-    static let defaultValue: [SettingsSectionID: CGRect] = [:]
-
-    /// Merges section frames reported by every visibility marker.
-    ///
-    /// - Parameters:
-    ///   - value: Current aggregate section frame map.
-    ///   - nextValue: Next lazily produced section frame map from SwiftUI.
-    static func reduce(
-        value: inout [SettingsSectionID: CGRect],
-        nextValue: () -> [SettingsSectionID: CGRect]
-    ) {
-        value.merge(nextValue()) { _, newValue in newValue }
-    }
-}
-
-struct SettingsSectionVisibilityMarker: View {
-    let section: SettingsSectionID
-
-    var body: some View {
-        GeometryReader { proxy in
-            Color.clear.preference(
-                key: SettingsSectionFramePreferenceKey.self,
-                value: [section: proxy.frame(in: .named(SettingsSectionVisibilityCoordinateSpace.name))]
-            )
-        }
-    }
-}
-
-extension View {
-    /// Reports this view's frame as the scroll-position marker for a settings section.
-    ///
-    /// - Parameter section: Section represented by the view.
-    /// - Returns: A view that publishes its frame through `SettingsSectionFramePreferenceKey`.
-    func settingsSectionVisibility(_ section: SettingsSectionID) -> some View {
-        background(SettingsSectionVisibilityMarker(section: section))
-    }
-}
 
 struct SettingsVisibleSectionResolver: Sendable {
     struct Configuration: Sendable {
