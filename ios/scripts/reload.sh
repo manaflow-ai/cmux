@@ -16,6 +16,13 @@ Device signing uses the local Xcode account, or App Store Connect API
 credentials from ASC_API_KEY_ID, ASC_API_ISSUER_ID, ASC_API_KEY_PATH, or
 ios/Config/AppStoreConnect.local.plist. Set IOS_DEVELOPMENT_TEAM or pass
 --team when the project cannot infer a team.
+
+Pass --api-base-url <url> (or set CMUX_DEV_API_BASE_URL) to bake a phone-reachable
+web API origin into the dev build via LocalConfig.plist. Needed for device-token
+registration + phone push on a physical iPhone, since the default dev origin is
+http://localhost:3000, which the phone cannot reach. Use the Mac's LAN IP running
+`bun dev` bound to 0.0.0.0, e.g. http://10.0.0.102:3777. The tracked empty
+LocalConfig.plist is restored after the build so the dev origin never lands in git.
 EOF
 }
 
@@ -44,6 +51,13 @@ SIMULATOR_NAME="${IOS_SIMULATOR_NAME:-iPhone 17}"
 DEVICE_ID="${IOS_DEVICE_ID:-}"
 DEVICE_NAME="${IOS_DEVICE_NAME:-}"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-}"
+# Web API origin baked into the dev build via LocalConfig.plist (ApiBaseURL).
+# Dev DEBUG builds otherwise default to http://localhost:3000, which a physical
+# iPhone cannot reach, so device-token registration + phone push silently no-op.
+# Pass --api-base-url to point the dev build at a phone-reachable origin (the
+# Mac's LAN IP running `bun dev`), or set CMUX_DEV_API_BASE_URL. Empty leaves the
+# tracked empty LocalConfig.plist in place (no override → normal defaults).
+API_BASE_URL="${CMUX_DEV_API_BASE_URL:-}"
 LAUNCH=1
 RELOAD_SIMULATOR=1
 RELOAD_DEVICE=0
@@ -86,6 +100,11 @@ while [[ $# -gt 0 ]]; do
     --team)
       require_option_value "$1" "${2:-}"
       DEVELOPMENT_TEAM="${2:-}"
+      shift 2
+      ;;
+    --api-base-url)
+      require_option_value "$1" "${2:-}"
+      API_BASE_URL="${2:-}"
       shift 2
       ;;
     --no-provisioning-updates)
@@ -158,6 +177,46 @@ if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
   ASC_API_KEY_ID="${ASC_API_KEY_ID:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_KEY_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
   ASC_API_ISSUER_ID="${ASC_API_ISSUER_ID:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_ISSUER_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
   ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_KEY_PATH' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
+fi
+
+# LocalConfig.plist is bundled into the app and read by MobileAuthComposition for
+# build-time overrides. The tracked default is empty so prod/CI/TestFlight use the
+# normal cmux.dev defaults. For a dev build we write the dev ApiBaseURL here BEFORE
+# xcodebuild (so the Resources phase signs it into the bundle), then restore the
+# tracked default after the build so the dev origin never lands in git.
+LOCAL_CONFIG_PLIST="$IOS_DIR/cmux/Resources/LocalConfig.plist"
+LOCAL_CONFIG_DIRTIED=0
+
+restore_local_config() {
+  if [[ "$LOCAL_CONFIG_DIRTIED" -eq 1 ]]; then
+    git -C "$IOS_DIR" checkout -- "cmux/Resources/LocalConfig.plist" 2>/dev/null \
+      || git -C "$IOS_DIR/.." checkout -- "ios/cmux/Resources/LocalConfig.plist" 2>/dev/null || true
+    LOCAL_CONFIG_DIRTIED=0
+  fi
+}
+# Always restore on exit (success, failure, or interrupt) so a half-finished dev
+# build never leaves the dev origin in the working tree.
+trap restore_local_config EXIT INT TERM
+
+if [[ -n "$API_BASE_URL" ]]; then
+  echo "==> Baking dev ApiBaseURL into LocalConfig.plist: $API_BASE_URL"
+  # Mark dirty BEFORE touching the file: `Clear dict` rewrites the plist and
+  # strips the tracked comment, so the file is already modified even if the
+  # following Add/Set fails. Setting the flag first guarantees the EXIT trap
+  # restores the tracked default no matter where a failure lands.
+  LOCAL_CONFIG_DIRTIED=1
+  if ! { /usr/libexec/PlistBuddy -c "Clear dict" "$LOCAL_CONFIG_PLIST" >/dev/null 2>&1 \
+    && { /usr/libexec/PlistBuddy -c "Add :ApiBaseURL string $API_BASE_URL" "$LOCAL_CONFIG_PLIST" >/dev/null 2>&1 \
+      || /usr/libexec/PlistBuddy -c "Set :ApiBaseURL $API_BASE_URL" "$LOCAL_CONFIG_PLIST" >/dev/null 2>&1; }; }; then
+    echo "error: failed to write ApiBaseURL into $LOCAL_CONFIG_PLIST" >&2
+    exit 1
+  fi
+  # Confirm the override actually landed so a silent PlistBuddy no-op can't ship a
+  # build that still points at localhost.
+  if ! /usr/libexec/PlistBuddy -c "Print :ApiBaseURL" "$LOCAL_CONFIG_PLIST" >/dev/null 2>&1; then
+    echo "error: ApiBaseURL not present in $LOCAL_CONFIG_PLIST after write" >&2
+    exit 1
+  fi
 fi
 
 XCODE_AUTH_ARGS=()
