@@ -822,7 +822,7 @@ struct TerminalNotification: Identifiable, Hashable {
 }
 
 struct TerminalNotificationOpenAnchor: Codable, Hashable, Sendable {
-    /// Absolute top-row offset reported by Ghostty at prompt submit time.
+    /// Absolute terminal row where the agent turn output begins.
     let scrollbarOffset: UInt64
 }
 
@@ -1232,10 +1232,10 @@ final class TerminalNotificationStore: ObservableObject {
         notifications.filter { $0.matches(tabId: tabId, surfaceId: surfaceId) }
     }
 
-    /// Records the terminal scroll position that a future notification should reopen to.
+    /// Records the terminal turn-start row that a future notification should reopen to.
     ///
     /// - Parameters:
-    ///   - anchor: Absolute terminal scrollback anchor captured at prompt submit time.
+    ///   - anchor: Absolute terminal turn-start anchor captured at prompt submit time.
     ///   - tabId: Workspace identifier that owns the terminal surface.
     ///   - surfaceId: Terminal surface or panel identifier within the workspace.
     func recordPromptSubmitOpenAnchor(
@@ -1246,12 +1246,12 @@ final class TerminalNotificationStore: ObservableObject {
         promptSubmitOpenAnchors[TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)] = anchor
     }
 
-    /// Returns the prompt-submit anchor for a workspace/surface notification target.
+    /// Returns the prompt-submit turn-start anchor for a workspace/surface notification target.
     ///
     /// - Parameters:
     ///   - tabId: Workspace identifier that owns the notification.
     ///   - surfaceId: Terminal surface or panel identifier for the notification.
-    /// - Returns: The most recent prompt-submit anchor for the target, if one was recorded.
+    /// - Returns: The most recent prompt-submit turn-start anchor for the target, if one was recorded.
     func promptSubmitOpenAnchor(forTabId tabId: UUID, surfaceId: UUID?) -> TerminalNotificationOpenAnchor? {
         let target = TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
         if let anchor = promptSubmitOpenAnchors[target] {

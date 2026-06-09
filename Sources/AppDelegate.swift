@@ -16210,10 +16210,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    /// Scrolls a focused notification target back to its captured prompt-submit anchor.
+    /// Scrolls a focused notification target back to its captured prompt-submit turn-start anchor.
     ///
     /// - Parameters:
-    ///   - openAnchor: Optional scrollback anchor stored on the notification.
+    ///   - openAnchor: Optional turn-start anchor stored on the notification.
     ///   - tabId: Workspace identifier for the notification target.
     ///   - surfaceId: Optional panel or surface identifier focused for the notification.
     ///   - tabManager: Tab manager that owns the focused workspace.

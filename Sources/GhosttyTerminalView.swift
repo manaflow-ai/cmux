@@ -15242,18 +15242,18 @@ final class GhosttySurfaceScrollView: NSView {
         layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
-    /// Returns the current absolute scroll offset for later notification reopening.
+    /// Returns the next terminal output row for later notification reopening.
     ///
     /// - Returns: A notification open anchor, or `nil` until Ghostty reports scrollbar state.
     func notificationOpenAnchor() -> TerminalNotificationOpenAnchor? {
         guard let scrollbar = surfaceView.scrollbar else { return nil }
-        return TerminalNotificationOpenAnchor(scrollbarOffset: scrollbar.offset)
+        return TerminalNotificationOpenAnchor(scrollbarOffset: scrollbar.total)
     }
 
-    /// Converts a saved absolute scroll offset into Ghostty's bottom-relative scroll row.
+    /// Converts a saved absolute turn-start row into Ghostty's bottom-relative scroll row.
     ///
     /// - Parameters:
-    ///   - anchor: Prompt-submit anchor containing the absolute top-row offset.
+    ///   - anchor: Prompt-submit anchor containing the absolute turn-start row.
     ///   - scrollbar: Current Ghostty scrollbar state.
     /// - Returns: Bottom-relative row count suitable for `scroll_to_row:<row>`.
     static func notificationOpenScrollRow(
@@ -15267,9 +15267,9 @@ final class GhosttySurfaceScrollView: NSView {
         return row > UInt64(Int.max) ? Int.max : Int(row)
     }
 
-    /// Scrolls Ghostty back to the prompt-submit anchor for a reopened notification.
+    /// Scrolls Ghostty back to the prompt-submit turn-start anchor for a reopened notification.
     ///
-    /// - Parameter anchor: The absolute scrollback anchor captured when the prompt was submitted.
+    /// - Parameter anchor: The absolute turn-start anchor captured when the prompt was submitted.
     /// - Returns: `true` if the scroll action was sent to Ghostty or queued for the next scrollbar update.
     @discardableResult
     func scrollToNotificationOpenAnchor(_ anchor: TerminalNotificationOpenAnchor) -> Bool {
@@ -15284,7 +15284,7 @@ final class GhosttySurfaceScrollView: NSView {
     /// Applies a notification open anchor using a known Ghostty scrollbar state.
     ///
     /// - Parameters:
-    ///   - anchor: The absolute scrollback anchor captured when the prompt was submitted.
+    ///   - anchor: The absolute turn-start anchor captured when the prompt was submitted.
     ///   - scrollbar: Current Ghostty scrollbar state used for row conversion.
     /// - Returns: `true` if Ghostty accepted the scroll binding action.
     @discardableResult
