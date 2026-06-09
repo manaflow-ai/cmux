@@ -49,6 +49,12 @@ jobs:
       - name: Validate nightly tag push auth
         run: ./tests/test_ci_nightly_tag_push_auth.sh
 
+      - name: Validate nightly Xcode selection
+        run: ./tests/test_ci_nightly_xcode_selection.sh
+
+      - name: Validate universal nightly workflow
+        run: bash ./tests/test_nightly_universal_build.sh
+
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
 
