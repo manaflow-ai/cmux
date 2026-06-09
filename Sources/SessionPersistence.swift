@@ -126,8 +126,6 @@ final class SessionAutosaveCoordinator {
     private var autosaveTask: Task<Void, Never>?
     private var activeRunToken: RunToken?
     private var isTickInFlight = false
-    private var deferredRetryTimer: DispatchSourceTimer?
-    private var deferredRetryToken: UInt64 = 0
     private var lastAutosaveFingerprint: Int?
     private var lastAutosavePersistedAt: Date = .distantPast
     private var cachedRestorableAgentIndex: RestorableAgentSessionIndex?
@@ -138,7 +136,6 @@ final class SessionAutosaveCoordinator {
         autosaveTask = nil
         activeRunToken = nil
         isTickInFlight = false
-        cancelDeferredRetry()
     }
 
     @discardableResult
@@ -156,39 +153,6 @@ final class SessionAutosaveCoordinator {
         autosaveTask = nil
         activeRunToken = nil
         isTickInFlight = false
-    }
-
-    /// Schedules one deferred autosave retry, replacing any pending retry.
-    @discardableResult
-    func scheduleDeferredRetry(
-        after delay: TimeInterval,
-        handler: @escaping @MainActor @Sendable () -> Void
-    ) -> Bool {
-        guard delay.isFinite, delay > 0 else { return false }
-        cancelDeferredRetry()
-
-        deferredRetryToken &+= 1
-        let token = deferredRetryToken
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + delay, leeway: .milliseconds(50))
-        timer.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, self.deferredRetryToken == token else { return }
-                self.deferredRetryTimer?.cancel()
-                self.deferredRetryTimer = nil
-                handler()
-            }
-        }
-        deferredRetryTimer = timer
-        timer.resume()
-        return true
-    }
-
-    /// Cancels pending deferred autosave retry work and invalidates stale timer callbacks.
-    func cancelDeferredRetry() {
-        deferredRetryToken &+= 1
-        deferredRetryTimer?.cancel()
-        deferredRetryTimer = nil
     }
 
     func recordTypingActivity(nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {

@@ -953,23 +953,6 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    func testSessionAutosaveCoordinatorCancelsDeferredRetry() async {
-        let retryFired = expectation(description: "retry should not fire")
-        retryFired.isInverted = true
-
-        await MainActor.run {
-            let coordinator = SessionAutosaveCoordinator()
-            XCTAssertTrue(
-                coordinator.scheduleDeferredRetry(after: 0.05) {
-                    retryFired.fulfill()
-                }
-            )
-            coordinator.cancelDeferredRetry()
-        }
-
-        await fulfillment(of: [retryFired], timeout: 0.15)
-    }
-
     func testSessionAutosaveFingerprintIncludesRestorableAgentMetadata() throws {
         let workspaceId = UUID()
         let panelId = UUID()

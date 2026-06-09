@@ -3963,26 +3963,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func scheduleDeferredSessionAutosaveRetry(after delay: TimeInterval) {
-        sessionAutosaveCoordinator.scheduleDeferredRetry(after: delay) { [weak self] in
-            self?.runSessionAutosaveTick(source: "typingQuietRetry")
-        }
-    }
-
     private func runSessionAutosaveTick(source: String) {
         guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
         if let remainingQuietPeriod = remainingSessionAutosaveTypingQuietPeriod() {
 #if DEBUG
             cmuxDebugLog(
                 "session.save.skipped reason=typing_recent includeScrollback=0 source=\(source) " +
-                "retryMs=\(Int((remainingQuietPeriod * 1000).rounded()))"
+                "remainingQuietMs=\(Int((remainingQuietPeriod * 1000).rounded()))"
             )
 #endif
-            scheduleDeferredSessionAutosaveRetry(after: remainingQuietPeriod)
             return
         }
 
-        sessionAutosaveCoordinator.cancelDeferredRetry()
         sessionAutosaveCoordinator.beginTick { runToken in
             Task { @MainActor [weak self] in
                 guard let self else { return }
