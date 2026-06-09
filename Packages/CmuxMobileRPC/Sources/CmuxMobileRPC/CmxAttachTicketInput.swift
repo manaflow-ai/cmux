@@ -30,8 +30,9 @@ public struct CmxAttachTicketInput {
         // and the legacy full-key Codable form (top-level "version") that
         // older Macs, stored tickets, and UITest fixtures still produce.
         let ticket: CmxAttachTicket
-        if CmxAttachTicketCompactCoding.isCompactPayload(data) {
-            ticket = try CmxAttachTicketCompactCoding.decode(data)
+        let compactCoder = CmxAttachTicketCompactCoder()
+        if compactCoder.isCompactPayload(data) {
+            ticket = try compactCoder.decode(data)
         } else {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601

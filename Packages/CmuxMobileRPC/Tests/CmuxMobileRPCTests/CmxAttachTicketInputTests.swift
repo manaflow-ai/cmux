@@ -37,7 +37,7 @@ import Testing
     @Test func decodesCompactPayloadAttachURL() throws {
         // New-phone-scans-new-QR.
         let ticket = try makeTicket(authToken: "minted-but-not-in-qr")
-        let url = attachURL(payload: try CmxAttachTicketCompactCoding.encode(ticket))
+        let url = attachURL(payload: try CmxAttachTicketCompactCoder().encode(ticket))
 
         let decoded = try CmxAttachTicketInput.decode(url)
         #expect(decoded.macDeviceID == "mac-1")
@@ -68,7 +68,7 @@ import Testing
         // the compact grammar existed (plain Codable + iso8601) and prove it
         // throws instead of silently misreading the ticket.
         let ticket = try makeTicket()
-        let payload = try CmxAttachTicketCompactCoding.encode(ticket)
+        let payload = try CmxAttachTicketCompactCoder().encode(ticket)
 
         let preCompactDecoder = JSONDecoder()
         preCompactDecoder.dateDecodingStrategy = .iso8601

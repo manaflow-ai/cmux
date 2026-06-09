@@ -120,7 +120,7 @@ final class MobileAttachTicketStore {
         // token (`MobileHostService.authorizationError(for:)`), so the token
         // only inflated the QR. The full ticket (including the token) still
         // rides in `payload(for:)["ticket"]` for RPC consumers.
-        let data = try CmxAttachTicketCompactCoding.encode(ticket)
+        let data = try CmxAttachTicketCompactCoder().encode(ticket)
         let payload = Self.base64URLEncode(data)
         guard let url = URL(string: "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)") else {
             throw MobileAttachTicketStoreError.invalidAttachURL

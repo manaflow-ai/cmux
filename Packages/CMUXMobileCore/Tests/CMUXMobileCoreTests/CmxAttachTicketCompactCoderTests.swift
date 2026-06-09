@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
-/// Round-trip and cross-grammar coverage for ``CmxAttachTicketCompactCoding``.
+/// Round-trip and cross-grammar coverage for ``CmxAttachTicketCompactCoder``.
 ///
 /// The pairing QR moved from the legacy full-key `Codable` JSON to a compact
 /// short-key grammar. These tests pin the compact encode shape (short keys,
@@ -10,6 +10,8 @@ import Testing
 /// compatibility matrix: a new decoder accepts both grammars, and the legacy
 /// decoder rejects compact payloads with a thrown error rather than a
 /// silently wrong ticket.
+
+private let compactCoder = CmxAttachTicketCompactCoder()
 
 private func wholeSecondFutureExpiry() -> Date {
     Date(timeIntervalSince1970: 4_000_000_000)
@@ -41,7 +43,7 @@ private func legacyDecoder() -> JSONDecoder {
         authToken: "ticket-secret"
     )
 
-    let data = try CmxAttachTicketCompactCoding.encode(ticket)
+    let data = try compactCoder.encode(ticket)
     let json = try #require(String(data: data, encoding: .utf8))
 
     #expect(!json.contains("auth_token"))
@@ -85,8 +87,8 @@ private func legacyDecoder() -> JSONDecoder {
         authToken: "ticket-secret"
     )
 
-    let decoded = try CmxAttachTicketCompactCoding.decode(
-        CmxAttachTicketCompactCoding.encode(ticket)
+    let decoded = try compactCoder.decode(
+        compactCoder.encode(ticket)
     )
 
     #expect(decoded.version == ticket.version)
@@ -113,7 +115,7 @@ private func legacyDecoder() -> JSONDecoder {
         authToken: "ticket-secret"
     )
 
-    let data = try CmxAttachTicketCompactCoding.encode(ticket)
+    let data = try compactCoder.encode(ticket)
     let object = try #require(
         try JSONSerialization.jsonObject(with: data) as? [String: Any]
     )
@@ -125,7 +127,7 @@ private func legacyDecoder() -> JSONDecoder {
     let route = try #require((object["r"] as? [[String: Any]])?.first)
     #expect(route["p"] == nil)
 
-    let decoded = try CmxAttachTicketCompactCoding.decode(data)
+    let decoded = try compactCoder.decode(data)
     #expect(decoded.workspaceID == "")
     #expect(decoded.terminalID == nil)
     #expect(decoded.macDisplayName == nil)
@@ -143,7 +145,7 @@ private func legacyDecoder() -> JSONDecoder {
         routes: [try hostPortRoute()],
         expiresAt: wholeSecondFutureExpiry()
     )
-    let compact = try CmxAttachTicketCompactCoding.encode(ticket)
+    let compact = try compactCoder.encode(ticket)
 
     #expect(throws: DecodingError.self) {
         try legacyDecoder().decode(CmxAttachTicket.self, from: compact)
@@ -166,9 +168,9 @@ private func legacyDecoder() -> JSONDecoder {
     encoder.dateEncodingStrategy = .iso8601
     let legacy = try encoder.encode(ticket)
 
-    #expect(CmxAttachTicketCompactCoding.isCompactPayload(legacy) == false)
+    #expect(compactCoder.isCompactPayload(legacy) == false)
     #expect(throws: DecodingError.self) {
-        try CmxAttachTicketCompactCoding.decode(legacy)
+        try compactCoder.decode(legacy)
     }
 }
 
@@ -181,14 +183,14 @@ private func legacyDecoder() -> JSONDecoder {
         routes: [try hostPortRoute()],
         expiresAt: wholeSecondFutureExpiry()
     )
-    let compact = try CmxAttachTicketCompactCoding.encode(ticket)
+    let compact = try compactCoder.encode(ticket)
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     let legacy = try encoder.encode(ticket)
 
-    #expect(CmxAttachTicketCompactCoding.isCompactPayload(compact))
-    #expect(!CmxAttachTicketCompactCoding.isCompactPayload(legacy))
-    #expect(!CmxAttachTicketCompactCoding.isCompactPayload(Data("not json".utf8)))
+    #expect(compactCoder.isCompactPayload(compact))
+    #expect(!compactCoder.isCompactPayload(legacy))
+    #expect(!compactCoder.isCompactPayload(Data("not json".utf8)))
 }
 
 @Test func compactDecodeRejectsUnknownRouteKindAndEndpointType() throws {
@@ -196,14 +198,14 @@ private func legacyDecoder() -> JSONDecoder {
     {"v":1,"d":"mac-1","e":4000000000,"r":[{"i":"x","k":"carrier-pigeon","e":{"t":"host_port","h":"100.64.1.2","p":49831}}]}
     """.utf8)
     #expect(throws: DecodingError.self) {
-        try CmxAttachTicketCompactCoding.decode(unknownKind)
+        try compactCoder.decode(unknownKind)
     }
 
     let unknownEndpoint = Data("""
     {"v":1,"d":"mac-1","e":4000000000,"r":[{"i":"tailscale","k":"tailscale","e":{"t":"smoke-signal"}}]}
     """.utf8)
     #expect(throws: DecodingError.self) {
-        try CmxAttachTicketCompactCoding.decode(unknownEndpoint)
+        try compactCoder.decode(unknownEndpoint)
     }
 }
 
@@ -230,7 +232,7 @@ private func legacyDecoder() -> JSONDecoder {
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     let legacy = try encoder.encode(ticket)
-    let compact = try CmxAttachTicketCompactCoding.encode(ticket)
+    let compact = try compactCoder.encode(ticket)
 
     #expect(compact.count < legacy.count)
     #expect(compact.count <= 220)
