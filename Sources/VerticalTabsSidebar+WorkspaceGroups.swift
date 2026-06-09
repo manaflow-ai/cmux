@@ -90,6 +90,7 @@ extension VerticalTabsSidebar {
             showsShortcutHint: showsHintForAnchor,
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
+            fontScale: settings.sidebarFontScale,
             cwdContextMenuItems: cwdContextMenuItems,
             newWorkspacePlacement: newWorkspacePlacement,
             rowSpacing: tabRowSpacing,
@@ -155,7 +156,6 @@ extension VerticalTabsSidebar {
         .equatable()
         .id(group.anchorWorkspaceId)
         .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
-        .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))
 
         header
             .sidebarWorkspaceFrameAnchor(

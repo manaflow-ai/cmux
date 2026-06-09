@@ -413,7 +413,7 @@
         "agentHibernation": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Opt-in Agent Hibernation settings. cmux can suspend old background terminals only when they run a restorable coding agent, the agent lifecycle reports idle, no terminal output has changed for the configured idle window, and the live-terminal limit is exceeded. Hibernated agents resume when their tab is visited; the placeholder Resume button is a manual fallback.",
+          "description": "Opt-in Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. A terminal is only suspended when it runs a restorable coding agent, the agent lifecycle reports idle, the terminal is off-screen, the live-terminal limit is exceeded, and its output has stayed unchanged for the idle window plus a short confirmation settle window. The placeholder Resume button is a manual fallback.",
           "properties": {
             "enabled": {
               "type": "boolean",
@@ -424,8 +424,8 @@
               "type": "integer",
               "minimum": 5,
               "maximum": 604800,
-              "default": 3600,
-              "description": "Minimum seconds with no terminal output or input before an idle restorable agent terminal can hibernate."
+              "default": 5,
+              "description": "Minimum seconds with no terminal output or input before an idle restorable agent terminal can hibernate. A short confirmation settle window (~60s) still applies on top of this before the agent is killed."
             },
             "maxLiveTerminals": {
               "type": "integer",
@@ -1058,6 +1058,21 @@
           "default": false,
           "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
           "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
+        }
+      }
+    },
+    "diffViewer": {
+      "title": "diffViewer",
+      "description": "Built-in diff viewer settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultLayout": {
+          "type": "string",
+          "enum": ["unified", "split"],
+          "default": "unified",
+          "description": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both.",
+          "descriptionKey": "schemaDescriptions.diffViewer.defaultLayout"
         }
       }
     },

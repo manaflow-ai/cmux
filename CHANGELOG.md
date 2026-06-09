@@ -2,6 +2,106 @@
 
 All notable changes to cmux are documented here.
 
+## [0.64.14] - 2026-06-06
+
+### Added
+- iPhone companion app (beta): pair an iPhone from the new Mobile Connect window (also in the command palette) and attach to your Mac's terminals from your phone, with a configurable pairing port and opt-in forwarding of terminal notifications; the iOS beta ships on TestFlight as cmux BETA ([#5079](https://github.com/manaflow-ai/cmux/pull/5079), [#5493](https://github.com/manaflow-ai/cmux/pull/5493), [#5489](https://github.com/manaflow-ai/cmux/pull/5489), [#5518](https://github.com/manaflow-ai/cmux/pull/5518))
+- Drag a workspace into another window's sidebar to move it between windows, including grouped workspaces ([#5399](https://github.com/manaflow-ai/cmux/pull/5399))
+- Sign In and Sign Out commands in the command palette ([#5529](https://github.com/manaflow-ai/cmux/pull/5529))
+- OMP agent hook integration with notifications and session restore via `cmux hooks omp` ([#5413](https://github.com/manaflow-ai/cmux/pull/5413)) -- thanks @joshrzemien!
+
+### Changed
+- Custom sidebar extensions now run out-of-process with an isolated interpreter, so a broken sidebar can't hang or crash the app ([#5294](https://github.com/manaflow-ai/cmux/pull/5294), [#5382](https://github.com/manaflow-ai/cmux/pull/5382)) -- thanks @azooz2003-bit!
+- Broader SwiftUI primitive coverage in the custom sidebar interpreter ([#5275](https://github.com/manaflow-ai/cmux/pull/5275)) -- thanks @azooz2003-bit!
+- Browser omnibar: the first click that focuses the address bar selects the whole URL, later clicks place the caret (Chrome parity) ([#5462](https://github.com/manaflow-ai/cmux/pull/5462), [#5352](https://github.com/manaflow-ai/cmux/pull/5352))
+- Browser chrome (omnibar font and toolbar icons) scales with the tab bar font size ([#5464](https://github.com/manaflow-ai/cmux/pull/5464))
+- Sidebar workspace group headers scale with the sidebar font size ([#5401](https://github.com/manaflow-ai/cmux/pull/5401))
+- Agent Hibernation defaults to a 5-second idle window when enabled ([#5449](https://github.com/manaflow-ai/cmux/pull/5449))
+- Tighter fuzzy filtering for skill suggestions in the terminal textbox ([#5348](https://github.com/manaflow-ai/cmux/pull/5348))
+
+### Fixed
+- Keep actively-playing audio and video in browser panes alive when the pane is hidden ([#5412](https://github.com/manaflow-ai/cmux/pull/5412), [#5441](https://github.com/manaflow-ai/cmux/pull/5441))
+- Fix a typing beachball in the browser omnibar with large browsing histories ([#5397](https://github.com/manaflow-ai/cmux/pull/5397))
+- Fix the main window refusing to resize narrower than its current width ([#5474](https://github.com/manaflow-ai/cmux/pull/5474))
+- Fix the sidebar close button hidden under wrapped workspace titles ([#5488](https://github.com/manaflow-ai/cmux/pull/5488))
+- Fix notification sound selection so the picker previews the selected sound and notifications play it ([#5480](https://github.com/manaflow-ai/cmux/pull/5480))
+- Restore the menu bar icon dropdown menu on click ([#5451](https://github.com/manaflow-ai/cmux/pull/5451))
+- Fix OSC control sequences (e.g. terminal background color) printed as literal text when sent via `cmux send` ([#5509](https://github.com/manaflow-ai/cmux/pull/5509))
+- Fix native Claude resume dropping cmux hooks, so notifications and status tracking keep working on resumed sessions ([#5430](https://github.com/manaflow-ai/cmux/pull/5430))
+- Fix Agent Hibernation for node-backed Claude sessions ([#5433](https://github.com/manaflow-ai/cmux/pull/5433))
+- Codex resume hardening: keep restored surfaces from jumbling and preserve `CODEX_HOME` so non-default Codex homes resume correctly ([#5351](https://github.com/manaflow-ai/cmux/pull/5351))
+- Fix Cmd +/- zoom in the browser and Markdown viewer on non-US keyboard layouts ([#5394](https://github.com/manaflow-ai/cmux/pull/5394))
+- Preserve syntax highlighting on changed lines in the diff viewer ([#5415](https://github.com/manaflow-ai/cmux/pull/5415))
+- Fix a stale group name in the window title bar after renaming a workspace group ([#5408](https://github.com/manaflow-ai/cmux/pull/5408))
+- Fix the Dock sidebar not rendering after closing and reopening it ([#5437](https://github.com/manaflow-ai/cmux/pull/5437))
+- Fix OMO subagent pane respawn through the tmux compatibility shim ([#5465](https://github.com/manaflow-ai/cmux/pull/5465)) -- thanks @leodiegoo for the report!
+- Reduce sidebar git activity by coalescing repeated metadata probes ([#5402](https://github.com/manaflow-ai/cmux/pull/5402))
+
+### Thanks to 5 contributors!
+
+- [@austinywang](https://github.com/austinywang)
+- [@azooz2003-bit](https://github.com/azooz2003-bit)
+- [@joshrzemien](https://github.com/joshrzemien)
+- [@lawrencecchen](https://github.com/lawrencecchen)
+- [@leodiegoo](https://github.com/leodiegoo)
+
+## [0.64.13] - 2026-06-04
+
+### Added
+- Browser focus mode ([#4573](https://github.com/manaflow-ai/cmux/pull/4573))
+- SSH agent forwarding for `cmux ssh`, so remote sessions can use your local SSH keys ([#5301](https://github.com/manaflow-ai/cmux/pull/5301))
+- Vibe-codable custom sidebars: a runtime Swift interpreter for building your own sidebar, behind a Beta Features flag, with CLI validation and live reload ([#5254](https://github.com/manaflow-ai/cmux/pull/5254), [#5327](https://github.com/manaflow-ai/cmux/pull/5327)) -- thanks @azooz2003-bit!
+- Browser mouse back and forward button support ([#5197](https://github.com/manaflow-ai/cmux/pull/5197))
+- Persisted word-wrap setting for the file editor ([#5247](https://github.com/manaflow-ai/cmux/pull/5247))
+- "Open Current Directory in Devin" command ([#5288](https://github.com/manaflow-ai/cmux/pull/5288)) -- thanks @MaxiAschenbrenner!
+- Live status reporting in the Amp Neo session plugin, driving the cmux tab status bar ([#5235](https://github.com/manaflow-ai/cmux/pull/5235)) -- thanks @HamptonMakes!
+
+### Changed
+- Anchor the textbox autocomplete to the cursor ([#5021](https://github.com/manaflow-ai/cmux/pull/5021))
+- Add a font-size popover to the Markdown viewer controls ([#5168](https://github.com/manaflow-ai/cmux/pull/5168))
+- Open group config files in your configured editor ([#5250](https://github.com/manaflow-ai/cmux/pull/5250))
+- Isolate browser WebKit process pools so one browser pane crashing no longer takes down the others ([#4987](https://github.com/manaflow-ai/cmux/pull/4987))
+- Move large scrollback read-text work off the main actor to reduce UI hangs ([#5243](https://github.com/manaflow-ai/cmux/pull/5243)) -- thanks @azooz2003-bit!
+
+### Fixed
+- Fix a settings-observation task leak that grew the app process to 4.4 GB over ~23h ([#5310](https://github.com/manaflow-ai/cmux/pull/5310))
+- Fix a browser pane render loop that re-navigated the WebView on every CoreAnimation commit (~39% main-thread CPU) ([#5311](https://github.com/manaflow-ai/cmux/pull/5311))
+- Fix a WebKit post-wake crash with sleep/wake-aware hidden-webview discard scheduling ([#5315](https://github.com/manaflow-ai/cmux/pull/5315)) -- thanks @azooz2003-bit!
+- Fix the Markdown and file-preview text editor hanging at 100% CPU on click or drag-select by forcing a TextKit 1 stack ([#5257](https://github.com/manaflow-ai/cmux/pull/5257))
+- Stop cmux from launching child processes under Rosetta on Apple Silicon ([#5306](https://github.com/manaflow-ai/cmux/pull/5306)) -- thanks @CharlesWiltgen for the report!
+- Recover terminal focus when the first responder is stranded in another window ([#5296](https://github.com/manaflow-ai/cmux/pull/5296))
+- Fix the browser address bar so a single click places a caret instead of selecting the whole URL ([#5270](https://github.com/manaflow-ai/cmux/pull/5270))
+- Fix copy-mode vim keys (j/k/h/l) swallowed under non-ASCII input sources (Korean, Japanese Kana, Zhuyin) ([#5292](https://github.com/manaflow-ai/cmux/pull/5292)) -- thanks @pstanton237!
+- Fix terminal copy-mode cursor navigation ([#5328](https://github.com/manaflow-ai/cmux/pull/5328))
+- Fix terminal selection on mouse-up while the find overlay is open ([#5335](https://github.com/manaflow-ai/cmux/pull/5335))
+- Fix TextBox IME and input-source handling ([#5340](https://github.com/manaflow-ai/cmux/pull/5340))
+- Fix the macOS "wants to access data from other apps" prompt on agent session start and quit by moving the control socket out of Application Support ([#5176](https://github.com/manaflow-ai/cmux/pull/5176))
+- Fix Codex auto-resume emitting an invalid `-s disabled` sandbox flag ([#5276](https://github.com/manaflow-ai/cmux/pull/5276)) -- thanks @taonetm7 for the report!
+- Fix agent session resume cd-ing into the wrong directory after a cwd drift, plus post-kill cwd handling ([#5300](https://github.com/manaflow-ai/cmux/pull/5300), [#5312](https://github.com/manaflow-ai/cmux/pull/5312))
+- Fix restored cwd bindings after a reboot ([#5307](https://github.com/manaflow-ai/cmux/pull/5307))
+- Fix a stale sidebar git branch after cd-ing out of a repo into a non-git directory ([#5279](https://github.com/manaflow-ai/cmux/pull/5279))
+- Fix a TextBox teardown crash when toggling the sidebar background ([#5317](https://github.com/manaflow-ai/cmux/pull/5317))
+- Fix a workspace-close teardown hang ([#5316](https://github.com/manaflow-ai/cmux/pull/5316)) -- thanks @azooz2003-bit!
+- Fix the workspace-group "Delete Group" context-menu action being a no-op ([#5253](https://github.com/manaflow-ai/cmux/pull/5253))
+- Fix the diff viewer showing a raw CLI error and beeping when there is no diff ([#5252](https://github.com/manaflow-ai/cmux/pull/5252))
+- Fix sidebar drag-and-drop frame collection with the lazy (virtualized) sidebar ([#5325](https://github.com/manaflow-ai/cmux/pull/5325))
+- Lazy-load file explorer roots to speed up opening the file tree ([#5342](https://github.com/manaflow-ai/cmux/pull/5342))
+- Fix Claude workflow resume transcript resolution ([#5242](https://github.com/manaflow-ai/cmux/pull/5242)) -- thanks @azooz2003-bit!
+- Fix opening the remote SSH file browser ([#5241](https://github.com/manaflow-ai/cmux/pull/5241)) -- thanks @azooz2003-bit!
+- Fix custom-sidebar extension discovery for tagged builds ([#5267](https://github.com/manaflow-ai/cmux/pull/5267)) -- thanks @azooz2003-bit!
+- Fix Sparkle update packaging and Claude hook transcript scaling ([#5202](https://github.com/manaflow-ai/cmux/pull/5202))
+
+### Thanks to 8 contributors!
+
+- [@austinywang](https://github.com/austinywang)
+- [@azooz2003-bit](https://github.com/azooz2003-bit)
+- [@CharlesWiltgen](https://github.com/CharlesWiltgen)
+- [@HamptonMakes](https://github.com/HamptonMakes)
+- [@lawrencecchen](https://github.com/lawrencecchen)
+- [@MaxiAschenbrenner](https://github.com/MaxiAschenbrenner)
+- [@pstanton237](https://github.com/pstanton237)
+- [@taonetm7](https://github.com/taonetm7)
+
 ## [0.64.12] - 2026-06-02
 
 ### Added

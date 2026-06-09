@@ -13,6 +13,7 @@ extension CMUXCLI {
         let configDirEnvOverride: String? // e.g. "CODEX_HOME" overrides configDir
         let configDirEnvOverrideSubpath: String? // e.g. "GROK_HOME" + "hooks"
         let createConfigDirIfMissing: Bool // for agents whose hook dir is created lazily
+        let configDirResolver: (@Sendable () -> String)?
         let sessionStoreSuffix: String // e.g. "cursor" -> ~/.cmuxterm/cursor-hook-sessions.json
         let disableEnvVar: String   // e.g. "CMUX_CURSOR_HOOKS_DISABLED"
         let hookMarker: String      // Marker in commands: "cmux hooks cursor"
@@ -52,7 +53,7 @@ extension CMUXCLI {
 
         enum HookFormat {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
-            case nested(timeoutMs: Int)  // Codex/Gemini: nested with type/command/timeout
+            case nested(timeoutMs: Int)  // Nested type/command/timeout hooks; timeout unit is agent-specific.
             case kiroAgentJSON(timeoutMs: Int) // ~/.kiro/agents/*.json flat command entries with timeout_ms
             case antigravityJSON(timeoutSeconds: Int) // ~/.gemini/config/hooks.json named hook groups
             case rovoDevYAML
@@ -70,6 +71,9 @@ extension CMUXCLI {
 
         /// Resolves the config directory, respecting env override if set.
         func resolvedConfigDir() -> String {
+            if let configDirResolver {
+                return configDirResolver()
+            }
             let home = ProcessInfo.processInfo.environment["HOME"].flatMap { value -> String? in
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed.isEmpty ? nil : trimmed
@@ -98,6 +102,7 @@ extension CMUXCLI {
              configDir: String, configFile: String, configDirEnvOverride: String? = nil,
              configDirEnvOverrideSubpath: String? = nil,
              createConfigDirIfMissing: Bool = false,
+             configDirResolver: (@Sendable () -> String)? = nil,
              binaryName: String? = nil,
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
@@ -112,6 +117,7 @@ extension CMUXCLI {
             self.configDirEnvOverride = configDirEnvOverride
             self.configDirEnvOverrideSubpath = configDirEnvOverrideSubpath
             self.createConfigDirIfMissing = createConfigDirIfMissing
+            self.configDirResolver = configDirResolver
             self.binaryName = binaryName ?? name
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
@@ -152,7 +158,7 @@ extension CMUXCLI {
             name: "codex", displayName: "Codex", statusKey: "codex",
             configDir: ".codex", configFile: "hooks.json", configDirEnvOverride: "CODEX_HOME",
             sessionStoreSuffix: "codex", disableEnvVar: "CMUX_CODEX_HOOKS_DISABLED",
-            hookMarker: "cmux hooks codex", format: .nested(timeoutMs: 5000),
+            hookMarker: "cmux hooks codex", format: .nested(timeoutMs: 5),
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
@@ -191,6 +197,15 @@ extension CMUXCLI {
             configDir: ".pi/agent", configFile: "extensions/cmux-session.ts", configDirEnvOverride: "PI_CODING_AGENT_DIR",
             sessionStoreSuffix: "pi", disableEnvVar: "CMUX_PI_HOOKS_DISABLED",
             hookMarker: "cmux hooks pi", format: .flat,
+            events: []
+        ),
+        AgentHookDef(
+            name: "omp", displayName: "OMP", statusKey: "omp",
+            configDir: ".omp/agent", configFile: "extensions/cmux-omp-session.ts",
+            createConfigDirIfMissing: true,
+            configDirResolver: { CMUXCLI.resolvedOmpAgentDirectory().path },
+            sessionStoreSuffix: "omp", disableEnvVar: "CMUX_OMP_HOOKS_DISABLED",
+            hookMarker: "cmux hooks omp", format: .flat,
             events: []
         ),
         AgentHookDef(

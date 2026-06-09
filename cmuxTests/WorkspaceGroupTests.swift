@@ -353,6 +353,108 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func pinningGroupedWorkspaceKeepsItAtTopOfGroup() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+            originalIds[3],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let pinnedChild = try #require(manager.tabs.first { $0.id == originalIds[3] })
+
+        manager.setPinned(pinnedChild, pinned: true)
+
+        #expect(pinnedChild.groupId == groupId)
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            originalIds[3],
+            originalIds[1],
+            originalIds[2],
+        ])
+    }
+
+    @Test func pinnedGroupedWorkspaceDoesNotPromoteUnpinnedGroup() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let globallyPinned = try #require(manager.tabs.first { $0.id == originalIds[0] })
+        manager.setPinned(globallyPinned, pinned: true)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[2],
+            originalIds[3],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let pinnedChild = try #require(manager.tabs.first { $0.id == originalIds[3] })
+
+        manager.setPinned(pinnedChild, pinned: true)
+
+        #expect(manager.tabs.map(\.id) == [
+            originalIds[0],
+            originalIds[1],
+            group.anchorWorkspaceId,
+            originalIds[3],
+            originalIds[2],
+        ])
+        #expect(!group.isPinned)
+        #expect(pinnedChild.groupId == groupId)
+    }
+
+    @Test func draggingUnpinnedGroupedWorkspaceAbovePinnedGroupedWorkspaceShowsNoIndicator() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+            originalIds[3],
+        ]))
+        let pinnedChild = try #require(manager.tabs.first { $0.id == originalIds[2] })
+        manager.setPinned(pinnedChild, pinned: true)
+
+        let draggedUnpinnedId = originalIds[3]
+        let tabIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: draggedUnpinnedId,
+            targetWorkspaceId: pinnedChild.id
+        )
+        let pinnedIds = manager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: draggedUnpinnedId,
+            targetWorkspaceId: pinnedChild.id
+        )
+        let legalInsertionRange = manager.sidebarReorderLegalInsertionRange(
+            forDraggedWorkspaceId: draggedUnpinnedId,
+            targetWorkspaceId: pinnedChild.id
+        )
+
+        #expect(manager.tabs.first { $0.id == draggedUnpinnedId }?.groupId == groupId)
+        let indicator = SidebarDropPlanner.indicator(
+            draggedTabId: draggedUnpinnedId,
+            targetTabId: pinnedChild.id,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedIds,
+            legalInsertionRange: legalInsertionRange,
+            pointerY: 2,
+            targetHeight: 40
+        )
+        #expect(indicator == nil)
+        #expect(SidebarDropPlanner.targetIndex(
+            draggedTabId: draggedUnpinnedId,
+            targetTabId: pinnedChild.id,
+            indicator: SidebarDropIndicator(tabId: pinnedChild.id, edge: .top),
+            tabIds: tabIds,
+            pinnedTabIds: pinnedIds,
+            legalInsertionRange: legalInsertionRange
+        ) == tabIds.firstIndex(of: draggedUnpinnedId))
+    }
+
     @Test func movingGroupMemberToTopKeepsScriptableGroupOrderInVisibleOrder() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
@@ -707,5 +809,45 @@ struct WorkspaceGroupTests {
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   doc.text   ") == "doc.text")
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("not.an.sf.symbol") == "doc.text")
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   ") == "doc.text")
+    }
+
+    // Regression for #5404: renaming a group must update the name shown in
+    // window chrome (the custom title bar / NSWindow title / toolbar label),
+    // not just the sidebar header. The chrome derives a grouped anchor's
+    // displayed name from `resolvedWorkspaceDisplayTitle(for:)`, which must
+    // track the group's `name` — the single source of truth — rather than the
+    // anchor's own (stale) title that was merely seeded at creation.
+    @Test func renamingGroupUpdatesAnchorDisplayTitle() throws {
+        let manager = makeTabManager()
+        let groupId = try #require(
+            manager.createWorkspaceGroup(name: "Group 1", childWorkspaceIds: [manager.tabs[0].id])
+        )
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
+
+        // Sanity: the anchor's displayed title starts at the group name.
+        #expect(manager.resolvedWorkspaceDisplayTitle(for: anchor) == "Group 1")
+
+        manager.renameWorkspaceGroup(groupId: groupId, name: "AUSTIN GENERAL INTELLIGENCE")
+
+        // The chrome's source of truth must reflect the rename.
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.name == "AUSTIN GENERAL INTELLIGENCE")
+        #expect(manager.resolvedWorkspaceDisplayTitle(for: anchor) == "AUSTIN GENERAL INTELLIGENCE")
+    }
+
+    // A non-anchor workspace keeps its own title; only the anchor mirrors the
+    // group name. Guards against the derivation over-reaching to every member.
+    @Test func renamingGroupLeavesNonAnchorMemberTitleAlone() throws {
+        let manager = makeTabManager()
+        let memberId = manager.tabs[1].id
+        let groupId = try #require(
+            manager.createWorkspaceGroup(name: "Group 1", childWorkspaceIds: [memberId])
+        )
+        let member = try #require(manager.tabs.first { $0.id == memberId })
+        let memberTitle = member.title
+
+        manager.renameWorkspaceGroup(groupId: groupId, name: "Renamed")
+
+        #expect(manager.resolvedWorkspaceDisplayTitle(for: member) == memberTitle)
     }
 }

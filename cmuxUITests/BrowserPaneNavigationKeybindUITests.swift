@@ -498,9 +498,6 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_TAG"] = "ui-esc-\(UUID().uuidString.prefix(8))"
         launchAndEnsureForeground(app)
-
-        let window = app.windows.firstMatch
-        _ = window.waitForExistence(timeout: 2.0)
         XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
 
         guard let workspace = currentWorkspaceContext() else {
@@ -833,9 +830,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         launchAndEnsureForeground(app)
-
-        let window = app.windows.firstMatch
-        _ = window.waitForExistence(timeout: 2.0)
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
 
         app.typeKey("d", modifierFlags: [.command])
         XCTAssertTrue(
@@ -898,10 +893,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         launchAndEnsureForeground(app)
-
-        let window = app.windows.firstMatch
-        // On some CI runners the app accepts key events before XCUI exposes the window tree.
-        _ = window.waitForExistence(timeout: 2.0)
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
 
         app.typeKey("d", modifierFlags: [.command])
         XCTAssertTrue(
@@ -964,9 +956,6 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         launchAndEnsureForeground(app)
-
-        let window = app.windows.firstMatch
-        _ = window.waitForExistence(timeout: 2.0)
         XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
 
         guard let originalWorkspace = currentWorkspaceContext() else {
