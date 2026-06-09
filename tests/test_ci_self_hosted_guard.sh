@@ -223,6 +223,23 @@ check_tmux_terminal_nightly_isolation() {
   echo "PASS: tmux corpus terminal-nightly uses isolated DerivedData, noninteractive xcodebuild, and expected-failure handling"
 }
 
+check_unit_tests_do_not_mask_xctest_assertion_failures() {
+  local file
+  for file in "$CI_FILE" "$COMPAT_FILE" "$ROOT_DIR/.github/workflows/test-depot.yml"; do
+    if grep -Fq "All failures are expected, treating as pass" "$file"; then
+      echo "FAIL: $(basename "$file") must not treat XCTest assertion failures as a passing unit-test run"
+      exit 1
+    fi
+
+    if grep -Fq "(0 unexpected)" "$file"; then
+      echo "FAIL: $(basename "$file") must not use XCTest '(0 unexpected)' summaries as a unit-test pass condition"
+      exit 1
+    fi
+  done
+
+  echo "PASS: unit-test workflows fail on XCTest assertion failures"
+}
+
 # ci.yml jobs
 check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
@@ -247,3 +264,4 @@ check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
 check_tmux_terminal_nightly_isolation
+check_unit_tests_do_not_mask_xctest_assertion_failures
