@@ -15,6 +15,10 @@ from pathlib import Path
 from claude_teams_test_utils import resolve_cmux_cli
 
 
+def is_hosted_ci() -> bool:
+    return os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+
+
 def make_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
@@ -23,6 +27,9 @@ def make_executable(path: Path, content: str) -> None:
 def main() -> int:
     bun = shutil.which("bun")
     if bun is None:
+        if is_hosted_ci():
+            print("FAIL: bun not found; hosted CI must exercise Pi extension coverage")
+            return 1
         print("SKIP: bun not found")
         return 0
 

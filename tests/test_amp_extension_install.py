@@ -16,6 +16,10 @@ from pathlib import Path
 from claude_teams_test_utils import resolve_cmux_cli
 
 
+def is_hosted_ci() -> bool:
+    return os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+
+
 def make_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
@@ -31,6 +35,9 @@ def main() -> int:
     # (default in Node 24).
     node = shutil.which("node")
     if node is None:
+        if is_hosted_ci():
+            print("FAIL: node not found; hosted CI must exercise Amp plugin coverage")
+            return 1
         print("SKIP: node not found")
         return 0
     try:
@@ -39,6 +46,9 @@ def main() -> int:
     except Exception:
         version_parts = (0, 0, 0)
     if version_parts < (22, 6, 0):
+        if is_hosted_ci():
+            print(f"FAIL: node >= 22.6.0 required; hosted CI found {raw_version}")
+            return 1
         print("SKIP: node >= 22.6.0 required")
         return 0
 

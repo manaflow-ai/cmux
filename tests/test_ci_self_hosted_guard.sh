@@ -813,6 +813,39 @@ check_cli_notify_bundled_cli_fails_closed_on_ci() {
   echo "PASS: CLI notify bundled CLI regressions fail closed on hosted CI"
 }
 
+check_cli_extension_tool_skips_fail_closed_on_ci() {
+  local python_bin
+  python_bin="$(command -v python3)"
+  local empty_path
+  empty_path="$(mktemp -d)"
+  trap 'rm -rf "$empty_path"' RETURN
+
+  for file in \
+    "$ROOT_DIR/tests/test_pi_extension_install.py" \
+    "$ROOT_DIR/tests/test_omp_extension_install.py" \
+    "$ROOT_DIR/tests/test_opencode_plugin_install.py" \
+    "$ROOT_DIR/tests/test_amp_extension_install.py"
+  do
+    local output
+    output="$(mktemp)"
+    if env CI=true GITHUB_ACTIONS=true PATH="$empty_path" "$python_bin" "$file" >"$output" 2>&1; then
+      echo "FAIL: $(basename "$file") must fail closed in hosted CI when its required JS runtime is missing"
+      cat "$output"
+      rm -f "$output"
+      exit 1
+    fi
+    if ! grep -Fq "hosted CI must exercise" "$output"; then
+      echo "FAIL: $(basename "$file") must explain that hosted CI cannot skip extension/plugin coverage"
+      cat "$output"
+      rm -f "$output"
+      exit 1
+    fi
+    rm -f "$output"
+  done
+
+  echo "PASS: CLI extension/plugin JS runtime skips fail closed on hosted CI"
+}
+
 check_no_swift_test_skip_quarantines() {
   if grep -R -n -E "swift[[:space:]]+test([^|;&]*[[:space:]])--skip([[:space:]]|=)" "$ROOT_DIR/.github/workflows"; then
     echo "FAIL: workflow Swift package tests must not hide coverage with swift test --skip quarantines"
@@ -1890,6 +1923,7 @@ check_cli_socket_namespace_fails_closed_on_ci
 check_cmux_top_process_fixture_fails_closed_on_ci
 check_file_explorer_search_fails_closed_on_ci
 check_cli_notify_bundled_cli_fails_closed_on_ci
+check_cli_extension_tool_skips_fail_closed_on_ci
 check_no_swift_test_skip_quarantines
 check_swift_file_length_budget_active
 check_vm_socket_tests_do_not_skip_ctrl_interactive
