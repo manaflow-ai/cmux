@@ -268,6 +268,7 @@ public struct BrowserSection: View {
                 importHintModel: importHint,
                 onImport: { hostActions.openBrowserImportFlow() }
             )
+            .settingsSectionVisibility(.browserImport)
             .id(importAnchorID ?? "section:browserImport.inline")
             .settingsSearchHighlight([importAnchorID, "setting:browserImport:import-data"].compactMap { $0 })
             SettingsCardDivider()
