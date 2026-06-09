@@ -12,6 +12,10 @@ import AppKit
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
+    /// Per-workspace unread counts (workspace id raw value → count). Passed in by
+    /// the tab container, which is the snapshot-boundary owner for the
+    /// notifications store, so this list never reads an `@Observable` store.
+    var unreadCountsByWorkspace: [String: Int] = [:]
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
@@ -62,6 +66,7 @@ struct WorkspaceShellView: View {
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .push,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
+                unreadCountsByWorkspace: unreadCountsByWorkspace,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
@@ -116,6 +121,7 @@ struct WorkspaceShellView: View {
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .sidebar,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
+                unreadCountsByWorkspace: unreadCountsByWorkspace,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: store.createWorkspace,
                 rescanQR: { store.disconnectAndForgetActiveMac() },

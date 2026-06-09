@@ -20823,6 +20823,10 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+        case "mobile.notifications.list", "notifications.list":
+            result = v2MobileNotificationsList(params: request.params)
+        case "mobile.notifications.mark_read", "notifications.mark_read":
+            result = v2MobileNotificationsMarkRead(params: request.params)
 #if DEBUG
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
@@ -20834,6 +20838,60 @@ class TerminalController {
         }
         return mobileHostResult(result)
     }
+
+    /// `mobile.notifications.list`: the recent notification feed the iOS
+    /// Notifications hub mirrors. Reads `TerminalNotificationStore.shared`, sorts
+    /// newest-first, caps to the recent window, and maps to a snake_case wire
+    /// shape with `created_at` as Unix epoch seconds (the phone decodes it into a
+    /// `Date`). This is the snapshot the phone pulls on cold-attach and on every
+    /// `notifications.updated` signal.
+    private func v2MobileNotificationsList(params: [String: Any]) -> V2CallResult {
+        let recent = TerminalNotificationStore.shared.notifications
+            .sorted { $0.createdAt > $1.createdAt }
+            .prefix(Self.mobileNotificationRecentLimit)
+        let items: [[String: Any]] = recent.map { notification in
+            [
+                "id": notification.id.uuidString,
+                "workspace_id": notification.tabId.uuidString,
+                "surface_id": v2OrNull(notification.surfaceId?.uuidString),
+                "title": notification.title,
+                "subtitle": notification.subtitle,
+                "body": notification.body,
+                "created_at": notification.createdAt.timeIntervalSince1970,
+                "is_read": notification.isRead,
+            ]
+        }
+        return .ok(["notifications": items])
+    }
+
+    /// `mobile.notifications.mark_read`: mark a single notification (`id`) or a
+    /// whole workspace (`workspace_id`) read on the Mac. Routes through the same
+    /// `TerminalNotificationStore` read-state path the Mac UI uses (no parallel
+    /// copy), so the Mac stops re-notifying and the store change re-emits
+    /// `notifications.updated` to reconcile every connected phone.
+    private func v2MobileNotificationsMarkRead(params: [String: Any]) -> V2CallResult {
+        let id = v2UUID(params, "id")
+        let workspaceID = v2UUID(params, "workspace_id")
+        // Exactly one selector. Both/neither is a client bug, not a partial op.
+        let selectorCount = (id == nil ? 0 : 1) + (workspaceID == nil ? 0 : 1)
+        guard selectorCount == 1 else {
+            return .err(
+                code: "invalid_params",
+                message: "Provide exactly one of id or workspace_id",
+                data: nil
+            )
+        }
+        if let id {
+            TerminalNotificationStore.shared.markRead(id: id)
+        } else if let workspaceID {
+            TerminalNotificationStore.shared.markRead(forTabId: workspaceID)
+        }
+        return .ok(["ok": true])
+    }
+
+    /// Recent-notification window the mobile feed mirrors. Kept in sync with the
+    /// phone-side `MobileNotificationsStore.recentLimit` and the observer hash.
+    private static let mobileNotificationRecentLimit = 200
 
 #if DEBUG
     /// Hard caps for the DEV dogfood feedback sink. A debug client is the only

@@ -18,6 +18,10 @@ struct WorkspaceListView: View {
     /// single line. Passed in as a value snapshot so no `@Observable` store
     /// crosses the `List` boundary.
     let wrapWorkspaceTitles: Bool
+    /// Per-workspace unread-notification counts, keyed by workspace id raw value.
+    /// Computed by the parent (outside this `List`) and passed as a plain value
+    /// snapshot so the notifications store never crosses the `List` boundary.
+    var unreadCountsByWorkspace: [String: Int] = [:]
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
     /// Optional: when present, the toolbar shows a "settings" menu offering
@@ -79,6 +83,7 @@ struct WorkspaceListView: View {
                         isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
                         navigationStyle: navigationStyle,
                         wrapWorkspaceTitles: wrapWorkspaceTitles,
+                        unreadCount: unreadCountsByWorkspace[workspace.id.rawValue] ?? 0,
                         selectWorkspace: selectWorkspace,
                         renameWorkspace: renameWorkspace,
                         setPinned: setPinned
