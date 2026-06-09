@@ -66,8 +66,7 @@ struct MobilePairingView: View {
         return requirementRow(
             status: status,
             title: String(localized: "mobile.pairing.req.signIn.title", defaultValue: "Signed in to cmux"),
-            subtitle: model.signedInEmail
-                ?? String(localized: "mobile.pairing.req.signIn.subtitle", defaultValue: "Sign in to authorize this Mac for pairing.")
+            subtitle: signInSubtitle(status: status)
         ) {
             if status == .needsAction {
                 Button(String(localized: "mobile.pairing.signIn.button", defaultValue: "Sign In")) {
@@ -77,6 +76,17 @@ struct MobilePairingView: View {
                 .controlSize(.small)
             }
         }
+    }
+
+    /// The sign-in row's subtitle. Prefers the account email; an authenticated
+    /// account without a primary email still reads as signed in (never the
+    /// sign-in prompt next to a green completed badge).
+    private func signInSubtitle(status: MobilePairingModel.RequirementStatus) -> String {
+        if let email = model.signedInEmail { return email }
+        if status == .complete {
+            return String(localized: "mobile.pairing.req.signIn.signedIn", defaultValue: "Signed in.")
+        }
+        return String(localized: "mobile.pairing.req.signIn.subtitle", defaultValue: "Sign in to authorize this Mac for pairing.")
     }
 
     private var tailscaleRow: some View {
