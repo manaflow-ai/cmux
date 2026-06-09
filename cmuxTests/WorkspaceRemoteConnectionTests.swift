@@ -986,6 +986,27 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(detail, "remote port forwarding failed for listen port 64009")
     }
 
+    func testReverseRelayStartupFailureDetectsExactStaleRemoteListenerPort() {
+        XCTAssertTrue(
+            WorkspaceRemoteSessionController.reverseRelayStartupFailureIndicatesStaleRemoteListener(
+                "remote port forwarding failed for listen port 64009",
+                relayPort: 64009
+            )
+        )
+        XCTAssertFalse(
+            WorkspaceRemoteSessionController.reverseRelayStartupFailureIndicatesStaleRemoteListener(
+                "remote port forwarding failed for listen port 64010",
+                relayPort: 64009
+            )
+        )
+        XCTAssertFalse(
+            WorkspaceRemoteSessionController.reverseRelayStartupFailureIndicatesStaleRemoteListener(
+                "Permission denied (publickey)",
+                relayPort: 64009
+            )
+        )
+    }
+
     func testExecutableSearchPathsIncludesHomebrewAndHomeFallbacks() {
         let paths = WorkspaceRemoteSessionController.executableSearchPaths(
             environment: [
