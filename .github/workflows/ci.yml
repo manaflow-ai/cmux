@@ -963,6 +963,7 @@ jobs:
             -framework AppKit \
             -o /tmp/create-virtual-display scripts/create-virtual-display.m
           VDISPLAY_COMMAND=(/tmp/create-virtual-display)
+          VDISPLAY_LAUNCH_MODE=direct
           CURRENT_USER="$(id -un)"
           CURRENT_UID="$(id -u)"
           GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
@@ -973,9 +974,11 @@ jobs:
              sudo -n true 2>/dev/null; then
             echo "Launching virtual display helper in console GUI bootstrap for $GUI_USER ($GUI_UID); current user: $CURRENT_USER"
             VDISPLAY_COMMAND=(sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" /usr/bin/env /tmp/create-virtual-display)
+            VDISPLAY_LAUNCH_MODE=console_gui
           elif launchctl print "gui/$CURRENT_UID" >/dev/null 2>&1; then
             echo "Launching virtual display helper in current user GUI bootstrap for $CURRENT_USER ($CURRENT_UID)"
             VDISPLAY_COMMAND=(launchctl asuser "$CURRENT_UID" /usr/bin/env /tmp/create-virtual-display)
+            VDISPLAY_LAUNCH_MODE=current_gui
           else
             echo "Launching virtual display helper in current bootstrap"
           fi
@@ -1000,6 +1003,13 @@ jobs:
                 echo "Virtual display helper exited before readiness on attempt $attempt" >&2
                 cat "$VDISPLAY_LOG" >&2 || true
                 kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+                if [ "$VDISPLAY_LAUNCH_MODE" = "current_gui" ] &&
+                   grep -Fq "Could not switch to audit session" "$VDISPLAY_LOG"; then
+                  echo "Retrying virtual display helper in current bootstrap after launchctl audit-session failure" >&2
+                  VDISPLAY_COMMAND=(/tmp/create-virtual-display)
+                  VDISPLAY_LAUNCH_MODE=direct
+                  continue 2
+                fi
                 if [ "$attempt" -eq 3 ]; then
                   exit 1
                 fi
