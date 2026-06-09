@@ -1588,6 +1588,18 @@ final class SocketClient {
         return defaultResponseTimeoutSeconds
     }()
 
+    /// When set, every response wait on this client is capped to the time
+    /// remaining until this deadline (with a floor so SO_RCVTIMEO is never
+    /// zero, which would block forever). Agent hook entrypoints arm this so
+    /// a wedged app bounds the whole hook run instead of costing the default
+    /// response timeout per control call (#4405).
+    var callDeadline: Date?
+
+    private func cappedToCallDeadline(_ requested: TimeInterval) -> TimeInterval {
+        guard let callDeadline else { return requested }
+        return min(requested, max(0.1, callDeadline.timeIntervalSinceNow))
+    }
+
     private static func notConnectedMessage() -> String {
         String(localized: "cli.socket.error.notConnected", defaultValue: "Not connected")
     }
@@ -1738,7 +1750,7 @@ final class SocketClient {
             }
         }
 
-        let initialResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
+        let initialResponseTimeout = cappedToCallDeadline(responseTimeout ?? Self.responseTimeoutSeconds)
         if lastConfiguredReceiveTimeout != initialResponseTimeout {
             try configureReceiveTimeout(initialResponseTimeout)
         }
@@ -21584,6 +21596,13 @@ struct CMUXCLI {
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
+        // Claude Code blocks on this hook subprocess (10s installed timeout
+        // for most events), so bound the whole run against a wedged app
+        // instead of paying the default response timeout per control call
+        // (#4405). Armed after the stdin read so a large payload does not
+        // consume the socket budget.
+        client.callDeadline = Date().addingTimeInterval(Self.claudeHookRunDeadlineSeconds)
+        defer { client.callDeadline = nil }
         telemetry.breadcrumb(
             "claude-hook.input",
             data: [
@@ -27857,6 +27876,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
 
+        // The agent blocks on this hook subprocess and the installed hook
+        // timeout is 5 seconds, so the whole run must fail fast against a
+        // wedged app instead of paying the default response timeout per
+        // control call (#4405).
+        client.callDeadline = Date().addingTimeInterval(Self.genericAgentHookRunDeadlineSeconds)
+        defer { client.callDeadline = nil }
+
         // Workspace/surface resolution: prefer --workspace/--surface flags,
         // then env, then the caller process. Grok strips CMUX_* from hook
         // subprocesses, so PID attribution is the only reliable live binding.
@@ -31056,6 +31082,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     // MARK: - Feed (workstream) hook bridge
 
     private static let nonActionableFeedHookWriteTimeoutSeconds: TimeInterval = 0.15
+
+    /// Whole-run socket budget for generic agent hook handlers. Codex
+    /// installs its cmux hooks with a 5-second timeout, so the CLI must
+    /// give up on a wedged app before the agent kills the subprocess.
+    private static let genericAgentHookRunDeadlineSeconds: TimeInterval = 3.5
+
+    /// Whole-run socket budget for Claude Code hook handlers. The Claude
+    /// wrapper installs most hooks with a 10-second timeout.
+    private static let claudeHookRunDeadlineSeconds: TimeInterval = 8.0
 
     /// Reads an agent hook JSON payload from stdin, forwards it to the
     /// running cmux app via the `feed.push` V2 socket verb, and (for
