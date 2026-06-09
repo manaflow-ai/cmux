@@ -292,30 +292,6 @@ final class MobileHostService {
     static let shared = MobileHostService()
     nonisolated private static let maximumActiveConnectionCount = 10
 
-    /// The single source of truth for the capabilities advertised to mobile
-    /// clients via `mobile.host.status`. Every status path (the public-status
-    /// cache, the live `publicHostStatusResult`, and `TerminalController`'s
-    /// full status) reads this so the lists cannot drift; iOS gates features
-    /// like rename/pin on the entries present here.
-    ///
-    /// In DEBUG builds this also advertises `dogfood.v1`, the DEV dogfood
-    /// feedback round-trip (`dogfood.feedback.submit`). It is absent from
-    /// release builds, so a release client never sees the verb advertised.
-    nonisolated static var mobileHostCapabilities: [String] {
-        var capabilities = [
-            "events.v1",
-            "terminal.bytes.v1",
-            "terminal.render_grid.v1",
-            "terminal.replay.v1",
-            "terminal.viewport.v1",
-            "workspace.actions.v1",
-        ]
-        #if DEBUG
-        capabilities.append("dogfood.v1")
-        #endif
-        return capabilities
-    }
-
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
     private let routeResolver = MobileRouteResolver()
     private let ticketStore = MobileAttachTicketStore()
@@ -1270,6 +1246,12 @@ final class MobileHostService {
         case "mobile.workspace.list", "workspace.list":
             return nil
         case "workspace.create":
+            return nil
+        case "workspace.group.collapse", "workspace.group.expand":
+            // Display-only group state. Keyed by `group_id` (not a workspace or
+            // terminal selection), so it is Mac-scoped like the workspace list and
+            // not constrained by the ticket's workspace/terminal pin. The Stack
+            // same-account gate in `authorizationError` remains authoritative.
             return nil
         case "mobile.terminal.create", "terminal.create":
             return nil

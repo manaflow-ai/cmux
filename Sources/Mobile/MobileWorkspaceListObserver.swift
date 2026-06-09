@@ -15,6 +15,7 @@ final class MobileWorkspaceListObserver {
     private weak var tabManager: TabManager?
     private var tabsCancellable: AnyCancellable?
     private var selectionCancellable: AnyCancellable?
+    private var groupsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var lastSummaryHash: Int = 0
     /// Throttle window with `latest: true`. First event in a burst emits
@@ -36,7 +37,11 @@ final class MobileWorkspaceListObserver {
         // Initial snapshot. Every observer's first emit is unconditional so
         // freshly-paired clients see the current state without waiting for
         // the first mutation.
-        let initial = Self.summaryHash(for: tabManager.tabs, selectedTabID: tabManager.selectedTabId)
+        let initial = Self.summaryHash(
+            for: tabManager.tabs,
+            groups: tabManager.workspaceGroups,
+            selectedTabID: tabManager.selectedTabId
+        )
         lastSummaryHash = initial
         emitIfNeeded(force: true)
 
@@ -54,6 +59,17 @@ final class MobileWorkspaceListObserver {
         // to push to iPhone too. iPhone's selectedWorkspaceID drives which
         // terminal it displays.
         selectionCancellable = tabManager.$selectedTabId
+            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] _ in
+                self?.emitIfNeeded(force: false)
+            }
+        // Group structure (order, name, collapse/pin, anchor, membership) is
+        // iOS-facing: the phone renders collapsible group sections. A pure
+        // collapse/expand or group rename need not change the tab set, so without
+        // observing `$workspaceGroups` the phone would never learn a group was
+        // collapsed from the Mac (or from the phone's own collapse RPC, which is
+        // authoritative + re-fetch based, not optimistic).
+        groupsCancellable = tabManager.$workspaceGroups
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
@@ -84,6 +100,12 @@ final class MobileWorkspaceListObserver {
                 // a pure pin toggle need not change the panel set or title, so
                 // without this the phone never learns the workspace was pinned.
                 workspace.$isPinned.map { _ in () }.eraseToAnyPublisher(),
+                // Group membership is iOS-facing (the phone nests members under
+                // their group header). Moving a workspace into or out of a group
+                // mutates only this workspace's `groupId`; it need not change the
+                // tab set, `workspaceGroups`, the panel set, or the title, so
+                // without this the phone never learns the membership changed.
+                workspace.$groupId.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
                 // Pure drag-reorders change spatial order without changing the panel
@@ -101,7 +123,11 @@ final class MobileWorkspaceListObserver {
 
     private func emitIfNeeded(force: Bool) {
         guard let tabManager else { return }
-        let hash = Self.summaryHash(for: tabManager.tabs, selectedTabID: tabManager.selectedTabId)
+        let hash = Self.summaryHash(
+            for: tabManager.tabs,
+            groups: tabManager.workspaceGroups,
+            selectedTabID: tabManager.selectedTabId
+        )
         if !force, hash == lastSummaryHash {
             #if DEBUG
             cmuxDebugLog("mobile.observer skip: hash unchanged=\(hash) tabs=\(tabManager.tabs.count)")
@@ -127,14 +153,34 @@ final class MobileWorkspaceListObserver {
     /// produces a different hash and re-emits to the phone. Titles are hashed via
     /// `panelTitle(panelId:)` so a custom terminal rename (which sets
     /// `panelCustomTitles`, not `panelTitles`) is detected too.
-    private static func summaryHash(for tabs: [Workspace], selectedTabID: UUID?) -> Int {
+    private static func summaryHash(
+        for tabs: [Workspace],
+        groups: [WorkspaceGroup],
+        selectedTabID: UUID?
+    ) -> Int {
         var hasher = Hasher()
         hasher.combine(tabs.count)
         hasher.combine(selectedTabID)
+        // Group sections are iOS-facing. Hash group order + the fields the phone
+        // renders (name, collapse, pin, anchor) so a pure collapse/expand, rename,
+        // or reorder re-emits to the phone. Membership is already covered by each
+        // workspace's `groupId`, hashed in the per-workspace loop below.
+        hasher.combine(groups.count)
+        for group in groups {
+            hasher.combine(group.id)
+            hasher.combine(group.name)
+            hasher.combine(group.isCollapsed)
+            hasher.combine(group.isPinned)
+            hasher.combine(group.anchorWorkspaceId)
+        }
         for workspace in tabs {
             hasher.combine(workspace.id)
             hasher.combine(workspace.title)
             hasher.combine(workspace.isPinned)
+            // Group membership is iOS-facing (the phone nests members under the
+            // group header), and a pure move-into/out-of-group need not change the
+            // panel set or title, so hash it here.
+            hasher.combine(workspace.groupId)
             // Spatial order is significant: hash the ordered id sequence so a
             // reorder of the same panel set changes the hash.
             let panelIDs = workspace.orderedPanelIds
@@ -158,8 +204,12 @@ final class MobileWorkspaceListObserver {
     }
 
     #if DEBUG
-    static func summaryHashForTesting(tabs: [Workspace], selectedTabID: UUID?) -> Int {
-        summaryHash(for: tabs, selectedTabID: selectedTabID)
+    static func summaryHashForTesting(
+        tabs: [Workspace],
+        groups: [WorkspaceGroup] = [],
+        selectedTabID: UUID?
+    ) -> Int {
+        summaryHash(for: tabs, groups: groups, selectedTabID: selectedTabID)
     }
     #endif
 }

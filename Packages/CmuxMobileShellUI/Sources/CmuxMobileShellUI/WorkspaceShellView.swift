@@ -57,6 +57,7 @@ struct WorkspaceShellView: View {
         NavigationStack(path: $compactNavigationPath) {
             WorkspaceListView(
                 workspaces: store.workspaces,
+                groups: store.workspaceGroups,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
                 connectionStatus: store.macConnectionStatus,
@@ -68,7 +69,8 @@ struct WorkspaceShellView: View {
                 signOut: signOut,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure
+                setPinned: setWorkspacePinnedClosure,
+                toggleGroupCollapsed: toggleGroupCollapsedClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -111,6 +113,7 @@ struct WorkspaceShellView: View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             WorkspaceListView(
                 workspaces: store.workspaces,
+                groups: store.workspaceGroups,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
                 connectionStatus: store.macConnectionStatus,
@@ -122,7 +125,8 @@ struct WorkspaceShellView: View {
                 signOut: signOut,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure
+                setPinned: setWorkspacePinnedClosure,
+                toggleGroupCollapsed: toggleGroupCollapsedClosure
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
@@ -161,6 +165,19 @@ struct WorkspaceShellView: View {
         guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
+    }
+
+    /// Group collapse/expand closure. Present when the Mac advertises
+    /// `workspace.groups.v1` or has actually emitted group sections: a Mac that
+    /// emits groups in the workspace list also handles collapse/expand (both
+    /// shipped together), and the capability flag arrives via a separate
+    /// `mobile.host.status` call that can lag or fail without making the
+    /// already-received groups read-only. Older Macs emit no groups, so this
+    /// stays `nil` and the list renders flat.
+    private var toggleGroupCollapsedClosure: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)? {
+        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
+        let store = store
+        return { id, collapsed in Task { await store.setWorkspaceGroupCollapsed(id: id, collapsed) } }
     }
 
     private func createWorkspaceInCompactStack() {
