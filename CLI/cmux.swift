@@ -10625,7 +10625,16 @@ struct CMUXCLI {
         if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
             throw CLIError(message: "attach: unknown flag '\(unknown)'")
         }
-        let positional = remaining.first(where: { !Self.isFlagToken($0) })
+        // Extra positionals are a typo-or-mistake on a targeting command; silently
+        // attaching the first and dropping the rest would hit the wrong surface.
+        let positionals = remaining.filter { !Self.isFlagToken($0) }
+        if positionals.count > 1 {
+            throw CLIError(message: "attach: too many surface arguments (\(positionals.map { "'\($0)'" }.joined(separator: ", "))). Specify exactly one surface (UUID, ref like surface:2, or index).")
+        }
+        let positional = positionals.first
+        if surfaceOpt != nil, let extra = positional {
+            throw CLIError(message: "attach: conflicting surface arguments. Use either --surface or a positional surface, not both (got --surface and '\(extra)').")
+        }
         let envSurfaceID = Self.normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
         let surfaceRaw = surfaceOpt ?? positional ?? envSurfaceID
 
