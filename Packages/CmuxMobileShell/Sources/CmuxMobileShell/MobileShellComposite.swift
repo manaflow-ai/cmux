@@ -2992,7 +2992,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let request = try MobileCoreRPCClient.requestData(method: "mobile.notifications.list", params: [:])
                 let data = try await client.sendRequest(request)
                 let response = try MobileNotificationsListResponse.decode(data)
-                guard self.remoteClient === client, self.connectionState == .connected else { return }
+                // Guard on client identity only, NOT `connectionState == .connected`.
+                // The cold-attach fetch is kicked from `startTerminalRefreshPolling`
+                // which runs just before the connect path flips the state to
+                // `.connected`; requiring `.connected` here would race-drop the
+                // initial snapshot and leave the feed empty until the next event.
+                // `replaceRemoteClient` clears the store and swaps the client on
+                // teardown, so a stale client's late response is rejected here and
+                // never overwrites a newer connection's feed.
+                guard self.remoteClient === client else { return }
                 self.notificationsStore.apply(response.previews())
             } catch {
                 // A Mac too old to advertise the verb returns `method_not_found`;
