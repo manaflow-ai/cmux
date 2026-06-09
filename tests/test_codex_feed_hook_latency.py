@@ -197,6 +197,132 @@ def run_hook(cli_path: str, socket_path: Path, index: int, timeout: float) -> Ho
         )
 
 
+class WedgedSocket:
+    """A cmux socket that accepts connections and reads forever, never replying.
+
+    Models a wedged app: the socket layer is alive but the main loop never
+    answers. Status-chain hooks (prompt-submit and friends) must fail fast
+    against this instead of paying the default response timeout per call.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._ready = threading.Event()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._server: socket.socket | None = None
+
+    def __enter__(self) -> "WedgedSocket":
+        self.path.unlink(missing_ok=True)
+        self._thread.start()
+        if not self._ready.wait(timeout=3):
+            raise RuntimeError("wedged fake socket did not start")
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self._stop.set()
+        if self._server is not None:
+            self._server.close()
+        self._thread.join(timeout=3)
+        self.path.unlink(missing_ok=True)
+
+    def _run(self) -> None:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            self._server = server
+            server.bind(str(self.path))
+            server.listen(16)
+            server.settimeout(0.1)
+            self._ready.set()
+            while not self._stop.is_set():
+                try:
+                    conn, _ = server.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    return
+                threading.Thread(target=self._drain, args=(conn,), daemon=True).start()
+
+    def _drain(self, conn: socket.socket) -> None:
+        with conn:
+            conn.settimeout(0.1)
+            while not self._stop.is_set():
+                try:
+                    if not conn.recv(65536):
+                        return
+                except socket.timeout:
+                    continue
+                except OSError:
+                    return
+
+
+def prompt_submit_payload() -> str:
+    return json.dumps(
+        {
+            "session_id": "codex-prompt-submit-latency-session",
+            "turn_id": "turn-prompt-submit",
+            "cwd": "/tmp/project",
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "hello",
+        }
+    )
+
+
+def run_prompt_submit_phase(cli_path: str, *, threshold_ms: float, iterations: int) -> list[str]:
+    """Codex blocks on `hooks codex prompt-submit` with a 5s installed hook
+    timeout. Against a wedged app the whole CLI run must stay within the
+    hook-run deadline budget; before the budget existed, a single target
+    lookup paid the 15s default response timeout (#4405). The gate leaves
+    CI scheduling headroom above the 3.5s budget while still failing the
+    15s default-timeout class by a wide margin.
+    """
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="cmux-codex-prompt-submit-", dir="/tmp") as td:
+        socket_path = Path(td) / f"w-{uuid.uuid4().hex[:8]}.sock"
+        with WedgedSocket(socket_path):
+            for index in range(iterations):
+                state_dir = Path(td) / "hook-state" / str(index)
+                home_dir = Path(td) / "home" / str(index)
+                state_dir.mkdir(parents=True, exist_ok=True)
+                home_dir.mkdir(parents=True, exist_ok=True)
+                env = os.environ.copy()
+                env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+                env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+                env["CMUX_SOCKET_PATH"] = str(socket_path)
+                env["CMUX_SOCKET"] = str(socket_path)
+                env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+                env["HOME"] = str(home_dir)
+                env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+                env.pop("CMUX_SOCKET_PASSWORD", None)
+                env.pop("CMUX_TAG", None)
+                env.pop("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC", None)
+
+                started = time.perf_counter()
+                try:
+                    subprocess.run(
+                        [cli_path, "--socket", str(socket_path), "hooks", "codex", "prompt-submit"],
+                        input=prompt_submit_payload(),
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                        timeout=60,
+                        env=env,
+                    )
+                except subprocess.TimeoutExpired:
+                    pass
+                elapsed_ms = (time.perf_counter() - started) * 1000
+                print(
+                    f"RESULT codex_prompt_submit_wedged run={index} "
+                    f"elapsed_ms={elapsed_ms:.1f} threshold_ms={threshold_ms:.1f}"
+                )
+                if elapsed_ms > threshold_ms:
+                    failures.append(
+                        f"prompt-submit run {index} took {elapsed_ms:.1f}ms against a wedged "
+                        f"socket, exceeding {threshold_ms:.1f}ms — the hook-run deadline is "
+                        "not bounding the status chain"
+                    )
+    return failures
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--iterations", type=int, default=100)
@@ -204,6 +330,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--threshold-p95-ms", type=float, default=500.0)
     parser.add_argument("--response-delay", type=float, default=30.0)
     parser.add_argument("--subprocess-timeout", type=float, default=20.0)
+    parser.add_argument("--prompt-submit-iterations", type=int, default=2)
+    parser.add_argument("--prompt-submit-threshold-ms", type=float, default=6000.0)
     parser.add_argument("--measure-only", action="store_true")
     return parser.parse_args()
 
@@ -280,13 +408,22 @@ def main() -> int:
                     f"Codex PreToolUse hook p95 {p95:.1f}ms exceeded {args.threshold_p95_ms:.1f}ms"
                 )
 
+            if not args.measure_only:
+                failures.extend(
+                    run_prompt_submit_phase(
+                        cli_path,
+                        threshold_ms=args.prompt_submit_threshold_ms,
+                        iterations=args.prompt_submit_iterations,
+                    )
+                )
+
             if failures:
-                print("FAIL: Codex PreToolUse hook latency regression failed")
+                print("FAIL: Codex hook latency regression failed")
                 for failure in failures:
                     print(f"- {failure}")
                 return 1
 
-    print("PASS: Codex PreToolUse telemetry hook latency is bounded")
+    print("PASS: Codex hook latency is bounded")
     return 0
 
 
