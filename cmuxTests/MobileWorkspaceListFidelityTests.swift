@@ -139,4 +139,34 @@ struct MobileWorkspaceListFidelityTests {
         )
         #expect(before != after, "a workspace rename must change the mobile summary hash")
     }
+
+    /// A pure group-membership move (a workspace's `groupId` changes while the tab
+    /// set, group list, panels, title, and pin state stay put) must change the
+    /// mobile summary hash so the observer re-emits `workspace.updated`. The phone
+    /// nests members under their group header keyed by `group_id`, so a stale hash
+    /// here would leave the mobile sidebar showing the workspace in the wrong
+    /// section. Guards the per-workspace `$groupId` subscription that drives it.
+    @Test func movingWorkspaceBetweenGroupsChangesObserverHash() throws {
+        let manager = TabManager()
+        let member = try #require(manager.selectedWorkspace)
+        // A real group with its own anchor; the member starts ungrouped.
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Group A"))
+        #expect(member.groupId == nil)
+
+        let before = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+
+        // Move the workspace into the group: only `groupId` changes.
+        member.groupId = groupId
+
+        let after = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(before != after, "a pure group-membership move must change the mobile summary hash")
+    }
 }
