@@ -1275,7 +1275,7 @@ class TabManager: ObservableObject {
     private let maxHistorySize = 50
     private var selectionSideEffectsGeneration: UInt64 = 0
     private var workspaceCycleGeneration: UInt64 = 0
-    private var workspaceCycleCooldownTimer: DispatchSourceTimer?
+    private var workspaceCycleCooldownTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     private(set) var sidebarSelectedWorkspaceIds: Set<UUID> = []
     private var currentWindowTabBarLeadingInset: CGFloat?
@@ -1411,7 +1411,7 @@ class TabManager: ObservableObject {
     }
 
     deinit {
-        workspaceCycleCooldownTimer?.cancel()
+        workspaceCycleCooldownTask?.cancel()
         agentPIDSweepTimer?.cancel()
         workspacePullRequestPollTask?.cancel()
         workspaceGitMetadataFallbackTask?.cancel()
@@ -5308,14 +5308,11 @@ class TabManager: ObservableObject {
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
            let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            // Prefer the warm cached agent index over a synchronous
-            // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
-            // workspace does not freeze the main thread; fall back to a fresh load only
-            // while the cache has not loaded yet. See closedPanelHistoryEntry.
+            let sharedAgentIndex = SharedLiveAgentIndex.shared
+            sharedAgentIndex.scheduleRefreshIfStale()
             let snapshot = workspace.sessionSnapshot(
                 includeScrollback: true,
-                restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                    ?? RestorableAgentSessionIndex.load()
+                restorableAgentIndex: sharedAgentIndex.index ?? .empty
             )
             ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,
@@ -6889,9 +6886,8 @@ class TabManager: ObservableObject {
 #endif
         }
 
-        let hadPendingCooldown = workspaceCycleCooldownTimer != nil
-        workspaceCycleCooldownTimer?.cancel()
-        workspaceCycleCooldownTimer = nil
+        let hadPendingCooldown = workspaceCycleCooldownTask != nil
+        workspaceCycleCooldownTask?.cancel()
 #if DEBUG
         if hadPendingCooldown {
             cmuxDebugLog(
@@ -6899,11 +6895,25 @@ class TabManager: ObservableObject {
             )
         }
 #endif
-        let timer = DispatchSource.makeTimerSource(queue: .main)
         // The short cooldown coalesces rapid workspace-cycle key repeats before SwiftUI remounts idle views.
-        timer.schedule(deadline: .now() + .milliseconds(220), leeway: .milliseconds(20))
-        timer.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { [weak self] in
+        workspaceCycleCooldownTask = Task { [weak self, generation] in
+            do {
+                try await ContinuousClock().sleep(for: .milliseconds(220))
+            } catch {
+#if DEBUG
+                await MainActor.run {
+                    guard let self else { return }
+                    let dtMs = self.debugWorkspaceSwitchStartTime > 0
+                        ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
+                        : 0
+                    cmuxDebugLog(
+                        "ws.hot.cooldownCanceled id=\(self.debugWorkspaceSwitchId) gen=\(generation) dt=\(Self.debugMsText(dtMs))"
+                    )
+                }
+#endif
+                return
+            }
+            await MainActor.run {
                 guard let self else { return }
                 guard self.workspaceCycleGeneration == generation else { return }
 #if DEBUG
@@ -6915,12 +6925,9 @@ class TabManager: ObservableObject {
                 )
 #endif
                 self.isWorkspaceCycleHot = false
-                self.workspaceCycleCooldownTimer?.cancel()
-                self.workspaceCycleCooldownTimer = nil
+                self.workspaceCycleCooldownTask = nil
             }
         }
-        workspaceCycleCooldownTimer = timer
-        timer.resume()
     }
 
 #if DEBUG
@@ -9697,8 +9704,8 @@ extension TabManager {
         focusHistorySuppressedSelectionSideEffectGenerations.removeAll()
         focusHistoryRevision &+= 1
         pendingWorkspaceUnfocusTarget = nil
-        workspaceCycleCooldownTimer?.cancel()
-        workspaceCycleCooldownTimer = nil
+        workspaceCycleCooldownTask?.cancel()
+        workspaceCycleCooldownTask = nil
         isWorkspaceCycleHot = false
         selectionSideEffectsGeneration &+= 1
         recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)

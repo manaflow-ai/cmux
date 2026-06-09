@@ -1059,6 +1059,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isApplyingSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private let sessionAutosaveCoordinator = AppSessionAutosaveCoordinator()
+    private var processDetectedSessionSaveGeneration: UInt64 = 0
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -1904,7 +1905,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !isTerminatingApp else { return }
         clearConfiguredShortcutChordState()
         if Self.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: isTerminatingApp) {
-            _ = saveSessionSnapshotUsingCachedResumeMetadata(includeScrollback: false)
+            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
     }
 
@@ -3671,7 +3672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                     ClosedItemHistoryStore.shared.flushPendingSaves()
                 } else {
-                    _ = self.saveSessionSnapshotUsingCachedResumeMetadata(includeScrollback: false)
+                    self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
                 }
             }
         }
@@ -3886,7 +3887,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             includeScrollback: includeScrollback,
             persist: persist,
             buildSnapshot: { [self] includeScrollback in
-                buildSessionSnapshot(includeScrollback: includeScrollback)
+                buildSessionSnapshot(
+                    includeScrollback: includeScrollback,
+                    restorableAgentIndex: .empty
+                )
             },
             persistedGeometryData: { snapshot in
                 snapshot?.windows.first.flatMap { primaryWindow in
@@ -3913,6 +3917,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> AppSessionSnapshot? {
         buildSessionSnapshot(
             includeScrollback: includeScrollback,
+            restorableAgentIndex: .empty,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
     }
@@ -4080,6 +4085,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    private func saveSessionSnapshotIncludingProcessDetectedIndexes(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false
+    ) -> Bool {
+        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        sessionAutosaveCoordinator.cacheSnapshot(resumeIndexes.restorableAgentIndex)
+        return saveSessionSnapshot(
+            includeScrollback: includeScrollback,
+            removeWhenEmpty: removeWhenEmpty,
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+        )
+    }
+
+    private func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false
+    ) {
+        let generation = nextProcessDetectedSessionSaveGeneration()
+        Task { @MainActor [weak self] in
+            let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+            guard let self,
+                  !self.isTerminatingApp,
+                  self.isCurrentProcessDetectedSessionSaveGeneration(generation) else { return }
+            self.sessionAutosaveCoordinator.cacheSnapshot(resumeIndexes.restorableAgentIndex)
+            _ = self.saveSessionSnapshot(
+                includeScrollback: includeScrollback,
+                removeWhenEmpty: removeWhenEmpty,
+                restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+                surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            )
+        }
+    }
+
+    @discardableResult
+    private func nextProcessDetectedSessionSaveGeneration() -> UInt64 {
+        processDetectedSessionSaveGeneration &+= 1
+        return processDetectedSessionSaveGeneration
+    }
+
+    private func isCurrentProcessDetectedSessionSaveGeneration(_ generation: UInt64) -> Bool {
+        generation == processDetectedSessionSaveGeneration
+    }
+
+    @discardableResult
     private func saveSessionSnapshotUsingCachedResumeMetadata(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
@@ -4106,21 +4156,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> RestorableAgentSessionIndex? {
         sessionAutosaveCoordinator.snapshotForCheapSave(
             explicitSnapshot: explicitIndex
-        )
-    }
-
-    @discardableResult
-    private func saveSessionSnapshotIncludingProcessDetectedIndexes(
-        includeScrollback: Bool,
-        removeWhenEmpty: Bool = false
-    ) -> Bool {
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
-        sessionAutosaveCoordinator.cacheSnapshot(resumeIndexes.restorableAgentIndex)
-        return saveSessionSnapshot(
-            includeScrollback: includeScrollback,
-            removeWhenEmpty: removeWhenEmpty,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
     }
 
@@ -4217,7 +4252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let contexts = sortedMainWindowContextsForSessionSnapshot()
 
         guard !contexts.isEmpty else { return nil }
-        let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
+        guard let restorableAgentIndex = suppliedRestorableAgentIndex else { return nil }
 
         let windows: [SessionWindowSnapshot] = contexts
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
@@ -4465,7 +4500,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func sessionSnapshotForTesting(includeScrollback: Bool = false) -> AppSessionSnapshot? {
-        buildSessionSnapshot(includeScrollback: includeScrollback)
+        buildSessionSnapshot(
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: .empty
+        )
     }
 
 #endif
@@ -16021,7 +16059,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // in applicationShouldTerminate/applicationWillTerminate. Saving again here would
         // overwrite it as windows tear down one-by-one, dropping closed windows and replay.
         if Self.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp) {
-            _ = saveSessionSnapshotUsingCachedResumeMetadata(includeScrollback: false, removeWhenEmpty: false)
+            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false, removeWhenEmpty: false)
         }
     }
 
@@ -16032,15 +16070,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               !isApplyingSessionRestore else {
             return
         }
-        // Closing the last tab closes the window, recording undo history. Prefer the warm
-        // cached agent index over a synchronous `RestorableAgentSessionIndex.load()` so the
-        // close does not freeze the main thread; fall back to a fresh load only while the
-        // cache has not loaded yet (see closedPanelHistoryEntry).
+        let sharedAgentIndex = SharedLiveAgentIndex.shared
+        sharedAgentIndex.scheduleRefreshIfStale()
         let snapshot = sessionWindowSnapshot(
             for: context,
             includeScrollback: true,
-            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                ?? RestorableAgentSessionIndex.load()
+            restorableAgentIndex: sharedAgentIndex.index ?? .empty
         )
         guard !snapshot.tabManager.workspaces.isEmpty else {
             return

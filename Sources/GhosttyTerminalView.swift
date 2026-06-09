@@ -1615,14 +1615,10 @@ private struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
 
 private actor TerminalSurfaceRuntimeTeardownCoordinator {
     static let shared = TerminalSurfaceRuntimeTeardownCoordinator()
-    private static let timeoutQueue = DispatchQueue(
-        label: "com.cmux.terminalSurfaceRuntimeTeardown.timeout",
-        qos: .utility
-    )
 
-    private let timeoutSeconds: TimeInterval = 5
+    private let timeout: Duration = .seconds(5)
     private var pendingReasonsById: [UUID: String] = [:]
-    private var timeoutTimersById: [UUID: DispatchSourceTimer] = [:]
+    private var timeoutTasksById: [UUID: Task<Void, Never>] = [:]
     private var queuedRequests: [TerminalSurfaceRuntimeTeardownRequest] = []
     private var isWorkerRunning = false
 
@@ -1677,23 +1673,23 @@ private actor TerminalSurfaceRuntimeTeardownCoordinator {
 
     private func scheduleTimeout(id: UUID) {
         cancelTimeout(id: id)
-        let timer = DispatchSource.makeTimerSource(queue: Self.timeoutQueue)
-        timer.schedule(deadline: .now() + timeoutSeconds, leeway: .milliseconds(250))
-        timer.setEventHandler { [weak self] in
-            Task {
-                await self?.timeoutExpired(id: id)
+        let timeout = self.timeout
+        timeoutTasksById[id] = Task { [weak self] in
+            do {
+                try await ContinuousClock().sleep(for: timeout)
+            } catch {
+                return
             }
+            await self?.timeoutExpired(id: id)
         }
-        timeoutTimersById[id] = timer
-        timer.resume()
     }
 
     private func cancelTimeout(id: UUID) {
-        timeoutTimersById.removeValue(forKey: id)?.cancel()
+        timeoutTasksById.removeValue(forKey: id)?.cancel()
     }
 
     private func timeoutExpired(id: UUID) {
-        timeoutTimersById.removeValue(forKey: id)?.cancel()
+        timeoutTasksById.removeValue(forKey: id)?.cancel()
         guard let reason = pendingReasonsById[id] else { return }
 #if DEBUG
         cmuxDebugLog(
