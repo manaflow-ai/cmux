@@ -39,7 +39,6 @@ func cmuxWaitForBrowserBackgroundColorForTesting(_ panel: BrowserPanel, matching
             return actual
         }
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
-        OperationQueue.main.waitUntilAllOperationsAreFinished()
         actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB)
     }
     return actual

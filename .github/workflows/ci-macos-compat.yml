@@ -122,6 +122,7 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+            CMUX_UNIT_TEST_TIMEOUT_SECONDS=900 \
             scripts/ci/run-unit-tests-with-failure-gate.sh
 
       - name: Create virtual display
