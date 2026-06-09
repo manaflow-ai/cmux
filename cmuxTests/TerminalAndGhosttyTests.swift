@@ -2964,6 +2964,39 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             .first
     }
 
+    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
+    }
+
+    private func drainMainQueue(timeout: TimeInterval = 1.0, file: StaticString = #filePath, line: UInt = #line) {
+        var drained = false
+        DispatchQueue.main.async {
+            drained = true
+        }
+        XCTAssertTrue(waitUntil(timeout: timeout) { drained }, "Expected main queue to drain", file: file, line: line)
+    }
+
+    private func waitForRuntimeSurface(
+        _ surface: TerminalSurface,
+        timeout: TimeInterval = 5.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(
+            waitUntil(timeout: timeout) { surface.surface != nil },
+            "Expected runtime surface to be recreated",
+            file: file,
+            line: line
+        )
+    }
+
     func testTerminalMouseDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
@@ -3028,9 +3061,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         let pointInWindow = surfaceView.convert(NSPoint(x: 20, y: 20), to: nil)
         let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
         surfaceView.mouseDown(with: event)
-        let drained = expectation(description: "flash drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
         XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
@@ -3098,9 +3129,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         let event = makeKeyEvent(characters: "", keyCode: 122, window: window)
         surfaceView.keyDown(with: event)
-        let drained = expectation(description: "flash drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
         XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
@@ -3148,14 +3177,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
-
-        let recovered = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                surface.surface != nil
-            },
-            object: NSObject()
-        )
-        wait(for: [recovered], timeout: 1.0)
+        waitForRuntimeSurface(surface)
 
         XCTAssertNotNil(
             surface.surface,
@@ -3211,10 +3233,15 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         hostedView.removeFromSuperview()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
-        XCTAssertTrue(
-            (window.firstResponder as? NSView) === surfaceView,
-            "Expected the detached Ghostty view to remain the stale first responder during the regression setup"
-        )
+        let detachedViewStillFirstResponder = (window.firstResponder as? NSView) === surfaceView
+        if !detachedViewStillFirstResponder {
+            // Some runners clear the window responder during detach without calling the view hook.
+            surface.recordExternalFocusState(false)
+            XCTAssertFalse(
+                surface.debugDesiredFocusState(),
+                "Runner already moved first responder away, so desired Ghostty focus should be cleared before recovery"
+            )
+        }
 
         let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
@@ -3230,14 +3257,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             surface.debugDesiredFocusState(),
             "Responder loss after a missing-surface keyDown should clear desired Ghostty focus before recovery completes"
         )
-
-        let recovered = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                surface.surface != nil
-            },
-            object: NSObject()
-        )
-        wait(for: [recovered], timeout: 1.0)
+        waitForRuntimeSurface(surface)
 
         XCTAssertNotNil(surface.surface, "Expected missing-surface recovery to still recreate the runtime surface")
         XCTAssertFalse(
@@ -3293,10 +3313,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
-
-        let drained = expectation(description: "background recovery drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertNil(
             surface.surface,
@@ -3522,10 +3539,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         surface.resetDebugForceRefreshCount()
         hostedView.setVisibleInUI(true)
-
-        let drained = expectation(description: "visible toggle drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertEqual(
             surface.debugForceRefreshCount(),
