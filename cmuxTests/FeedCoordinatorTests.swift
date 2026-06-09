@@ -537,8 +537,8 @@ struct FeedCoordinatorTests {
         )
     }
 
-    func testBlockingIngestSurfacesNeedsInputAttentionForPermissionRequest() async {
-        addTeardownBlock {
+    @Test func blockingIngestSurfacesNeedsInputAttentionForPermissionRequest() async {
+        defer {
             Self.resetFeedCoordinatorTestHooks()
         }
 
@@ -572,44 +572,44 @@ struct FeedCoordinatorTests {
             requestId: requestId
         )
 
-        let done = expectation(description: "blocking ingest resolved")
+        let done = DispatchSemaphore(value: 0)
         let resultBox = IngestResultBox()
         DispatchQueue.global(qos: .userInitiated).async {
             resultBox.value = FeedCoordinator.shared.ingestBlocking(
                 event: event,
                 waitTimeout: 1
             )
-            done.fulfill()
+            done.signal()
         }
-        await fulfillment(of: [done], timeout: 2)
+        #expect(done.wait(timeout: .now() + 2) == .success)
         await MainActor.run {}
 
-        XCTAssertEqual(
-            attention.events.count, 1,
+        #expect(
+            attention.events.count == 1,
             "a blocking PermissionRequest must request in-app needs-input attention surfacing"
         )
-        XCTAssertEqual(attention.events.first?.hookEventName, .permissionRequest)
+        #expect(attention.events.first?.hookEventName == .permissionRequest)
     }
 
-    func testBlockingDecisionEventPredicateCoversEveryDecisionKind() {
+    @Test func blockingDecisionEventPredicateCoversEveryDecisionKind() {
         // The three blocking-decision kinds must all surface attention…
-        XCTAssertTrue(FeedCoordinator.isBlockingDecisionEvent(.permissionRequest))
-        XCTAssertTrue(FeedCoordinator.isBlockingDecisionEvent(.exitPlanMode))
-        XCTAssertTrue(FeedCoordinator.isBlockingDecisionEvent(.askUserQuestion))
+        #expect(FeedCoordinator.isBlockingDecisionEvent(.permissionRequest))
+        #expect(FeedCoordinator.isBlockingDecisionEvent(.exitPlanMode))
+        #expect(FeedCoordinator.isBlockingDecisionEvent(.askUserQuestion))
         // …and pure telemetry must not.
-        XCTAssertFalse(FeedCoordinator.isBlockingDecisionEvent(.preToolUse))
-        XCTAssertFalse(FeedCoordinator.isBlockingDecisionEvent(.stop))
-        XCTAssertFalse(FeedCoordinator.isBlockingDecisionEvent(.notification))
-        XCTAssertFalse(FeedCoordinator.isBlockingDecisionEvent(.userPromptSubmit))
+        #expect(!FeedCoordinator.isBlockingDecisionEvent(.preToolUse))
+        #expect(!FeedCoordinator.isBlockingDecisionEvent(.stop))
+        #expect(!FeedCoordinator.isBlockingDecisionEvent(.notification))
+        #expect(!FeedCoordinator.isBlockingDecisionEvent(.userPromptSubmit))
     }
 
-    func testLifecycleStatusKeyMatchesAgentReportedKey() {
+    @Test func lifecycleStatusKeyMatchesAgentReportedKey() {
         // Claude reports its lifecycle under `claude_code`; reusing that key is
         // what lets Claude's own resume hooks clear the needs-input badge.
-        XCTAssertEqual(FeedCoordinator.lifecycleStatusKey(forSource: "claude"), "claude_code")
+        #expect(FeedCoordinator.lifecycleStatusKey(forSource: "claude") == "claude_code")
         // Every other agent keys its status by its own source name.
-        XCTAssertEqual(FeedCoordinator.lifecycleStatusKey(forSource: "codex"), "codex")
-        XCTAssertEqual(FeedCoordinator.lifecycleStatusKey(forSource: "opencode"), "opencode")
+        #expect(FeedCoordinator.lifecycleStatusKey(forSource: "codex") == "codex")
+        #expect(FeedCoordinator.lifecycleStatusKey(forSource: "opencode") == "opencode")
     }
 
     private static func resetFeedCoordinatorTestHooks() {

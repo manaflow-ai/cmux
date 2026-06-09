@@ -86,7 +86,7 @@
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
 944	Sources/App/ShortcutRoutingSupport.swift
-944	Sources/Feed/FeedCoordinator.swift
+1239	Sources/Feed/FeedCoordinator.swift
 939	Sources/App/TerminalDirectoryOpenSupport.swift
 937	Sources/TextBoxMentionIndexStore.swift
 937	cmuxTests/RestorableAgentSessionIndexTests.swift
@@ -150,7 +150,7 @@
 580	cmuxTests/CLIHookNoResponseTests.swift
 578	cmuxUITests/FeedSidebarUITests.swift
 577	cmuxTests/AppearanceSettingsTests.swift
-575	cmuxTests/FeedCoordinatorTests.swift
+668	cmuxTests/FeedCoordinatorTests.swift
 574	Sources/Feed/FeedTextEditorDebugWindowController.swift
 568	Packages/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
 562	cmuxTests/AgentExecutableResolverTests.swift
