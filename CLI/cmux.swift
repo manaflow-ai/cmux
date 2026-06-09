@@ -1217,6 +1217,46 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    /// Gate for Claude CLEARING transitions (stop->idle, prompt-submit->running,
+    /// pre-tool-use->running). Equivalent to `isCurrent`, except that when an event matches the
+    /// active session but its `turnId` has drifted (a Notification leaves the active turn pointing
+    /// at the prior prompt), it still returns true IF that session is currently stuck on
+    /// `.needsInput` -- so a follow-up clearing event can drop a stale "Needs input" badge. A
+    /// DIFFERENT-session event always fails closed (`active.sessionId == sessionId` is required).
+    /// The whole decision is taken under a SINGLE `withLockedState` (the `isCurrent` predicate is
+    /// inlined) so the turn-identity check and the `needsInput` check can't race a concurrent
+    /// session update across two lock windows. Fixes https://github.com/manaflow-ai/cmux/issues/1027.
+    func isCurrentOrClearsStaleNeedsInput(
+        sessionId: String?,
+        workspaceId: String,
+        turnId: String? = nil
+    ) throws -> Bool {
+        guard let normalizedSessionId = normalizeOptional(sessionId),
+              let normalizedWorkspace = normalizeOptional(workspaceId) else {
+            // Matches isCurrent's fail-open: an event that can't identify a session/workspace is
+            // treated as current.
+            return true
+        }
+        let normalizedTurnId = normalizeOptional(turnId)
+        return try withLockedState { state in
+            guard let active = state.activeSessionsByWorkspace[normalizedWorkspace] else {
+                return true
+            }
+            guard active.sessionId == normalizedSessionId else {
+                return false
+            }
+            guard let activeTurnId = normalizeOptional(active.turnId),
+                  let normalizedTurnId else {
+                return true
+            }
+            if activeTurnId == normalizedTurnId {
+                return true
+            }
+            // Same session, but the turnId drifted: still clear a stale "Needs input" badge.
+            return state.sessions[normalizedSessionId]?.agentLifecycle == .needsInput
+        }
+    }
+
     func canReplaceActiveSession(sessionId: String?, workspaceId: String) throws -> Bool {
         guard let normalizedSessionId = normalizeOptional(sessionId),
               let normalizedWorkspace = normalizeOptional(workspaceId) else {
@@ -21727,7 +21767,11 @@ struct CMUXCLI {
                 )
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
 
-                guard shouldApplyClaudeHookVisibleMutation(
+                // Stop is a CLEARING transition (-> idle). Use the relaxed gate so a stale
+                // same-session "Needs input" is cleared even when this Stop's turnId drifted from
+                // the active turn (https://github.com/manaflow-ai/cmux/issues/1027). A
+                // different-session Stop still fails closed.
+                guard shouldApplyClaudeHookClearingMutation(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
                     workspaceId: workspaceId,
@@ -21828,8 +21872,12 @@ struct CMUXCLI {
                 env: ProcessInfo.processInfo.environment
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            // prompt-submit is a CLEARING transition (-> running). Use the relaxed gate so a stale
+            // same-session "Needs input" is cleared even when this prompt's turnId drifted from the
+            // active turn (https://github.com/manaflow-ai/cmux/issues/1027). A different-session
+            // event still fails closed (and the stopped-session replacement path is unchanged).
             let shouldApplyPromptSubmit =
-                shouldApplyClaudeHookVisibleMutation(
+                shouldApplyClaudeHookClearingMutation(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
                     workspaceId: workspaceId,
@@ -22070,7 +22118,60 @@ struct CMUXCLI {
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
             )
-            guard shouldApplyClaudeHookVisibleMutation(
+            // AskUserQuestion means Claude is about to ask the user something: it is a needsInput
+            // SETTING event, not a clearing one. Handle it BEFORE the relaxed clearing gate and
+            // always return, so a drifted/stale AskUserQuestion can never fall through to the
+            // running path below and wipe a live "Needs input"
+            // (https://github.com/manaflow-ai/cmux/issues/1027). Raising needsInput stays on the
+            // STRICT gate: only a current event may set it; a stale one simply leaves state as-is.
+            if let toolName = parsedInput.object?["tool_name"] as? String,
+               toolName == "AskUserQuestion" {
+                if !suppressVisibleMutations,
+                   let question = describeAskUserQuestion(parsedInput.object),
+                   let sessionId = parsedInput.sessionId,
+                   shouldApplyClaudeHookVisibleMutation(
+                       sessionStore: sessionStore,
+                       parsedInput: parsedInput,
+                       workspaceId: workspaceId,
+                       telemetry: telemetry
+                   ) {
+                    // Save question text in session so the Notification handler can use it
+                    // instead of the generic "Claude Code needs your attention".
+                    // Preserve a non-empty surfaceId from SessionStart; passing ""
+                    // would overwrite it and cause notifications to target the wrong workspace.
+                    let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
+                    try? sessionStore.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: existingSurfaceId,
+                        cwd: parsedInput.cwd,
+                        transcriptPath: parsedInput.transcriptPath,
+                        agentLifecycle: .needsInput,
+                        lastSubtitle: String(localized: "agent.claude.input.subtitle.waiting", defaultValue: "Waiting"),
+                        lastBody: question
+                    )
+                    setAgentLifecycle(
+                        client: client,
+                        key: Self.claudeCodeStatusKey,
+                        lifecycle: .needsInput,
+                        workspaceId: workspaceId,
+                        surfaceId: existingSurfaceId
+                    )
+                    // Don't clear notifications or set status here.
+                    // The Notification hook fires right after and will use the saved question.
+                } else {
+                    telemetry.breadcrumb("claude-hook.pre-tool-use.ask-user-question.skipped")
+                }
+                print("OK")
+                return
+            }
+
+            // A non-AskUserQuestion pre-tool-use means Claude resumed work, so this is a CLEARING
+            // transition (-> running). Use the relaxed gate so a stale same-session "Needs input"
+            // is cleared even when this event's turnId drifted from the active turn
+            // (https://github.com/manaflow-ai/cmux/issues/1027). A different-session event still
+            // fails closed.
+            guard shouldApplyClaudeHookClearingMutation(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
                 workspaceId: workspaceId,
@@ -22082,39 +22183,6 @@ struct CMUXCLI {
             }
             guard !suppressVisibleMutations else {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.nested-suppressed")
-                print("OK")
-                return
-            }
-
-            // AskUserQuestion means Claude is about to ask the user something.
-            // Save question text in session so the Notification handler can use it
-            // instead of the generic "Claude Code needs your attention".
-            if let toolName = parsedInput.object?["tool_name"] as? String,
-               toolName == "AskUserQuestion",
-               let question = describeAskUserQuestion(parsedInput.object),
-               let sessionId = parsedInput.sessionId {
-                // Preserve a non-empty surfaceId from SessionStart; passing ""
-                // would overwrite it and cause notifications to target the wrong workspace.
-                let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
-                try? sessionStore.upsert(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: existingSurfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
-                    lastSubtitle: "Waiting",
-                    lastBody: question
-                )
-                setAgentLifecycle(
-                    client: client,
-                    key: Self.claudeCodeStatusKey,
-                    lifecycle: .needsInput,
-                    workspaceId: workspaceId,
-                    surfaceId: existingSurfaceId
-                )
-                // Don't clear notifications or set status here.
-                // The Notification hook fires right after and will use the saved question.
                 print("OK")
                 return
             }
@@ -22307,6 +22375,38 @@ struct CMUXCLI {
                     "session_id": sessionId ?? "",
                     "workspace_id": workspaceId,
                     "turn_id": turnId ?? "",
+                ]
+            )
+            return true
+        }
+    }
+
+    /// Gate for Claude CLEARING transitions only. Identical to
+    /// `shouldApplyClaudeHookVisibleMutation` except it also applies when the SAME active session
+    /// is stuck on `.needsInput` after the follow-up event's `turnId` drifted, so a stale
+    /// "Needs input" badge is cleared instead of being stranded. A different-session event still
+    /// fails closed via `isCurrentOrClearsStaleNeedsInput`. See
+    /// https://github.com/manaflow-ai/cmux/issues/1027.
+    private func shouldApplyClaudeHookClearingMutation(
+        sessionStore: ClaudeHookSessionStore,
+        parsedInput: ClaudeHookParsedInput,
+        workspaceId: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> Bool {
+        do {
+            return try sessionStore.isCurrentOrClearsStaleNeedsInput(
+                sessionId: parsedInput.sessionId,
+                workspaceId: workspaceId,
+                turnId: parsedInput.turnId
+            )
+        } catch {
+            telemetry.breadcrumb(
+                "claude-hook.clearing-gate.error",
+                data: [
+                    "error": String(describing: error),
+                    "session_id": parsedInput.sessionId ?? "",
+                    "workspace_id": workspaceId,
+                    "turn_id": parsedInput.turnId ?? "",
                 ]
             )
             return true

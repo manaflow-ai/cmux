@@ -399,6 +399,280 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(resumeBindingRequests.first?["auto_resume"] as? Bool, true)
     }
 
+    // https://github.com/manaflow-ai/cmux/issues/1027 — a Notification leaves the active turn
+    // pointing at the prior prompt, so a follow-up Stop whose turnId drifted used to be gated out
+    // by `isCurrent`, stranding the sidebar on "Needs input". The relaxed clearing gate must clear
+    // a stale SAME-session needsInput even on turn drift.
+    func testClaudeNotificationNeedsInputClearsOnSameSessionTurnDriftStop() throws {
+        let context = try makeClaudeHookContext(name: "claude-needsinput-clear-stop")
+        defer { context.cleanup() }
+
+        let sessionId = "stuck-needsinput-session"
+
+        let promptSubmit = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#
+        )
+        XCTAssertFalse(promptSubmit.timedOut, promptSubmit.stderr)
+        XCTAssertEqual(promptSubmit.status, 0, promptSubmit.stderr)
+
+        let notification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}"#
+        )
+        XCTAssertFalse(notification.timedOut, notification.stderr)
+        XCTAssertEqual(notification.status, 0, notification.stderr)
+        XCTAssertEqual(
+            try readClaudeHookSession(sessionId, context: context)["agentLifecycle"] as? String,
+            "needsInput",
+            "Notification should leave the session stuck on needsInput before the drifted Stop"
+        )
+
+        let stopStart = context.state.commands.count
+        // Same session, but the Stop reports a DIFFERENT turn id than the active turn (turn-1).
+        let staleTurnStop = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"done"}"#
+        )
+        XCTAssertFalse(staleTurnStop.timedOut, staleTurnStop.stderr)
+        XCTAssertEqual(staleTurnStop.status, 0, staleTurnStop.stderr)
+
+        XCTAssertEqual(
+            try readClaudeHookSession(sessionId, context: context)["agentLifecycle"] as? String,
+            "idle",
+            "A same-session Stop with a drifted turn id must clear the stale needsInput to idle"
+        )
+        let stopCommands = Array(context.state.commands.dropFirst(stopStart))
+        XCTAssertTrue(
+            stopCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle claude_code idle --tab=\(context.workspaceId)")
+            },
+            "Expected the drifted Stop to clear the visible lifecycle to idle, saw \(stopCommands)"
+        )
+        XCTAssertFalse(
+            stopCommands.contains {
+                $0.hasPrefix("set_status claude_code Needs input")
+            },
+            "The drifted Stop must not re-assert Needs input, saw \(stopCommands)"
+        )
+    }
+
+    // Companion to the Stop case: a pre-tool-use (Claude resuming after a permission grant) whose
+    // turnId drifted must also clear a stale SAME-session needsInput, transitioning to running.
+    func testClaudeNotificationNeedsInputClearsOnSameSessionTurnDriftPreToolUse() throws {
+        let context = try makeClaudeHookContext(name: "claude-needsinput-clear-pretool")
+        defer { context.cleanup() }
+
+        let sessionId = "stuck-needsinput-pretool-session"
+
+        let promptSubmit = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#
+        )
+        XCTAssertFalse(promptSubmit.timedOut, promptSubmit.stderr)
+        XCTAssertEqual(promptSubmit.status, 0, promptSubmit.stderr)
+
+        let notification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}"#
+        )
+        XCTAssertFalse(notification.timedOut, notification.stderr)
+        XCTAssertEqual(notification.status, 0, notification.stderr)
+        XCTAssertEqual(
+            try readClaudeHookSession(sessionId, context: context)["agentLifecycle"] as? String,
+            "needsInput"
+        )
+
+        let preToolStart = context.state.commands.count
+        // Same session, drifted turn id (no turn-id match against the active turn-1).
+        let preToolUse = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"Bash"}"#
+        )
+        XCTAssertFalse(preToolUse.timedOut, preToolUse.stderr)
+        XCTAssertEqual(preToolUse.status, 0, preToolUse.stderr)
+
+        XCTAssertEqual(
+            try readClaudeHookSession(sessionId, context: context)["agentLifecycle"] as? String,
+            "running",
+            "A same-session pre-tool-use with a drifted turn id must clear the stale needsInput to running"
+        )
+        let preToolCommands = Array(context.state.commands.dropFirst(preToolStart))
+        XCTAssertTrue(
+            preToolCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle claude_code running --tab=\(context.workspaceId)")
+            },
+            "Expected the drifted pre-tool-use to clear the visible lifecycle to running, saw \(preToolCommands)"
+        )
+    }
+
+    // Guardrail for the issue #1027 fix: the relaxation is SAME-session only. A Stop from a
+    // DIFFERENT session must NOT clear a needsInput that belongs to the active session (mirrors
+    // testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus).
+    func testClaudeNotificationNeedsInputStaysStuckForDifferentSessionStop() throws {
+        let context = try makeClaudeHookContext(name: "claude-needsinput-other-session")
+        defer { context.cleanup() }
+
+        let activeSessionId = "active-needsinput-session"
+        let otherSessionId = "other-session"
+
+        let promptSubmit = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(activeSessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#
+        )
+        XCTAssertFalse(promptSubmit.timedOut, promptSubmit.stderr)
+        XCTAssertEqual(promptSubmit.status, 0, promptSubmit.stderr)
+
+        let notification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(activeSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}"#
+        )
+        XCTAssertFalse(notification.timedOut, notification.stderr)
+        XCTAssertEqual(notification.status, 0, notification.stderr)
+        XCTAssertEqual(
+            try readClaudeHookSession(activeSessionId, context: context)["agentLifecycle"] as? String,
+            "needsInput"
+        )
+
+        let stopStart = context.state.commands.count
+        let otherSessionStop = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"\#(otherSessionId)","turn_id":"turn-9","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"old turn finished late"}"#
+        )
+        XCTAssertFalse(otherSessionStop.timedOut, otherSessionStop.stderr)
+        XCTAssertEqual(otherSessionStop.status, 0, otherSessionStop.stderr)
+
+        XCTAssertEqual(
+            try readClaudeHookSession(activeSessionId, context: context)["agentLifecycle"] as? String,
+            "needsInput",
+            "A different-session Stop must not clear the active session's needsInput"
+        )
+        let stopCommands = Array(context.state.commands.dropFirst(stopStart))
+        XCTAssertFalse(
+            stopCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle claude_code idle --tab=\(context.workspaceId)")
+            },
+            "A different-session Stop must not write idle for the workspace, saw \(stopCommands)"
+        )
+    }
+
+    // https://github.com/manaflow-ai/cmux/issues/1027 — the third clearing transition: a
+    // same-session prompt-submit whose turnId drifted from the active turn must also clear a stale
+    // needsInput to running (companion to the Stop and pre-tool-use turn-drift tests above).
+    func testClaudeNotificationNeedsInputClearsOnSameSessionTurnDriftPromptSubmit() throws {
+        let context = try makeClaudeHookContext(name: "claude-needsinput-clear-promptsubmit")
+        defer { context.cleanup() }
+
+        let sessionId = "stuck-needsinput-promptsubmit-session"
+
+        let promptSubmit1 = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#
+        )
+        XCTAssertFalse(promptSubmit1.timedOut, promptSubmit1.stderr)
+        XCTAssertEqual(promptSubmit1.status, 0, promptSubmit1.stderr)
+
+        let notification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}"#
+        )
+        XCTAssertFalse(notification.timedOut, notification.stderr)
+        XCTAssertEqual(notification.status, 0, notification.stderr)
+        XCTAssertEqual(
+            try readClaudeHookSession(sessionId, context: context)["agentLifecycle"] as? String,
+            "needsInput",
+            "Notification should leave the session stuck on needsInput before the drifted prompt-submit"
+        )
+
+        let cmdStart = context.state.commands.count
+        // Same session, but the prompt-submit reports a DIFFERENT turn id than the active turn-1.
+        let promptSubmit2 = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"yes go ahead"}"#
+        )
+        XCTAssertFalse(promptSubmit2.timedOut, promptSubmit2.stderr)
+        XCTAssertEqual(promptSubmit2.status, 0, promptSubmit2.stderr)
+
+        XCTAssertEqual(
+            try readClaudeHookSession(sessionId, context: context)["agentLifecycle"] as? String,
+            "running",
+            "A same-session prompt-submit with a drifted turn id must clear the stale needsInput to running"
+        )
+        let cmds = Array(context.state.commands.dropFirst(cmdStart))
+        XCTAssertTrue(
+            cmds.contains {
+                $0.hasPrefix("set_agent_lifecycle claude_code running --tab=\(context.workspaceId)")
+            },
+            "Expected the drifted prompt-submit to clear the visible lifecycle to running, saw \(cmds)"
+        )
+    }
+
+    // https://github.com/manaflow-ai/cmux/issues/1027 — guardrail for the relaxed pre-tool-use
+    // gate: an AskUserQuestion pre-tool-use is a needsInput-SETTING event, so even when its turnId
+    // has drifted it must NOT fall through to the clearing (-> running) path and wipe a live
+    // "Needs input". (Regression test for the codex review finding on the first revision of the fix.)
+    func testClaudeAskUserQuestionWithDriftedTurnDoesNotClearNeedsInput() throws {
+        let context = try makeClaudeHookContext(name: "claude-askuserquestion-drift")
+        defer { context.cleanup() }
+
+        let sessionId = "askuserquestion-drift-session"
+
+        let promptSubmit = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#
+        )
+        XCTAssertFalse(promptSubmit.timedOut, promptSubmit.stderr)
+        XCTAssertEqual(promptSubmit.status, 0, promptSubmit.stderr)
+
+        let notification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude needs your permission"}"#
+        )
+        XCTAssertFalse(notification.timedOut, notification.stderr)
+        XCTAssertEqual(notification.status, 0, notification.stderr)
+        XCTAssertEqual(
+            try readClaudeHookSession(sessionId, context: context)["agentLifecycle"] as? String,
+            "needsInput"
+        )
+
+        let cmdStart = context.state.commands.count
+        // Same session, drifted turn id, tool = AskUserQuestion (a needsInput-SETTING event).
+        let askPreToolUse = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which option?"}]}}"#
+        )
+        XCTAssertFalse(askPreToolUse.timedOut, askPreToolUse.stderr)
+        XCTAssertEqual(askPreToolUse.status, 0, askPreToolUse.stderr)
+
+        XCTAssertEqual(
+            try readClaudeHookSession(sessionId, context: context)["agentLifecycle"] as? String,
+            "needsInput",
+            "A drifted AskUserQuestion pre-tool-use must NOT clear the live needsInput to running"
+        )
+        let cmds = Array(context.state.commands.dropFirst(cmdStart))
+        XCTAssertFalse(
+            cmds.contains {
+                $0.hasPrefix("set_agent_lifecycle claude_code running --tab=\(context.workspaceId)")
+            },
+            "A drifted AskUserQuestion must not emit a running lifecycle, saw \(cmds)"
+        )
+    }
+
     func testClaudePromptSubmitFromNewSessionCanReplaceStoppedSession() throws {
         let context = try makeClaudeHookContext(name: "claude-new-session-after-stop")
         defer { context.cleanup() }
