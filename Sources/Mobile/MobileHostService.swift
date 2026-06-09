@@ -1233,6 +1233,21 @@ final class MobileHostService {
         }
     }
 
+    /// Whether the request is authorized by a workspace-scoped attach ticket
+    /// (a single-workspace deep-link pairing) rather than a full account attach.
+    ///
+    /// A full attach presents no attach ticket (it authorizes via Stack auth
+    /// only), so it returns `false`. A scoped ticket carries a non-empty
+    /// `workspaceID`. Used to deny the cross-workspace `notifications.updated`
+    /// event topic to scoped tickets at subscribe time.
+    nonisolated func requestIsWorkspaceScopedTicket(_ request: MobileHostRPCRequest) -> Bool {
+        guard let attachToken = request.auth?.attachToken,
+              let ticket = ticketStore.validTicket(authToken: attachToken) else {
+            return false
+        }
+        return !ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private static func ticketAuthorizationError(
         ticket: CmxAttachTicket,
         request: MobileHostRPCRequest
@@ -2037,7 +2052,18 @@ actor MobileHostConnection {
         case "mobile.events.subscribe":
             let streamID = (request.params["stream_id"] as? String) ?? UUID().uuidString
             let topicsArray = (request.params["topics"] as? [String]) ?? []
-            let topics = Set(topicsArray.filter { !$0.isEmpty })
+            var topics = Set(topicsArray.filter { !$0.isEmpty })
+            // `notifications.updated` is a CROSS-WORKSPACE signal (it fires for
+            // any notification, in any workspace). A workspace-scoped attach
+            // ticket must not learn the timing of activity outside its scope, so
+            // strip the topic for scoped tickets. They also can't read the feed
+            // (`mobile.notifications.list` falls through to `scopedTicketError`),
+            // so stripping the subscription leaves no notification channel for a
+            // scoped ticket. A full account attach (no scoped ticket) keeps it.
+            if topics.contains("notifications.updated"),
+               MobileHostService.shared.requestIsWorkspaceScopedTicket(request) {
+                topics.remove("notifications.updated")
+            }
             guard !topics.isEmpty else {
                 return .failure(MobileHostRPCError(code: "invalid_params", message: "topics is required"))
             }
