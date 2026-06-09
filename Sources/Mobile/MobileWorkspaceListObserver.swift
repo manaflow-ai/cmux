@@ -14,8 +14,9 @@ private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category:
 final class MobileWorkspaceListObserver {
     private weak var tabManager: TabManager?
     /// The app-global notification store, source of each workspace's last-activity
-    /// preview line. Weak because the store outlives no observer and the observer
-    /// must never extend its lifetime.
+    /// preview line. Weak because the store is app-global and outlives this
+    /// observer; the weak reference keeps the observer from extending the store's
+    /// lifetime, mirroring how `tabManager` is held.
     private weak var notificationStore: TerminalNotificationStore?
     private var tabsCancellable: AnyCancellable?
     private var selectionCancellable: AnyCancellable?

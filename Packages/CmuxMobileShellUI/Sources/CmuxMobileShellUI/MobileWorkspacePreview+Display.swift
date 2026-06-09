@@ -41,35 +41,50 @@ extension MobileWorkspacePreview {
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
-    func timestampOrStatus(connectionStatus: MobileMacConnectionStatus) -> String {
+    /// The row's trailing slot: the connection problem when there is one,
+    /// otherwise the compact relative activity time. `now` is threaded from the
+    /// row's `TimelineView` so the label refreshes as time passes and stays
+    /// deterministic in tests.
+    func timestampOrStatus(connectionStatus: MobileMacConnectionStatus, now: Date) -> String {
         if connectionStatus != .connected {
             return connectionStatus.label
         }
-        return relativeActivityLabel(now: Date())
+        return relativeActivityLabel(now: now)
     }
 
     /// Compact relative time for the row's trailing slot, like a messaging list:
-    /// "now" under a minute, otherwise an abbreviated localized relative time
-    /// ("2m", "1h", "3d"). Falls back to a localized month/day for older activity
-    /// and an empty string when there is no real activity timestamp. `now` is
-    /// injected so the formatting is deterministic in tests.
+    /// "now" under a minute, then "2m", "1h", "3d", and a localized month/day
+    /// past a week. Empty when there is no real activity timestamp. The bucket
+    /// and its count come from ``MobileRelativeActivity``, computed purely from
+    /// the injected `now`, so the label is deterministic in tests (only the
+    /// `monthDay` case formats the date itself, which does not depend on `now`).
     func relativeActivityLabel(now: Date) -> String {
         let date = latestActivityDate
-        // Without a real activity timestamp the trailing slot stays empty rather
-        // than echoing the Mac.
-        guard date.timeIntervalSince1970 > 1 else {
+        switch MobileRelativeActivity.bucket(for: date, now: now) {
+        case .none:
+            // The trailing slot stays empty rather than echoing the epoch.
             return ""
-        }
-        let interval = now.timeIntervalSince(date)
-        if interval < 60 {
+        case .now:
             return L10n.string("mobile.workspace.preview.justNow", defaultValue: "now")
+        case .minutes(let minutes):
+            return String(
+                format: L10n.string("mobile.workspace.preview.minutesCompactFormat", defaultValue: "%dm"),
+                minutes
+            )
+        case .hours(let hours):
+            return String(
+                format: L10n.string("mobile.workspace.preview.hoursCompactFormat", defaultValue: "%dh"),
+                hours
+            )
+        case .days(let days):
+            return String(
+                format: L10n.string("mobile.workspace.preview.daysCompactFormat", defaultValue: "%dd"),
+                days
+            )
+        case .monthDay:
+            // Past a week, a month/day date is more useful than "5 weeks ago".
+            return date.formatted(.dateTime.month(.defaultDigits).day(.defaultDigits))
         }
-        // Within a week, an abbreviated relative time reads like iMessage. Past a
-        // week, a month/day date is more useful than "5 weeks ago".
-        if interval < 7 * 24 * 60 * 60 {
-            return date.formatted(.relative(presentation: .numeric, unitsStyle: .narrow))
-        }
-        return date.formatted(.dateTime.month(.defaultDigits).day(.defaultDigits))
     }
 
     func detailLine(connectionStatus: MobileMacConnectionStatus) -> String {

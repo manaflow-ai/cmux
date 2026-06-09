@@ -3537,6 +3537,40 @@
         }
       }
     },
+    "mobile.workspace.preview.daysCompactFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%dd"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d日"
+          }
+        }
+      }
+    },
+    "mobile.workspace.preview.hoursCompactFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%dh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d時間"
+          }
+        }
+      }
+    },
     "mobile.workspace.preview.justNow": {
       "extractionState": "manual",
       "localizations": {
@@ -3550,6 +3584,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "今"
+          }
+        }
+      }
+    },
+    "mobile.workspace.preview.minutesCompactFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%dm"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d分"
           }
         }
       }
