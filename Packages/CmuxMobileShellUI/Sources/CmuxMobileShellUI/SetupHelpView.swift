@@ -35,8 +35,6 @@ struct SetupHelpView: View {
     private static let tailscaleURL = URL(string: "https://tailscale.com/download")!
     /// Tailscale on the App Store, for the phone-side install step.
     private static let tailscaleAppStoreURL = URL(string: "https://apps.apple.com/app/tailscale/id1470499037")!
-    /// Founders Edition page: cmux for Mac download plus TestFlight enrollment.
-    private static let macDownloadURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
 
     var body: some View {
         NavigationStack {
@@ -90,7 +88,7 @@ struct SetupHelpView: View {
 
     @ViewBuilder
     private func gateSection(_ gate: MobileSetupGuidanceState) -> some View {
-        let content = Self.content(for: gate)
+        let content = setupHelpGateContent(for: gate)
         Section {
             VStack(alignment: .leading, spacing: 8) {
                 Text(content.body)
@@ -175,79 +173,6 @@ struct SetupHelpView: View {
             ))
         }
         .accessibilityIdentifier("MobileSetupHelpNetworkSection")
-    }
-
-    // MARK: - Gate content
-
-    /// The static guidance shown for one setup gate.
-    private struct GateContent {
-        let systemImage: String
-        let title: String
-        let body: String
-        let link: GateLink?
-        let identifierSuffix: String
-        let linkAccessibilityIdentifier: String
-    }
-
-    private struct GateLink {
-        let title: String
-        let url: URL
-    }
-
-    private static func content(for gate: MobileSetupGuidanceState) -> GateContent {
-        switch gate {
-        case .notSignedIn:
-            return GateContent(
-                systemImage: "person.crop.circle",
-                title: L10n.string("mobile.setupHelp.signInTitle", defaultValue: "Sign in"),
-                body: L10n.string(
-                    "mobile.setupHelp.signInBody",
-                    defaultValue: "Sign in to cmux on this phone with the same account your Mac uses. Without that, there is nothing to connect to."
-                ),
-                link: nil,
-                identifierSuffix: "notSignedIn",
-                linkAccessibilityIdentifier: "MobileSetupHelpSignInLink"
-            )
-        case .signedInNeverPaired:
-            return GateContent(
-                systemImage: "desktopcomputer",
-                title: L10n.string("mobile.setupHelp.macAppTitle", defaultValue: "Run cmux on your Mac"),
-                body: L10n.string(
-                    "mobile.setupHelp.macAppBody",
-                    defaultValue: "Install the cmux Mac app and leave it running, signed in to the same account. The phone pairs to a running Mac, so a quit or never-installed app is the most common reason pairing does nothing."
-                ),
-                link: GateLink(
-                    title: L10n.string("mobile.setupHelp.macAppLink", defaultValue: "Download cmux for Mac"),
-                    url: macDownloadURL
-                ),
-                identifierSuffix: "signedInNeverPaired",
-                linkAccessibilityIdentifier: "MobileSetupHelpMacAppLink"
-            )
-        case .macUnreachable:
-            return GateContent(
-                systemImage: "wifi.exclamationmark",
-                title: L10n.string("mobile.setupHelp.unreachableTitle", defaultValue: "Wake the Mac"),
-                body: L10n.string(
-                    "mobile.setupHelp.unreachableBody",
-                    defaultValue: "You have paired this Mac before but it is not reachable now. Wake it, make sure cmux is running, and confirm both devices are on the same tailnet or Wi-Fi. Then reconnect."
-                ),
-                link: nil,
-                identifierSuffix: "macUnreachable",
-                linkAccessibilityIdentifier: "MobileSetupHelpUnreachableLink"
-            )
-        case .accountMismatch:
-            return GateContent(
-                systemImage: "person.crop.circle.badge.exclamationmark",
-                title: L10n.string("mobile.setupHelp.mismatchTitle", defaultValue: "Match the account"),
-                body: L10n.string(
-                    "mobile.setupHelp.mismatchBody",
-                    defaultValue: "If pairing is refused for a different account, this phone and the Mac are on different cmux accounts. Sign this phone in to the Mac's account, or sign the Mac in to this one, then pair again."
-                ),
-                link: nil,
-                identifierSuffix: "accountMismatch",
-                linkAccessibilityIdentifier: "MobileSetupHelpMismatchLink"
-            )
-        }
     }
 }
 #endif
