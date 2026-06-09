@@ -1,0 +1,352 @@
+# Soft-Deprecated SwiftUI APIs
+
+Generated from: iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0
+
+## Types
+
+- `struct CarouselTabViewStyle : TabViewStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to VerticalTabViewStyle
+- `struct MenuButton<Label, Content> : View where Label : View, Content : View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `Menu` instead.
+- `struct ActionSheet` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use `View.confirmationDialog(title:isPresented:titleVisibility:presenting::actions:)`instead.
+- `struct ColumnNavigationViewStyle : NavigationViewStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - replace styled NavigationView with NavigationSplitView
+- `struct Alert` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use View.alert(_:isPresented:presenting:actions:) instead.
+- `struct BorderedButtonMenuStyle : MenuStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use .menuStyle(.button) and .buttonStyle(.bordered).
+- `struct RotationGesture : Gesture` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to RotateGesture
+- `struct PresentationMode` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use EnvironmentValues.isPresented or EnvironmentValues.dismiss
+- `struct MagnificationGesture : Gesture` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to MagnifyGesture
+- `struct ContextMenu<MenuItems> where MenuItems : View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `contextMenu(menuItems:)` instead.
+- `struct PullDownMenuButtonStyle : MenuButtonStyle` (iOS, macOS, visionOS)
+  - Use `BorderedButtonMenuStyle` instead.
+- `struct BorderlessPullDownMenuButtonStyle : MenuButtonStyle` (iOS, macOS, visionOS)
+  - Use `BorderlessButtonMenuStyle` instead.
+- `struct BorderlessButtonMenuButtonStyle : MenuButtonStyle` (iOS, macOS, visionOS)
+  - Use `BorderlessButtonMenuStyle` instead.
+- `struct DefaultMenuButtonStyle : MenuButtonStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `menuStyle(.automatic)` instead.
+- `struct DefaultNavigationViewStyle : NavigationViewStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - replace styled NavigationView with NavigationStack or NavigationSplitView instead
+- `struct BorderlessButtonMenuStyle : MenuStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use .menuStyle(.button) and .buttonStyle(.borderless).
+- `struct DoubleColumnNavigationViewStyle : NavigationViewStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - replace styled NavigationView with NavigationStack or NavigationSplitView instead
+- `struct NavigationView<Content> : View where Content : View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use NavigationStack or NavigationSplitView instead
+- `struct PopUpButtonPickerStyle : PickerStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the `menu` style instead.
+- `struct StackNavigationViewStyle : NavigationViewStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - replace stack-styled NavigationView with NavigationStack
+- `enum ContentSizeCategory : Hashable, CaseIterable, Sendable` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to DynamicTypeSize
+- `enum ControlActiveState : Equatable, CaseIterable, Sendable` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `EnvironmentValues.appearsActive` instead.
+
+## Protocols
+
+- `protocol NavigationViewStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - replace styled NavigationView with NavigationStack or NavigationSplitView instead
+- `protocol AnimatableModifier : Animatable, ViewModifier` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use Animatable directly
+- `protocol MenuButtonStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `MenuStyle` instead.
+
+## Initializers
+
+- `TextField.init<V>(_ titleKey: LocalizedStringKey, value: Binding<V>, formatter: Formatter, onEditingChanged: @escaping (Bool) -> Void, onCommit: @escaping () -> Void)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed TextField.init(_:value:formatter:onEditingChanged:). Use View.onSubmit(of:_:) for functionality previously provided by the onCommit parameter. Use FocusState<T> and View.focused(_:equals:) for functionality previously provided by the onEditingChanged parameter.
+- `TextField.init<V>(_ titleKey: LocalizedStringKey, value: Binding<V>, formatter: Formatter, onEditingChanged: @escaping (Bool) -> Void)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed TextField.init(_:value:formatter:onEditingChanged:). Use View.onSubmit(of:_:) for functionality previously provided by the onCommit parameter. Use FocusState<T> and View.focused(_:equals:) for functionality previously provided by the onEditingChanged parameter.
+- `TextField.init<V>(_ titleKey: LocalizedStringKey, value: Binding<V>, formatter: Formatter, onCommit: @escaping () -> Void)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed TextField.init(_:value:formatter:onEditingChanged:). Use View.onSubmit(of:_:) for functionality previously provided by the onCommit parameter. Use FocusState<T> and View.focused(_:equals:) for functionality previously provided by the onEditingChanged parameter.
+- `TextField.init<S, V>(_ title: S, value: Binding<V>, formatter: Formatter, onEditingChanged: @escaping (Bool) -> Void, onCommit: @escaping () -> Void) where S : StringProtocol` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed TextField.init(_:value:formatter:onEditingChanged:). Use View.onSubmit(of:_:) for functionality previously provided by the onCommit parameter. Use FocusState<T> and View.focused(_:equals:) for functionality previously provided by the onEditingChanged parameter.
+- `TextField.init<S, V>(_ title: S, value: Binding<V>, formatter: Formatter, onEditingChanged: @escaping (Bool) -> Void) where S : StringProtocol` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed TextField.init(_:value:formatter:onEditingChanged:). Use View.onSubmit(of:_:) for functionality previously provided by the onCommit parameter. Use FocusState<T> and View.focused(_:equals:) for functionality previously provided by the onEditingChanged parameter.
+- `TextField.init<S, V>(_ title: S, value: Binding<V>, formatter: Formatter, onCommit: @escaping () -> Void) where S : StringProtocol` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed TextField.init(_:value:formatter:onEditingChanged:). Use View.onSubmit(of:_:) for functionality previously provided by the onCommit parameter. Use FocusState<T> and View.focused(_:equals:) for functionality previously provided by the onEditingChanged parameter.
+- `MenuButton.init(_ titleKey: LocalizedStringKey, @ContentBuilder content: () -> Content)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `Menu` instead.
+- `TabView.init(selection: Binding<SelectionValue>?, @ContentBuilder content: () -> Content)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use TabContentBuilder-based TabView initializers instead
+- `Slider.init<V>(value: Binding<V>, in bounds: ClosedRange<V> = 0...1, onEditingChanged: @escaping (Bool) -> Void = { _ in }, minimumValueLabel: ValueLabel, maximumValueLabel: ValueLabel, @ContentBuilder label: () -> Label) where V : BinaryFloatingPoint, V.Stride : BinaryFloatingPoint` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to Slider(value:in:label:minimumValueLabel:maximumValueLabel:onEditingChanged:)
+- `Slider.init<V>(value: Binding<V>, in bounds: ClosedRange<V>, step: V.Stride = 1, onEditingChanged: @escaping (Bool) -> Void = { _ in }, minimumValueLabel: ValueLabel, maximumValueLabel: ValueLabel, @ContentBuilder label: () -> Label) where V : BinaryFloatingPoint, V.Stride : BinaryFloatingPoint` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to Slider(value:in:step:label:minimumValueLabel:maximumValueLabel:onEditingChanged:)
+- `Slider.init<V>(value: Binding<V>, in bounds: ClosedRange<V> = 0...1, onEditingChanged: @escaping (Bool) -> Void = { _ in }, @ContentBuilder label: () -> Label) where V : BinaryFloatingPoint, V.Stride : BinaryFloatingPoint` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to Slider(value:in:label:onEditingChanged:)
+- `Slider.init<V>(value: Binding<V>, in bounds: ClosedRange<V>, step: V.Stride = 1, onEditingChanged: @escaping (Bool) -> Void = { _ in }, @ContentBuilder label: () -> Label) where V : BinaryFloatingPoint, V.Stride : BinaryFloatingPoint` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to Slider(value:in:step:label:onEditingChanged:)
+- `LinearProgressViewStyle.init(tint: Color)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use ``View/tint(_)`` instead.
+- `CircularProgressViewStyle.init(tint: Color)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use ``View/tint(_)`` instead.
+- `TextField.init(_ titleKey: LocalizedStringKey, text: Binding<String>, onEditingChanged: @escaping (Bool) -> Void, onCommit: @escaping () -> Void)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed TextField.init(_:text:onEditingChanged:). Use View.onSubmit(of:_:) for functionality previously provided by the onCommit parameter. Use FocusState<T> and View.focused(_:equals:) for functionality previously provided by the onEditingChanged parameter.
+- `TextField.init(_ titleKey: LocalizedStringKey, text: Binding<String>, onEditingChanged: @escaping (Bool) -> Void)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed TextField.init(_:text:onEditingChanged:). Use View.onSubmit(of:_:) for functionality previously provided by the onCommit parameter. Use FocusState<T> and View.focused(_:equals:) for functionality previously provided by the onEditingChanged parameter.
+- `TextField.init(_ titleKey: LocalizedStringKey, text: Binding<String>, onCommit: @escaping () -> Void)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed TextField.init(_:text:onEditingChanged:). Use View.onSubmit(of:_:) for functionality previously provided by the onCommit parameter. Use FocusState<T> and View.focused(_:equals:) for functionality previously provided by the onEditingChanged parameter.
+- `TextField.init<S>(_ title: S, text: Binding<String>, onEditingChanged: @escaping (Bool) -> Void, onCommit: @escaping () -> Void) where S : StringProtocol` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed TextField.init(_:text:onEditingChanged:). Use View.onSubmit(of:_:) for functionality previously provided by the onCommit parameter. Use FocusState<T> and View.focused(_:equals:) for functionality previously provided by the onEditingChanged parameter.
+- `TextField.init<S>(_ title: S, text: Binding<String>, onEditingChanged: @escaping (Bool) -> Void) where S : StringProtocol` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed TextField.init(_:text:onEditingChanged:). Use View.onSubmit(of:_:) for functionality previously provided by the onCommit parameter. Use FocusState<T> and View.focused(_:equals:) for functionality previously provided by the onEditingChanged parameter.
+- `TextField.init<S>(_ title: S, text: Binding<String>, onCommit: @escaping () -> Void) where S : StringProtocol` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed TextField.init(_:text:onEditingChanged:). Use View.onSubmit(of:_:) for functionality previously provided by the onCommit parameter. Use FocusState<T> and View.focused(_:equals:) for functionality previously provided by the onEditingChanged parameter.
+- `InsetListStyle.init(alternatesRowBackgrounds: Bool)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the `.inset` style with the `.alternatingRowBackgrounds()` view modifier
+- `ToolbarItem.init(id: String, placement: ToolbarItemPlacement = .automatic, showsByDefault: Bool, @ContentBuilder content: () -> Content)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the CustomizableToolbarContent/defaultCustomization(_:options) modifier with a value of .hidden
+- `Section.init(header: Parent, footer: Footer, @ContentBuilder content: () -> Content)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to Section(content:header:footer:)
+- `Section.init(footer: Footer, @ContentBuilder content: () -> Content)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to Section(content:footer:)
+- `Section.init(header: Parent, @ContentBuilder content: () -> Content)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to Section(content:header:)
+- `GroupBox.init(label: Label, @ContentBuilder content: () -> Content)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to GroupBox(content:label:)
+- `InsetTableStyle.init(alternatesRowBackgrounds: Bool)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the `.inset` style with the `.alternatingRowBackgrounds()` view modifier
+- `Picker.init(selection: Binding<SelectionValue>, label: Label, @ContentBuilder content: () -> Content)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to Picker(selection:content:label:)
+- `ScrollView.init(_ axes: Set = .vertical, showsIndicators: Bool = true, @ContentBuilder content: () -> Content)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the ScrollView(_:content:) initializer and the scrollIndicators(:_) modifier
+- `NavigationLink.init(destination: Destination, @ContentBuilder label: () -> Label)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Pass a closure as the destination
+- `NavigationLink.init(_ titleKey: LocalizedStringKey, destination: Destination)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Pass a closure as the destination
+- `NavigationLink.init<S>(_ title: S, destination: Destination) where S : StringProtocol` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Pass a closure as the destination
+- `NavigationLink.init(destinationName: String, @ContentBuilder label: () -> Label)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use NavigationLink(value:label:)
+- `NavigationLink.init(destinationName: String, isActive: Binding<Bool>, @ContentBuilder label: () -> Label)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use NavigationLink(value:label:)
+- `NavigationLink.init<V>(destinationName: String, tag: V, selection: Binding<V?>, @ContentBuilder label: () -> Label) where V : Hashable` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use NavigationLink(value:label:)
+- `SecureField.init(_ titleKey: LocalizedStringKey, text: Binding<String>, onCommit: @escaping () -> Void)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed SecureField.init(_:text:). Use View.onSubmit(of:_:) for functionality previously provided by the onCommit parameter.
+- `SecureField.init<S>(_ title: S, text: Binding<String>, onCommit: @escaping () -> Void) where S : StringProtocol` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed SecureField.init(_:text:). Use View.onSubmit(of:_:) for functionality previously provided by the onCommit parameter.
+- `BorderedButtonStyle.init(tint: Color)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use ``View/tint(_)`` instead.
+- `Color.init(_ color: UIColor)` (iOS, tvOS, watchOS, visionOS)
+  - Use Color(uiColor:) when converting a UIColor, or create a standard Color directly
+- `BorderedListStyle.init(alternatesRowBackgrounds: Bool)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the `.bordered` style with the `.alternatingRowBackgrounds()` view modifier
+- `Stepper.init(onIncrement: (() -> Void)?, onDecrement: (() -> Void)?, onEditingChanged: @escaping (Bool) -> Void = { _ in }, @ContentBuilder label: () -> Label)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to Stepper(label:onIncrement:onDecrement:onEditingChanged:)
+- `Stepper.init<V>(value: Binding<V>, step: V.Stride = 1, onEditingChanged: @escaping (Bool) -> Void = { _ in }, @ContentBuilder label: () -> Label) where V : Strideable` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to Stepper(value:step:label:onEditingChanged:)
+- `Stepper.init<V>(value: Binding<V>, in bounds: ClosedRange<V>, step: V.Stride = 1, onEditingChanged: @escaping (Bool) -> Void = { _ in }, @ContentBuilder label: () -> Label) where V : Strideable` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to Stepper(value:in:step:label:onEditingChanged:)
+- `LinearGaugeStyle.init(tint: Color)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use ``View/tint(_)`` instead.
+- `LinearGaugeStyle.init(tint: Gradient)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use ``View/tint(_)`` instead.
+- `BorderedTableStyle.init(alternatesRowBackgrounds: Bool)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the `.bordered` style with the `.alternatingRowBackgrounds()` view modifier
+- `PasteButton.init<Payload>(supportedContentTypes: [UTType], validator: @escaping ([NSItemProvider]) -> Payload?, payloadAction: @escaping (Payload) -> Void)` (iOS, macOS, tvOS, watchOS, visionOS)
+- `PasteButton.init(supportedTypes: [String], payloadAction: @escaping ([NSItemProvider]) -> Void)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Provide `UTType`s as the `supportedContentTypes` instead.
+- `SpatialTapGesture.init(count: Int = 1, coordinateSpace: CoordinateSpace = .local)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use overload that accepts a CoordinateSpaceProtocol instead
+- `SwitchToggleStyle.init(tint: Color)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use ``View/tint(_)`` instead.
+- `Color.init(_ cgColor: CGColor)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use Color(cgColor:) when converting a CGColor, or create a standard Color directly
+- `Color.init(_ color: NSColor)` (macOS)
+  - Use Color(nsColor:) when converting a NSColor, or create a standard Color directly
+
+## Functions and Methods
+
+- `View.accessibility(value: Text) -> ModifiedContent<Self, AccessibilityAttachmentModifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityValue(_:)
+- `ModifiedContent.accessibility(value: Text) -> ModifiedContent<Content, Modifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityValue(_:)
+- `View.actionSheet<T>(item: Binding<T?>, content: (T) -> ActionSheet) -> some View where T : Identifiable` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use `confirmationDialog(title:isPresented:titleVisibility:presenting::actions:)`instead.
+- `View.actionSheet(isPresented: Binding<Bool>, content: () -> ActionSheet) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use `confirmationDialog(title:isPresented:titleVisibility:presenting::actions:)`instead.
+- `View.alert<Item>(item: Binding<Item?>, content: (Item) -> Alert) -> some View where Item : Identifiable` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use `alert(title:isPresented:presenting::actions:) instead.
+- `View.alert(isPresented: Binding<Bool>, content: () -> Alert) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use `alert(title:isPresented:presenting::actions:) instead.
+- `View.onContinuousHover(coordinateSpace: CoordinateSpace = .local, perform action: @escaping (HoverPhase) -> Void) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use overload that accepts a CoordinateSpaceProtocol instead
+- `View.listRowPlatterColor(_ color: Color?) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to listItemTint(_:)
+- `View.dropDestination<T>(for payloadType: T.Type = T.self, action: @escaping (_ items: [T], _ location: CGPoint) -> Bool, isTargeted: @escaping (Bool) -> Void = { _ in }) -> some View where T : Transferable` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `dropDestination(for:isEnabled:action:)` with an `action` that takes a `DropSession` parameter instead.
+- `DropInfo.hasItemsConforming(to types: [String]) -> Bool` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Provide `UTType`s as the `types` instead.
+- `View.statusBarHidden(_ hidden: Bool = true) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use .toolbarVisibility(_, for: .statusBar) instead
+- `View.statusBar(hidden: Bool) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to statusBarHidden(_:)
+- `View.autocapitalization(_ style: UITextAutocapitalizationType) -> some View` (iOS, tvOS, visionOS)
+  - use textInputAutocapitalization(_:)
+- `ListStyle.static inset(alternatesRowBackgrounds: Bool) -> InsetListStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the `.inset` style with the `.alternatingRowBackgrounds()` view modifier
+- `View.navigationBarItems<L, T>(leading: L, trailing: T) -> some View where L : View, T : View` (iOS, macOS, tvOS, visionOS)
+  - Use toolbar(_:) with navigationBarLeading or navigationBarTrailing placement
+- `View.navigationBarItems<L>(leading: L) -> some View where L : View` (iOS, macOS, tvOS, visionOS)
+  - Use toolbar(_:) with navigationBarLeading or navigationBarTrailing placement
+- `View.navigationBarItems<T>(trailing: T) -> some View where T : View` (iOS, macOS, tvOS, visionOS)
+  - Use toolbar(_:) with navigationBarLeading or navigationBarTrailing placement
+- `View.accessibility(hidden: Bool) -> ModifiedContent<Self, AccessibilityAttachmentModifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityHidden(_:)
+- `View.accessibility(label: Text) -> ModifiedContent<Self, AccessibilityAttachmentModifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityLabel(_:)
+- `View.accessibility(hint: Text) -> ModifiedContent<Self, AccessibilityAttachmentModifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityHint(_:)
+- `View.accessibility(inputLabels: [Text]) -> ModifiedContent<Self, AccessibilityAttachmentModifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityInputLabels(_:)
+- `View.accessibility(identifier: String) -> ModifiedContent<Self, AccessibilityAttachmentModifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityIdentifier(_:)
+- `View.accessibility(sortPriority: Double) -> ModifiedContent<Self, AccessibilityAttachmentModifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilitySortPriority(_:)
+- `View.accessibility(activationPoint: CGPoint) -> ModifiedContent<Self, AccessibilityAttachmentModifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityActivationPoint(_:)
+- `View.accessibility(activationPoint: UnitPoint) -> ModifiedContent<Self, AccessibilityAttachmentModifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityActivationPoint(_:)
+- `ModifiedContent.accessibility(hidden: Bool) -> ModifiedContent<Content, Modifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityHidden(_:)
+- `ModifiedContent.accessibility(label: Text) -> ModifiedContent<Content, Modifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityLabel(_:)
+- `ModifiedContent.accessibility(hint: Text) -> ModifiedContent<Content, Modifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityHint(_:)
+- `ModifiedContent.accessibility(inputLabels: [Text]) -> ModifiedContent<Content, Modifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityInputLabels(_:)
+- `ModifiedContent.accessibility(identifier: String) -> ModifiedContent<Content, Modifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityIdentifier(_:)
+- `ModifiedContent.accessibility(sortPriority: Double) -> ModifiedContent<Content, Modifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilitySortPriority(_:)
+- `ModifiedContent.accessibility(activationPoint: CGPoint) -> ModifiedContent<Content, Modifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityActivationPoint(_:)
+- `ModifiedContent.accessibility(activationPoint: UnitPoint) -> ModifiedContent<Content, Modifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityActivationPoint(_:)
+- `View.navigationBarHidden(_ hidden: Bool) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use toolbar(.hidden)
+- `View.navigationBarTitle(_ title: Text) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to navigationTitle(_:)
+- `View.navigationBarTitle(_ titleKey: LocalizedStringKey) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to navigationTitle(_:)
+- `View.navigationBarTitle<S>(_ title: S) -> some View where S : StringProtocol` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to navigationTitle(_:)
+- `View.navigationBarTitle(_ title: Text, displayMode: TitleDisplayMode) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use navigationTitle(_:) with navigationBarTitleDisplayMode(_:)
+- `View.navigationBarTitle(_ titleKey: LocalizedStringKey, displayMode: TitleDisplayMode) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use navigationTitle(_:) with navigationBarTitleDisplayMode(_:)
+- `View.navigationBarTitle<S>(_ title: S, displayMode: TitleDisplayMode) -> some View where S : StringProtocol` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use navigationTitle(_:) with navigationBarTitleDisplayMode(_:)
+- `View.navigationViewStyle<S>(_ style: S) -> some View where S : NavigationViewStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - replace styled NavigationView with NavigationStack or NavigationSplitView instead
+- `View.contextMenu<MenuItems>(_ contextMenu: ContextMenu<MenuItems>?) -> some View where MenuItems : View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `contextMenu(menuItems:)` instead.
+- `DynamicViewContent.onInsert(of acceptedTypeIdentifiers: [String], perform action: @escaping (Int, [NSItemProvider]) -> Void) -> some DynamicViewContent` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Provide `UTType`s as the `supportedContentTypes` instead.
+- `View.toolbarBackground(_ visibility: Visibility, for bars: ToolbarPlacement...) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to toolbarBackgroundVisibility(_:for:)
+- `View.toolbar(_ visibility: Visibility, for bars: ToolbarPlacement...) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to toolbarVisibility(_:for:)
+- `View.onPasteCommand(of supportedTypes: [String], perform payloadAction: @escaping ([NSItemProvider]) -> Void) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Provide `UTType`s as the `supportedContentTypes` instead.
+- `View.searchable<S>(text: Binding<String>, placement: SearchFieldPlacement = .automatic, prompt: Text? = nil, @ContentBuilder suggestions: () -> S) -> some View where S : View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the searchable modifier with the searchSuggestions modifier
+- `View.searchable<S>(text: Binding<String>, placement: SearchFieldPlacement = .automatic, prompt: LocalizedStringKey, @ContentBuilder suggestions: () -> S) -> some View where S : View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the searchable modifier with the searchSuggestions modifier
+- `View.searchable<V, S>(text: Binding<String>, placement: SearchFieldPlacement = .automatic, prompt: S, @ContentBuilder suggestions: () -> V) -> some View where V : View, S : StringProtocol` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the searchable modifier with the searchSuggestions modifier
+- `View.tabItem<V>(@ContentBuilder _ label: () -> V) -> some View where V : View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `Tab(title:image:value:content:)` and related initializers instead
+- `View.coordinateSpace<T>(name: T) -> some View where T : Hashable` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use coordinateSpace(_:) instead
+- `View.onLongPressGesture(minimumDuration: Double = 0.5, maximumDistance: CGFloat = 10, pressing: ((Bool) -> Void)? = nil, perform action: @escaping () -> Void) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to onLongPressGesture(minimumDuration:maximumDuration:perform:onPressingChanged:)
+- `View.onLongPressGesture(minimumDuration: Double = 0.5, pressing: ((Bool) -> Void)? = nil, perform action: @escaping () -> Void) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to onLongPressGesture(minimumDuration:perform:onPressingChanged:)
+- `ListStyle.static bordered(alternatesRowBackgrounds: Bool) -> BorderedListStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the `.bordered` style with the `.alternatingRowBackgrounds()` view modifier
+- `TabViewCustomization.resetSectionOrder(for sectionID: String)` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the `section` subscript and call `resetTabOrder` instead.
+- `View.disableAutocorrection(_ disable: Bool?) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to autocorrectionDisabled(_:)
+- `View.menuButtonStyle<S>(_ style: S) -> some View where S : MenuButtonStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `menuStyle(_:)` instead.
+- `View.accessibility(addTraits traits: AccessibilityTraits) -> ModifiedContent<Self, AccessibilityAttachmentModifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityAddTraits(_:)
+- `View.accessibility(removeTraits traits: AccessibilityTraits) -> ModifiedContent<Self, AccessibilityAttachmentModifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityRemoveTraits(_:)
+- `ModifiedContent.accessibility(addTraits traits: AccessibilityTraits) -> ModifiedContent<Content, Modifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityAddTraits(_:)
+- `ModifiedContent.accessibility(removeTraits traits: AccessibilityTraits) -> ModifiedContent<Content, Modifier>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to accessibilityRemoveTraits(_:)
+- `View.onTapGesture(count: Int = 1, coordinateSpace: CoordinateSpace = .local, perform action: @escaping (CGPoint) -> Void) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use overload that accepts a CoordinateSpaceProtocol instead
+- `View.foregroundColor(_ color: Color?) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to foregroundStyle(_:)
+- `View.accentColor(_ accentColor: Color?) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the asset catalog's accent color or View.tint(_:) instead.
+- `View.overlay<Overlay>(_ overlay: Overlay, alignment: Alignment = .center) -> some View where Overlay : View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `overlay(alignment:content:)` instead.
+- `View.mask<Mask>(_ mask: Mask) -> some View where Mask : View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use overload where mask accepts a @ContentBuilder instead.
+- `GeometryProxy.frame(in coordinateSpace: CoordinateSpace) -> CGRect` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use overload that accepts a CoordinateSpaceProtocol instead
+- `Font.static system(_ style: TextStyle, design: Design = .default) -> Font` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `system(_:design:weight:)` instead.
+- `Text.foregroundColor(_ color: Color?) -> Text` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to foregroundStyle(_:)
+- `View.background<Background>(_ background: Background, alignment: Alignment = .center) -> some View where Background : View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `background(alignment:content:)` instead.
+- `View.edgesIgnoringSafeArea(_ edges: Set) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use ignoresSafeArea(_:edges:) instead.
+- `View.cornerRadius(_ radius: CGFloat, antialiased: Bool = true) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `clipShape` or `fill` instead.
+- `Font.static system(size: CGFloat, weight: Weight = .regular, design: Design = .default) -> Font` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `system(size:weight:design:)` instead.
+- `View.colorScheme(_ colorScheme: ColorScheme) -> some View` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to preferredColorScheme(_:)
+- `Section.collapsible(_ collapsible: Bool) -> some View` (macOS, tvOS, watchOS)
+  - Use a standard Section initializer which does not allow for collapsibility\nby default after macOS 14.0.
+
+## Properties
+
+- `NavigationViewStyle.static columns: ColumnNavigationViewStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - replace styled NavigationView with NavigationSplitView
+- `ToolbarItemPlacement.static navigationBarLeading: ToolbarItemPlacement` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use topBarLeading instead
+- `ToolbarItemPlacement.static navigationBarTrailing: ToolbarItemPlacement` (iOS, macOS, tvOS, watchOS, visionOS)
+  - use topBarTrailing instead
+- `EnvironmentValues.presentationMode: Binding<PresentationMode>` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use isPresented or dismiss
+- `NavigationViewStyle.static automatic: DefaultNavigationViewStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - replace styled NavigationView with NavigationStack or NavigationSplitView instead
+- `MenuStyle.static borderlessButton: BorderlessButtonMenuStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use .menuStyle(.button) and .buttonStyle(.borderless).
+- `EnvironmentValues.disableAutocorrection: Bool?` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to autocorrectionDisabled
+- `NavigationViewStyle.static stack: StackNavigationViewStyle` (iOS, macOS, tvOS, watchOS, visionOS)
+  - replace stack-styled NavigationView with NavigationStack
+- `EnvironmentValues.sizeCategory: ContentSizeCategory` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to dynamicTypeSize
+- `Color.cgColor: CGColor?` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Renamed to resolve(in:)
+- `EnvironmentValues.controlActiveState: ControlActiveState` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use `EnvironmentValues.appearsActive` instead.
+- `SurroundingsEffect.static systemDark: SurroundingsEffect` (macOS, visionOS)
+  - Renamed to dark
+
+## Subscripts
+
+- `TabViewCustomization.subscript(sectionID id: String) -> [String]?` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the `section` subscript and read `tabOrder` instead.
+- `TabViewCustomization.subscript(sidebarVisibility id: String) -> Visibility` (iOS, macOS, tvOS, watchOS, visionOS)
+  - Use the `tab` subscript and read `sidebarVisibility` instead.
