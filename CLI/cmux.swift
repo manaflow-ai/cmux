@@ -1181,12 +1181,80 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    /// Whether the given surface is still owned by a *different*, older, live agent session — the one
+    /// whose resume binding the caller must not displace.
+    ///
+    /// "Live" means the recorded PID still has a running process, regardless of `runtimeStatus`: a
+    /// session paused on an approval prompt (`needsInput`), idle at the prompt (`idle`), or in an
+    /// `error` state is still resumable (unlike `hasRunningSession`, which only counts `.running`).
+    /// "Owner" means it started before the current session (`olderThan`): the original occupant wins,
+    /// and a later, misrouted session does not in turn block the owner's own resume updates.
+    func hasLiveProcessSessionOnSurface(
+        workspaceId: String,
+        surfaceId: String,
+        excludingSessionId: String?,
+        olderThan currentSessionStartedAt: TimeInterval?
+    ) throws -> Bool {
+        guard let normalizedWorkspace = normalizeOptional(workspaceId),
+              let normalizedSurface = normalizeOptional(surfaceId) else {
+            return false
+        }
+        let excluded = normalizeOptional(excludingSessionId)
+        return try withLockedState { state in
+            for sessionId in Array(state.sessions.keys) {
+                guard let record = state.sessions[sessionId] else { continue }
+                guard normalizeOptional(record.workspaceId) == normalizedWorkspace,
+                      normalizeOptional(record.surfaceId) == normalizedSurface,
+                      record.sessionId != excluded,
+                      let pid = record.pid,
+                      Self.processExists(pid) else {
+                    continue
+                }
+                // Ownership tiebreaker: only yield to a session that started before the current one.
+                // The original surface owner started first; a misrouted newcomer is younger and must
+                // not, in turn, suppress the owner's own later resume updates (symmetric blocking).
+                if let currentSessionStartedAt, record.startedAt >= currentSessionStartedAt {
+                    continue
+                }
+                // Defend against PID reuse: a crashed agent's record can linger with a PID later
+                // recycled by an unrelated long-lived process, which `kill(pid, 0)` would report as
+                // live and wrongly suppress a fresh session's binding (breaking resume-latest
+                // takeover). Only treat the PID as the original agent when its process did not start
+                // after the session's last recorded activity — a recycled PID belongs to a process
+                // that started later than the crashed agent's last hook event, whereas a genuine
+                // (including freshly-resumed) agent updates the record at/after it starts. If the
+                // start time is unreadable, do not suppress the fresh binding.
+                if let started = Self.processStartTime(pid),
+                   started <= record.updatedAt + Self.pidOwnershipSlackSeconds {
+                    return true
+                }
+            }
+            return false
+        }
+    }
+
     private static func processExists(_ pid: Int?) -> Bool {
         guard let pid, pid > 0 else { return false }
         if kill(pid_t(pid), 0) == 0 {
             return true
         }
         return errno == EPERM
+    }
+
+    /// Slack (seconds) allowed between a session's last recorded activity and its process start time
+    /// before the PID is treated as recycled. A genuine agent's process starts at or before its own
+    /// hook updates the record, so this only needs to absorb clock skew, not real lifetime.
+    private static let pidOwnershipSlackSeconds: TimeInterval = 5
+
+    /// Best-effort wall-clock start time (seconds since epoch) of `pid`, or nil if unreadable.
+    private static func processStartTime(_ pid: Int) -> TimeInterval? {
+        guard pid > 0 else { return nil }
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(pid)]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+        let started = info.kp_proc.p_un.__p_starttime
+        return TimeInterval(started.tv_sec) + TimeInterval(started.tv_usec) / 1_000_000
     }
 
     /// Returns true when an event belongs to the workspace's active Claude session.
@@ -28006,6 +28074,46 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 requireLiveProcess: true
             )) == true
         }
+        func liveDifferentSessionOwnsSurface(workspaceId: String, surfaceId: String) -> Bool {
+            // Live PID regardless of runtimeStatus (a session paused on an approval prompt is still
+            // live), validated against PID reuse, and scoped to a session older than this one so a
+            // misrouted newcomer does not symmetrically block the original owner's resume updates.
+            let currentStartedAt = (try? store.lookup(sessionId: sessionId))?.startedAt
+            return (try? store.hasLiveProcessSessionOnSurface(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                excludingSessionId: sessionId,
+                olderThan: currentStartedAt
+            )) == true
+        }
+        // Publish this session's surface resume binding UNLESS a *different* agent session is still
+        // live on the same surface. That only happens when PID/TTY ground truth is unavailable
+        // (remote/SSH) and a leaked CMUX_SURFACE_ID routes this hook onto the live session's pane —
+        // the slice https://github.com/manaflow-ai/cmux/issues/5333's PID/TTY override punts on.
+        // Overwriting the live session's binding would orphan the running thread across reload, so
+        // preserve it. A stopped/dead prior session does not count (`requireLiveProcess`), so normal
+        // resume-latest takeover of a finished session is unaffected.
+        func publishResumeBindingUnlessLiveSurfaceOwner(
+            workspaceId: String,
+            surfaceId: String,
+            cwd: String?,
+            launchCommand: AgentHookLaunchCommandRecord?
+        ) {
+            if liveDifferentSessionOwnsSurface(workspaceId: workspaceId, surfaceId: surfaceId) {
+                telemetry.breadcrumb("\(def.name)-hook.preserve-live-surface-binding")
+                return
+            }
+            publishAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                kind: def.name,
+                displayName: def.displayName,
+                sessionId: sessionId,
+                cwd: cwd,
+                launchCommand: launchCommand
+            )
+        }
         func setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
             if hasOtherRunningSession(workspaceId: workspaceId) {
 #if DEBUG
@@ -28236,13 +28344,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.nested-suppressed")
                 } else {
                     try? store.clearNotificationEmission(sessionId: sessionId)
-                    publishAgentSurfaceResumeBinding(
-                        client: client,
+                    publishResumeBindingUnlessLiveSurfaceOwner(
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        kind: def.name,
-                        displayName: def.displayName,
-                        sessionId: sessionId,
                         cwd: hookCwd ?? mapped?.cwd,
                         launchCommand: launchCommand
                     )
@@ -28352,13 +28456,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     updateRuntimeStatus: true
                 )
                 try? store.clearNotificationEmission(sessionId: sessionId)
-                publishAgentSurfaceResumeBinding(
-                    client: client,
+                publishResumeBindingUnlessLiveSurfaceOwner(
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    kind: def.name,
-                    displayName: def.displayName,
-                    sessionId: sessionId,
                     cwd: hookCwd ?? mapped?.cwd,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
@@ -28592,13 +28692,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                                   updateLastNotificationStatus: true,
                                   runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
                                   updateRuntimeStatus: true)
-                publishAgentSurfaceResumeBinding(
-                    client: client,
+                publishResumeBindingUnlessLiveSurfaceOwner(
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    kind: def.name,
-                    displayName: def.displayName,
-                    sessionId: sessionId,
                     cwd: cwd,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
@@ -28749,13 +28845,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     agentLifecycle: .running,
                     runtimeStatus: .running
                 )
-                publishAgentSurfaceResumeBinding(
-                    client: client,
+                publishResumeBindingUnlessLiveSurfaceOwner(
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    kind: def.name,
-                    displayName: def.displayName,
-                    sessionId: sessionId,
                     cwd: hookCwd ?? mapped?.cwd,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
