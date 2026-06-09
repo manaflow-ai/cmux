@@ -11134,17 +11134,8 @@ struct VerticalTabsSidebar: View {
                     )
                 }
                 .background(
-                    // Drive scroller visibility from the live AppKit document/
-                    // content bounds rather than a SwiftUI-computed overflow
-                    // flag. Toggling `hasVerticalScroller` from SwiftUI
-                    // re-renders (which fire constantly while agents update
-                    // workspace rows) re-adds the scroller and re-flashes the
-                    // overlay knob, so the knob never reaches its idle fade.
-                    // Reading the real bounds means the configuration only
-                    // changes when overflow actually changes; overlay +
-                    // autohide then handles the native appear/scroll/fade.
-                    SidebarScrollViewResolver(observesLayoutChanges: true) { scrollView in
-                        configureSidebarScrollViewFromDocument(scrollView)
+                    SidebarScrollViewResolver { scrollView in
+                        configureSidebarScrollView(scrollView)
                         dragAutoScrollController.attach(scrollView: scrollView)
                     }
                     .frame(width: 0, height: 0)
@@ -11310,26 +11301,28 @@ struct VerticalTabsSidebar: View {
         }
     }
 
-    private func configureSidebarScrollView(
-        _ scrollView: NSScrollView?,
-        hasVerticalScroller: Bool
-    ) {
+    /// Applies the sidebar's stable scroller configuration.
+    ///
+    /// The configuration never changes after it is applied: an overlay,
+    /// auto-hiding vertical scroller. This is deliberate — toggling
+    /// `hasVerticalScroller` (or restyling the scroller) in response to
+    /// SwiftUI re-renders, which fire constantly while agents update workspace
+    /// rows, re-adds the scroller and re-flashes the overlay knob, so it never
+    /// reaches its idle fade. With a stable overlay + autohide configuration,
+    /// AppKit alone decides visibility: the knob appears on scroll or real
+    /// overflow and fades when idle, and stays hidden entirely when the content
+    /// fits (which the finite empty-area height guarantees — see
+    /// ``SidebarWorkspaceScrollLayout/emptyAreaHeight(contentMinHeight:rowsHeight:)``
+    /// and https://github.com/manaflow-ai/cmux/issues/3241). Forcing
+    /// `.overlay` also overrides a "always show scroll bars" system setting, so
+    /// no permanent track is reserved regardless of the user's preference.
+    private func configureSidebarScrollView(_ scrollView: NSScrollView?) {
         guard let scrollView else { return }
 
         scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
-        scrollView.hasVerticalScroller = hasVerticalScroller
-    }
-
-    private func configureSidebarScrollViewFromDocument(_ scrollView: NSScrollView?) {
-        configureSidebarScrollView(
-            scrollView,
-            hasVerticalScroller: SidebarWorkspaceScrollLayout.contentOverflows(
-                contentHeight: scrollView?.documentView?.bounds.height ?? 0,
-                viewportHeight: scrollView?.contentView.bounds.height ?? 0
-            )
-        )
+        scrollView.autohidesScrollers = true
+        scrollView.hasVerticalScroller = true
     }
 
     @ViewBuilder
@@ -11450,8 +11443,8 @@ struct VerticalTabsSidebar: View {
                 }
             }
             .background(
-                SidebarScrollViewResolver(observesLayoutChanges: true) { scrollView in
-                    configureSidebarScrollViewFromDocument(scrollView)
+                SidebarScrollViewResolver { scrollView in
+                    configureSidebarScrollView(scrollView)
                     dragAutoScrollController.attach(scrollView: scrollView)
                 }
                 .frame(width: 0, height: 0)
@@ -14945,40 +14938,22 @@ private struct SidebarDevFooter: View {
 #endif
 
 private struct SidebarScrollViewResolver: NSViewRepresentable {
-    var observesLayoutChanges = false
     let onResolve: (NSScrollView?) -> Void
 
     func makeNSView(context: Context) -> SidebarScrollViewResolverView {
         let view = SidebarScrollViewResolverView()
-        view.observesLayoutChanges = observesLayoutChanges
         view.onResolve = onResolve
         return view
     }
 
     func updateNSView(_ nsView: SidebarScrollViewResolverView, context: Context) {
-        nsView.observesLayoutChanges = observesLayoutChanges
         nsView.onResolve = onResolve
         nsView.resolveScrollView()
     }
 }
 
 private final class SidebarScrollViewResolverView: NSView {
-    var observesLayoutChanges = false {
-        didSet {
-            if !observesLayoutChanges {
-                clearLayoutObservers()
-            }
-        }
-    }
     var onResolve: ((NSScrollView?) -> Void)?
-    private weak var observedScrollView: NSScrollView?
-    private weak var observedDocumentView: NSView?
-    private var layoutObserverTokens: [NSObjectProtocol] = []
-    private var resolveScheduled = false
-
-    deinit {
-        clearLayoutObservers()
-    }
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
@@ -14991,71 +14966,10 @@ private final class SidebarScrollViewResolverView: NSView {
     }
 
     func resolveScrollView() {
-        guard !resolveScheduled else { return }
-        resolveScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.resolveScheduled = false
-            let scrollView = self.enclosingScrollView
-            self.onResolve?(scrollView)
-            self.updateLayoutObservers(scrollView)
+            onResolve?(self.enclosingScrollView)
         }
-    }
-
-    private func updateLayoutObservers(_ scrollView: NSScrollView?) {
-        guard observesLayoutChanges, let scrollView else {
-            clearLayoutObservers()
-            return
-        }
-
-        let documentView = scrollView.documentView
-        if observedScrollView === scrollView, observedDocumentView === documentView {
-            return
-        }
-
-        clearLayoutObservers()
-        observedScrollView = scrollView
-        observedDocumentView = documentView
-
-        observeLayoutChanges(in: scrollView.contentView)
-        if let documentView {
-            observeLayoutChanges(in: documentView)
-        }
-    }
-
-    private func observeLayoutChanges(in view: NSView) {
-        view.postsFrameChangedNotifications = true
-        view.postsBoundsChangedNotifications = true
-
-        let center = NotificationCenter.default
-        layoutObserverTokens.append(
-            center.addObserver(
-                forName: NSView.frameDidChangeNotification,
-                object: view,
-                queue: .main
-            ) { [weak self] _ in
-                self?.resolveScrollView()
-            }
-        )
-        layoutObserverTokens.append(
-            center.addObserver(
-                forName: NSView.boundsDidChangeNotification,
-                object: view,
-                queue: .main
-            ) { [weak self] _ in
-                self?.resolveScrollView()
-            }
-        )
-    }
-
-    private func clearLayoutObservers() {
-        let center = NotificationCenter.default
-        for token in layoutObserverTokens {
-            center.removeObserver(token)
-        }
-        layoutObserverTokens = []
-        observedScrollView = nil
-        observedDocumentView = nil
     }
 }
 

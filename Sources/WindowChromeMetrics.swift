@@ -102,19 +102,6 @@ enum SidebarWorkspaceScrollLayout {
         guard let rowsHeight, rowsHeight > 0 else { return 0 }
         return max(0, contentMinHeight - rowsHeight)
     }
-
-    /// Whether `contentHeight` exceeds `viewportHeight` by more than `tolerance`.
-    ///
-    /// Used to decide `NSScrollView.hasVerticalScroller` from the live document
-    /// and content bounds, keeping scroller visibility off the SwiftUI
-    /// re-render path.
-    nonisolated static func contentOverflows(
-        contentHeight: CGFloat,
-        viewportHeight: CGFloat,
-        tolerance: CGFloat = 1
-    ) -> Bool {
-        contentHeight > viewportHeight + tolerance
-    }
 }
 
 struct SidebarWorkspaceRowsMeasurement<ID: Equatable>: Equatable {

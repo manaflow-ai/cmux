@@ -265,12 +265,9 @@ final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
         )
 
         XCTAssertEqual(emptyAreaHeight, 0, accuracy: 0.001)
-        XCTAssertFalse(
-            SidebarWorkspaceScrollLayout.contentOverflows(
-                contentHeight: contentMinHeight,
-                viewportHeight: contentMinHeight
-            )
-        )
+        // The content frame is pinned to contentMinHeight, so it never exceeds
+        // the viewport: no overflow, overlay scroller stays hidden.
+        XCTAssertLessThanOrEqual(max(contentMinHeight, emptyAreaHeight), contentMinHeight)
     }
 
     func testRowsMeasurementIgnoresStaleWorkspaceIds() {
@@ -310,12 +307,9 @@ final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
         )
 
         XCTAssertEqual(emptyAreaHeight, contentMinHeight - rowsHeight, accuracy: 0.001)
-        XCTAssertFalse(
-            SidebarWorkspaceScrollLayout.contentOverflows(
-                contentHeight: rowsHeight + emptyAreaHeight,
-                viewportHeight: contentMinHeight
-            )
-        )
+        // Rows + filled empty area exactly equals the viewport: content fits,
+        // so the overlay scroller stays hidden (the #3241 phantom-scrollbar fix).
+        XCTAssertEqual(rowsHeight + emptyAreaHeight, contentMinHeight, accuracy: 0.001)
     }
 
     func testEmptyAreaCollapsesWhenRowsAlreadyOverflowViewport() {
@@ -327,12 +321,9 @@ final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
         )
 
         XCTAssertEqual(emptyAreaHeight, 0, accuracy: 0.001)
-        XCTAssertTrue(
-            SidebarWorkspaceScrollLayout.contentOverflows(
-                contentHeight: rowsHeight + emptyAreaHeight,
-                viewportHeight: contentMinHeight
-            )
-        )
+        // The empty area adds nothing, so the document view stays at the rows'
+        // natural height and genuinely overflows the viewport — a real scroll.
+        XCTAssertGreaterThan(rowsHeight + emptyAreaHeight, contentMinHeight)
     }
 }
 
