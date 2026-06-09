@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxAuthRuntime
+import CmuxMobileShell
 import CmuxMobileSupport
 import SwiftUI
 
@@ -10,15 +11,26 @@ import SwiftUI
 struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     let connectedHostName: String
     let rescanQR: (() -> Void)?
     let signOut: (() -> Void)?
+    /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
+    /// where the "Switch Mac" entry is hidden.
+    var store: CMUXMobileShellStore?
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
+    /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
+    /// update after the async enable/disable. The coordinator exposes
+    /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
+    /// directly in `body` would not re-render when it flips.
+    @State private var notificationsEnabled = false
+    @State private var showingHostPicker = false
 
     var body: some View {
-        NavigationStack {
+        @Bindable var displaySettings = displaySettings
+        return NavigationStack {
             Form {
                 Section {
                     LabeledContent {
@@ -58,6 +70,17 @@ struct MobileSettingsView: View {
                             value: connectedHostName
                         )
                     }
+                    if store != nil {
+                        Button {
+                            showingHostPicker = true
+                        } label: {
+                            Label(
+                                L10n.string("mobile.settings.switchMac", defaultValue: "Switch Mac"),
+                                systemImage: "macbook.and.iphone"
+                            )
+                        }
+                        .accessibilityIdentifier("MobileSettingsSwitchMac")
+                    }
                     if let rescanQR {
                         Button {
                             rescanQR()
@@ -84,26 +107,49 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
                 }
 
+                Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
+                    Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
+                        Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
+                    }
+                    .accessibilityIdentifier("MobileSettingsWrapTitles")
+                }
+
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Notifications")) {
                     Button {
                         Task {
-                            if pushCoordinator.isEnabled {
+                            if notificationsEnabled {
                                 await pushCoordinator.disable()
+                                notificationsEnabled = false
                             } else {
-                                _ = await pushCoordinator.enable()
+                                notificationsEnabled = await pushCoordinator.enable()
                             }
                         }
                     } label: {
                         Label(
-                            pushCoordinator.isEnabled
+                            notificationsEnabled
                                 ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Agent Notifications")
                                 : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me About Agents"),
-                            systemImage: pushCoordinator.isEnabled ? "bell.slash" : "bell"
+                            systemImage: notificationsEnabled ? "bell.slash" : "bell"
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsNotifications")
                 }
+
+                Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
+                    LabeledContent {
+                        Text(AppVersionInfo.current().displayString)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.version", defaultValue: "Version"),
+                            systemImage: "info.circle"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsVersionRow")
+                }
             }
+            .onAppear { notificationsEnabled = pushCoordinator.isEnabled }
             .navigationTitle(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -116,6 +162,11 @@ struct MobileSettingsView: View {
             }
             .sheet(isPresented: $showingShortcuts) {
                 TerminalShortcutsSettingsView()
+            }
+            .sheet(isPresented: $showingHostPicker) {
+                if let store {
+                    MobileHostPickerView(store: store)
+                }
             }
         }
         .accessibilityIdentifier("MobileSettingsView")

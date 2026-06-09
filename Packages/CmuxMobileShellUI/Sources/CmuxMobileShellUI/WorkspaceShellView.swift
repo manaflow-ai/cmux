@@ -12,6 +12,7 @@ import AppKit
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
@@ -60,10 +61,14 @@ struct WorkspaceShellView: View {
                 host: store.connectedHostName,
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .push,
+                wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: signOut
+                signOut: signOut,
+                store: store,
+                renameWorkspace: renameWorkspaceClosure,
+                setPinned: setWorkspacePinnedClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -110,10 +115,14 @@ struct WorkspaceShellView: View {
                 host: store.connectedHostName,
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .sidebar,
+                wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: store.createWorkspace,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: signOut
+                signOut: signOut,
+                store: store,
+                renameWorkspace: renameWorkspaceClosure,
+                setPinned: setWorkspacePinnedClosure
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
@@ -135,6 +144,23 @@ struct WorkspaceShellView: View {
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
         }
+    }
+
+    /// Rename/pin closures, present only when the connected Mac advertises the
+    /// `workspace.actions.v1` capability so the row affordances stay hidden on
+    /// older Macs that lack the handler. Built as explicit closure literals (not
+    /// a method-reference ternary, which the compiler fails to type-check inside
+    /// the large `WorkspaceListView` initializer).
+    private var renameWorkspaceClosure: ((MobileWorkspacePreview.ID, String) -> Void)? {
+        guard store.supportsWorkspaceActions else { return nil }
+        let store = store
+        return { id, title in Task { await store.renameWorkspace(id: id, title: title) } }
+    }
+
+    private var setWorkspacePinnedClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
+        guard store.supportsWorkspaceActions else { return nil }
+        let store = store
+        return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
     }
 
     private func createWorkspaceInCompactStack() {

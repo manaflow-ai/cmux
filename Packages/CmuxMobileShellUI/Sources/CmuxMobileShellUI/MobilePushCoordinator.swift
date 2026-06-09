@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -21,6 +22,7 @@ import UserNotifications
 @Observable
 public final class MobilePushCoordinator {
     private let registration: any PushRegistering
+    private let analytics: any AnalyticsEmitting
     // UserDefaults is Apple-documented thread-safe; a synchronous read mirrors
     // the opt-in flag for the menu UI without awaiting the actor service.
     private nonisolated(unsafe) let defaults: UserDefaults
@@ -31,10 +33,17 @@ public final class MobilePushCoordinator {
     /// Creates a push coordinator.
     /// - Parameters:
     ///   - registration: The injected push-registration service.
+    ///   - analytics: The injected fire-and-forget analytics emitter. Defaults to
+    ///     ``NoopAnalytics`` for previews/tests.
     ///   - defaults: The store backing the opt-in flag (must match the suite the
     ///     registration service uses). Defaults to `.standard`.
-    public init(registration: any PushRegistering, defaults: UserDefaults = .standard) {
+    public init(
+        registration: any PushRegistering,
+        analytics: any AnalyticsEmitting = NoopAnalytics(),
+        defaults: UserDefaults = .standard
+    ) {
         self.registration = registration
+        self.analytics = analytics
         self.defaults = defaults
     }
 
@@ -60,9 +69,27 @@ public final class MobilePushCoordinator {
     /// and persist the flag. Returns whether authorization was granted.
     @discardableResult
     public func enable() async -> Bool {
+        let priorStatus = await UNUserNotificationCenter.current()
+            .notificationSettings().authorizationStatus
+        // Only an undetermined status produces a real OS prompt; gate the
+        // "shown" event on it so a re-toggle of an already-decided status does
+        // not log a phantom prompt.
+        if priorStatus == .notDetermined {
+            analytics.capture("ios_push_optin_prompt_shown", [
+                "trigger": .string("settings_toggle"),
+                "prior_authorization_status": .string("not_determined"),
+            ])
+        }
         let granted = (try? await UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .sound, .badge])) ?? false
-        guard granted else { return false }
+        guard granted else {
+            analytics.capture("ios_push_optin_declined", [
+                "trigger": .string("settings_toggle"),
+                "was_os_level_predenied": .bool(priorStatus == .denied),
+            ])
+            return false
+        }
+        analytics.capture("ios_push_optin_granted", ["trigger": .string("settings_toggle")])
         await registration.setEnabled(true)
         UIApplication.shared.registerForRemoteNotifications()
         return true
@@ -104,13 +131,20 @@ public final class MobilePushCoordinator {
 
     /// Deep-link to the workspace/terminal a tapped notification refers to.
     public func handleTap(workspaceId: String?, surfaceId: String?) {
-        guard let store else { return }
+        guard let store else {
+            analytics.capture("ios_push_deeplink_failed", ["reason": .string("no_store")])
+            return
+        }
         if let workspaceId {
             store.selectedWorkspaceID = MobileWorkspacePreview.ID(rawValue: workspaceId)
         }
         if let surfaceId {
             store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceId))
         }
+        analytics.capture("ios_push_deeplink_resolved", [
+            "resolved_workspace": .bool(workspaceId != nil),
+            "resolved_surface": .bool(surfaceId != nil),
+        ])
     }
 }
 #endif

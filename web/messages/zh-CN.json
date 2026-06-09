@@ -740,6 +740,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "diffViewer": {
+          "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
         "shortcuts": {
           "when": "每个操作可选的焦点谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于焦点上下文键 sidebarFocus、browserFocus、markdownFocus 和 terminalFocus 的布尔表达式，可用 !、&&、|| 和括号组合。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 会让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区，从而把 Ctrl+1–5 留给侧边栏。"
         }

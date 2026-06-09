@@ -740,6 +740,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "diffViewer": {
+          "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
         "shortcuts": {
           "when": "Her eylem için isteğe bağlı odak koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, sidebarFocus, browserFocus, markdownFocus ve terminalFocus odak bağlamı anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnek: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } Ctrl+1–9'un sağ kenar çubuğu odaktayken hariç her yerde çalışma alanlarını seçmesini sağlar ve Ctrl+1–5'i kenar çubuğu için boş bırakır."
         }

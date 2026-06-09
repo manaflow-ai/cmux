@@ -740,6 +740,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "diffViewer": {
+          "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
         "shortcuts": {
           "when": "مسندات تركيز اختيارية لكل إجراء (عبارات `when` على نمط VS Code)، مفهرسة بمعرّف إجراء cmux. كل قيمة هي تعبير منطقي فوق مفاتيح سياق التركيز sidebarFocus و browserFocus و markdownFocus و terminalFocus، مدمجة باستخدام ! و && و || والأقواس. لا يعمل اختصار الإجراء (ولا يتعارض مع اختصارات أخرى) إلا عندما تكون العبارة صحيحة. مثال: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } يجعل Ctrl+1–9 يحدد مساحات العمل في كل مكان ما عدا عندما يكون الشريط الجانبي الأيمن مركزا، ويترك Ctrl+1–5 متاحة للشريط الجانبي."
         }

@@ -12,6 +12,10 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CMUXDevTag</key>
+	<string>$(CMUX_DEV_TAG)</string>
+	<key>CMUXGitSHA</key>
+	<string>$(CMUX_GIT_SHA)</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
