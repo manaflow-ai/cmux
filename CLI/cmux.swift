@@ -11549,7 +11549,9 @@ struct CMUXCLI {
             let (windowOpt, _) = parseOption(subArgs, name: "--window")
             let windowHandle = try windowOpt.flatMap { try normalizeWindowHandle($0, client: client) }
             let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let workspaceHandle = try workspaceRaw.flatMap { try normalizeWorkspaceHandle($0, client: client) }
+            let workspaceHandle = try workspaceRaw.flatMap {
+                try normalizeWorkspaceHandle($0, client: client, windowHandle: windowHandle)
+            }
             return (workspaceHandle, windowHandle)
         }
 

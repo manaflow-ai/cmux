@@ -6241,7 +6241,7 @@ class TabManager: ObservableObject {
     @discardableResult
     func toggleReactGrabFromCurrentFocus() -> Bool {
         guard let workspace = selectedWorkspace else { return false }
-        return toggleReactGrab(in: workspace, browserSurfaceId: nil, returnTerminalSurfaceId: nil)
+        return toggleReactGrab(in: workspace, browserSurfaceId: nil, returnTerminalSurfaceId: nil) != nil
     }
 
     /// Toggles React Grab for a specific workspace. When `browserSurfaceId`/`returnTerminalSurfaceId`
@@ -6249,12 +6249,14 @@ class TabManager: ObservableObject {
     /// focused panel layout. An explicit browser surface (must be a browser) or return terminal
     /// (must be a terminal) overrides that route. Used by both the Cmd+Shift+G shortcut and the
     /// `cmux browser react-grab toggle` CLI command so both share one action path.
+    /// Returns the resolved browser surface id it acted on, or nil if it could not resolve/act
+    /// (so callers can report the actual browser surface rather than the focused panel).
     @discardableResult
     func toggleReactGrab(
         in workspace: Workspace,
         browserSurfaceId: UUID?,
         returnTerminalSurfaceId: UUID?
-    ) -> Bool {
+    ) -> UUID? {
         let snapshots = workspace.panels.values.map { panel in
             ReactGrabShortcutPanelSnapshot(
                 id: panel.id,
@@ -6268,12 +6270,12 @@ class TabManager: ObservableObject {
         // fallback to a different browser); otherwise resolve the route's browser from focus.
         let browserPanelId: UUID?
         if let explicit = browserSurfaceId {
-            guard workspace.browserPanel(for: explicit) != nil else { return false }
+            guard workspace.browserPanel(for: explicit) != nil else { return nil }
             browserPanelId = explicit
         } else {
             browserPanelId = route?.browserPanelId
         }
-        guard let browserPanelId else { return false }
+        guard let browserPanelId else { return nil }
 
         // Return terminal: an explicit return surface is authoritative (must be a terminal in
         // this workspace, no fallback) so pasteback never silently goes to the wrong terminal.
@@ -6281,7 +6283,7 @@ class TabManager: ObservableObject {
         // from the route (matching shortcut semantics).
         let returnTerminalPanelId: UUID?
         if let explicit = returnTerminalSurfaceId {
-            guard workspace.panels[explicit]?.panelType == .terminal else { return false }
+            guard workspace.panels[explicit]?.panelType == .terminal else { return nil }
             returnTerminalPanelId = explicit
         } else if browserSurfaceId == nil {
             returnTerminalPanelId = route?.returnTerminalPanelId
@@ -6289,11 +6291,12 @@ class TabManager: ObservableObject {
             returnTerminalPanelId = nil
         }
 
-        return performReactGrabToggle(
+        let didToggle = performReactGrabToggle(
             in: workspace,
             browserPanelId: browserPanelId,
             returnTerminalPanelId: returnTerminalPanelId
         )
+        return didToggle ? browserPanelId : nil
     }
 
     @discardableResult

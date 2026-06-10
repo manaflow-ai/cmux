@@ -12515,12 +12515,24 @@ class TerminalController {
       __cmuxPointer(el,'pointermove',c,0);__cmuxMouse(el,'mousemove',c,0);
     }
     function __cmuxSetChecked(el,desired){
-      // A click event runs the checkbox/radio activation behavior (it TOGGLES the box) even when
-      // dispatched, and it is also what React maps onChange to. So the correct way to reach a target
-      // state is to click only when the current state differs; clicking fires input + change +
-      // (React) onChange and leaves checked === desired. Setting el.checked directly does not update
-      // React's controlled state and a separate click would toggle it back.
+      // A click event runs the checkbox/radio activation behavior (it TOGGLES a checkbox / SELECTS a
+      // radio) even when dispatched, and is also what React maps onChange to. So the correct way to
+      // reach a target state is to click only when it differs; that fires input + change + (React)
+      // onChange and leaves checked === desired. Setting el.checked directly does not update React's
+      // controlled state and a separate click would toggle it back.
       if(el.checked===desired) return;
+      // A radio cannot be turned OFF by clicking (clicking a radio only ever selects it). For that
+      // one case set the property directly via the native setter and notify listeners.
+      if(desired===false && el.type==='radio'){
+        let ns=null;
+        for(let p=Object.getPrototypeOf(el);p;p=Object.getPrototypeOf(p)){
+          const d=Object.getOwnPropertyDescriptor(p,'checked'); if(d&&d.set){ns=d.set;break;}
+        }
+        if(ns){ns.call(el,false);}else{el.checked=false;}
+        el.dispatchEvent(new Event('input',{bubbles:true}));
+        el.dispatchEvent(new Event('change',{bubbles:true}));
+        return;
+      }
       if(typeof el.click==='function'){el.click();}
       else {const c=__cmuxCenter(el); __cmuxMouse(el,'click',c,0,1);}
     }
@@ -12613,9 +12625,17 @@ class TerminalController {
               const target = document.activeElement || document.body || document.documentElement;
               if (!target) return { ok: false, error: 'not_found' };
               const k = String(\(keyLiteral));
-              __cmuxKey(target, 'keydown', k);
-              if (k.length === 1) { __cmuxKey(target, 'keypress', k); }
+              const kdNotPrevented = __cmuxKey(target, 'keydown', k);
+              // keypress historically fires for character-producing keys, which includes Enter and
+              // Space; many pages still bind submit/search to keypress for Enter.
+              if (k.length === 1 || k === 'Enter') { __cmuxKey(target, 'keypress', k); }
               __cmuxKey(target, 'keyup', k);
+              // Synthetic key events do not run WebKit's native "Enter submits the form" default
+              // action. Mirror real-user/Playwright behavior by submitting the owning form when
+              // Enter was not prevented and focus is a single-line field in a form.
+              if (k === 'Enter' && kdNotPrevented && target && target.tagName === 'INPUT' && target.form) {
+                try { if (target.form.requestSubmit) { target.form.requestSubmit(); } else { target.form.submit(); } } catch (e) {}
+              }
               return { ok: true };
             })()
             """
@@ -13184,14 +13204,14 @@ class TerminalController {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
             let browserSurfaceId = v2UUID(params, "surface_id")
             let returnSurfaceId = v2UUID(params, "return_to")
-            guard tabManager.toggleReactGrab(
+            guard let actedBrowserId = tabManager.toggleReactGrab(
                 in: ws,
                 browserSurfaceId: browserSurfaceId,
                 returnTerminalSurfaceId: returnSurfaceId
             ) else { return }
             result = .ok(v2BrowserActionPayload(
                 workspace: ws,
-                surfaceId: browserSurfaceId ?? ws.focusedPanelId ?? ws.id,
+                surfaceId: actedBrowserId,
                 tabManager: tabManager,
                 extra: ["toggled": true]
             ))
