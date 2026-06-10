@@ -232,14 +232,13 @@ enum WorkspaceRemoteHostReachabilityProbe {
             return
         }
         let connection = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .tcp)
-        let lock = NSLock()
+        // Both finish paths (state updates via `connection.start(queue:)` and
+        // the timeout below) run on the serial `probeQueue`, so the
+        // first-finisher latch needs no separate synchronization.
         var finished = false
         func finish(_ outcome: WorkspaceRemoteHostProbeOutcome) {
-            lock.lock()
-            let alreadyFinished = finished
+            guard !finished else { return }
             finished = true
-            lock.unlock()
-            guard !alreadyFinished else { return }
             // NWConnection retains its handler and the handler's context
             // captures the connection; clear it before canceling so each
             // backoff-retry probe doesn't leak a connection.
