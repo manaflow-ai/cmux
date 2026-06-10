@@ -1943,6 +1943,10 @@ class TerminalController {
             return v2Result(id: id, self.v2WindowCreate(params: params))
         case "window.close":
             return v2Result(id: id, self.v2WindowClose(params: params))
+        case "window.displays":
+            return v2Result(id: id, self.v2WindowDisplays(params: params))
+        case "window.display":
+            return v2Result(id: id, self.v2WindowDisplay(params: params))
 
         // Workspaces
         case "workspace.list":
@@ -2463,6 +2467,8 @@ class TerminalController {
             "window.focus",
             "window.create",
             "window.close",
+            "window.displays",
+            "window.display",
             "workspace.list",
             "workspace.create",
             "workspace.select",
@@ -4073,6 +4079,78 @@ class TerminalController {
                 "window_id": windowId.uuidString,
                 "window_ref": v2Ref(kind: .window, uuid: windowId)
             ])
+    }
+
+    private func v2WindowDisplays(params _: [String: Any]) -> V2CallResult {
+        let displays = v2MainSync { AppDelegate.shared?.availableDisplays() } ?? []
+        let payload: [[String: Any]] = displays.map { display in
+            [
+                "name": display.name,
+                "index": display.index,
+                "display_id": v2OrNull(display.displayID.map { Int($0) }),
+                "main": display.isMain,
+                "frame": [
+                    "x": Int(display.frame.origin.x),
+                    "y": Int(display.frame.origin.y),
+                    "width": Int(display.frame.width),
+                    "height": Int(display.frame.height)
+                ]
+            ]
+        }
+        return .ok(["displays": payload])
+    }
+
+    private func v2WindowDisplay(params: [String: Any]) -> V2CallResult {
+        guard let displayQuery = (params["display"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !displayQuery.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or invalid display", data: nil)
+        }
+
+        // Explicit window target moves just that window; otherwise move every main
+        // window of this instance (a dev build usually has one).
+        if let windowId = v2UUID(params, "window_id") {
+            let resolved = v2MainSync {
+                AppDelegate.shared?.moveMainWindow(windowId: windowId, toDisplayMatching: displayQuery)
+            }
+            if let display = resolved {
+                return .ok([
+                    "display": display,
+                    "window_id": windowId.uuidString,
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "moved": [windowId.uuidString]
+                ])
+            }
+            let windowExists = v2MainSync {
+                AppDelegate.shared?.windowForMainWindowId(windowId) != nil
+            } ?? false
+            if !windowExists {
+                return .err(code: "not_found", message: "Window not found", data: [
+                    "window_id": windowId.uuidString,
+                    "window_ref": v2Ref(kind: .window, uuid: windowId)
+                ])
+            }
+            return v2DisplayNotFound(displayQuery)
+        }
+
+        guard let result = v2MainSync({
+            AppDelegate.shared?.moveAllMainWindows(toDisplayMatching: displayQuery)
+        }) else {
+            return v2DisplayNotFound(displayQuery)
+        }
+        return .ok([
+            "display": result.display,
+            "moved": result.windowIds.map { $0.uuidString }
+        ])
+    }
+
+    private func v2DisplayNotFound(_ requested: String) -> V2CallResult {
+        let names = v2MainSync { AppDelegate.shared?.availableDisplays().map(\.name) } ?? []
+        return .err(
+            code: "not_found",
+            message: "Display not found: \(requested)",
+            data: ["requested": requested, "available": names]
+        )
     }
 
     // MARK: - V2 Workspace Methods
