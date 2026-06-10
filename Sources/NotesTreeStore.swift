@@ -486,6 +486,22 @@ final class NotesTreeStore: ObservableObject {
         reload()
     }
 
+    /// Delete an index-owned flat note through the flat store so the body and
+    /// its index record/attachments go together — trashing only the body file
+    /// would leave `cmux note list` showing a note whose `read` fails.
+    func deleteFlatNote(path: String) {
+        guard let projectRoot,
+              let records = try? CmuxNoteStore.list(projectRoot: projectRoot) else { return }
+        let target = (path as NSString).standardizingPath
+        if let record = records.first(where: {
+            (CmuxNoteStore.noteBodyPath(for: $0, projectRoot: projectRoot) as NSString)
+                .standardizingPath == target
+        }) {
+            _ = try? CmuxNoteStore.delete(slug: record.slug, projectRoot: projectRoot)
+        }
+        reload()
+    }
+
     /// A path the tree may rename/delete: inside `.cmux/notes`, but never the
     /// notes directory itself nor the workspace's own root folder.
     private func isMutablePath(_ path: String) -> Bool {

@@ -259,7 +259,13 @@ struct NotesTreePanelView: NSViewRepresentable {
 
         func delete(_ node: NotesTreeNode) {
             guard !node.isVirtual else { return }
-            store.delete(path: node.path)
+            if case .note = node.kind, !isTreeOwned(node) {
+                // Index-owned flat note: delete through the flat store so the
+                // index record and attachments are removed with the body.
+                store.deleteFlatNote(path: node.path)
+            } else {
+                store.delete(path: node.path)
+            }
             reloadNow()
         }
 
