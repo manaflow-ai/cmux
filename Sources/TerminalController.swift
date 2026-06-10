@@ -10782,6 +10782,21 @@ class TerminalController {
         return detail
     }
 
+    /// True when a page-world JS failure looks like a CSP block of eval/function
+    /// construction (script-src without 'unsafe-eval'). That is the only failure
+    /// the isolated-world retry is meant to recover from; gating on it keeps the
+    /// retry from re-running a script that already failed for an ordinary reason
+    /// (a thrown exception, a timeout), which would duplicate any side effect the
+    /// script performed before throwing and could return a value from the wrong
+    /// JS context.
+    private nonisolated static func v2BrowserFailureLooksLikeCSPEvalBlock(_ message: String) -> Bool {
+        let lower = message.lowercased()
+        return lower.contains("unsafe-eval")
+            || lower.contains("content security policy")
+            || lower.contains("blocked by csp")
+            || lower.contains("refused to evaluate")
+    }
+
     private nonisolated func v2RunJavaScript(
         _ webView: WKWebView,
         script: String,
@@ -11186,18 +11201,23 @@ class TerminalController {
             rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout, contentWorld: .page)
         }
 
-        // Retry in the isolated world on failure: page CSP without 'unsafe-eval' blocks both
-        // callAsyncJavaScript's function construction and eval() in the page world, but does
-        // not apply to isolated content worlds. The isolated world shares the DOM, so internal
-        // DOM-only automation scripts (and DOM-reading user evals like document.title) still work.
+        // Retry in the isolated world only when page CSP blocked eval/function construction
+        // (script-src without 'unsafe-eval'). That block applies to callAsyncJavaScript and page
+        // eval() but not to isolated content worlds, which share the DOM, so DOM-only automation
+        // scripts and DOM-reading user evals (document.title) still work there.
         //
-        // The isolated world does NOT see page-world JS globals (window.reactRoot set by the page's
-        // own scripts). For internal automation (useEval == false) this is transparent: those scripts
-        // only touch the DOM. For a user-supplied browser.eval (useEval == true) it matters, because a
-        // value read from the isolated world can differ from the page-world value with no visible
-        // signal. So we still fall back (keeps DOM reads working under CSP) but invoke
-        // onIsolatedWorldFallback, letting browser.eval annotate the result with the content world.
-        if case .failure(let pageMessage) = rawResult, #available(macOS 11.0, *) {
+        // Gating on the CSP signature matters: a script can fail in the page world for ordinary
+        // reasons (a thrown exception, a timeout) after performing a side effect, and an
+        // unconditional retry would run it a second time and duplicate that side effect, or return
+        // a value from the isolated world that differs from the page world with no visible signal.
+        //
+        // The isolated world cannot see page-world JS globals (window.reactRoot set by the page's
+        // own scripts). For internal automation (useEval == false) that is transparent. For a
+        // user-supplied browser.eval (useEval == true) it matters, so we invoke
+        // onIsolatedWorldFallback to let browser.eval annotate the result with the content world.
+        if case .failure(let pageMessage) = rawResult,
+           Self.v2BrowserFailureLooksLikeCSPEvalBlock(pageMessage),
+           #available(macOS 11.0, *) {
             let isolatedResult = v2RunJavaScript(
                 webView,
                 script: asyncFunctionBody,
@@ -12483,8 +12503,16 @@ class TerminalController {
                 setupResult = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let surfaceId = self.v2UUID(params, "surface_id") ?? ws.focusedPanelId
-            guard let surfaceId else {
+            // Route by surface_id / tab_id / pane_id / focused, matching every other
+            // socket-worker browser command. The bespoke surface_id-or-focused
+            // resolution this replaced ignored pane_id and tab_id, so a wait routed
+            // by pane could run against the wrong webview.
+            let resolvedSurface = self.v2ResolveBrowserSurfaceId(params: params, workspace: ws)
+            if let error = resolvedSurface.error {
+                setupResult = error
+                return
+            }
+            guard let surfaceId = resolvedSurface.surfaceId else {
                 setupResult = .err(code: "not_found", message: "No focused browser surface", data: nil)
                 return
             }

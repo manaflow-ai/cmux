@@ -1,7 +1,15 @@
 import AppKit
+import CmuxControlSocket
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import Foundation
+
+/// Serial lane for in-process `cmux(...)` sidebar actions whose method runs on
+/// the socket worker (browser JS, waits). Running those on the main actor
+/// starves SwiftUI and deadlocks on a not-yet-mounted webview, which is exactly
+/// why they were moved off the main-actor dispatch path. A serial queue keeps
+/// the worker commands from one action ordered.
+private let cmuxSidebarWorkerQueue = DispatchQueue(label: "com.cmux.sidebar-action-worker")
 
 // The custom-sidebar rendering, interpreter, JSON DSL, resizable split, and
 // the file-watching model now live in the `CmuxSwiftRender` (logic) and
@@ -35,7 +43,17 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
                 }
                 guard let data = try? JSONSerialization.data(withJSONObject: payload),
                       let line = String(data: data, encoding: .utf8) else { continue }
-                _ = TerminalController.shared.runV2CommandLine(line)
+                if ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker {
+                    // Worker-lane methods (browser.navigate/click/eval/wait, etc.) must
+                    // run off the main actor; runV2CommandLine would reject them with
+                    // invalid_dispatch. handleSocketLine routes them through the same
+                    // worker entrypoint the socket uses. Sidebar actions ignore the result.
+                    cmuxSidebarWorkerQueue.async {
+                        _ = TerminalController.shared.handleSocketLine(line)
+                    }
+                } else {
+                    _ = TerminalController.shared.runV2CommandLine(line)
+                }
             case let .openURL(urlString):
                 if let url = URL(string: urlString) { NSWorkspace.shared.open(url) }
             case .log:
