@@ -150,81 +150,6 @@ final class CmuxWebView: WKWebView {
     private static let browserFocusModeContextMenuItemIdentifier =
         NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
     private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
-
-    // MARK: - Context menu link capture
-
-    private static let contextMenuLinkCaptureMessageHandlerName = "cmuxContextMenuLinkCapture"
-    private static var contextMenuLinkCaptureInstalledKey: UInt8 = 0
-
-    /// Isolated content world for the context-menu link capture hook. Both the
-    /// injected script and the message handler live here, not the page world,
-    /// so page JavaScript cannot post fake link reports and CAPTCHA providers
-    /// in cross-origin iframes cannot fingerprint the hook.
-    private static let contextMenuLinkCaptureContentWorld =
-        WKContentWorld.world(name: contextMenuLinkCaptureMessageHandlerName)
-
-    /// Document-start hook, injected into every frame, that reports the link
-    /// under the cursor the moment a `contextmenu` event fires.
-    ///
-    /// WebKit's own context-menu hit test knows the exact element but does not
-    /// expose it through public macOS API, so the custom menu actions used to
-    /// re-resolve the link later with a main-frame `elementFromPoint` hit test
-    /// at the AppKit event coordinates. That re-resolution can disagree with
-    /// the link the user actually right-clicked (page zoom scales CSS
-    /// coordinates relative to view points, and links inside iframes are
-    /// invisible to a main-frame hit test), which opened the wrong link.
-    /// Capturing the event target directly is immune to coordinate skew and
-    /// works in every frame. Purely passive capture-phase listener, same
-    /// fingerprinting-safety reasoning as the media-playback hook.
-    private static let contextMenuLinkCaptureBootstrapScriptSource = """
-    (() => {
-      try {
-        const post = (href) => {
-          try {
-            window.webkit.messageHandlers["\(contextMenuLinkCaptureMessageHandlerName)"].postMessage({
-              href: typeof href === "string" ? href : ""
-            });
-          } catch (_) {}
-        };
-        const linkForEvent = (event) => {
-          try {
-            const path = typeof event.composedPath === "function" ? event.composedPath() : [];
-            for (const node of path) {
-              if (!node || node.nodeType !== 1) continue;
-              const tag = node.tagName;
-              if ((tag === "A" || tag === "AREA") && node.href) return String(node.href);
-            }
-            const target = event.target;
-            if (target && target.closest) {
-              const link = target.closest("a[href],area[href]");
-              if (link && link.href) return String(link.href);
-            }
-          } catch (_) {}
-          return "";
-        };
-        window.addEventListener("contextmenu", (event) => {
-          post(linkForEvent(event));
-        }, true);
-      } catch (_) {}
-    })();
-    """
-
-    private final class ContextMenuLinkCaptureMessageHandler: NSObject, WKScriptMessageHandler {
-        func userContentController(
-            _ userContentController: WKUserContentController,
-            didReceive message: WKScriptMessage
-        ) {
-            guard let webView = message.webView as? CmuxWebView else { return }
-            let href = (message.body as? [String: Any])?["href"] as? String ?? ""
-            let url = href.isEmpty ? nil : URL(string: href)
-            Task { @MainActor [weak webView] in
-                webView?.noteContextMenuCapturedLink(url)
-            }
-        }
-    }
-
-    private static let sharedContextMenuLinkCaptureMessageHandler = ContextMenuLinkCaptureMessageHandler()
-
     private static let pasteAsPlainTextSharedHelpersScriptSource = """
     const __cmuxPasteAsPlainTextHelpers = (() => {
       const existing = window.__cmuxPasteAsPlainTextHelpers;
@@ -486,36 +411,6 @@ final class CmuxWebView: WKWebView {
         super.init(coder: coder)
         installPasteAsPlainTextFocusTracking()
         installContextMenuLinkCapture()
-    }
-
-    private func installContextMenuLinkCapture() {
-        let userContentController = configuration.userContentController
-        if objc_getAssociatedObject(
-            userContentController,
-            &Self.contextMenuLinkCaptureInstalledKey
-        ) != nil {
-            return
-        }
-
-        userContentController.addUserScript(
-            WKUserScript(
-                source: Self.contextMenuLinkCaptureBootstrapScriptSource,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: false,
-                in: Self.contextMenuLinkCaptureContentWorld
-            )
-        )
-        userContentController.add(
-            Self.sharedContextMenuLinkCaptureMessageHandler,
-            contentWorld: Self.contextMenuLinkCaptureContentWorld,
-            name: Self.contextMenuLinkCaptureMessageHandlerName
-        )
-        objc_setAssociatedObject(
-            userContentController,
-            &Self.contextMenuLinkCaptureInstalledKey,
-            NSNumber(value: true),
-            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-        )
     }
 
     private func installPasteAsPlainTextFocusTracking() {
@@ -1019,71 +914,21 @@ final class CmuxWebView: WKWebView {
         super.otherMouseUp(with: event)
     }
 
-    /// Converts a view-local AppKit point (bottom-left origin) to the CSS
-    /// viewport coordinates `document.elementFromPoint` expects. `pageZoom`
-    /// scales CSS pixels relative to view points, so on a zoomed page the
-    /// division is required or the hit test lands on the wrong element.
-    private func cssViewportPoint(for point: NSPoint) -> CGPoint {
-        let zoom = pageZoom > 0 ? pageZoom : 1
-        return CGPoint(x: point.x / zoom, y: (bounds.height - point.y) / zoom)
-    }
-
-    /// Finds the nearest anchor element at a given view-local point.
-    /// Used as a context-menu download fallback.
-    private func findLinkAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
-        let cssPoint = cssViewportPoint(for: point)
-        let js = """
-        (() => {
-            let el = document.elementFromPoint(\(cssPoint.x), \(cssPoint.y));
-            while (el) {
-                if (el.tagName === 'A' && el.href) return el.href;
-                el = el.parentElement;
-            }
-            return '';
-        })();
-        """
-        evaluateJavaScript(js) { result, _ in
-            guard let href = result as? String, !href.isEmpty,
-                  let url = URL(string: href) else {
-                completion(nil)
-                return
-            }
-            completion(url)
-        }
-    }
-
     // MARK: - Context menu download support
 
     /// The last context-menu point in view coordinates.
     private var lastContextMenuPoint: NSPoint = .zero
     /// Link reported by the contextmenu capture hook for the most recent
-    /// right-click (`url` is nil when the click was not on a link).
-    private struct ContextMenuCapturedLink {
+    /// right-click (`url` is nil when the click was not on a link). See
+    /// `CmuxWebView+ContextMenuLinkCapture.swift`.
+    struct ContextMenuCapturedLink {
         let url: URL?
         let uptime: TimeInterval
     }
-    private var contextMenuCapturedLink: ContextMenuCapturedLink?
+    var contextMenuCapturedLink: ContextMenuCapturedLink?
     /// Uptime at which the current context menu opened, used to pair the menu
     /// with the contextmenu capture report from the same right-click.
-    private var lastContextMenuOpenUptime: TimeInterval?
-    /// How far apart the DOM contextmenu capture and the AppKit menu open may
-    /// be while still describing the same right-click.
-    private static let contextMenuLinkCaptureMaxAge: TimeInterval = 2.0
-
-    func noteContextMenuCapturedLink(_ url: URL?) {
-        contextMenuCapturedLink = ContextMenuCapturedLink(
-            url: url,
-            uptime: ProcessInfo.processInfo.systemUptime
-        )
-    }
-
-    private func capturedContextMenuLinkURLForCurrentMenu() -> URL? {
-        guard let captured = contextMenuCapturedLink,
-              let menuOpenUptime = lastContextMenuOpenUptime,
-              abs(captured.uptime - menuOpenUptime) <= Self.contextMenuLinkCaptureMaxAge
-        else { return nil }
-        return captured.url
-    }
+    var lastContextMenuOpenUptime: TimeInterval?
     /// Saved native WebKit action for "Download Image".
     private var fallbackDownloadImageTarget: AnyObject?
     private var fallbackDownloadImageAction: Selector?
@@ -1633,86 +1478,6 @@ final class CmuxWebView: WKWebView {
         }
     }
 
-    /// Resolve the topmost link URL near a point, accounting for overlay layers.
-    private func findLinkURLAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
-        let cssPoint = cssViewportPoint(for: point)
-        let js = """
-        (() => {
-            const x = \(cssPoint.x);
-            const y = \(cssPoint.y);
-            const normalize = (raw) => {
-                if (!raw || typeof raw !== 'string') return '';
-                const trimmed = raw.trim();
-                if (!trimmed) return '';
-                if (trimmed.startsWith('//')) return window.location.protocol + trimmed;
-                return trimmed;
-            };
-            const collectChain = (start) => {
-                const out = [];
-                const seen = new Set();
-                while (start && !seen.has(start)) {
-                    seen.add(start);
-                    out.push(start);
-                    start = start.parentElement;
-                }
-                return out;
-            };
-            const linkFromElement = (el) => {
-                if (!el) return '';
-                const attr = (name) => normalize(el.getAttribute ? el.getAttribute(name) : '');
-                if (el.closest) {
-                    const closestLink = el.closest('a[href],area[href]');
-                    if (closestLink && closestLink.href) return normalize(closestLink.href);
-                }
-                if ((el.tagName === 'A' || el.tagName === 'AREA') && el.href) {
-                    return normalize(el.href);
-                }
-                const attrCandidates = ['href', 'data-href', 'data-url', 'data-link', 'data-link-url'];
-                for (const name of attrCandidates) {
-                    const v = attr(name);
-                    if (v) return v;
-                }
-                if (el.querySelector) {
-                    const nestedLink = el.querySelector('a[href],area[href]');
-                    if (nestedLink && nestedLink.href) return normalize(nestedLink.href);
-                }
-                return '';
-            };
-            const tryNodes = (nodes) => {
-                for (const start of nodes) {
-                    for (const node of collectChain(start)) {
-                        const found = linkFromElement(node);
-                        if (found) return found;
-                    }
-                    if (start && start.shadowRoot && start.shadowRoot.elementFromPoint) {
-                        const inner = start.shadowRoot.elementFromPoint(x, y);
-                        if (inner) {
-                            for (const node of collectChain(inner)) {
-                                const found = linkFromElement(node);
-                                if (found) return found;
-                            }
-                        }
-                    }
-                }
-                return '';
-            };
-            const nodes = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
-            const found = tryNodes(nodes);
-            if (found) return found;
-            const single = document.elementFromPoint ? document.elementFromPoint(x, y) : null;
-            return linkFromElement(single) || '';
-        })();
-        """
-        evaluateJavaScript(js) { result, _ in
-            guard let href = result as? String, !href.isEmpty,
-                  let url = URL(string: href) else {
-                completion(nil)
-                return
-            }
-            completion(url)
-        }
-    }
-
     private func debugInspectElementsAtPoint(_ point: NSPoint, traceID: String, kind: String) {
 #if DEBUG
         let cssPoint = cssViewportPoint(for: point)
@@ -1754,34 +1519,6 @@ final class CmuxWebView: WKWebView {
             )
         }
 #endif
-    }
-
-    private func resolveContextMenuLinkURL(at point: NSPoint, completion: @escaping (URL?) -> Void) {
-        if let contextMenuLinkURLProvider {
-            contextMenuLinkURLProvider(self, point, completion)
-            return
-        }
-        // Prefer the link captured at contextmenu time: it is the actual event
-        // target, so it stays correct under page zoom and inside iframes where
-        // a main-frame elementFromPoint hit test resolves the wrong element.
-        if let captured = capturedContextMenuLinkURLForCurrentMenu() {
-            completion(captured)
-            return
-        }
-        findLinkURLAtPoint(point, completion: completion)
-    }
-
-    private func canOpenInDefaultBrowser(_ url: URL) -> Bool {
-        let scheme = url.scheme?.lowercased() ?? ""
-        return scheme == "http" || scheme == "https"
-    }
-
-    private func openContextMenuLinkInDefaultBrowser(_ url: URL) {
-        if let contextMenuDefaultBrowserOpener {
-            _ = contextMenuDefaultBrowserOpener(url)
-            return
-        }
-        _ = NSWorkspace.shared.open(url)
     }
 
     private func appendBrowserFocusModeContextMenuItem(to menu: NSMenu) {
