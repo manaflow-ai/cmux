@@ -81,11 +81,9 @@ private func addFileExplorerExternalOpenItems(
 /// the search results list's double-click / Return) so the behavior stays
 /// consistent across surfaces. Callers must guard for local providers and skip
 /// directories before calling this — only readable local files reach here.
-///
-/// `@MainActor`: reads settings and dispatches to `NSWorkspace.shared.open`
-/// (via `FileExternalOpenAction` / `PreferredEditorSettings`), which must run on
-/// the main thread. Both call sites are already main-actor isolated.
-@MainActor
+/// Kept nonisolated (callees are nonisolated and both call sites are
+/// synchronous nonisolated AppKit delegate methods, like the context-menu
+/// handlers); `@MainActor` here would make the call implicitly async.
 private func performFileExplorerFileOpen(path: String, onOpenFilePreview: (String) -> Void) {
     let action = FileExplorerDoubleClickActionSettings.resolvedAction()
     let hasPreferredEditor = PreferredEditorSettings.resolvedCommand() != nil

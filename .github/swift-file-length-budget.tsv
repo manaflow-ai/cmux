@@ -41,7 +41,7 @@
 2509	Sources/KeyboardShortcutSettings.swift
 2474	Sources/TerminalNotificationStore.swift
 2327	cmuxTests/CJKIMEInputTests.swift
-2324	Sources/FileExplorerView.swift
+2322	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
 2193	Sources/Mobile/MobileHostService.swift
 2138	Sources/SessionPersistence.swift
