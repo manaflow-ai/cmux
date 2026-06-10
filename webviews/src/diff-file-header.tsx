@@ -1,52 +1,28 @@
-import { getFiletypeFromFileName, type FileDiffMetadata } from "@pierre/diffs";
+import type { FileDiffMetadata } from "@pierre/diffs";
 import type { DiffViewerLabelResolver } from "./labels";
 
-// Short, friendly language labels for the file-header badge (Graphite shows the
-// language next to the path). Falls back to an uppercased extension so every
-// file still gets a tidy badge without an exhaustive map.
-const LANGUAGE_LABELS: Record<string, string> = {
-  typescript: "TS",
-  tsx: "TSX",
-  javascript: "JS",
-  jsx: "JSX",
-  json: "JSON",
-  swift: "Swift",
-  python: "Python",
-  rust: "Rust",
-  go: "Go",
-  ruby: "Ruby",
-  java: "Java",
-  kotlin: "Kotlin",
-  c: "C",
-  cpp: "C++",
-  csharp: "C#",
-  css: "CSS",
-  scss: "SCSS",
-  html: "HTML",
-  markdown: "MD",
-  shellscript: "Shell",
-  bash: "Shell",
-  yaml: "YAML",
-  toml: "TOML",
-  sql: "SQL",
-  zig: "Zig",
-  objc: "Obj-C",
-  objcpp: "Obj-C++",
-};
-
+/**
+ * File-type badge for the header, derived from the file extension (Graphite
+ * shows the language next to the path). Deliberately the uppercased extension
+ * rather than a friendly language name: an extension like `TSX`/`TS`/`SWIFT` is
+ * a universal, locale-independent file-type code (the same in every UI
+ * language), so it needs no localization. Returns "" for extensionless files
+ * (e.g. `Makefile`) so they don't get a noisy badge.
+ */
 export function diffFileLanguageLabel(fileDiff: FileDiffMetadata): string {
-  const detected = fileDiff.lang ?? getFiletypeFromFileName(fileDiff.name) ?? "";
-  // `getFiletypeFromFileName` returns "text" as a catch-all; treat that as "no
-  // language" so plain/unknown files don't all get a noisy "TEXT" badge.
-  const lang = detected === "text" ? "" : detected;
-  if (lang && LANGUAGE_LABELS[lang]) {
-    return LANGUAGE_LABELS[lang];
+  const name = fileDiff.name ?? "";
+  const slash = name.lastIndexOf("/");
+  const dot = name.lastIndexOf(".");
+  // Only a real trailing ".ext" on the basename counts (ignore dotfiles like
+  // `.gitignore` and dots inside directory names).
+  if (dot <= slash + 1 || dot >= name.length - 1) {
+    return "";
   }
-  const extension = fileDiff.name.includes(".") ? fileDiff.name.split(".").pop() ?? "" : "";
-  if (extension && extension.length <= 5) {
-    return extension.toUpperCase();
+  const extension = name.slice(dot + 1);
+  if (extension.length > 5 || !/^[a-z0-9]+$/i.test(extension)) {
+    return "";
   }
-  return lang ? lang.toUpperCase() : "";
+  return extension.toUpperCase();
 }
 
 export function diffFileLineTotals(fileDiff: FileDiffMetadata): { additions: number; deletions: number } {

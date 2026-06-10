@@ -127,8 +127,8 @@ export function codeViewUnsafeCSS(): string {
          drifting. The divider is an inset shadow rather than a border-bottom for
          the same reason (a border would add a pixel the metric doesn't know
          about). */
-      height: 44px;
-      min-height: 44px;
+      height: ${DIFF_HEADER_HEIGHT}px;
+      min-height: ${DIFF_HEADER_HEIGHT}px;
       padding-inline: 14px !important;
       display: flex;
       align-items: center;
