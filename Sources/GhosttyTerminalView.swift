@@ -5306,28 +5306,34 @@ enum TerminalSurfaceFocusPlacement: Equatable {
 private func recordAgentHibernationTerminalInput(
     workspaceId: UUID,
     panelId: UUID,
-    leavesTrailingTextAfterCommand: Bool = false
+    pendingPromptSurvivals: Int = 0
 ) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
     AgentHibernationController.shared.recordTerminalInput(
         workspaceId: workspaceId,
         panelId: panelId,
-        leavesTrailingTextAfterCommand: leavesTrailingTextAfterCommand
+        pendingPromptSurvivals: pendingPromptSurvivals
     )
 }
 
-/// Whether a batched payload both runs a command and leaves text editable at
-/// the next prompt, e.g. "echo ok\npartial": the first prompt transition
-/// after it must not clear the pending-input hibernation guard. Keyboard
-/// input arrives per keystroke and never matches.
-private func terminalInputLeavesTrailingTextAfterCommand(_ text: String) -> Bool {
-    guard let lastSettlingIndex = text.lastIndex(where: { character in
+/// How many prompt transitions the pending-input hibernation guard must
+/// survive for a batched payload that leaves text editable at the prompt.
+/// "cmd1\ncmd2\npartial" runs two commands — two prompt returns — before
+/// "partial" sits on the editable line, so the guard must outlive both.
+/// Returns 0 when nothing trails the last settling character (the normal
+/// prompt-transition clear applies) or when no settling character exists
+/// (pending until a real command cycle). Keyboard input arrives per
+/// keystroke and never produces a positive count.
+private func terminalInputPendingPromptSurvivals(_ text: String) -> Int {
+    let isSettling: (Character) -> Bool = { character in
         character == "\r" || character == "\n" ||
             character == "\u{03}" || character == "\u{04}" || character == "\u{15}"
-    }) else {
-        return false
     }
-    return !text[text.index(after: lastSettlingIndex)...].isEmpty
+    guard let lastSettlingIndex = text.lastIndex(where: isSettling),
+          !text[text.index(after: lastSettlingIndex)...].isEmpty else {
+        return 0
+    }
+    return text.lazy.filter(isSettling).count
 }
 
 final class TerminalSurface: Identifiable, ObservableObject {
@@ -7276,7 +7282,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendText(_ text: String) -> Bool {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
-        let leavesTrailingText = terminalInputLeavesTrailingTextAfterCommand(text)
+        let pendingPromptSurvivals = terminalInputPendingPromptSurvivals(text)
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return false }
             let queued = enqueuePendingSocketInput(.pasteText(data))
@@ -7284,7 +7290,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 recordAgentHibernationTerminalInput(
                     workspaceId: tabId,
                     panelId: id,
-                    leavesTrailingTextAfterCommand: leavesTrailingText
+                    pendingPromptSurvivals: pendingPromptSurvivals
                 )
                 requestBackgroundSurfaceStartIfNeeded()
             }
@@ -7297,7 +7303,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         recordAgentHibernationTerminalInput(
             workspaceId: tabId,
             panelId: id,
-            leavesTrailingTextAfterCommand: leavesTrailingText
+            pendingPromptSurvivals: pendingPromptSurvivals
         )
         writeTextData(data, to: liveSurface)
         return true
@@ -7403,7 +7409,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendInputResult(_ text: String) -> InputSendResult {
         guard !text.isEmpty else { return .sent }
-        let leavesTrailingText = terminalInputLeavesTrailingTextAfterCommand(text)
+        let pendingPromptSurvivals = terminalInputPendingPromptSurvivals(text)
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             let queued = enqueuePendingSocketInput(text)
@@ -7411,7 +7417,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 recordAgentHibernationTerminalInput(
                     workspaceId: tabId,
                     panelId: id,
-                    leavesTrailingTextAfterCommand: leavesTrailingText
+                    pendingPromptSurvivals: pendingPromptSurvivals
                 )
                 requestBackgroundSurfaceStartIfNeeded()
             }
@@ -7424,7 +7430,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         recordAgentHibernationTerminalInput(
             workspaceId: tabId,
             panelId: id,
-            leavesTrailingTextAfterCommand: leavesTrailingText
+            pendingPromptSurvivals: pendingPromptSurvivals
         )
         sendInput(text, to: liveSurface)
         return .sent
@@ -9624,19 +9630,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func recordDirectAgentHibernationTerminalInput(
-        leavesTrailingTextAfterCommand: Bool = false
+        pendingPromptSurvivals: Int = 0
     ) {
         guard let terminalSurface else { return }
         recordAgentHibernationTerminalInput(
             workspaceId: terminalSurface.tabId,
             panelId: terminalSurface.id,
-            leavesTrailingTextAfterCommand: leavesTrailingTextAfterCommand
+            pendingPromptSurvivals: pendingPromptSurvivals
         )
     }
 
-    private func clipboardLeavesTrailingTextAfterCommand() -> Bool {
-        guard let pasted = NSPasteboard.general.string(forType: .string) else { return false }
-        return terminalInputLeavesTrailingTextAfterCommand(pasted)
+    private func clipboardPendingPromptSurvivals() -> Int {
+        guard let pasted = NSPasteboard.general.string(forType: .string) else { return 0 }
+        return terminalInputPendingPromptSurvivals(pasted)
     }
 
     // MARK: - Clipboard paste
@@ -9644,7 +9650,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @IBAction func paste(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "paste.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput(
-            leavesTrailingTextAfterCommand: clipboardLeavesTrailingTextAfterCommand()
+            pendingPromptSurvivals: clipboardPendingPromptSurvivals()
         )
         _ = performBindingAction("paste_from_clipboard")
     }
@@ -9653,7 +9659,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @IBAction func pasteAsPlainText(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "pasteAsPlainText.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput(
-            leavesTrailingTextAfterCommand: clipboardLeavesTrailingTextAfterCommand()
+            pendingPromptSurvivals: clipboardPendingPromptSurvivals()
         )
         _ = performBindingAction("paste_from_clipboard")
     }
@@ -16072,7 +16078,7 @@ extension GhosttyNSView: NSTextInputClient {
 
         // Otherwise send directly to the terminal
         recordDirectAgentHibernationTerminalInput(
-            leavesTrailingTextAfterCommand: terminalInputLeavesTrailingTextAfterCommand(sanitizedChars)
+            pendingPromptSurvivals: terminalInputPendingPromptSurvivals(sanitizedChars)
         )
         sendTextToSurface(
             sanitizedChars,

@@ -55,7 +55,7 @@ final class AgentHibernationController {
     private var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var pendingCommandLineByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
-    private var pendingSurvivesNextPromptByPanel: Set<AgentHibernationPanelKey> = []
+    private var pendingPromptSurvivalsByPanel: [AgentHibernationPanelKey: Int] = [:]
     private var lastCommandStartByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var seenLivePanelKeys: Set<AgentHibernationPanelKey> = []
     private var trackingEnabledAt: TimeInterval?
@@ -127,7 +127,7 @@ final class AgentHibernationController {
         workspaceId: UUID,
         panelId: UUID,
         recordedAt: Date? = nil,
-        leavesTrailingTextAfterCommand: Bool = false
+        pendingPromptSurvivals: Int = 0
     ) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
         let recordedAt = recordedAt ?? Date()
@@ -138,13 +138,13 @@ final class AgentHibernationController {
         // proves the line settled. Only the shell's own prompt transitions
         // clear this; see recordShellActivityTransition.
         pendingCommandLineByPanel[key] = recordedAt.timeIntervalSince1970
-        // A batched payload such as "echo ok\npartial" runs a command AND
-        // leaves text editable at the next prompt, so the first prompt
-        // transition after it must not clear the pending state.
-        if leavesTrailingTextAfterCommand {
-            pendingSurvivesNextPromptByPanel.insert(key)
+        // A batched payload such as "cmd1\ncmd2\npartial" runs one command
+        // per settling character and only then leaves text editable, so the
+        // pending state must outlive that many prompt transitions.
+        if pendingPromptSurvivals > 0 {
+            pendingPromptSurvivalsByPanel[key] = pendingPromptSurvivals
         } else {
-            pendingSurvivesNextPromptByPanel.remove(key)
+            pendingPromptSurvivalsByPanel.removeValue(forKey: key)
         }
     }
 
@@ -172,11 +172,14 @@ final class AgentHibernationController {
             lastCommandStartByPanel[key] = now
         case .promptIdle:
             let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
-            if pendingSurvivesNextPromptByPanel.contains(key) {
-                // The batched input's trailing text is now the editable line;
-                // it stays pending until later input settles through a fresh
-                // command cycle.
-                pendingSurvivesNextPromptByPanel.remove(key)
+            if let survivals = pendingPromptSurvivalsByPanel[key], survivals > 0 {
+                // One of the batched commands returned to a prompt; the
+                // trailing text is only editable after the last of them.
+                if survivals == 1 {
+                    pendingPromptSurvivalsByPanel.removeValue(forKey: key)
+                } else {
+                    pendingPromptSurvivalsByPanel[key] = survivals - 1
+                }
             } else if let pendingAt = pendingCommandLineByPanel[key],
                       let commandStartAt = lastCommandStartByPanel[key],
                       pendingAt <= commandStartAt {
@@ -535,7 +538,7 @@ final class AgentHibernationController {
         activityByPanel.removeAll(keepingCapacity: false)
         terminalInputByPanel.removeAll(keepingCapacity: false)
         pendingCommandLineByPanel.removeAll(keepingCapacity: false)
-        pendingSurvivesNextPromptByPanel.removeAll(keepingCapacity: false)
+        pendingPromptSurvivalsByPanel.removeAll(keepingCapacity: false)
         lastCommandStartByPanel.removeAll(keepingCapacity: false)
         seenLivePanelKeys.removeAll(keepingCapacity: false)
         lifecycleChangeByPanel.removeAll(keepingCapacity: false)
@@ -550,7 +553,7 @@ final class AgentHibernationController {
         activityByPanel = activityByPanel.filter { currentKeys.contains($0.key) }
         terminalInputByPanel = terminalInputByPanel.filter { currentKeys.contains($0.key) }
         pendingCommandLineByPanel = pendingCommandLineByPanel.filter { currentKeys.contains($0.key) }
-        pendingSurvivesNextPromptByPanel = pendingSurvivesNextPromptByPanel.filter { currentKeys.contains($0) }
+        pendingPromptSurvivalsByPanel = pendingPromptSurvivalsByPanel.filter { currentKeys.contains($0.key) }
         lastCommandStartByPanel = lastCommandStartByPanel.filter { currentKeys.contains($0.key) }
         seenLivePanelKeys = seenLivePanelKeys.filter { currentKeys.contains($0) }
         lifecycleChangeByPanel = lifecycleChangeByPanel.filter { currentKeys.contains($0.key) }

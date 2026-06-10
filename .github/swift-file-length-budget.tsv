@@ -6,7 +6,7 @@
 19941	Sources/Workspace.swift
 19161	Sources/ContentView.swift
 17923	Sources/AppDelegate.swift
-16586	Sources/GhosttyTerminalView.swift
+16592	Sources/GhosttyTerminalView.swift
 13589	Sources/Panels/BrowserPanel.swift
 11916	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9959	Sources/TabManager.swift
@@ -131,7 +131,7 @@
 669	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 668	cmuxTests/FeedCoordinatorTests.swift
 668	cmuxTests/KeyboardShortcutContextTests.swift
-658	Sources/App/AgentHibernationController.swift
+661	Sources/App/AgentHibernationController.swift
 654	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 653	Sources/CmuxTopSnapshot.swift
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
