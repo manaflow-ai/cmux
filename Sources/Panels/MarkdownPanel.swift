@@ -17,8 +17,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     let id: UUID
     let panelType: PanelType = .markdown
 
-    /// Absolute path to the markdown file being displayed.
-    let filePath: String
+    /// Absolute path to the markdown file being displayed. Re-pointed in
+    /// place when a Notes-tree move/rename relocates the file (or a folder
+    /// above it) so open viewers follow instead of going "File unavailable".
+    private(set) var filePath: String
 
     /// Project-scoped note slug when this Markdown panel was opened through
     /// the note surface path. Plain Markdown panels never infer this from path.
@@ -99,8 +101,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var pendingTextViewFocus = false
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
-    // NotificationCenter token; removal is thread-safe so deinit can drop it.
+    // NotificationCenter tokens; removal is thread-safe so deinit can drop them.
     private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var relocationObserver: NSObjectProtocol?
     // The typography default this viewer is currently tracking. While the panel
     // still matches it, a default change (Set as Default / cmux.json reload) is
     // adopted; once the user customizes the panel it diverges and is left alone.
@@ -141,6 +144,43 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         loadFileContent()
         startWatching()
         observeTypographyDefaults()
+        observeNoteRelocations()
+    }
+
+    /// Follow Notes-tree moves/renames so a panel open on the relocated file
+    /// (or on a file inside a relocated folder) keeps working at the new path.
+    private func observeNoteRelocations() {
+        relocationObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxNoteFileRelocated,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let oldPath = notification.userInfo?["oldPath"] as? String,
+                  let newPath = notification.userInfo?["newPath"] as? String else { return }
+            Task { @MainActor in
+                self?.followRelocation(from: oldPath, to: newPath)
+            }
+        }
+    }
+
+    private func followRelocation(from oldPath: String, to newPath: String) {
+        guard !isClosed else { return }
+        let current = (filePath as NSString).standardizingPath
+        let remapped: String
+        if current == oldPath {
+            remapped = newPath
+        } else if current.hasPrefix(oldPath + "/") {
+            remapped = newPath + current.dropFirst(oldPath.count)
+        } else {
+            return
+        }
+        filePath = remapped
+        if noteBodyPath != nil { noteBodyPath = remapped }
+        displayTitle = (remapped as NSString).lastPathComponent
+        // Re-read from the new location (keeping any unsaved editor buffer)
+        // and re-arm the watcher there; future saves also land at the new path.
+        loadFileContent(replacingDirtyContent: false)
+        startWatching()
     }
 
     /// True for paths inside a `.cmux/notes` tree (the per-workspace Notes
@@ -579,5 +619,15 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
         }
+        if let relocationObserver {
+            NotificationCenter.default.removeObserver(relocationObserver)
+        }
     }
+}
+
+extension Notification.Name {
+    /// Posted by ``NotesTreeStore`` after a move/rename relocates a note file
+    /// or folder on disk. `userInfo`: `oldPath` / `newPath` as standardized
+    /// absolute paths; a folder relocation implies every path beneath it.
+    static let cmuxNoteFileRelocated = Notification.Name("cmuxNoteFileRelocated")
 }

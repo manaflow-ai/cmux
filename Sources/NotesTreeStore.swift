@@ -518,8 +518,23 @@ final class NotesTreeStore: ObservableObject {
               NotesTreeStorage.isWithin(child: destinationFolder, orEqualTo: notesDir)
         else { return nil }
         let moved = try? NotesTreeStorage.move(sourcePath: sourcePath, intoFolder: destinationFolder)
+        if let moved { postRelocation(from: sourcePath, to: moved) }
         reload()
         return moved
+    }
+
+    /// Announce a completed on-disk relocation so open viewers (markdown
+    /// panels on the moved note, or on notes inside a moved/renamed folder)
+    /// re-point at the new path instead of going "File unavailable".
+    private func postRelocation(from oldPath: String, to newPath: String) {
+        let old = (oldPath as NSString).standardizingPath
+        let new = (newPath as NSString).standardizingPath
+        guard old != new else { return }
+        NotificationCenter.default.post(
+            name: .cmuxNoteFileRelocated,
+            object: nil,
+            userInfo: ["oldPath": old, "newPath": new]
+        )
     }
 
     /// Rename a note/folder in place. Confined to the project's `.cmux/notes`
@@ -545,6 +560,7 @@ final class NotesTreeStore: ObservableObject {
                 return collapsed
             })
         }
+        postRelocation(from: oldPrefix, to: newPrefix)
         reload()
         return renamed
     }
@@ -576,6 +592,7 @@ final class NotesTreeStore: ObservableObject {
         let moved = try? CmuxNoteStore.relocateBody(
             slug: record.slug, projectRoot: projectRoot, toDirectory: destinationFolder
         )
+        if let moved { postRelocation(from: target, to: moved) }
         reload()
         return moved
     }
