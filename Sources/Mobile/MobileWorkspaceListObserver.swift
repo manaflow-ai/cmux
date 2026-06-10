@@ -22,6 +22,7 @@ final class MobileWorkspaceListObserver {
     private var selectionCancellable: AnyCancellable?
     private var groupsCancellable: AnyCancellable?
     private var notificationsCancellable: AnyCancellable?
+    private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var lastSummaryHash: Int = 0
     /// Throttle window with `latest: true`. First event in a burst emits
@@ -86,27 +87,59 @@ final class MobileWorkspaceListObserver {
         // not part of the TabManager graph. A new notification (or a cleared one)
         // changes a row's preview + relative time without touching the tab set,
         // groups, panels, or title, so observe `$notifications` to push it.
+        // Marking a notification read also flows through `$notifications` (the
+        // mutated element re-publishes the array), which the unread flag in the
+        // per-workspace signature turns into a hash change.
         notificationsCancellable = notificationStore?.$notifications
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
             }
+        // Workspace-level unread indicators (manual mark-unread, panel-derived,
+        // session-restored) live in their own published sets, not in
+        // `notifications`. Toggling one changes the phone's unread dot without
+        // touching anything else this observer watches, so merge all three here.
+        if let notificationStore {
+            unreadIndicatorsCancellable = Publishers.MergeMany(
+                notificationStore.$manualUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher(),
+                notificationStore.$panelDerivedUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher(),
+                notificationStore.$restoredUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher()
+            )
+            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] _ in
+                self?.emitIfNeeded(force: false)
+            }
+        }
 
         refreshPerWorkspaceSubscriptions(tabs: tabManager.tabs)
     }
 
-    /// A per-workspace signature of the latest-notification preview the mobile
-    /// payload serializes (its id + timestamp), so the hash changes when a new
-    /// notification arrives or the latest one is cleared. Empty when no store is
-    /// attached (tests, or a build with notifications unavailable).
     private func currentPreviewSignatures(for tabs: [Workspace]) -> [UUID: Int] {
+        Self.previewSignatures(for: tabs, notificationStore: notificationStore)
+    }
+
+    /// A per-workspace signature of the notification-store state the mobile
+    /// payload serializes: the latest-notification preview (its id + timestamp)
+    /// and the workspace's unread flag. The hash changes when a new notification
+    /// arrives, the latest one is cleared, or the workspace flips between read
+    /// and unread (mark-read, manual mark-unread, panel-derived or restored
+    /// indicators). A workspace with no notification and no unread state is
+    /// absent from the map. Empty when no store is attached (tests, or a build
+    /// with notifications unavailable).
+    static func previewSignatures(
+        for tabs: [Workspace],
+        notificationStore: TerminalNotificationStore?
+    ) -> [UUID: Int] {
         guard let notificationStore else { return [:] }
         var signatures: [UUID: Int] = [:]
         for workspace in tabs {
-            guard let latest = notificationStore.latestNotification(forTabId: workspace.id) else { continue }
+            let latest = notificationStore.latestNotification(forTabId: workspace.id)
+            let isUnread = notificationStore.workspaceIsUnread(forTabId: workspace.id)
+            guard latest != nil || isUnread else { continue }
             var hasher = Hasher()
-            hasher.combine(latest.id)
-            hasher.combine(latest.createdAt)
+            hasher.combine(latest?.id)
+            hasher.combine(latest?.createdAt)
+            hasher.combine(isUnread)
             signatures[workspace.id] = hasher.finalize()
         }
         return signatures

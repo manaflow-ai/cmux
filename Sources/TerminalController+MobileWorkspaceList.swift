@@ -180,10 +180,13 @@ extension TerminalController {
     /// one terminal (only the scoped branch passes it; the all-windows branch
     /// always passes nil, so it lists every terminal). The scoped
     /// terminal-not-found check is enforced by the caller after the list is built.
+    /// `notificationStore` defaults to the app-global store; tests inject one so
+    /// the unread/activity fields are deterministic.
     func mobileWorkspacePayload(
         workspace: Workspace,
         isSelected: Bool,
-        requestedTerminalID: UUID?
+        requestedTerminalID: UUID?,
+        notificationStore: TerminalNotificationStore? = nil
     ) -> [String: Any] {
         let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
             if let requestedTerminalID, terminal.id != requestedTerminalID {
@@ -202,7 +205,9 @@ extension TerminalController {
             ]
         }
 
-        let preview = mobileWorkspacePreview(workspace: workspace)
+        let store = notificationStore ?? AppDelegate.shared?.notificationStore
+        let latestNotification = store?.latestNotification(forTabId: workspace.id)
+        let preview = Self.mobileWorkspacePreview(latestNotification: latestNotification)
         return [
             "id": workspace.id.uuidString,
             "title": workspace.title,
@@ -218,6 +223,15 @@ extension TerminalController {
             // nil when the workspace has no activity yet.
             "preview": v2OrNull(preview?.text),
             "preview_at": v2OrNull(preview?.epochSeconds),
+            // Every row carries a last-activity stamp so the phone can always
+            // render a relative time: the latest notification when there is one,
+            // the workspace's creation/restore time otherwise. preview_at alone
+            // left quiet workspaces with no timestamp at all.
+            "last_activity_at": (latestNotification?.createdAt ?? workspace.createdAt).timeIntervalSince1970,
+            // Mirrors the Mac sidebar's workspace unread badge (notification
+            // unread + manual/panel-derived/restored indicators) so the phone can
+            // show an iMessage-style unread dot.
+            "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
             "terminals": terminals
         ]
     }
@@ -230,11 +244,10 @@ extension TerminalController {
     /// stripped, collapses runs of whitespace, and is length-capped so a noisy
     /// notification can never bloat the list payload or wrap the row. `nil` when
     /// the workspace has no notification yet (the row then shows no preview).
-    private func mobileWorkspacePreview(workspace: Workspace) -> (text: String, epochSeconds: Double)? {
-        guard let notification = AppDelegate.shared?.notificationStore?
-            .latestNotification(forTabId: workspace.id) else {
-            return nil
-        }
+    private static func mobileWorkspacePreview(
+        latestNotification: TerminalNotification?
+    ) -> (text: String, epochSeconds: Double)? {
+        guard let notification = latestNotification else { return nil }
         let raw = notification.body.isEmpty ? notification.title : notification.body
         guard let text = Self.mobilePreviewSanitize(raw) else { return nil }
         return (text, notification.createdAt.timeIntervalSince1970)
