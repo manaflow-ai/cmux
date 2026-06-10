@@ -2587,7 +2587,8 @@ struct ContentView: View {
             guard !cwd.isEmpty else { return nil }
             return NotesTreeStorage.resolveWorkspaceRoot(
                 projectRoot: NoteSupport.projectRoot(forCwd: cwd),
-                cwd: cwd
+                cwd: cwd,
+                anchorId: workspace.noteAnchorId
             )
         }
     }
@@ -2743,7 +2744,11 @@ struct ContentView: View {
             notesTreeStore.setWorkspace(
                 title: workspace.title,
                 projectRoot: NoteSupport.projectRoot(forCwd: dir),
-                currentDirectory: dir
+                currentDirectory: dir,
+                anchorId: workspace.noteAnchorId,
+                observedSessions: { [weak workspace] in
+                    workspace?.notesTreeObservedAgentSessions() ?? []
+                }
             )
         } else {
             notesTreeStore.clear()

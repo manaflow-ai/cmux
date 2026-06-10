@@ -3,14 +3,56 @@ import Foundation
 // MARK: - Marker files
 
 /// Contents of a per-workspace `_workspace.json` marker. The notes folder is
-/// keyed by the workspace's `cwd` (its working directory) — a stable identity
-/// that survives app restarts, unlike the ephemeral per-instance note anchor —
-/// so a workspace always rebinds to the same folder instead of orphaning notes.
+/// keyed by the workspace's persistent note anchor (`Workspace.noteAnchorId`,
+/// saved/restored with the session) so each workspace gets its own folder even
+/// when several workspaces share a working directory; pre-anchor folders are
+/// adopted by `cwd` match and stamped with the anchor on first write.
 struct NotesWorkspaceMarker: Codable, Equatable, Sendable {
     /// Human-friendly workspace title, kept fresh for display/browsing.
     var title: String
-    /// The workspace's working directory (standardized); the binding key.
+    /// The workspace's working directory (standardized); display + legacy
+    /// binding fallback.
     var cwd: String
+    /// The workspace's persistent note anchor id — the binding key. Optional
+    /// for markers written before anchor keying existed.
+    var anchorId: String?
+    /// Agent sessions observed running in this workspace's panes, accrued
+    /// over time so the Notes tab lists THIS workspace's sessions rather than
+    /// every session sharing the directory.
+    var sessions: [NotesWorkspaceSessionRecord]?
+}
+
+/// One agent session known to belong to this workspace (it ran in one of the
+/// workspace's panes). Persisted inside `_workspace.json`.
+struct NotesWorkspaceSessionRecord: Codable, Equatable, Sendable {
+    var agent: String
+    var sessionId: String
+    /// The pane's note anchor (`Workspace.noteAnchorIdsByPanelId`) when one was
+    /// minted — links pane-attached flat notes to this session for nesting.
+    var surfaceAnchorId: String?
+    var title: String
+    var cwd: String
+    /// Session recency (Unix seconds), hydrated from the live session stores.
+    var modified: TimeInterval
+    /// When this workspace last observed the session running in a pane.
+    var lastSeen: TimeInterval
+}
+
+/// A pane-session observation handed to the store by the app layer (live
+/// snapshots + the shared restorable-agent index).
+struct NotesTreeObservedSession: Equatable, Sendable {
+    var agent: String
+    var sessionId: String
+    var surfaceAnchorId: String?
+}
+
+/// A flat note (`.cmux/notes/index.json` record) scoped to one workspace,
+/// pre-resolved for the tree: display title, absolute body path, and the
+/// surface anchor that links it to a pane (and thus possibly a session).
+struct NotesFlatNoteRef: Equatable, Sendable {
+    var title: String
+    var path: String
+    var surfaceAnchorId: String?
 }
 
 /// Contents of a `_session.json` marker inside a session folder. Drives the
@@ -75,49 +117,171 @@ enum NotesTreeStorage {
 
     // MARK: Workspace root resolution
 
-    /// Resolve (without creating) the notes root directory for a workspace,
-    /// keyed by its `cwd`. Prefers an existing folder whose `_workspace.json.cwd`
-    /// matches; otherwise returns the path it *would* create from the cwd's
-    /// basename plus a short stable hash of the full cwd.
-    static func resolveWorkspaceRoot(projectRoot: String, cwd: String) -> String {
+    /// Resolve (without creating) the notes root directory for a workspace.
+    /// Preference order: a folder whose marker carries this workspace's
+    /// `anchorId`; a legacy folder matching `cwd` that has no anchor yet (it
+    /// gets adopted and stamped on the next write); otherwise the path that
+    /// *would* be created — keyed by the anchor when present so same-cwd
+    /// workspaces never share a folder.
+    static func resolveWorkspaceRoot(projectRoot: String, cwd: String, anchorId: String? = nil) -> String {
         let notesDir = NoteSupport.notesDirectory(forProjectRoot: projectRoot)
         let normalizedCwd = (cwd as NSString).standardizingPath
-        if let existing = existingWorkspaceFolder(inNotesDir: notesDir, cwd: normalizedCwd) {
+        if let existing = existingWorkspaceFolder(inNotesDir: notesDir, cwd: normalizedCwd, anchorId: anchorId) {
             return existing
         }
-        return (notesDir as NSString).appendingPathComponent(workspaceFolderName(cwd: normalizedCwd))
+        return (notesDir as NSString).appendingPathComponent(
+            workspaceFolderName(cwd: normalizedCwd, anchorId: anchorId)
+        )
     }
 
     /// Ensure the workspace notes root exists and its `_workspace.json` reflects
-    /// the latest `title`. Returns the absolute path to the root.
+    /// the latest `title`/`anchorId`, preserving the accrued session records.
+    /// Returns the absolute path to the root.
     @discardableResult
-    static func ensureWorkspaceRoot(projectRoot: String, cwd: String, title: String) throws -> String {
+    static func ensureWorkspaceRoot(
+        projectRoot: String, cwd: String, title: String, anchorId: String? = nil
+    ) throws -> String {
         let normalizedCwd = (cwd as NSString).standardizingPath
-        let root = resolveWorkspaceRoot(projectRoot: projectRoot, cwd: normalizedCwd)
+        let root = resolveWorkspaceRoot(projectRoot: projectRoot, cwd: normalizedCwd, anchorId: anchorId)
         try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
-        let marker = NotesWorkspaceMarker(title: title, cwd: normalizedCwd)
-        try writeJSON(marker, toPath: (root as NSString).appendingPathComponent(workspaceMarkerName))
+        let markerPath = (root as NSString).appendingPathComponent(workspaceMarkerName)
+        let existing: NotesWorkspaceMarker? = try? readJSON(fromPath: markerPath)
+        let marker = NotesWorkspaceMarker(
+            title: title,
+            cwd: normalizedCwd,
+            anchorId: anchorId ?? existing?.anchorId,
+            sessions: existing?.sessions
+        )
+        if marker != existing {
+            try writeJSON(marker, toPath: markerPath)
+        }
         return root
     }
 
-    private static func existingWorkspaceFolder(inNotesDir notesDir: String, cwd: String) -> String? {
+    private static func existingWorkspaceFolder(
+        inNotesDir notesDir: String, cwd: String, anchorId: String?
+    ) -> String? {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: notesDir) else { return nil }
+        var legacyCwdMatch: String?
         for name in names where !name.hasPrefix(".") {
             let dir = (notesDir as NSString).appendingPathComponent(name)
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: dir, isDirectory: &isDir), isDir.boolValue else { continue }
             let markerPath = (dir as NSString).appendingPathComponent(workspaceMarkerName)
             guard let marker: NotesWorkspaceMarker = try? readJSON(fromPath: markerPath) else { continue }
-            if (marker.cwd as NSString).standardizingPath == cwd { return dir }
+            if let anchorId, marker.anchorId == anchorId { return dir }
+            if (marker.cwd as NSString).standardizingPath == cwd {
+                if anchorId == nil { return dir }
+                // Anchor-less marker: adoption candidate for the first
+                // anchor-carrying workspace that binds to this cwd.
+                if marker.anchorId == nil, legacyCwdMatch == nil { legacyCwdMatch = dir }
+            }
         }
-        return nil
+        return legacyCwdMatch
     }
 
-    static func workspaceFolderName(cwd: String) -> String {
+    static func workspaceFolderName(cwd: String, anchorId: String? = nil) -> String {
         let base = slugify((cwd as NSString).lastPathComponent, fallback: "workspace")
-        let suffix = shortHash(of: (cwd as NSString).standardizingPath)
+        let suffix = shortHash(of: anchorId ?? (cwd as NSString).standardizingPath)
         return "\(base)-\(suffix)"
+    }
+
+    // MARK: Workspace session records
+
+    /// The session records accrued for this workspace, recency-sorted.
+    static func readWorkspaceSessions(inRoot root: String) -> [NotesWorkspaceSessionRecord] {
+        let markerPath = (root as NSString).appendingPathComponent(workspaceMarkerName)
+        guard let marker: NotesWorkspaceMarker = try? readJSON(fromPath: markerPath) else { return [] }
+        return (marker.sessions ?? []).sorted { $0.modified > $1.modified }
+    }
+
+    /// Merge freshly observed pane sessions and live scan results into the
+    /// marker's session records: observations upsert (stamping `lastSeen` and
+    /// the pane's surface anchor), live entries hydrate titles/recency/cwd for
+    /// every record they match. Capped to the most recent `cap` records.
+    /// Returns whether the marker changed on disk.
+    @discardableResult
+    static func updateWorkspaceSessions(
+        inRoot root: String,
+        observed: [NotesTreeObservedSession],
+        live: [NotesSessionDescriptor],
+        now: TimeInterval,
+        cap: Int = 50
+    ) -> Bool {
+        let markerPath = (root as NSString).appendingPathComponent(workspaceMarkerName)
+        guard let marker: NotesWorkspaceMarker = try? readJSON(fromPath: markerPath) else { return false }
+        var byKey: [String: NotesWorkspaceSessionRecord] = [:]
+        for record in marker.sessions ?? [] {
+            byKey["\(record.agent)\n\(record.sessionId)"] = record
+        }
+        var liveByKey: [String: NotesSessionDescriptor] = [:]
+        for descriptor in live {
+            liveByKey["\(descriptor.agent)\n\(descriptor.sessionId)"] = descriptor
+        }
+        for observation in observed {
+            let key = "\(observation.agent)\n\(observation.sessionId)"
+            var record = byKey[key] ?? NotesWorkspaceSessionRecord(
+                agent: observation.agent,
+                sessionId: observation.sessionId,
+                surfaceAnchorId: nil,
+                title: "",
+                cwd: "",
+                modified: now,
+                lastSeen: now
+            )
+            record.lastSeen = now
+            if let anchor = observation.surfaceAnchorId { record.surfaceAnchorId = anchor }
+            byKey[key] = record
+        }
+        for (key, descriptor) in liveByKey {
+            guard var record = byKey[key] else { continue }
+            let trimmedTitle = descriptor.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedTitle.isEmpty { record.title = descriptor.title }
+            if descriptor.modified > record.modified { record.modified = descriptor.modified }
+            if !descriptor.cwd.isEmpty { record.cwd = descriptor.cwd }
+            byKey[key] = record
+        }
+        let merged = Array(
+            byKey.values
+                .sorted { ($0.modified, $0.lastSeen) > ($1.modified, $1.lastSeen) }
+                .prefix(cap)
+        )
+        guard merged != (marker.sessions ?? []) else { return false }
+        var updated = marker
+        updated.sessions = merged
+        do {
+            try writeJSON(updated, toPath: markerPath)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: Flat (index.json) notes
+
+    /// The flat notes belonging to one workspace: `.cmux/notes/index.json`
+    /// records carrying an attachment to `workspaceAnchorId`, resolved to
+    /// display title + absolute body path. Records whose body file is missing
+    /// (e.g. deleted from the tree) are skipped. Notes from other workspaces
+    /// never appear.
+    static func listIndexedNotes(projectRoot: String, workspaceAnchorId: String) -> [NotesFlatNoteRef] {
+        guard let records = try? CmuxNoteStore.list(projectRoot: projectRoot) else { return [] }
+        let fm = FileManager.default
+        var refs: [NotesFlatNoteRef] = []
+        for record in records {
+            let attachments = record.attachments.filter { $0.workspaceAnchorId == workspaceAnchorId }
+            guard !attachments.isEmpty else { continue }
+            let path = CmuxNoteStore.noteBodyPath(for: record, projectRoot: projectRoot)
+            guard fm.fileExists(atPath: path) else { continue }
+            let trimmedTitle = record.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            refs.append(NotesFlatNoteRef(
+                title: trimmedTitle.isEmpty ? record.slug : record.title,
+                path: path,
+                surfaceAnchorId: attachments.compactMap(\.surfaceAnchorId).first
+            ))
+        }
+        return refs
     }
 
     // MARK: Listing
@@ -146,23 +310,6 @@ enum NotesTreeStorage {
             }
         }
         return entries.sorted(by: displayOrder)
-    }
-
-    /// List the project's *flat* notes — `.md` files sitting directly in the
-    /// `.cmux/notes/` directory, written by `cmux note` and the note surface —
-    /// so the tree surfaces them alongside the workspace's own notes. Only
-    /// files: workspace folders (other workspaces included) are never listed.
-    static func listFlatNotes(inNotesDir notesDir: String) -> [NotesTreeEntry] {
-        let fm = FileManager.default
-        guard let names = try? fm.contentsOfDirectory(atPath: notesDir) else { return [] }
-        var entries: [NotesTreeEntry] = []
-        for name in names where !name.hasPrefix(".") && name.hasSuffix(".md") {
-            let full = (notesDir as NSString).appendingPathComponent(name)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: full, isDirectory: &isDir), !isDir.boolValue else { continue }
-            entries.append(NotesTreeEntry(name: name, path: full, kind: .note))
-        }
-        return entries
     }
 
     /// Display order shared by every level of the tree: plain folders (alpha)

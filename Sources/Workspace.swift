@@ -12003,6 +12003,54 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    /// Agent sessions known to run in THIS workspace's panes, for the Notes
+    /// tree: hibernated/restored snapshots first, then the shared
+    /// restorable-agent index (hook records + live-PID filtering) enumerated
+    /// by workspace id. Hook records carry the SURFACE UUID (`CMUX_SURFACE_ID`),
+    /// which is translated to the owning panel so each entry can carry the
+    /// pane's note anchor (when one was minted, never minting) — that is what
+    /// lets pane-attached flat notes nest under their session. Read-only.
+    func notesTreeObservedAgentSessions() -> [NotesTreeObservedSession] {
+        SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
+        var seen = Set<String>()
+        var observed: [NotesTreeObservedSession] = []
+        func add(_ snapshot: SessionRestorableAgentSnapshot, panelId: UUID?) {
+            let sessionId = snapshot.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sessionId.isEmpty else { return }
+            let key = "\(snapshot.kind.rawValue)\n\(sessionId)"
+            guard seen.insert(key).inserted else { return }
+            observed.append(NotesTreeObservedSession(
+                agent: snapshot.kind.rawValue,
+                sessionId: sessionId,
+                surfaceAnchorId: panelId.flatMap { noteAnchorIdsByPanelId[$0] }
+            ))
+        }
+        for (panelId, snapshot) in restoredAgentSnapshotsByPanelId {
+            add(snapshot, panelId: panelId)
+        }
+        if let index = SharedLiveAgentIndex.shared.index {
+            // Agents live across app relaunches (pane reattach), so their hook
+            // records keep the PREVIOUS run's workspace/surface UUIDs — the
+            // only relaunch-proof attribution is the live pid the workspace
+            // tracks per pane. Recorded workspace id still matches agents
+            // launched fresh this run.
+            var pidOwner: [Int: UUID] = [:]
+            for (ownerId, keys) in agentPIDKeysByPanelId {
+                for key in keys {
+                    if let pid = agentPIDs[key] { pidOwner[Int(pid)] = ownerId }
+                }
+            }
+            for (key, entry) in index.allEntries() {
+                let pidMatchedOwner = entry.processIDs.compactMap { pidOwner[$0] }.first
+                guard pidMatchedOwner != nil || key.workspaceId == id else { continue }
+                let ownerId = pidMatchedOwner ?? key.panelId
+                let panelId = panelIdFromSurfaceId(TabID(uuid: ownerId)) ?? ownerId
+                add(entry.snapshot, panelId: panelId)
+            }
+        }
+        return observed
+    }
+
     /// The working directory app-level actions (diff viewer, configured commands)
     /// should target for this workspace: the focused panel's tracked directory, then
     /// its terminal's requested directory, then the workspace's current directory.

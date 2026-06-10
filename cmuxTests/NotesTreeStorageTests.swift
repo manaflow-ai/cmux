@@ -159,22 +159,126 @@ import Testing
         #expect(fm.fileExists(atPath: parent))  // unchanged
     }
 
-    @Test func listFlatNotesShowsOnlyRootLevelMarkdownFiles() throws {
-        let root = try NotesTreeStorage.ensureWorkspaceRoot(
-            projectRoot: projectRoot, cwd: "/work", title: "WS"
+    @Test func workspaceRootsAreKeyedByAnchorAndAdoptLegacyCwdFolders() throws {
+        // A folder written before anchor keying existed (no anchorId).
+        let legacy = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work/app", title: "Legacy"
         )
-        // The flat-note directory is the workspace folder's parent
-        // (<projectRoot>/.cmux/notes), shared with `cmux note` output.
-        let notesDir = (root as NSString).deletingLastPathComponent
-        try write("flat note", to: (notesDir as NSString).appendingPathComponent("note-abc.md"))
-        try write("{}", to: (notesDir as NSString).appendingPathComponent("index.json"))
-        try write("hidden", to: (notesDir as NSString).appendingPathComponent(".hidden.md"))
+        // The first anchored workspace binding to that cwd adopts the legacy
+        // folder (no orphaned notes)…
+        let adopted = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work/app", title: "WS A", anchorId: "anchor-a"
+        )
+        #expect(adopted == legacy)
+        // …and rebinding resolves by anchor from then on.
+        #expect(NotesTreeStorage.resolveWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work/app", anchorId: "anchor-a"
+        ) == legacy)
+        // A second workspace on the SAME cwd gets its own folder — same-cwd
+        // workspaces must never blend their notes/sessions together.
+        let second = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work/app", title: "WS B", anchorId: "anchor-b"
+        )
+        #expect(second != legacy)
+        #expect(NotesTreeStorage.resolveWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work/app", anchorId: "anchor-b"
+        ) == second)
+    }
 
-        let flat = NotesTreeStorage.listFlatNotes(inNotesDir: notesDir)
-        // Only the markdown file: no index.json, no dotfiles, and crucially no
-        // workspace folders (this workspace's or any other's).
-        #expect(flat.map(\.name) == ["note-abc.md"])
-        #expect(flat.allSatisfy { $0.kind == .note })
+    @Test func workspaceSessionRecordsAccrueHydrateAndStayScoped() throws {
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-w"
+        )
+        // Observing a pane session persists a record with its surface anchor.
+        let observed = [
+            NotesTreeObservedSession(agent: "claude", sessionId: "s-1", surfaceAnchorId: "anchor-s1")
+        ]
+        #expect(NotesTreeStorage.updateWorkspaceSessions(
+            inRoot: root, observed: observed, live: [], now: 100
+        ))
+        var records = NotesTreeStorage.readWorkspaceSessions(inRoot: root)
+        #expect(records.count == 1)
+        #expect(records[0].sessionId == "s-1")
+        #expect(records[0].surfaceAnchorId == "anchor-s1")
+        #expect(records[0].lastSeen == 100)
+
+        // A live scan hydrates title/recency for recorded sessions, and live
+        // sessions never observed in this workspace are NOT added — that is
+        // the workspace scoping (vs. every session sharing the directory).
+        let live = [
+            NotesSessionDescriptor(agent: "claude", sessionId: "s-1", title: "Fix auth", cwd: "/work", modified: 200),
+            NotesSessionDescriptor(agent: "claude", sessionId: "s-foreign", title: "Other workspace", cwd: "/work", modified: 999),
+        ]
+        #expect(NotesTreeStorage.updateWorkspaceSessions(
+            inRoot: root, observed: [], live: live, now: 150
+        ))
+        records = NotesTreeStorage.readWorkspaceSessions(inRoot: root)
+        #expect(records.count == 1)
+        #expect(records[0].title == "Fix auth")
+        #expect(records[0].modified == 200)
+
+        // Idempotent: same inputs again rewrite nothing.
+        #expect(!NotesTreeStorage.updateWorkspaceSessions(
+            inRoot: root, observed: [], live: live, now: 150
+        ))
+
+        // ensureWorkspaceRoot rewrites (e.g. a title change) preserve records.
+        _ = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "Renamed", anchorId: "anchor-w"
+        )
+        #expect(NotesTreeStorage.readWorkspaceSessions(inRoot: root).count == 1)
+    }
+
+    @Test func indexedFlatNotesAreScopedToWorkspaceAnchor() throws {
+        _ = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-a"
+        )
+        let notesDir = NoteSupport.notesDirectory(forProjectRoot: projectRoot)
+        func record(
+            id: String, title: String, workspaceAnchor: String, surfaceAnchor: String?
+        ) -> CmuxNoteRecord {
+            CmuxNoteRecord(
+                id: id,
+                slug: "slug-\(id)",
+                title: title,
+                bodyPath: "notes/\(id).md",
+                attachments: [
+                    CmuxNoteAttachment(
+                        kind: surfaceAnchor == nil ? .workspace : .surface,
+                        workspaceAnchorId: workspaceAnchor,
+                        surfaceAnchorId: surfaceAnchor,
+                        surfaceKind: surfaceAnchor == nil ? nil : "terminal",
+                        createdAt: 1
+                    )
+                ],
+                createdAt: 1,
+                updatedAt: 2
+            )
+        }
+        struct IndexFixture: Codable {
+            var version = 1
+            var notes: [CmuxNoteRecord]
+        }
+        let fixture = IndexFixture(notes: [
+            record(id: "pane", title: "Pane note", workspaceAnchor: "anchor-a", surfaceAnchor: "anchor-s1"),
+            record(id: "ws", title: "Workspace note", workspaceAnchor: "anchor-a", surfaceAnchor: nil),
+            record(id: "other", title: "Other workspace", workspaceAnchor: "anchor-b", surfaceAnchor: nil),
+            record(id: "gone", title: "Missing body", workspaceAnchor: "anchor-a", surfaceAnchor: nil),
+        ])
+        let data = try JSONEncoder().encode(fixture)
+        try data.write(to: URL(fileURLWithPath: (notesDir as NSString).appendingPathComponent("index.json")))
+        try write("pane body", to: (notesDir as NSString).appendingPathComponent("pane.md"))
+        try write("ws body", to: (notesDir as NSString).appendingPathComponent("ws.md"))
+        try write("other body", to: (notesDir as NSString).appendingPathComponent("other.md"))
+        // No body for "gone".
+
+        let refs = NotesTreeStorage.listIndexedNotes(projectRoot: projectRoot, workspaceAnchorId: "anchor-a")
+        // Only anchor-a notes with a live body; the pane note carries its
+        // surface anchor so the tree can nest it under that pane's session.
+        #expect(Set(refs.map(\.title)) == ["Pane note", "Workspace note"])
+        let pane = try #require(refs.first { $0.title == "Pane note" })
+        #expect(pane.surfaceAnchorId == "anchor-s1")
+        #expect(pane.path.hasSuffix("/notes/pane.md") || pane.path.hasSuffix("pane.md"))
     }
 
     @Test func sessionMarkerRefreshTracksLiveSessionData() throws {

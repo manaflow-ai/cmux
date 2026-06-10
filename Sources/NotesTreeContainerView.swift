@@ -396,7 +396,11 @@ final class NotesTreeOutlineView: NSOutlineView {
         switch node.kind {
         case .note:
             add(String(localized: "notes.action.open", defaultValue: "Open"), #selector(openContext))
-            add(String(localized: "notes.action.rename", defaultValue: "Rename"), #selector(renameContext))
+            // Index-owned flat notes can't be renamed from the tree (their
+            // body path is pinned by .cmux/notes/index.json).
+            if coordinator?.canRename(node) == true {
+                add(String(localized: "notes.action.rename", defaultValue: "Rename"), #selector(renameContext))
+            }
             add(String(localized: "notes.action.reveal", defaultValue: "Reveal in Finder"), #selector(revealContext))
             menu.addItem(.separator())
             add(String(localized: "notes.action.delete", defaultValue: "Delete"), #selector(deleteContext))

@@ -270,15 +270,29 @@ struct NotesTreePanelView: NSViewRepresentable {
         /// (creating a note fires the very watcher that would reload the tree).
         private(set) var isRenaming = false
 
+        /// Whether the tree owns this node's file (it lives in the workspace
+        /// subtree). Flat notes are owned by the `.cmux/notes` index — renaming
+        /// or moving their body file would orphan the index's `bodyPath` — so
+        /// the tree offers them open/reveal/delete only.
+        func isTreeOwned(_ node: NotesTreeNode) -> Bool {
+            guard !node.isVirtual, let root = store.resolvedRootPath else { return false }
+            return NotesTreeStorage.isWithin(child: node.path, orEqualTo: root)
+        }
+
+        func canRename(_ node: NotesTreeNode) -> Bool {
+            node.kind.sessionMarker == nil && isTreeOwned(node)
+        }
+
         /// Start a VSCode-style inline rename on the node's row. Session folders
-        /// are not renamable (their label comes from the session marker). With
-        /// `openOnReturn`, a Return-committed rename of a note opens it.
+        /// are not renamable (their label comes from the session marker), and
+        /// neither are index-owned flat notes. With `openOnReturn`, a
+        /// Return-committed rename of a note opens it.
         func beginRename(
             _ node: NotesTreeNode,
             in outlineView: NSOutlineView,
             openOnReturn: Bool = false
         ) {
-            guard node.kind.sessionMarker == nil else { return }
+            guard canRename(node) else { return }
             let row = outlineView.row(forItem: node)
             guard row >= 0,
                   let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: true) as? NotesTreeCellView
@@ -363,10 +377,15 @@ struct NotesTreePanelView: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
             guard let node = item as? NotesTreeNode, !node.path.isEmpty else { return nil }
             // Notes drag like Files-tab files: the file-preview writer carries
-            // the pane-drop payload (markdown viewer) and a fileURL, composed
-            // with the tree's move type for in-tree drags.
+            // the pane-drop payload (markdown viewer) and a fileURL. Tree-owned
+            // notes compose the move type for in-tree drags; index-owned flat
+            // notes must not move (the index's bodyPath would orphan), so they
+            // drag as preview/export only.
             if case .note = node.kind {
-                return NotesTreePanelView.NoteDragWriter(filePath: node.path, displayTitle: node.displayName)
+                if isTreeOwned(node) {
+                    return NotesTreePanelView.NoteDragWriter(filePath: node.path, displayTitle: node.displayName)
+                }
+                return FilePreviewDragPasteboardWriter(filePath: node.path, displayTitle: node.displayName)
             }
             let pbItem = NSPasteboardItem()
             // Virtual session rows have nothing on disk to move; they drag as
