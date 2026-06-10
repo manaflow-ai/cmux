@@ -173,12 +173,14 @@ struct CMUXMobileRootView: View {
                 hasKnownPairedMac: store.hasKnownPairedMac,
                 showAddDevice: showAddDevice,
                 signOut: signOut,
-                setupHelpHighlight: disconnectedSetupHelpHighlight
+                setupHelpHighlight: disconnectedSetupHelpHighlight,
+                store: store
             )
             .sheet(isPresented: $isShowingAddDeviceSheet) {
                 PairingView(
                     pairingCode: $store.pairingCode,
                     connectionError: store.connectionError,
+                    connectionErrorGuidance: store.connectionErrorGuidance,
                     connectPairingCode: {
                         await store.connectPairingInput()
                     },
