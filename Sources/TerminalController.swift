@@ -12630,16 +12630,22 @@ class TerminalController {
               const kdNotPrevented = __cmuxKey(target, 'keydown', k);
               // keypress historically fires for character-producing keys, which includes Enter and
               // Space; many pages still bind submit/search to keypress for Enter.
-              if (k.length === 1 || k === 'Enter') { __cmuxKey(target, 'keypress', k); }
+              let kpNotPrevented = true;
+              if (k.length === 1 || k === 'Enter') { kpNotPrevented = __cmuxKey(target, 'keypress', k); }
               __cmuxKey(target, 'keyup', k);
               // Synthetic key events do not run WebKit's native "Enter submits the form" default
-              // action. Mirror real-user/Playwright behavior by submitting the owning form when
-              // Enter was not prevented and focus is a single-line TEXT-LIKE field (the only inputs
-              // whose native Enter behavior submits; checkboxes/radios/buttons/file/etc do not).
-              if (k === 'Enter' && kdNotPrevented && target && target.tagName === 'INPUT' && target.form) {
+              // action. Mirror real-user behavior, but only when neither keydown nor keypress was
+              // canceled (pages cancel Enter to run their own handling) and the native HTML implicit
+              // submission rules would apply: focus is a single-line text-like field AND the form has
+              // a submit control or exactly one such field.
+              if (k === 'Enter' && kdNotPrevented && kpNotPrevented && target && target.tagName === 'INPUT' && target.form) {
                 const submitTypes = ['text','search','email','url','tel','password','number','date','datetime-local','month','week','time'];
                 if (submitTypes.indexOf((target.type || 'text').toLowerCase()) !== -1) {
-                  try { if (target.form.requestSubmit) { target.form.requestSubmit(); } else { target.form.submit(); } } catch (e) {}
+                  const hasSubmit = !!target.form.querySelector('input[type=submit],input[type=image],button[type=submit],button:not([type])');
+                  const textFields = target.form.querySelectorAll('input[type=text],input[type=search],input[type=email],input[type=url],input[type=tel],input[type=password],input[type=number],input[type=date],input[type=datetime-local],input[type=month],input[type=week],input[type=time],input:not([type])');
+                  if (hasSubmit || textFields.length === 1) {
+                    try { if (target.form.requestSubmit) { target.form.requestSubmit(); } else { target.form.submit(); } } catch (e) {}
+                  }
                 }
               }
               return { ok: true };
