@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Build a Release app from a fork, without Manaflow's signing certificates.
 #
-# Personal values come from env vars or a `.fork-config` file at the repo root
-# (key=value lines; keep it out of git via .git/info/exclude):
+# Personal values come from env vars or a `.fork-config` file at the repo root.
+# The file is sourced as shell, so quote values containing spaces
+# (FORK_APP_NAME="my cmux"); keep it out of git via .git/info/exclude.
 #   FORK_BUNDLE_ID   required. Must be in YOUR namespace, e.g. dev.you.cmux.staging
 #                    (com.cmuxterm.* is registered to Manaflow's Apple team).
 #   FORK_TEAM_ID     optional. Apple team ID for development signing (free personal
