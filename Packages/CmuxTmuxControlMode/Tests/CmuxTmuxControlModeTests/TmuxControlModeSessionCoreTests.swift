@@ -100,6 +100,33 @@ struct TmuxControlModeSessionCoreTests {
         #expect(commands(core.sendInput([0x68, 0x69])) == ["send-keys -t %5 -H 68 69"])
     }
 
+    @Test func prefixDDetachesViaDetachClient() {
+        var core = TmuxControlModeSessionCore()
+        _ = core.start(initialSize: TerminalSize(columns: 80, rows: 24))
+        _ = core.consume(Array("%begin 1 1 0\n%end 1 1 0\n".utf8))
+        _ = core.consume(Array("%begin 2 2 0\n1:%5\n%end 2 2 0\n".utf8))
+        // Ctrl-b (0x02) then 'd' (0x64) -> detach-client, no send-keys.
+        #expect(commands(core.sendInput([0x02, 0x64])) == ["detach-client"])
+    }
+
+    @Test func prefixSplitAcrossCallsStillDetaches() {
+        var core = TmuxControlModeSessionCore()
+        _ = core.start(initialSize: TerminalSize(columns: 80, rows: 24))
+        _ = core.consume(Array("%begin 1 1 0\n%end 1 1 0\n".utf8))
+        _ = core.consume(Array("%begin 2 2 0\n1:%5\n%end 2 2 0\n".utf8))
+        #expect(commands(core.sendInput([0x02])).isEmpty) // prefix held
+        #expect(commands(core.sendInput([0x64])) == ["detach-client"])
+    }
+
+    @Test func unmappedPrefixChordPassesThrough() {
+        var core = TmuxControlModeSessionCore()
+        _ = core.start(initialSize: TerminalSize(columns: 80, rows: 24))
+        _ = core.consume(Array("%begin 1 1 0\n%end 1 1 0\n".utf8))
+        _ = core.consume(Array("%begin 2 2 0\n1:%5\n%end 2 2 0\n".utf8))
+        // Ctrl-b then 'x' (not mapped) -> both bytes sent to the pane.
+        #expect(commands(core.sendInput([0x02, 0x78])) == ["send-keys -t %5 -H 02 78"])
+    }
+
     @Test func resizeEmitsRefreshClient() {
         var core = TmuxControlModeSessionCore()
         _ = core.start(initialSize: TerminalSize(columns: 80, rows: 24))

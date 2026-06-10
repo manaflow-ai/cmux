@@ -39,6 +39,14 @@ public struct TmuxControlModeSessionCore: Sendable {
     private var pendingLiveOutput: [UInt8] = []
     private var ended = false
 
+    /// tmux prefix handling. Keys arrive already encoded, so the prefix is the
+    /// control byte (Ctrl-b = 0x02 by default). We intercept `<prefix> d` to
+    /// detach; any other prefixed key is passed through literally (so Ctrl-b
+    /// still works in the pane for unmapped chords).
+    private static let prefixByte: UInt8 = 0x02 // Ctrl-b
+    private static let detachKey: UInt8 = 0x64  // 'd'
+    private var awaitingPrefixChord = false
+
     public init() {}
 
     /// Negotiate size, then ask tmux for its panes so we can resolve the one to
@@ -63,7 +71,32 @@ public struct TmuxControlModeSessionCore: Sendable {
 
     public mutating func sendInput(_ bytes: [UInt8]) -> [Effect] {
         guard !ended, let pane = targetPane, !bytes.isEmpty else { return [] }
-        return [.write(commandBytes(TmuxControlModeEncoder.sendKeys(paneID: pane, bytes: bytes)))]
+        var effects: [Effect] = []
+        var passthrough: [UInt8] = []
+        func flush() {
+            guard !passthrough.isEmpty else { return }
+            effects.append(.write(commandBytes(TmuxControlModeEncoder.sendKeys(paneID: pane, bytes: passthrough))))
+            passthrough.removeAll(keepingCapacity: true)
+        }
+        for byte in bytes {
+            if awaitingPrefixChord {
+                awaitingPrefixChord = false
+                if byte == Self.detachKey {
+                    flush()
+                    effects.append(.write(commandBytes(TmuxControlModeEncoder.detachClient())))
+                } else {
+                    // Unmapped chord: pass the prefix and key through literally.
+                    passthrough.append(Self.prefixByte)
+                    passthrough.append(byte)
+                }
+            } else if byte == Self.prefixByte {
+                awaitingPrefixChord = true
+            } else {
+                passthrough.append(byte)
+            }
+        }
+        flush()
+        return effects
     }
 
     public mutating func resize(_ size: TerminalSize) -> [Effect] {

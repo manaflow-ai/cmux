@@ -27,6 +27,12 @@ public enum TmuxControlModeEncoder {
         "refresh-client -C \(size.columns)x\(size.rows)"
     }
 
+    /// Detach this control client (the tmux session keeps running). tmux then
+    /// emits `%exit`, which ends the control-mode session.
+    public static func detachClient() -> String {
+        "detach-client"
+    }
+
     /// List the panes of the attached session's current window, active flag
     /// first, so we can resolve which pane to render.
     /// Each result line is `<pane_active>:<pane_id>`, e.g. `1:%3`.
