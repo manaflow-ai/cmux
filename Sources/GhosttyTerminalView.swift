@@ -11500,18 +11500,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let flags: NSEvent.ModifierFlags = [.command]
         let commandMods = modsFromFlags(flags)
 
+        // Drive the production flagsChanged override for the Cmd press and
+        // release so the regression covers the real modifier-transition path:
+        // that handler is what refreshes ghostty link state under a stationary
+        // pointer (ghostty ignores a same-cell mouse_pos with new mods), so a
+        // helper that synthesized the forwarding itself would keep passing
+        // with the handler broken.
+        guard let cmdDown = debugFlagsChangedEvent(commandDown: true, at: clampedPoint),
+              let cmdUp = debugFlagsChangedEvent(commandDown: false, at: clampedPoint) else {
+            return ["error": "Failed to construct flagsChanged events"]
+        }
+
         window?.makeFirstResponder(self)
         ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, noMods)
-        // Press Cmd as a modifier key event, like flagsChanged does for a real
-        // keypress. Ghostty only refreshes link state under a stationary
-        // pointer through this mods-changed key path — a same-cell mouse_pos
-        // with new mods is ignored — and without the refresh the click is
-        // latched as starting off-link and never opens the OSC 8 target.
-        _ = sendGhosttyKey(surface, debugCommandModifierKeyEvent(action: GHOSTTY_ACTION_PRESS, mods: commandMods))
-        ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, commandMods)
+        flagsChanged(with: cmdDown)
         let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, commandMods)
         let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, commandMods)
-        _ = sendGhosttyKey(surface, debugCommandModifierKeyEvent(action: GHOSTTY_ACTION_RELEASE, mods: noMods))
+        flagsChanged(with: cmdUp)
 
         return [
             "pressHandled": pressHandled ? "1" : "0",
@@ -11519,19 +11524,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ]
     }
 
-    private func debugCommandModifierKeyEvent(
-        action: ghostty_input_action_e,
-        mods: ghostty_input_mods_e
-    ) -> ghostty_input_key_s {
-        var keyEvent = ghostty_input_key_s()
-        keyEvent.action = action
-        keyEvent.keycode = UInt32(kVK_Command)
-        keyEvent.mods = mods
-        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-        keyEvent.text = nil
-        keyEvent.composing = false
-        keyEvent.unshifted_codepoint = 0
-        return keyEvent
+    private func debugFlagsChangedEvent(commandDown: Bool, at pointInView: NSPoint) -> NSEvent? {
+        // cmuxGhosttyModifierActionForFlagsChanged distinguishes left-Cmd
+        // presses by the device-side bit, so a bare .command is read as a
+        // release.
+        let rawFlags: UInt = commandDown
+            ? (NSEvent.ModifierFlags.command.rawValue | UInt(NX_DEVICELCMDKEYMASK))
+            : 0
+        return NSEvent.keyEvent(
+            with: .flagsChanged,
+            location: convert(pointInView, to: nil),
+            modifierFlags: NSEvent.ModifierFlags(rawValue: rawFlags),
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window?.windowNumber ?? 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: UInt16(kVK_Command)
+        )
     }
 #endif
 
