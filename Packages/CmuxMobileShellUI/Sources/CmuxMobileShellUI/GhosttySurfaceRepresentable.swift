@@ -105,6 +105,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
         private var composerController: UIHostingController<TerminalComposerView>?
         private var composerMounted = false
+        /// Bumped on every mount/unmount transition so a deferred close completion
+        /// can tell whether it is still the latest transition. Guards the
+        /// close-then-quickly-reopen race: an interrupted close animation still runs
+        /// its completion, which must not unmount a composer that was remounted in
+        /// the meantime.
+        private var composerMountGeneration = 0
 
         init(surfaceID: String, store: CMUXMobileShellStore) {
             self.surfaceID = surfaceID
@@ -140,6 +146,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         func setComposerMounted(_ mounted: Bool) {
             guard mounted != composerMounted, let store, let surfaceView else { return }
             composerMounted = mounted
+            composerMountGeneration &+= 1
             if mounted {
                 let controller = composerController ?? makeComposerController(store: store)
                 composerController = controller
@@ -153,8 +160,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 // mounted, on the keyboard curve, then unmount it in the completion.
                 // Unmounting first left the band collapsing over empty space (a janky
                 // close). Keep the surface reference for the deferred unmount.
-                surfaceView.setComposerBandHeight(0, animated: true) { [weak surfaceView] in
-                    surfaceView?.mountComposerView(nil)
+                //
+                // The completion is generation-guarded: UIKit runs animation
+                // completions even when the animation is interrupted, so a
+                // close-then-quick-reopen would otherwise unmount the freshly
+                // remounted field and leave `composerMounted` true with no view.
+                let generation = composerMountGeneration
+                surfaceView.setComposerBandHeight(0, animated: true) { [weak self] in
+                    guard let self,
+                          self.composerMountGeneration == generation,
+                          !self.composerMounted else { return }
+                    self.surfaceView?.mountComposerView(nil)
                 }
             }
         }

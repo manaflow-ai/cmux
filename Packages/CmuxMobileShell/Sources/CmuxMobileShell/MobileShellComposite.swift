@@ -2118,11 +2118,52 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !isSubmittingComposerInput else { return }
         isSubmittingComposerInput = true
         defer { isSubmittingComposerInput = false }
+        // Capture which terminal this text is for: if the user switches terminals
+        // while the ack is in flight, the switch persists the outgoing text as the
+        // SUBMITTED terminal's draft, and the sent text must be cleared from that
+        // key, not from whatever terminal is selected when the ack returns.
+        let submittedTerminalID = selectedTerminalID
         let sent = await sendRemoteTerminalPaste(text, submitKey: "return")
-        // Only clear if the field still holds exactly what we sent, so a value
-        // the user typed while the send was in flight is not discarded.
-        if sent, terminalInputText == text {
-            terminalInputText = ""
+        guard sent else { return }
+        await reconcileComposerDraftAfterSend(sentText: text, submittedTerminalID: submittedTerminalID)
+    }
+
+    /// Clear the sent text from wherever it now lives after a successful
+    /// composer send: the visible field when the submitted terminal is still
+    /// selected, or the submitted terminal's STORED draft when the user switched
+    /// terminals while the ack was in flight (the switch persists the outgoing
+    /// text under the submitted terminal's key, and without this it would
+    /// resurrect on switch-back and invite a duplicate submission). In both
+    /// places the clear is conditional on the value still being exactly the sent
+    /// text, so anything newer the user typed is never discarded.
+    ///
+    /// Internal (not private) so tests can drive the post-ack reconciliation
+    /// directly with a controlled draft store and selection.
+    func reconcileComposerDraftAfterSend(
+        sentText: String,
+        submittedTerminalID: MobileTerminalPreview.ID?
+    ) async {
+        if selectedTerminalID == submittedTerminalID {
+            // Only clear if the field still holds exactly what we sent, so a value
+            // the user typed while the send was in flight is not discarded. The
+            // field's `didSet` persists the clear, removing the stored draft too.
+            if terminalInputText == sentText {
+                terminalInputText = ""
+            }
+        } else if let submittedTerminalID, let draftStore {
+            // Selection moved mid-flight. Clear the submitted terminal's stored
+            // draft only when it is still exactly the sent text, so a newer draft
+            // (typed after Send, before the switch) is preserved.
+            let terminalID = submittedTerminalID.rawValue
+            if await draftStore.draft(forTerminalID: terminalID) == sentText {
+                await draftStore.clearDraft(forTerminalID: terminalID)
+            }
+            // The user may have switched back during the awaits and had the sent
+            // text restored into the field; clear that too so already-sent text
+            // never resurrects.
+            if selectedTerminalID == submittedTerminalID, terminalInputText == sentText {
+                terminalInputText = ""
+            }
         }
     }
 
