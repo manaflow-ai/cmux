@@ -2565,6 +2565,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 deviceID: payload.macDeviceID,
                 displayName: payload.macDisplayName
             )
+            // A decoded status can still be identity-free: the probe's token
+            // attach is best-effort, and the host withholds identity from an
+            // unverified caller. If the v2 QR ticket is still anonymous after
+            // applying, run the dedicated recovery (it re-asks the token
+            // provider and no-ops once an identity is adopted).
+            scheduleHostIdentityAdoptionIfNeeded(client: client)
             let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
                 payload.terminalFidelity == "render_grid" ? .renderGrid : .rawBytes
             terminalOutputTransport = transport
