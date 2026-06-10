@@ -332,6 +332,8 @@ jobs:
             test
 
       - name: Run unit tests
+        env:
+          SWIFT_BACKTRACE: interactive=no
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -466,6 +468,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
+          CMUX_AGENT_HOOK_STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-agent-hook-state.XXXXXX")" CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_codex_feed_hook_latency.py
           python3 tests/test_stress_cli_socket_api.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py

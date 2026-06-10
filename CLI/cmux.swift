@@ -1588,6 +1588,30 @@ final class SocketClient {
         return defaultResponseTimeoutSeconds
     }()
 
+    /// When set, every response wait on this client is capped to the time
+    /// remaining until this deadline (with a floor so SO_RCVTIMEO is never
+    /// zero, which would block forever). Agent hook entrypoints arm this so
+    /// a wedged app bounds the whole hook run instead of costing the default
+    /// response timeout per control call (#4405).
+    var callDeadline: Date?
+
+    private func cappedToCallDeadline(_ requested: TimeInterval) -> TimeInterval {
+        guard let callDeadline else { return requested }
+        return min(requested, max(0.1, callDeadline.timeIntervalSinceNow))
+    }
+
+    private static func notConnectedMessage() -> String {
+        String(localized: "cli.socket.error.notConnected", defaultValue: "Not connected")
+    }
+
+    private static func commandTimedOutMessage() -> String {
+        String(localized: "cli.socket.error.commandTimedOut", defaultValue: "Command timed out")
+    }
+
+    private static func writeFailedMessage() -> String {
+        String(localized: "cli.socket.error.writeFailed", defaultValue: "Failed to write to socket")
+    }
+
     private static func isCompleteSingleLineResponse(_ data: Data) -> Bool {
         guard data.contains(UInt8(0x0A)),
               let response = String(data: data, encoding: .utf8) else {
@@ -1718,7 +1742,7 @@ final class SocketClient {
         if relayEndpoint != nil, socketFD < 0 {
             try connect()
         }
-        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        guard socketFD >= 0 else { throw CLIError(message: Self.notConnectedMessage()) }
         let shouldCloseAfterSend = relayEndpoint != nil
         defer {
             if shouldCloseAfterSend {
@@ -1726,7 +1750,7 @@ final class SocketClient {
             }
         }
 
-        let initialResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
+        let initialResponseTimeout = cappedToCallDeadline(responseTimeout ?? Self.responseTimeoutSeconds)
         if lastConfiguredReceiveTimeout != initialResponseTimeout {
             try configureReceiveTimeout(initialResponseTimeout)
         }
@@ -1742,8 +1766,8 @@ final class SocketClient {
         let payload = command + "\n"
         try writeAll(
             Data(payload.utf8),
-            timeoutMessage: "Command timed out",
-            failureMessage: "Failed to write to socket"
+            timeoutMessage: Self.commandTimedOutMessage(),
+            failureMessage: Self.writeFailedMessage()
         )
 
         var data = Data()
@@ -1817,7 +1841,7 @@ final class SocketClient {
         if relayEndpoint != nil, socketFD < 0 {
             try connect()
         }
-        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        guard socketFD >= 0 else { throw CLIError(message: Self.notConnectedMessage()) }
         let shouldCloseAfterSend = relayEndpoint != nil
 
         try configureSocketWriteSafety(writeTimeout)
@@ -1833,8 +1857,8 @@ final class SocketClient {
             try writeAllNonBlocking(
                 Data((command + "\n").utf8),
                 deadline: Date().addingTimeInterval(writeTimeout),
-                timeoutMessage: "Command timed out",
-                failureMessage: "Failed to write to socket"
+                timeoutMessage: Self.commandTimedOutMessage(),
+                failureMessage: Self.writeFailedMessage()
             )
         } catch {
             close()
@@ -4641,7 +4665,7 @@ struct CMUXCLI {
             guard let codexDef = Self.agentDef(named: "codex") else { print("{}"); return }
             try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry, socketPassword: socketPasswordArg)
         case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
-            try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+            try runFeedHook(commandArgs: commandArgs, client: client, socketPassword: socketPasswordArg, telemetry: cliTelemetry)
         case "hooks":
             try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry, socketPassword: socketPasswordArg)
 
@@ -21572,6 +21596,13 @@ struct CMUXCLI {
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
+        // Claude Code blocks on this hook subprocess (10s installed timeout
+        // for most events), so bound the whole run against a wedged app
+        // instead of paying the default response timeout per control call
+        // (#4405). Armed after the stdin read so a large payload does not
+        // consume the socket budget.
+        client.callDeadline = Date().addingTimeInterval(Self.claudeHookRunDeadlineSeconds)
+        defer { client.callDeadline = nil }
         telemetry.breadcrumb(
             "claude-hook.input",
             data: [
@@ -27845,6 +27876,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
 
+        // The agent blocks on this hook subprocess and the installed hook
+        // timeout is 5 seconds, so the whole run must fail fast against a
+        // wedged app instead of paying the default response timeout per
+        // control call (#4405).
+        client.callDeadline = Date().addingTimeInterval(Self.genericAgentHookRunDeadlineSeconds)
+        defer { client.callDeadline = nil }
+
         // Workspace/surface resolution: prefer --workspace/--surface flags,
         // then env, then the caller process. Grok strips CMUX_* from hook
         // subprocesses, so PID attribution is the only reliable live binding.
@@ -27998,16 +28036,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 requireLiveProcess: true
             )) == true
         }
-        func hasOtherRunningSession(workspaceId: String) -> Bool {
+        func hasOtherRunningSessionOnSurface(workspaceId: String, surfaceId: String) -> Bool {
             (try? store.hasRunningSession(
                 workspaceId: workspaceId,
-                surfaceId: nil,
+                surfaceId: surfaceId,
                 excludingSessionId: sessionId,
                 requireLiveProcess: true
             )) == true
         }
         func setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
-            if hasOtherRunningSession(workspaceId: workspaceId) {
+            if hasOtherRunningSessionOnSurface(workspaceId: workspaceId, surfaceId: surfaceId) {
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.status.keepRunning agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
@@ -29078,14 +29116,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let oneWayClient = SocketClient(path: socketPath)
         defer { oneWayClient.close() }
         do {
-            try oneWayClient.connectWithoutRetry(responseTimeout: 0.05)
+            try oneWayClient.connectWithoutRetry(responseTimeout: Self.nonActionableFeedHookWriteTimeoutSeconds)
             try authenticateClientIfNeeded(
                 oneWayClient,
                 explicitPassword: socketPassword,
                 socketPath: socketPath,
-                responseTimeout: 0.05
+                responseTimeout: Self.nonActionableFeedHookWriteTimeoutSeconds
             )
-            try oneWayClient.sendOneWay(command: line, writeTimeout: 0.05)
+            try oneWayClient.sendOneWay(command: line, writeTimeout: Self.nonActionableFeedHookWriteTimeoutSeconds)
         } catch {
             return
         }
@@ -31043,6 +31081,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     // MARK: - Feed (workstream) hook bridge
 
+    private static let nonActionableFeedHookWriteTimeoutSeconds: TimeInterval = 0.15
+
+    /// Whole-run socket budget for generic agent hook handlers. Codex
+    /// installs its cmux hooks with a 5-second timeout, so the CLI must
+    /// give up on a wedged app before the agent kills the subprocess.
+    private static let genericAgentHookRunDeadlineSeconds: TimeInterval = 3.5
+
+    /// Whole-run socket budget for Claude Code hook handlers. The Claude
+    /// wrapper installs most hooks with a 10-second timeout.
+    private static let claudeHookRunDeadlineSeconds: TimeInterval = 8.0
+
     /// Reads an agent hook JSON payload from stdin, forwards it to the
     /// running cmux app via the `feed.push` V2 socket verb, and (for
     /// actionable events: ExitPlanMode, AskUserQuestion, permission-
@@ -31199,7 +31248,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         if waitTimeout == 0 {
             if let client {
-                _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
+                _ = try? client.sendOneWay(
+                    command: line,
+                    writeTimeout: Self.nonActionableFeedHookWriteTimeoutSeconds
+                )
             } else if let socketPath {
                 sendBestEffortFeedTelemetry(
                     socketPath: socketPath,
@@ -31782,7 +31834,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "feed":
             telemetry.breadcrumb("hooks.feed.dispatch")
             do {
-                try runFeedHook(commandArgs: rest, client: client, telemetry: telemetry)
+                try runFeedHook(commandArgs: rest, client: client, socketPassword: socketPassword, telemetry: telemetry)
                 telemetry.breadcrumb("hooks.feed.completed")
             } catch {
                 telemetry.breadcrumb("hooks.feed.failure")
