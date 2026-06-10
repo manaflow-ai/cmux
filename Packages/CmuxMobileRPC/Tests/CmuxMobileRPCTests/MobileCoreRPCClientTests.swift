@@ -248,6 +248,66 @@ import Testing
         await transport.releaseConnect()
     }
 
+    // The first-yield-wins deadline abandons work that ignores cancellation,
+    // so the abandoned task can resume long after the caller observed
+    // requestTimedOut. If the stuck dial then completes successfully, the
+    // resumed task must not carry the request onto the wire: a non-idempotent
+    // RPC (terminal input, workspace create) the UI reported as failed would
+    // otherwise execute late. The gate is `session.send`'s cancellation check
+    // after connection establishment, before the write is registered. Without
+    // the gate, suppression rests on the cancellation handler beating the
+    // writer to the actor, so this test's red state is racy rather than
+    // deterministic; the gate is what makes the behavior deterministic.
+    @Test func abandonedRequestNeverSendsAfterLateConnectSuccess() async throws {
+        let transport = HungConnectTransport()
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59126)
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: HungConnectTransportFactory(transport: transport),
+            rpcRequestTimeoutNanoseconds: 50_000_000
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "workspace.create",
+            params: ["title": "late-create"],
+            id: "late-create"
+        )
+
+        do {
+            _ = try await client.sendRequest(request)
+            Issue.record("Expected the stuck dial to time out")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record("Expected requestTimedOut, got \(error)")
+        }
+
+        // The dial now completes successfully, resuming the abandoned work
+        // task inside session.send with its task already cancelled.
+        await transport.releaseConnectSuccessfully()
+        // Give the abandoned task time to run its course; the caller already
+        // observed the timeout, so nothing may reach the wire.
+        for _ in 0..<100 {
+            try await Task.sleep(nanoseconds: 1_000_000)
+            if await transport.sentFrameCount() > 0 {
+                break
+            }
+        }
+        #expect(await transport.sentFrameCount() == 0)
+    }
+
     @Test func workspaceListResponseDecodesSnakeCaseWireShape() throws {
         let json = Data("""
         {

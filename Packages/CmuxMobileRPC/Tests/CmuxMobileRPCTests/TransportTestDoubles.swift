@@ -130,26 +130,49 @@ actor UncancellableGate {
 struct HungConnectReleased: Error {}
 
 /// Transport whose `connect()` parks uncancellably until released, modeling a
-/// losing pairing route stuck in a dial that ignores task cancellation.
+/// losing pairing route stuck in a dial that ignores task cancellation. The
+/// release can fail the dial or let it succeed late, and sends are recorded so
+/// tests can assert an abandoned request never reaches the wire.
 actor HungConnectTransport: CmxByteTransport {
     private let gate = UncancellableGate()
     private var didStartConnect = false
+    private var shouldFailOnRelease = true
+    private var sentPayloads: [Data] = []
 
     func connect() async throws {
         didStartConnect = true
         await gate.wait()
-        throw HungConnectReleased()
+        if shouldFailOnRelease {
+            throw HungConnectReleased()
+        }
     }
 
-    func receive() async throws -> Data? { nil }
+    func receive() async throws -> Data? {
+        // Park forever (uncancellably is unnecessary here); the reader of a
+        // late-connected transport must simply never observe traffic.
+        await UncancellableGate().wait()
+        return nil
+    }
 
-    func send(_ data: Data) async throws {}
+    func send(_ data: Data) async throws {
+        sentPayloads.append(data)
+    }
 
     func close() async {}
 
     func connectStarted() -> Bool { didStartConnect }
 
+    /// Unparks the dial and fails it, resolving the abandoned connect path.
     func releaseConnect() async { await gate.open() }
+
+    /// Unparks the dial and lets it SUCCEED late, modeling an OS-level connect
+    /// that completes after the awaiting request was already abandoned.
+    func releaseConnectSuccessfully() async {
+        shouldFailOnRelease = false
+        await gate.open()
+    }
+
+    func sentFrameCount() -> Int { sentPayloads.count }
 }
 
 struct HungConnectTransportFactory: CmxByteTransportFactory {

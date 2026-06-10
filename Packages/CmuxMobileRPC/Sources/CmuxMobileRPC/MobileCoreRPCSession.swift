@@ -57,6 +57,18 @@ actor MobileCoreRPCSession {
 
     func send(payload: Data, requestID: String) async throws -> Data {
         _ = try await ensureConnected()
+        // The connect above can be awaited by a task that was cancelled while
+        // the dial ignored cancellation (its request deadline fired, or a
+        // pairing route race reaped it as a loser) and that resumes here only
+        // after the dial finally finishes. Its caller has already observed
+        // failure, so the write must never be registered or queued: without
+        // this gate, suppression depends on the cancellation handler below
+        // winning an actor-scheduling race against the writer (an
+        // already-cancelled task runs `onCancel` at handler installation, but
+        // the canceller and the writer then contend for the actor), and a
+        // non-idempotent RPC (terminal input, workspace create) the UI
+        // reported as failed could still reach the wire.
+        try Task.checkCancellation()
         let frame = try MobileSyncFrameCodec.encodeFrame(payload)
 
         let result: Result<Data, MobileShellConnectionError> = await withTaskCancellationHandler {
