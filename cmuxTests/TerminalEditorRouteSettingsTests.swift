@@ -12,6 +12,7 @@ import Testing
 /// vim, helix, …). Verifies command resolution, extension parsing, the routing
 /// gate, and the shell invocation builder.
 @Suite struct TerminalEditorRouteSettingsTests {
+    /// Creates an isolated UserDefaults suite for a single test.
     private func makeDefaults() -> UserDefaults {
         let suiteName = "cmux-terminal-editor-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -21,11 +22,13 @@ import Testing
 
     // MARK: resolvedCommand
 
+    /// An unset command resolves to the default editor (nvim).
     @Test func resolvedCommandDefaultsToNvimWhenUnset() {
         let defaults = makeDefaults()
         #expect(CmdClickTerminalEditorRouteSettings.resolvedCommand(defaults: defaults) == "nvim")
     }
 
+    /// A blank/whitespace command disables the route (resolves to nil).
     @Test func resolvedCommandIsNilForBlankCommand() {
         for raw in ["", "   ", "\n\t "] {
             let defaults = makeDefaults()
@@ -37,6 +40,7 @@ import Testing
         }
     }
 
+    /// Surrounding whitespace is trimmed from the configured command.
     @Test func resolvedCommandTrimsWhitespace() {
         let defaults = makeDefaults()
         defaults.set("  vim -R  \n", forKey: CmdClickTerminalEditorRouteSettings.commandKey)
@@ -45,11 +49,13 @@ import Testing
 
     // MARK: extensions parsing
 
+    /// An unset extensions list yields an empty set.
     @Test func extensionsAreEmptyWhenUnset() {
         let defaults = makeDefaults()
         #expect(CmdClickTerminalEditorRouteSettings.extensions(defaults: defaults).isEmpty)
     }
 
+    /// Extensions parse from comma, semicolon, space, and newline separators.
     @Test func extensionsParseMixedSeparators() {
         let defaults = makeDefaults()
         defaults.set("rs, ts;py\nlua go", forKey: CmdClickTerminalEditorRouteSettings.extensionsKey)
@@ -59,6 +65,7 @@ import Testing
         )
     }
 
+    /// Leading dots are stripped and extensions are lowercased.
     @Test func extensionsStripLeadingDotsAndLowercase() {
         let defaults = makeDefaults()
         defaults.set(".RS, .Ts, .PY", forKey: CmdClickTerminalEditorRouteSettings.extensionsKey)
@@ -70,6 +77,7 @@ import Testing
 
     // MARK: matchesExtension
 
+    /// matchesExtension matches only configured extensions, case-insensitively.
     @Test func matchesExtensionRespectsTheList() {
         let defaults = makeDefaults()
         defaults.set("rs, ts", forKey: CmdClickTerminalEditorRouteSettings.extensionsKey)
@@ -81,6 +89,7 @@ import Testing
 
     // MARK: wildcard ("*")
 
+    /// The `*` wildcard matches code, text, and extension-less files.
     @Test func wildcardMatchesCodeTextAndExtensionlessFiles() {
         let defaults = makeDefaults()
         defaults.set("*", forKey: CmdClickTerminalEditorRouteSettings.extensionsKey)
@@ -92,6 +101,7 @@ import Testing
         }
     }
 
+    /// The `*` wildcard excludes cmux's native preview types (md/pdf/image/audio/video).
     @Test func wildcardExcludesCmuxNativePreviewTypes() {
         let defaults = makeDefaults()
         defaults.set("*", forKey: CmdClickTerminalEditorRouteSettings.extensionsKey)
@@ -103,6 +113,7 @@ import Testing
         }
     }
 
+    /// An explicit extension alongside `*` forces that type into the terminal editor.
     @Test func wildcardCanBeOverriddenByExplicitExtension() {
         let defaults = makeDefaults()
         // Listing md explicitly alongside * forces Markdown into the terminal editor.
@@ -110,6 +121,7 @@ import Testing
         #expect(CmdClickTerminalEditorRouteSettings.matchesExtension("/p/README.md", defaults: defaults))
     }
 
+    /// Under `*`, shouldRoute opens code files but not excluded preview types.
     @Test func wildcardShouldRouteRespectsExclusions() {
         let defaults = makeDefaults()
         defaults.set("*", forKey: CmdClickTerminalEditorRouteSettings.extensionsKey)
@@ -125,6 +137,7 @@ import Testing
 
     // MARK: editorInvocation
 
+    /// editorInvocation shell-quotes the file path.
     @Test func editorInvocationQuotesPath() {
         let defaults = makeDefaults()
         defaults.set("nvim", forKey: CmdClickTerminalEditorRouteSettings.commandKey)
@@ -134,6 +147,7 @@ import Testing
         )
     }
 
+    /// editorInvocation escapes single quotes within the path.
     @Test func editorInvocationEscapesSingleQuotes() {
         let defaults = makeDefaults()
         defaults.set("nvim", forKey: CmdClickTerminalEditorRouteSettings.commandKey)
@@ -144,6 +158,7 @@ import Testing
         #expect(result == "nvim '/weird/it'\\''s.rs'")
     }
 
+    /// editorInvocation returns nil when the command is blank.
     @Test func editorInvocationIsNilWhenCommandBlank() {
         let defaults = makeDefaults()
         defaults.set("", forKey: CmdClickTerminalEditorRouteSettings.commandKey)
@@ -152,6 +167,7 @@ import Testing
 
     // MARK: shouldRoute (the routing gate)
 
+    /// shouldRoute is false for an extension that isn't configured.
     @Test func shouldNotRouteWhenExtensionNotListed() {
         let defaults = makeDefaults()
         defaults.set("rs", forKey: CmdClickTerminalEditorRouteSettings.extensionsKey)
@@ -159,6 +175,7 @@ import Testing
         #expect(!CmdClickTerminalEditorRouteSettings.shouldRoute(path: "/proj/notes.md", defaults: defaults))
     }
 
+    /// shouldRoute is false when no extensions are configured.
     @Test func shouldNotRouteWhenExtensionsEmpty() {
         let defaults = makeDefaults()
         let tmp = makeTempFile(extension: "rs")
@@ -166,6 +183,7 @@ import Testing
         #expect(!CmdClickTerminalEditorRouteSettings.shouldRoute(path: tmp.path, defaults: defaults))
     }
 
+    /// shouldRoute is false when the command is blank.
     @Test func shouldNotRouteWhenCommandBlank() {
         let defaults = makeDefaults()
         defaults.set("", forKey: CmdClickTerminalEditorRouteSettings.commandKey)
@@ -175,6 +193,7 @@ import Testing
         #expect(!CmdClickTerminalEditorRouteSettings.shouldRoute(path: tmp.path, defaults: defaults))
     }
 
+    /// shouldRoute is true for a listed, readable regular file.
     @Test func shouldRouteForListedReadableFile() {
         let defaults = makeDefaults()
         defaults.set("rs, ts", forKey: CmdClickTerminalEditorRouteSettings.extensionsKey)
@@ -183,6 +202,7 @@ import Testing
         #expect(CmdClickTerminalEditorRouteSettings.shouldRoute(path: tmp.path, defaults: defaults))
     }
 
+    /// shouldRoute is false for a non-existent file.
     @Test func shouldNotRouteForMissingFile() {
         let defaults = makeDefaults()
         defaults.set("rs", forKey: CmdClickTerminalEditorRouteSettings.extensionsKey)
@@ -191,6 +211,7 @@ import Testing
         #expect(!CmdClickTerminalEditorRouteSettings.shouldRoute(path: missing.path, defaults: defaults))
     }
 
+    /// Creates a readable temporary file with the given extension.
     private func makeTempFile(extension ext: String) -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-te-\(UUID().uuidString).\(ext)")

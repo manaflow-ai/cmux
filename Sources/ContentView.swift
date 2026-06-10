@@ -2578,6 +2578,11 @@ struct ContentView: View {
         _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
     }
 
+    /// Opens a file selected in the Files sidebar. Routes it to a terminal editor
+    /// when its type is configured for that route (shared with the terminal
+    /// Cmd-click path via `Workspace.openTerminalEditorIfRouted`); otherwise opens
+    /// the built-in file preview. Remote-workspace files are materialized locally
+    /// first.
     private func openFilePreviewFromSidebar(filePath: String) {
         guard let workspace = tabManager.selectedWorkspace else { return }
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
@@ -2603,10 +2608,10 @@ struct ContentView: View {
             return
         }
         // Route to a terminal editor (e.g. nvim) when the file type is configured
-        // for it, matching the terminal Cmd-click behavior. Falls back to the
-        // built-in file preview otherwise.
-        if CmdClickTerminalEditorRouteSettings.shouldRoute(path: filePath),
-           workspace.openTerminalEditorTab(inPane: paneId, sourcePanelId: nil, filePath: filePath) != nil {
+        // for it, matching the terminal Cmd-click behavior (shared logic via
+        // Workspace.openTerminalEditorIfRouted). Falls back to the built-in file
+        // preview otherwise.
+        if workspace.openTerminalEditorIfRouted(filePath: filePath, inPane: paneId) != nil {
             return
         }
         _ = workspace.openFileSurfaces(

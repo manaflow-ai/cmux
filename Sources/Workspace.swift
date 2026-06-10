@@ -18050,19 +18050,24 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    /// Open `filePath` in a terminal editor (e.g. nvim) in a new full-pane tab in
-    /// the source panel's pane — matching the built-in file-preview behavior. The
-    /// editor command is delivered as input to the new tab's login shell — never as
-    /// the surface's primary process — so the user's PATH and shell environment are
-    /// available and the tab returns to a prompt when the editor exits. Returns the
-    /// new panel, or nil when the route is disabled or the source pane can't be
-    /// resolved (the caller then falls back to the external preferred-editor opener).
+    /// Single shared entry point for terminal-editor routing, reused by every UI
+    /// surface that opens a file (the terminal Cmd-click router and the Files
+    /// sidebar). When `filePath`'s extension is configured for the terminal-editor
+    /// route, opens it in a new full-pane terminal tab and returns the new panel;
+    /// otherwise returns nil so the caller falls back to its default open behavior.
+    /// Provide the target `paneId` directly, or a `sourcePanelId` to resolve the
+    /// pane from (the panel's pane is found via `paneId(forPanelId:)`).
     @discardableResult
-    func openTerminalEditorTab(from panelId: UUID, filePath: String) -> TerminalPanel? {
-        // Resolve the pane that owns the source panel — the same helper the file
-        // preview and markdown openers use.
-        guard let paneId = paneId(forPanelId: panelId) else { return nil }
-        return openTerminalEditorTab(inPane: paneId, sourcePanelId: panelId, filePath: filePath)
+    func openTerminalEditorIfRouted(
+        filePath: String,
+        inPane paneId: PaneID? = nil,
+        sourcePanelId: UUID? = nil
+    ) -> TerminalPanel? {
+        guard CmdClickTerminalEditorRouteSettings.shouldRoute(path: filePath) else { return nil }
+        guard let targetPane = paneId ?? sourcePanelId.flatMap({ self.paneId(forPanelId: $0) }) else {
+            return nil
+        }
+        return openTerminalEditorTab(inPane: targetPane, sourcePanelId: sourcePanelId, filePath: filePath)
     }
 
     /// Core terminal-editor opener shared by the terminal Cmd-click router and the

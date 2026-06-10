@@ -18,8 +18,8 @@ enum CommandClickFileOpenRouter {
         // explicit user override that wins over the markdown/file-preview routes
         // (so listing "md" opens nvim instead of the markdown viewer). The route
         // is inert until the user lists extensions, so defaults are unchanged.
-        if CmdClickTerminalEditorRouteSettings.shouldRoute(path: filePath),
-           workspace.openTerminalEditorTab(from: sourcePanelId, filePath: filePath) != nil {
+        // Shared with the Files sidebar via Workspace.openTerminalEditorIfRouted.
+        if workspace.openTerminalEditorIfRouted(filePath: filePath, sourcePanelId: sourcePanelId) != nil {
             return true
         }
 
