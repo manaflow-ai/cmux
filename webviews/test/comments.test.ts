@@ -181,3 +181,22 @@ test("resolveCommentLabels prefers payload labels and falls back to English", ()
   expect(labels.comments).toBe("コメント");
   expect(labels.addComment).toBe("Add comment");
 });
+
+test("attachTargetOptionLabels disambiguates duplicate titles", async () => {
+  const { attachTargetOptionLabels } = await import("../src/comments/format");
+  const labels = attachTargetOptionLabels([
+    { surfaceId: "a", title: "zsh", directory: "/repo/api", hasActiveTextBox: true },
+    { surfaceId: "b", title: "zsh", directory: "/repo/web", hasActiveTextBox: false },
+    { surfaceId: "c", title: "vim", directory: "/repo/api", hasActiveTextBox: false },
+  ]);
+  expect(labels).toEqual(["zsh — api", "zsh — web", "vim"]);
+});
+
+test("attachTargetOptionLabels falls back to ordinals for identical terminals", async () => {
+  const { attachTargetOptionLabels } = await import("../src/comments/format");
+  const labels = attachTargetOptionLabels([
+    { surfaceId: "a", title: "zsh", directory: "/repo", hasActiveTextBox: true },
+    { surfaceId: "b", title: "zsh", directory: "/repo", hasActiveTextBox: false },
+  ]);
+  expect(labels).toEqual(["zsh — repo (1)", "zsh — repo (2)"]);
+});

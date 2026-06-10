@@ -7,6 +7,8 @@ const DIFF_COMMENT_LABEL_FALLBACKS = {
   deleteComment: "Delete",
   editComment: "Edit",
   attachOnSave: "Attach to terminal TextBox",
+  attachTo: "Attach to",
+  dontAttach: "Don't attach",
   attachComment: "Attach",
   attachedComment: "Attached",
   attachFailed: "Attach failed",

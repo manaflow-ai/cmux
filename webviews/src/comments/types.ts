@@ -61,6 +61,12 @@ export type AttachResult =
   | { status: "picker"; candidates: AttachCandidate[] }
   | { status: "unavailable" };
 
+export type AttachTargets = {
+  candidates: AttachCandidate[];
+  defaultSurfaceId: string | null;
+  openerSurfaceId: string | null;
+};
+
 export type CommentAttachState =
   | { phase: "idle" }
   | { phase: "attaching" }

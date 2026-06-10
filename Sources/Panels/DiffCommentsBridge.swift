@@ -169,6 +169,8 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
             return ["deleted": store.delete(id: id, repoRoot: repoRoot)]
         case "comments.attach":
             return try handleAttach(params: params, webView: webView)
+        case "comments.targets":
+            return try handleTargets(params: params, webView: webView)
         default:
             throw BridgeError.invalidRequest("Unsupported method '\(method)'")
         }
@@ -189,15 +191,7 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
         case unavailable
     }
 
-    private func handleAttach(params: [String: Any], webView: WKWebView?) throws -> Any {
-        guard let attachmentParams = params["attachment"] as? [String: Any],
-              let displayName = attachmentParams["displayName"] as? String,
-              let submissionText = attachmentParams["submissionText"] as? String,
-              !submissionText.isEmpty else {
-            throw BridgeError.invalidRequest("Malformed attachment")
-        }
-        let submissionPath = attachmentParams["submissionPath"] as? String ?? displayName
-
+    private func resolveWorkspace(for webView: WKWebView?) throws -> Workspace {
         guard let webView,
               let association = objc_getAssociatedObject(
                   webView,
@@ -210,10 +204,46 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
               ) else {
             throw BridgeError.invalidRequest("Diff viewer surface not found")
         }
-        let workspace = location.workspace
+        return location.workspace
+    }
 
+    private static func requestedSurfaceId(in params: [String: Any]) -> UUID? {
         let targetParams = params["target"] as? [String: Any]
-        let requestedSurfaceId = (targetParams?["surfaceId"] as? String).flatMap(UUID.init(uuidString:))
+        return (targetParams?["surfaceId"] as? String).flatMap(UUID.init(uuidString:))
+    }
+
+    /// Enumerates the terminals a comment could attach to, plus the surface
+    /// the opener-first heuristic would pick, so the composer can offer an
+    /// explicit target dropdown.
+    private func handleTargets(params: [String: Any], webView: WKWebView?) throws -> Any {
+        let workspace = try resolveWorkspace(for: webView)
+        let requested = Self.requestedSurfaceId(in: params)
+        let candidates = Self.attachCandidates(in: workspace)
+        let resolution = Self.resolveAttachTarget(requested: requested, candidates: candidates)
+        var defaultSurfaceId: String?
+        if case .attach(let surfaceId) = resolution {
+            defaultSurfaceId = surfaceId.uuidString
+        }
+        return [
+            "candidates": candidates.map(Self.candidateJSON),
+            "defaultSurfaceId": defaultSurfaceId as Any,
+            "openerSurfaceId": requested.flatMap { requested in
+                candidates.contains { $0.surfaceId == requested } ? requested.uuidString : nil
+            } as Any
+        ]
+    }
+
+    private func handleAttach(params: [String: Any], webView: WKWebView?) throws -> Any {
+        guard let attachmentParams = params["attachment"] as? [String: Any],
+              let displayName = attachmentParams["displayName"] as? String,
+              let submissionText = attachmentParams["submissionText"] as? String,
+              !submissionText.isEmpty else {
+            throw BridgeError.invalidRequest("Malformed attachment")
+        }
+        let submissionPath = attachmentParams["submissionPath"] as? String ?? displayName
+
+        let workspace = try resolveWorkspace(for: webView)
+        let requestedSurfaceId = Self.requestedSurfaceId(in: params)
         let candidates = Self.attachCandidates(in: workspace)
         let resolution = Self.resolveAttachTarget(
             requested: requestedSurfaceId,
@@ -243,18 +273,20 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
         case .picker(let candidates):
             return [
                 "status": "picker",
-                "candidates": candidates.map { candidate in
-                    [
-                        "surfaceId": candidate.surfaceId.uuidString,
-                        "title": candidate.title,
-                        "directory": candidate.directory,
-                        "hasActiveTextBox": candidate.hasActiveTextBox
-                    ] as [String: Any]
-                }
+                "candidates": candidates.map(Self.candidateJSON)
             ]
         case .unavailable:
             return ["status": "unavailable"]
         }
+    }
+
+    nonisolated private static func candidateJSON(_ candidate: AttachCandidate) -> [String: Any] {
+        [
+            "surfaceId": candidate.surfaceId.uuidString,
+            "title": candidate.title,
+            "directory": candidate.directory,
+            "hasActiveTextBox": candidate.hasActiveTextBox
+        ]
     }
 
     private static func attachCandidates(in workspace: Workspace) -> [AttachCandidate] {

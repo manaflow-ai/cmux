@@ -1,6 +1,7 @@
 import { makeClientId } from "../agent-session/shared/ids";
 import type {
   AttachResult,
+  AttachTargets,
   CommentAttachment,
   CommentTarget,
   DiffCommentRecord,
@@ -74,6 +75,21 @@ export async function saveComment(
 
 export async function deleteComment(repoRoot: string, id: string): Promise<void> {
   await callDiffComments<unknown>("comments.delete", { repoRoot, id });
+}
+
+export async function listAttachTargets(
+  repoRoot: string,
+  target?: CommentTarget,
+): Promise<AttachTargets> {
+  const value = await callDiffComments<Partial<AttachTargets>>("comments.targets", {
+    repoRoot,
+    target: target ?? null,
+  });
+  return {
+    candidates: Array.isArray(value?.candidates) ? value.candidates : [],
+    defaultSurfaceId: typeof value?.defaultSurfaceId === "string" ? value.defaultSurfaceId : null,
+    openerSurfaceId: typeof value?.openerSurfaceId === "string" ? value.openerSurfaceId : null,
+  };
 }
 
 export async function attachComment(

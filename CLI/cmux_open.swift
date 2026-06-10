@@ -405,6 +405,8 @@ extension CMUXCLI {
                 "attachComment": CMUXDiffViewerLocalization.string("diffViewer.attachComment", defaultValue: "Attach"),
                 "attachFailed": CMUXDiffViewerLocalization.string("diffViewer.attachFailed", defaultValue: "Attach failed"),
                 "attachOnSave": CMUXDiffViewerLocalization.string("diffViewer.attachOnSave", defaultValue: "Attach to terminal TextBox"),
+                "attachTo": CMUXDiffViewerLocalization.string("diffViewer.attachTo", defaultValue: "Attach to"),
+                "dontAttach": CMUXDiffViewerLocalization.string("diffViewer.dontAttach", defaultValue: "Don't attach"),
                 "attachedComment": CMUXDiffViewerLocalization.string("diffViewer.attachedComment", defaultValue: "Attached"),
                 "bars": CMUXDiffViewerLocalization.string("diffViewer.bars", defaultValue: "Bars"),
                 "cancelComment": CMUXDiffViewerLocalization.string("diffViewer.cancelComment", defaultValue: "Cancel"),

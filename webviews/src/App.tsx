@@ -18,6 +18,7 @@ import {
   attachComment,
   deleteComment as bridgeDeleteComment,
   diffCommentsBridgeAvailable,
+  listAttachTargets,
   saveComment as bridgeSaveComment,
 } from "./comments/bridge";
 import { CommentComposer } from "./comments/CommentComposer";
@@ -26,6 +27,7 @@ import { attachmentForComment } from "./comments/format";
 import { resolveCommentLabels, type DiffCommentLabels } from "./comments/labels";
 import { SavedComment } from "./comments/SavedComment";
 import type {
+  AttachTargets,
   CommentAttachState,
   CommentDraft,
   CommentTarget,
@@ -297,11 +299,12 @@ export function App({ config, initialStatus }: ConfigProps) {
       return (
         <CommentComposer
           attachOnSave={bridgeAvailable && state.attachOnSave}
+          attachTargets={comments.draftTargets}
           labels={commentLabels}
           showAttachToggle={bridgeAvailable}
           onAttachOnSaveChange={(value) => dispatch({ type: "set-attach-on-save", value })}
           onCancel={() => dispatch({ type: "set-draft", draft: null })}
-          onSave={(message) => comments.saveDraft(item, message)}
+          onSave={(message, targetSurfaceId) => comments.saveDraft(item, message, targetSurfaceId)}
         />
       );
     }
@@ -460,6 +463,7 @@ function useDiffComments({
     (comments: DiffCommentRecord[]) => dispatch({ type: "set-comments", comments }),
     [dispatch],
   );
+  const [draftTargets, setDraftTargets] = useState<AttachTargets | null>(null);
 
   const onGutterUtilityClick = (range: SelectedLineRange, context: { item: DiffItem }) => {
     const side: DiffCommentSide = range.side === "deletions" ? "deletions" : "additions";
@@ -472,6 +476,12 @@ function useDiffComments({
         endLine: Math.max(range.start, range.end),
       },
     });
+    setDraftTargets(null);
+    if (bridgeAvailable && repoRoot != null) {
+      listAttachTargets(repoRoot, commentTarget)
+        .then((targets) => setDraftTargets(targets))
+        .catch((error) => console.warn("cmux diff comment targets failed", error));
+    }
   };
 
   const attach = (
@@ -502,7 +512,7 @@ function useDiffComments({
       });
   };
 
-  const saveDraft = (item: DiffItem, message: string) => {
+  const saveDraft = (item: DiffItem, message: string, targetSurfaceId: string | null) => {
     const draft = latestState.current.draft;
     if (draft == null || draft.itemId !== item.id || message.trim() === "") {
       return;
@@ -522,8 +532,8 @@ function useDiffComments({
       .then((saved) => {
         dispatch({ type: "upsert-comment", comment: saved });
         dispatch({ type: "set-draft", draft: null });
-        if (bridgeAvailable && latestState.current.attachOnSave) {
-          attach(saved, item.fileDiff, commentTarget, false);
+        if (bridgeAvailable && targetSurfaceId != null) {
+          attach(saved, item.fileDiff, { surfaceId: targetSurfaceId }, true);
         }
       })
       .catch((error) => console.warn("cmux diff comment save failed", error));
@@ -558,7 +568,7 @@ function useDiffComments({
     });
   };
 
-  return { attach, editMessage, onGutterUtilityClick, onLoaded, remove, saveDraft };
+  return { attach, draftTargets, editMessage, onGutterUtilityClick, onLoaded, remove, saveDraft };
 }
 
 function localCommentRecord(
