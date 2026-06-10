@@ -10025,6 +10025,9 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
+    let stateIndicatorRunningColorHex: String?
+    let stateIndicatorNeedsInputColorHex: String?
+    let stateIndicatorIdleColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
 
@@ -10086,6 +10089,9 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         activeTabIndicatorStyle = SidebarActiveTabIndicatorSettings.current(defaults: defaults)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
+        stateIndicatorRunningColorHex = defaults.string(forKey: SidebarAgentStateIndicatorColors.runningColorKey)
+        stateIndicatorNeedsInputColorHex = defaults.string(forKey: SidebarAgentStateIndicatorColors.needsInputColorKey)
+        stateIndicatorIdleColorHex = defaults.string(forKey: SidebarAgentStateIndicatorColors.idleColorKey)
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
     }
 
@@ -16675,7 +16681,14 @@ struct TabItemView: View, Equatable {
             remoteStateHelpText: remoteStateHelpText,
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: tab.latestConversationMessage,
-            metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
+            metadataEntries: detailVisibility.showsMetadata
+                ? SidebarAgentStateIndicatorColors.recolored(
+                    tab.sidebarStatusEntriesInDisplayOrder(),
+                    runningOverrideHex: settings.stateIndicatorRunningColorHex,
+                    needsInputOverrideHex: settings.stateIndicatorNeedsInputColorHex,
+                    idleOverrideHex: settings.stateIndicatorIdleColorHex
+                )
+                : [],
             metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? tab.progress : nil,

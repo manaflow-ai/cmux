@@ -701,6 +701,29 @@
           "type": "boolean",
           "default": true,
           "description": "Show custom metadata pills."
+        },
+        "stateIndicatorColors": {
+          "title": "stateIndicatorColors",
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per-state colors for the sidebar agent lifecycle indicators (the status pills cmux sets for Claude Code, Codex, and other detected agents). Each value overrides the built-in indicator color for that lifecycle state across every agent, applied where the pill is rendered so it never races the built-in detection writes. Pills the user recolored with `cmux set-status --color` keep their custom color. When unset, Running and Needs Input both use the default blue (#4C8DFF) and Idle uses gray (#8E8E93); set a distinct needsInput color to tell agents waiting for input apart from running ones at a glance. Use null to keep a state's default.",
+          "properties": {
+            "running": {
+              "$ref": "#/$defs/colorHexOrNull",
+              "default": null,
+              "description": "Color for the Running indicator. Default #4C8DFF."
+            },
+            "needsInput": {
+              "$ref": "#/$defs/colorHexOrNull",
+              "default": null,
+              "description": "Color for the Needs Input indicator. Default #4C8DFF."
+            },
+            "idle": {
+              "$ref": "#/$defs/colorHexOrNull",
+              "default": null,
+              "description": "Color for the Idle indicator. Default #8E8E93."
+            }
+          }
         }
       }
     },

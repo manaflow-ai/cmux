@@ -716,6 +716,30 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["showCustomMetadata"]) {
             snapshot.managedUserDefaults["sidebarShowStatusPills"] = .bool(value)
         }
+        if let stateColors = section["stateIndicatorColors"] as? [String: Any] {
+            parseSidebarStateIndicatorColorsSection(stateColors, sourcePath: sourcePath, snapshot: &snapshot)
+        }
+    }
+
+    private func parseSidebarStateIndicatorColorsSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let mapping: [(jsonKey: String, defaultsKey: String)] = [
+            ("running", SidebarAgentStateIndicatorColors.runningColorKey),
+            ("needsInput", SidebarAgentStateIndicatorColors.needsInputColorKey),
+            ("idle", SidebarAgentStateIndicatorColors.idleColorKey),
+        ]
+        for (jsonKey, defaultsKey) in mapping {
+            guard section.keys.contains(jsonKey) else { continue }
+            guard let value = parseNullableHex(
+                section[jsonKey],
+                path: "sidebar.stateIndicatorColors.\(jsonKey)",
+                sourcePath: sourcePath
+            ) else { continue }
+            snapshot.managedUserDefaults[defaultsKey] = .nullableString(value)
+        }
     }
 
     private func parseWorkspaceColorsSection(
