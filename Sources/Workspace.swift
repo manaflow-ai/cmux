@@ -14479,15 +14479,23 @@ final class Workspace: Identifiable, ObservableObject {
     /// high-priority and recent entries (the ones actually shown) survive.
     private func trimSidebarStatusEntriesIfNeeded() {
         guard statusEntries.count > Self.maxSidebarStatusEntries else { return }
-        let keptKeys = statusEntries.values
-            .sorted { lhs, rhs in
-                if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
-                if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
-                return lhs.key < rhs.key
-            }
-            .prefix(Self.maxSidebarStatusEntries)
-            .map(\.key)
-        let kept = Set(keptKeys)
+        let kept = Set(
+            statusEntries.values
+                .sorted { lhs, rhs in
+                    if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
+                    if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+                    return lhs.key < rhs.key
+                }
+                .prefix(Self.maxSidebarStatusEntries)
+                .map(\.key)
+        )
+        let evictedKeys = Set(statusEntries.keys.filter { !kept.contains($0) })
+        guard !evictedKeys.isEmpty else { return }
+        // Tear down the agent PID/ownership/lifecycle state coupled to the evicted
+        // status keys (`set_status --pid`) before they leave `statusEntries`, so
+        // those runtime maps and the port-scan tags keyed off them stay bounded
+        // too (#5845). Must precede the removal so dotted status keys resolve.
+        purgeAgentRuntimeState(forEvictedStatusKeys: evictedKeys)
         // Reassigning re-enters didSet, but the next pass sees count <= cap and
         // returns immediately, so recursion terminates at depth two.
         statusEntries = statusEntries.filter { kept.contains($0.key) }

@@ -247,6 +247,33 @@ extension Workspace {
         recomputeListeningPorts()
     }
 
+    /// Clears the agent PID runtime state coupled to status keys that the sidebar
+    /// status cap is about to evict. `set_status --pid` records PIDs under keys
+    /// derived from the status key (`agentStatusKey(forAgentPIDKey:)`), so evicting
+    /// a status entry without this cleanup would orphan its `agentPIDs` /
+    /// ownership-map records and the port-scan tags keyed off them, reintroducing
+    /// unbounded growth for the same workload the cap is meant to contain (#5845).
+    /// Must run while the evicted entries are still present in `statusEntries` so
+    /// `agentStatusKey(forAgentPIDKey:)` resolves dotted status keys correctly.
+    func purgeAgentRuntimeState(forEvictedStatusKeys evictedStatusKeys: Set<String>) {
+        guard !evictedStatusKeys.isEmpty else { return }
+        let pidKeysToClear = Set(agentPIDs.keys)
+            .union(agentPIDPanelIdsByKey.keys)
+            .filter { evictedStatusKeys.contains(agentStatusKey(forAgentPIDKey: $0)) }
+        guard !pidKeysToClear.isEmpty else { return }
+        var didChange = false
+        for pidKey in pidKeysToClear {
+            // clearStatus: false — the cap removes the status entries itself; this
+            // only tears down the coupled PID/ownership/lifecycle records.
+            if clearAgentPID(key: pidKey, panelId: nil, clearStatus: false, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        if didChange {
+            refreshTrackedAgentPorts()
+        }
+    }
+
     @discardableResult
     private func discardAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) -> Bool {
         guard let runtimeState else { return false }

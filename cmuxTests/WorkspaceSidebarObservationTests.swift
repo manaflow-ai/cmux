@@ -141,4 +141,43 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             "The oldest metadata block must be evicted once the cap is exceeded"
         )
     }
+
+    // `set_status --pid` couples a status key to agent PID runtime state
+    // (agentPIDs / ownership maps / port-scan tags). When the cap evicts the
+    // status key, that coupled state must be torn down too, otherwise the same
+    // ever-distinct-key workload keeps those maps growing without bound (#5845).
+    func testStatusCapEvictionClearsCoupledAgentPIDState() {
+        let workspace = Workspace()
+        let cap = 200
+
+        // The oldest status key carries an agent PID and will be evicted first.
+        workspace.statusEntries["key_0"] = SidebarStatusEntry(
+            key: "key_0",
+            value: "value_0",
+            timestamp: Date(timeIntervalSince1970: 0)
+        )
+        _ = workspace.recordAgentPID(key: "key_0", pid: 4242, panelId: nil, refreshPorts: false)
+        XCTAssertEqual(
+            workspace.agentPIDs["key_0"],
+            4242,
+            "Precondition: the status key should have a coupled agent PID"
+        )
+
+        for index in 1..<(cap * 3) {
+            workspace.statusEntries["key_\(index)"] = SidebarStatusEntry(
+                key: "key_\(index)",
+                value: "value_\(index)",
+                timestamp: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        }
+
+        XCTAssertNil(
+            workspace.statusEntries["key_0"],
+            "The oldest status entry must be evicted once the cap is exceeded"
+        )
+        XCTAssertNil(
+            workspace.agentPIDs["key_0"],
+            "Evicting a status key must also clear its coupled agent PID runtime state"
+        )
+    }
 }
