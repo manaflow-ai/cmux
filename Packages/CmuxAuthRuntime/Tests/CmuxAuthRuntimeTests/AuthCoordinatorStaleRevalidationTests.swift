@@ -133,6 +133,49 @@ import Testing
         #expect(await client.accessToken() == nil)
         #expect(await client.refreshToken() == nil)
     }
+
+    @Test func staleSignInRollbackDoesNotWipeANewerSession() async throws {
+        // Worst-case interleave of the rollback above: sign-in A parks in its
+        // exchange, the user signs out, then completes a SECOND sign-in (B)
+        // before A resumes. A's stale completion must not roll the token
+        // store back: that would wipe B's tokens while B's published state
+        // still says signed in (a stale shell that fails at connect time).
+        // The rollback may only run while no newer session has been
+        // published.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+
+        await client.armCredentialGate()
+        let staleSignIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await client.credentialDidPark()
+
+        await coordinator.signOut()
+        #expect(coordinator.isAuthenticated == false)
+
+        // The user signs in again before the stale task resumes.
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(coordinator.isAuthenticated)
+
+        await client.releaseParkedCredential()
+        await #expect(throws: AuthError.cancelled) { try await staleSignIn.value }
+
+        // The newer session survives the stale completion intact.
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(await client.accessToken() != nil)
+        #expect(await client.refreshToken() != nil)
+    }
 }
 
 /// Counts `onSignedIn` hook runs across actor hops.
