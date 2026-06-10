@@ -2091,7 +2091,7 @@ final class TerminalNotificationStore: ObservableObject {
                     title: content.title,
                     subtitle: content.subtitle,
                     body: content.body,
-                    effects: effects
+                    effects: Self.fallbackEffects(effects, authorizationState: self.authorizationState)
                 )
                 return
             }

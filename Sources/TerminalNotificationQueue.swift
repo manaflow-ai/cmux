@@ -447,6 +447,9 @@ extension TerminalNotificationStore {
         _ effects: TerminalNotificationPolicyEffects,
         authorizationState: NotificationAuthorizationState
     ) -> TerminalNotificationPolicyEffects {
-        effects
+        guard authorizationState == .denied else { return effects }
+        var silenced = effects
+        silenced.sound = false
+        return silenced
     }
 }

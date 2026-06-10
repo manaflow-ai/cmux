@@ -919,12 +919,17 @@ private extension FeedCoordinator {
                             effects: effects
                         )
                     } else {
+                        // The user declined the prompt just now: honor the
+                        // fresh denial on this very notification.
                         self.runFallbackEffectsIfStillAwaiting(
                             requestId: requestId,
                             title: title,
                             subtitle: subtitle,
                             body: body,
-                            effects: effects
+                            effects: TerminalNotificationStore.fallbackEffects(
+                                effects,
+                                authorizationState: .denied
+                            )
                         )
                     }
                 default:
@@ -933,7 +938,12 @@ private extension FeedCoordinator {
                         title: title,
                         subtitle: subtitle,
                         body: body,
-                        effects: effects
+                        effects: TerminalNotificationStore.fallbackEffects(
+                            effects,
+                            authorizationState: TerminalNotificationStore.authorizationState(
+                                from: settings.authorizationStatus
+                            )
+                        )
                     )
                 }
             }
