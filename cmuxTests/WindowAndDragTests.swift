@@ -1829,7 +1829,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             workspaceId: nil,
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
-            onOpenNote: { _ in },
+            onOpenNote: { _, _ in },
             onResumeNoteSession: { _ in },
             onOpenAsPane: { _ in },
             onClose: {}
