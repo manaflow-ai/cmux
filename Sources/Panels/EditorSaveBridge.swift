@@ -28,7 +28,10 @@ final class CmuxEditorSaveRegistry: @unchecked Sendable {
                 NSLocalizedDescriptionKey: "Invalid editor token"
             ])
         }
-        let standardized = fileURL.standardizedFileURL
+        // Resolve symlinks so the atomic save rewrites the link's TARGET; an
+        // atomic write to the link path itself would replace the symlink node
+        // with a regular file and silently orphan the target.
+        let standardized = fileURL.standardizedFileURL.resolvingSymlinksInPath()
         guard standardized.isFileURL, standardized.path.hasPrefix("/") else {
             throw NSError(domain: "CmuxEditorSaveRegistry", code: 2, userInfo: [
                 NSLocalizedDescriptionKey: "Editor file path must be absolute"

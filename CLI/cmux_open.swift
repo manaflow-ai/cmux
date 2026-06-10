@@ -1111,18 +1111,18 @@ extension CMUXCLI {
     }
 
     private static let editorLabels: [String: String] = [
-        "conflictChanged": String(localized: "editor.conflict.changed", defaultValue: "The file changed on disk after it was opened."),
-        "conflictMissing": String(localized: "editor.conflict.missing", defaultValue: "The file no longer exists on disk."),
-        "dismiss": String(localized: "editor.conflict.dismiss", defaultValue: "Dismiss"),
-        "modified": String(localized: "editor.status.modified", defaultValue: "Modified"),
-        "overwrite": String(localized: "editor.conflict.overwrite", defaultValue: "Overwrite"),
-        "readOnly": String(localized: "editor.status.readOnly", defaultValue: "Read-only"),
-        "saved": String(localized: "editor.status.saved", defaultValue: "Saved"),
-        "saveFailed": String(localized: "editor.error.saveFailed", defaultValue: "Could not save the file."),
-        "savePermissionDenied": String(localized: "editor.error.permissionDenied", defaultValue: "You don't have permission to save this file."),
-        "saveUnavailable": String(localized: "editor.error.saveUnavailable", defaultValue: "Saving is unavailable for this editor."),
-        "saving": String(localized: "editor.status.saving", defaultValue: "Saving…"),
-        "useDiskVersion": String(localized: "editor.conflict.useDiskVersion", defaultValue: "Use disk version")
+        "conflictChanged": CMUXDiffViewerLocalization.string("editor.conflict.changed", defaultValue: "The file changed on disk after it was opened."),
+        "conflictMissing": CMUXDiffViewerLocalization.string("editor.conflict.missing", defaultValue: "The file no longer exists on disk."),
+        "dismiss": CMUXDiffViewerLocalization.string("editor.conflict.dismiss", defaultValue: "Dismiss"),
+        "modified": CMUXDiffViewerLocalization.string("editor.status.modified", defaultValue: "Modified"),
+        "overwrite": CMUXDiffViewerLocalization.string("editor.conflict.overwrite", defaultValue: "Overwrite"),
+        "readOnly": CMUXDiffViewerLocalization.string("editor.status.readOnly", defaultValue: "Read-only"),
+        "saved": CMUXDiffViewerLocalization.string("editor.status.saved", defaultValue: "Saved"),
+        "saveFailed": CMUXDiffViewerLocalization.string("editor.error.saveFailed", defaultValue: "Could not save the file."),
+        "savePermissionDenied": CMUXDiffViewerLocalization.string("editor.error.permissionDenied", defaultValue: "You don't have permission to save this file."),
+        "saveUnavailable": CMUXDiffViewerLocalization.string("editor.error.saveUnavailable", defaultValue: "Saving is unavailable for this editor."),
+        "saving": CMUXDiffViewerLocalization.string("editor.status.saving", defaultValue: "Saving…"),
+        "useDiskVersion": CMUXDiffViewerLocalization.string("editor.conflict.useDiskVersion", defaultValue: "Use disk version"),
     ]
 
     private func writeEditorHTML(
