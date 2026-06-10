@@ -87,6 +87,11 @@ export function mapEditorSaveReply(raw: unknown): EditorSaveBridgeReply {
 
 export class EditorSaveController {
   private readonly bridge: EditorSaveBridge | null;
+  /// Invoked once if the native side reports the write capability is gone
+  /// (e.g. a session-restored page whose registration died with the previous
+  /// app instance); the owner should lock the buffer read-only.
+  onSaveUnavailable: (() => void) | null = null;
+  private unavailable = false;
   private document: EditorSaveDocument | null = null;
   private baselineSha256: string | null;
   private savedVersionId: number | null = null;
@@ -235,6 +240,14 @@ export class EditorSaveController {
       this.status = "error";
       this.errorCode = reply.code;
       this.errorDetail = reply.detail;
+      if (reply.code === "unauthorized" && !this.unavailable) {
+        // The native registration for this page is gone (restored page from a
+        // previous app run). Surface it as save-unavailable and lock the
+        // buffer so edits are not silently discarded.
+        this.unavailable = true;
+        this.errorCode = "unavailable";
+        this.onSaveUnavailable?.();
+      }
       this.refreshState();
       return;
     }

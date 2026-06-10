@@ -72,6 +72,9 @@ export function EditorApp({
       let contentListener: monaco.IDisposable | null = null;
       let removeSaveShortcut: (() => void) | null = null;
       if (saveController) {
+        saveController.onSaveUnavailable = () => {
+          editor.updateOptions({ readOnly: true });
+        };
         saveController.attachDocument({
           getValue: () => model.getValue(),
           getVersionId: () => model.getAlternativeVersionId(),
@@ -103,6 +106,9 @@ export function EditorApp({
       return () => {
         removeSaveShortcut?.();
         contentListener?.dispose();
+        if (saveController) {
+          saveController.onSaveUnavailable = null;
+        }
         saveController?.detachDocument();
         resizeObserver.disconnect();
         editor.dispose();
