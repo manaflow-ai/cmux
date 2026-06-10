@@ -20,6 +20,9 @@ struct SurfaceHibernationPanelState {
     let hibernatedAt: Date
     let lastActivityAt: Date
     let scrollback: String?
+    /// One-shot replay file written at hibernation time so restore stages an
+    /// environment value without doing disk I/O on the focus path.
+    let replayFilePath: String?
     let workingDirectory: String?
 }
 
@@ -667,10 +670,12 @@ final class TerminalPanel: Panel, ObservableObject {
         hibernatedAt: Date = Date()
     ) {
         guard !isAgentHibernated, !isSurfaceHibernated else { return }
+        let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: scrollback)
         surfaceHibernationState = SurfaceHibernationPanelState(
             hibernatedAt: hibernatedAt,
             lastActivityAt: lastActivityAt,
             scrollback: scrollback,
+            replayFilePath: replayEnvironment[SessionScrollbackReplayStore.environmentKey],
             workingDirectory: workingDirectory
         )
         suspendSurfaceForHibernation(reason: "surfaceHibernation")
@@ -684,7 +689,7 @@ final class TerminalPanel: Panel, ObservableObject {
         guard let state = surfaceHibernationState else { return false }
         surfaceHibernationState = nil
         surface.stageHibernationRestore(
-            scrollback: state.scrollback,
+            replayFilePath: state.replayFilePath,
             workingDirectory: state.workingDirectory
         )
         surface.prepareHibernationResume(initialInput: nil)

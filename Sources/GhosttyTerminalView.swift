@@ -7250,12 +7250,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// Stage scrollback replay and a working-directory override for the next
     /// runtime surface created after hibernation. Both are one-shot: the
     /// replay file environment is consumed by the next `createSurface` and the
-    /// directory override is cleared once applied.
+    /// directory override is cleared once applied. The replay file itself was
+    /// written at hibernation time — this path runs on focus/selection and
+    /// must not perform disk I/O.
     @MainActor
-    func stageHibernationRestore(scrollback: String?, workingDirectory: String?) {
-        let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: scrollback)
-        if let replayPath = replayEnvironment[SessionScrollbackReplayStore.environmentKey] {
-            additionalEnvironment[SessionScrollbackReplayStore.environmentKey] = replayPath
+    func stageHibernationRestore(replayFilePath: String?, workingDirectory: String?) {
+        if let replayFilePath, !replayFilePath.isEmpty {
+            additionalEnvironment[SessionScrollbackReplayStore.environmentKey] = replayFilePath
         }
         // No disk I/O here: this runs on interactive selection/focus paths and
         // a stat on a dead network mount can hang the main thread. A stale
@@ -7371,9 +7372,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
-        // Single-character key names type editable prompt text ("a"); named
-        // special keys (enter, escape, arrows) do not.
-        let armsPendingCommandLine = keyName.count == 1
+        // Single-character key names type editable prompt text ("a"), and so
+        // do space and tab (completion); other named special keys (enter,
+        // escape, arrows) do not.
+        let normalizedKeyName = keyName.lowercased()
+        let armsPendingCommandLine = keyName.count == 1 ||
+            normalizedKeyName == "space" || normalizedKeyName == "tab"
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }

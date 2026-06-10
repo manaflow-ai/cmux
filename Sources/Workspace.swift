@@ -12668,6 +12668,13 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: workingDirectory,
             lastActivityAt: lastActivityAt
         )
+        // Seed the session-snapshot fallback immediately: an autosave can land
+        // in the restore window after the hibernation state clears but before
+        // a replacement surface is readable, and must not persist nil over
+        // the only copy of the content.
+        if let scrollback {
+            restoredTerminalScrollbackByPanelId[panelId] = scrollback
+        }
         return true
     }
 
