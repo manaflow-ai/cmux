@@ -7256,7 +7256,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return foregroundProcessHasChildrenOverrideForTesting
         }
 #endif
-        guard let surface else { return false }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "foregroundProcessHasChildren") else {
+            return false
+        }
         let rawPid = ghostty_surface_foreground_pid(surface)
         guard rawPid > 0, rawPid <= UInt64(Int32.max) else { return false }
         return CmuxTopProcessSnapshot.hasChildProcesses(parentPID: Int(rawPid))
@@ -9621,26 +9623,38 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func recordDirectAgentHibernationTerminalInput() {
+    private func recordDirectAgentHibernationTerminalInput(
+        leavesTrailingTextAfterCommand: Bool = false
+    ) {
         guard let terminalSurface else { return }
         recordAgentHibernationTerminalInput(
             workspaceId: terminalSurface.tabId,
-            panelId: terminalSurface.id
+            panelId: terminalSurface.id,
+            leavesTrailingTextAfterCommand: leavesTrailingTextAfterCommand
         )
+    }
+
+    private func clipboardLeavesTrailingTextAfterCommand() -> Bool {
+        guard let pasted = NSPasteboard.general.string(forType: .string) else { return false }
+        return terminalInputLeavesTrailingTextAfterCommand(pasted)
     }
 
     // MARK: - Clipboard paste
 
     @IBAction func paste(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "paste.missingSurface") else { return }
-        recordDirectAgentHibernationTerminalInput()
+        recordDirectAgentHibernationTerminalInput(
+            leavesTrailingTextAfterCommand: clipboardLeavesTrailingTextAfterCommand()
+        )
         _ = performBindingAction("paste_from_clipboard")
     }
 
     /// Pastes clipboard text as plain text, stripping any rich formatting.
     @IBAction func pasteAsPlainText(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "pasteAsPlainText.missingSurface") else { return }
-        recordDirectAgentHibernationTerminalInput()
+        recordDirectAgentHibernationTerminalInput(
+            leavesTrailingTextAfterCommand: clipboardLeavesTrailingTextAfterCommand()
+        )
         _ = performBindingAction("paste_from_clipboard")
     }
 
@@ -16057,7 +16071,9 @@ extension GhosttyNSView: NSTextInputClient {
         guard !sanitizedChars.isEmpty else { return }
 
         // Otherwise send directly to the terminal
-        recordDirectAgentHibernationTerminalInput()
+        recordDirectAgentHibernationTerminalInput(
+            leavesTrailingTextAfterCommand: terminalInputLeavesTrailingTextAfterCommand(sanitizedChars)
+        )
         sendTextToSurface(
             sanitizedChars,
             preserveLiteralEscape: !isExternalCommittedText

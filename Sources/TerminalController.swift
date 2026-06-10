@@ -128,6 +128,7 @@ class TerminalController {
     private static let mobileViewportReportTTL: TimeInterval = 5
     private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
+    private var mobileViewportSurfaceReadyObserver: NSObjectProtocol?
 #if DEBUG
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
     private nonisolated static let socketCommandSlowThresholdMs: Double = 500
@@ -270,6 +271,20 @@ class TerminalController {
             events: Self.makeSocketServerEvents(target: serverEventTarget)
         )
         serverEventTarget.controller = self
+        // Mobile viewport limits no-op while a panel has no live surface
+        // (lazy start, surface hibernation); re-apply the stored reports once
+        // the runtime surface materializes so the restored grid matches the
+        // phone instead of the Mac size.
+        mobileViewportSurfaceReadyObserver = NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let surfaceID = (note.object as? TerminalSurface)?.id else { return }
+            Task { @MainActor [weak self] in
+                self?.reapplyMobileViewportLimitAfterSurfaceReady(surfaceID: surfaceID)
+            }
+        }
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
             object: nil,
@@ -21852,6 +21867,21 @@ class TerminalController {
             columns: minColumns,
             rows: minRows,
             reason: "mobile.terminal.input"
+        )
+    }
+
+    @MainActor
+    private func reapplyMobileViewportLimitAfterSurfaceReady(surfaceID: UUID) {
+        guard let reports = mobileViewportReportsBySurfaceID[surfaceID],
+              let minColumns = reports.values.map(\.columns).min(),
+              let minRows = reports.values.map(\.rows).min(),
+              let surface = TerminalSurfaceRegistry.shared.surface(id: surfaceID) else {
+            return
+        }
+        _ = surface.applyMobileViewportLimit(
+            columns: minColumns,
+            rows: minRows,
+            reason: "mobile.terminal.surfaceReady"
         )
     }
 
