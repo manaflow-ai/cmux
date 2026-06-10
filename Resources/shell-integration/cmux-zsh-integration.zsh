@@ -177,7 +177,19 @@ _cmux_restore_scrollback_once() {
 _cmux_restore_scrollback_once
 
 _cmux_now() {
-    print -r -- "${EPOCHSECONDS:-$SECONDS}"
+    if [[ -n "${EPOCHSECONDS:-}" ]]; then
+        print -r -- "$EPOCHSECONDS"
+    else
+        print -r -- "$SECONDS"
+    fi
+}
+
+_cmux_epoch_seconds() {
+    if [[ -n "${EPOCHSECONDS:-}" ]]; then
+        print -r -- "$EPOCHSECONDS"
+    else
+        /bin/date +%s 2>/dev/null || print -r -- "$SECONDS"
+    fi
 }
 
 typeset -g _CMUX_CLAUDE_WRAPPER=""
@@ -326,6 +338,7 @@ typeset -g _CMUX_LAST_PR_TARGET=""
 typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_SHELL_ACTIVITY_LAST=""
+typeset -g _CMUX_SHELL_ACTIVITY_SEQ=${_CMUX_SHELL_ACTIVITY_SEQ:-$(( $(_cmux_epoch_seconds) * 1000000 ))}
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
 typeset -g _CMUX_GHOSTTY_SEMANTIC_PATCHED=0
@@ -752,8 +765,27 @@ _cmux_report_shell_activity_state() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
+    _CMUX_SHELL_ACTIVITY_SEQ=$(( _CMUX_SHELL_ACTIVITY_SEQ + 1 ))
     _CMUX_SHELL_ACTIVITY_LAST="$state"
-    _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --seq=$_CMUX_SHELL_ACTIVITY_SEQ"
+}
+
+_cmux_report_command_start() {
+    local cmd="$1"
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _CMUX_SHELL_ACTIVITY_SEQ=$(( _CMUX_SHELL_ACTIVITY_SEQ + 1 ))
+    _CMUX_SHELL_ACTIVITY_LAST="running"
+    local payload="report_shell_state running --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --seq=$_CMUX_SHELL_ACTIVITY_SEQ"
+    if [[ -n "$cmd" ]]; then
+        local qcmd="${cmd//\\/\\\\}"
+        qcmd="${qcmd//\"/\\\"}"
+        qcmd="${qcmd//$'\n'/\\n}"
+        qcmd="${qcmd//$'\r'/\\r}"
+        payload+=$'\n'"report_foreground_command \"${qcmd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --seq=$_CMUX_SHELL_ACTIVITY_SEQ"
+    fi
+    _cmux_send_bg "$payload"
 }
 
 _cmux_reset_terminal_keyboard_protocols() {
@@ -1585,7 +1617,7 @@ _cmux_preexec() {
     fi
 
     _CMUX_CMD_START="$(_cmux_now)"
-    _cmux_report_shell_activity_state running
+    _cmux_report_command_start "$cmd"
     _cmux_record_pr_command_hint "$cmd"
 
     # Heuristic: commands that may change git branch/dirty state without changing $PWD.

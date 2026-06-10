@@ -23,6 +23,37 @@ struct SocketFastPathStateTests {
         #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: UUID(), state: "promptIdle"))
     }
 
+    @Test func staleSequencedReportsAreSuppressedEvenWhenStateChanges() {
+        let state = SocketFastPathState()
+        let workspace = UUID()
+        let panel = UUID()
+
+        #expect(state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            state: "commandRunning",
+            sequence: 10
+        ))
+        #expect(!state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            state: "promptIdle",
+            sequence: 9
+        ))
+        #expect(state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            state: "promptIdle",
+            sequence: 11
+        ))
+        #expect(!state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            state: "commandRunning",
+            sequence: 10
+        ))
+    }
+
     @Test func cacheResetsAtCapacityAndKeepsPublishing() {
         let state = SocketFastPathState(maxTrackedShellStates: 4)
         let workspace = UUID()

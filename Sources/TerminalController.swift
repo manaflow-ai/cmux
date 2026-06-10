@@ -575,6 +575,13 @@ class TerminalController {
         }
     }
 
+    nonisolated static func parseReportedShellActivitySequence(
+        _ rawSequence: String?
+    ) -> UInt64? {
+        guard let rawSequence else { return nil }
+        return UInt64(rawSequence.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     nonisolated static func parseRemotePortScanKickReason(
         _ rawReason: String
     ) -> WorkspaceRemoteSessionController.PortScanKickReason? {
@@ -1647,6 +1654,9 @@ class TerminalController {
 
         case "report_shell_state":
             return reportShellState(args)
+
+        case "report_foreground_command":
+            return reportForegroundCommand(args)
 
         case "report_pr_action":
             return reportPullRequestAction(args)
@@ -6644,12 +6654,16 @@ class TerminalController {
               let state = Self.parseReportedShellActivityState(rawState) else {
             return .err(code: "invalid_params", message: "state must be prompt, running, or unknown", data: nil)
         }
+        let shellActivitySequence = Self.parseReportedShellActivitySequence(
+            v2RawString(params, "seq") ?? v2RawString(params, "sequence")
+        )
 
         if let requestedSurfaceId {
             let shouldPublish = socketFastPathState.shouldPublishShellActivity(
                 workspaceId: workspaceId,
                 panelId: requestedSurfaceId,
-                state: state.rawValue
+                state: state.rawValue,
+                sequence: shellActivitySequence
             )
             if shouldPublish {
                 DispatchQueue.main.async {
@@ -6657,7 +6671,8 @@ class TerminalController {
                     tabManager.updateSurfaceShellActivity(
                         tabId: workspaceId,
                         surfaceId: requestedSurfaceId,
-                        state: state
+                        state: state,
+                        shellActivitySequence: shellActivitySequence
                     )
                 }
             }
@@ -6691,7 +6706,12 @@ class TerminalController {
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else {
                 return
             }
-            tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
+            tabManager.updateSurfaceShellActivity(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                state: state,
+                shellActivitySequence: shellActivitySequence
+            )
         }
 
         return .ok([
@@ -18884,8 +18904,8 @@ class TerminalController {
         return result
     }
 
-	    private func focusSurfaceByPanel(_ args: String) -> String {
-	        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+    private func focusSurfaceByPanel(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         let tabArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tabArg.isEmpty else { return "ERROR: Usage: focus_surface_by_panel <panel_id>" }
@@ -18906,69 +18926,69 @@ class TerminalController {
                 result = "OK"
             }
         }
-	        return result
-	    }
-	
-	    private func dragSurfaceToSplit(_ args: String) -> String {
-	        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-	
-	        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-	        let parts = trimmed.split(separator: " ").map(String.init)
-	        guard parts.count >= 2 else { return "ERROR: Usage: drag_surface_to_split <id|idx> <left|right|up|down>" }
-	
-	        let surfaceArg = parts[0]
-	        let directionArg = parts[1]
-	        guard let direction = parseSplitDirection(directionArg) else {
-	            return "ERROR: Invalid direction. Use left, right, up, or down."
-	        }
-	
-	        let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
-	        let insertFirst = (direction == .left || direction == .up)
+        return result
+    }
 
-	        v2MainSync { self.v2RefreshKnownRefs() }
-	        if let stableSurfaceId = v2UUID(["surface_id": surfaceArg], "surface_id") {
-	            switch v2SurfaceSplitOff(params: [
-	                "surface_id": stableSurfaceId.uuidString,
-	                "direction": directionArg,
-	                "focus": false
-	            ]) {
-	            case .ok(let payload):
-	                let dict = payload as? [String: Any]
-	                let paneId = (dict?["pane_id"] as? String) ?? ""
-	                return paneId.isEmpty ? "OK" : "OK \(paneId)"
-	            case .err(_, let message, _):
-	                return "ERROR: \(message)"
-	            }
-	        }
-	
-	        var result = "ERROR: Failed to move surface"
-	        v2MainSync {
-	            guard let tabId = tabManager.selectedTabId,
-	                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
-	                result = "ERROR: No tab selected"
-	                return
-	            }
-	
-	            guard let panelId = resolveSurfaceId(from: surfaceArg, tab: tab),
-	                  let bonsplitTabId = tab.surfaceIdFromPanelId(panelId) else {
-	                result = "ERROR: Surface not found"
-	                return
-	            }
-	
-	            guard let newPaneId = tab.bonsplitController.splitPane(
-	                orientation: orientation,
-	                movingTab: bonsplitTabId,
-	                insertFirst: insertFirst
-	            ) else {
-	                result = "ERROR: Failed to split pane"
-	                return
-	            }
-	
-	            result = "OK \(newPaneId.id.uuidString)"
-	        }
-	        return result
-	    }
-	
+    private func dragSurfaceToSplit(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ").map(String.init)
+        guard parts.count >= 2 else { return "ERROR: Usage: drag_surface_to_split <id|idx> <left|right|up|down>" }
+
+        let surfaceArg = parts[0]
+        let directionArg = parts[1]
+        guard let direction = parseSplitDirection(directionArg) else {
+            return "ERROR: Invalid direction. Use left, right, up, or down."
+        }
+
+        let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
+        let insertFirst = (direction == .left || direction == .up)
+
+        v2MainSync { self.v2RefreshKnownRefs() }
+        if let stableSurfaceId = v2UUID(["surface_id": surfaceArg], "surface_id") {
+            switch v2SurfaceSplitOff(params: [
+                "surface_id": stableSurfaceId.uuidString,
+                "direction": directionArg,
+                "focus": false
+            ]) {
+            case .ok(let payload):
+                let dict = payload as? [String: Any]
+                let paneId = (dict?["pane_id"] as? String) ?? ""
+                return paneId.isEmpty ? "OK" : "OK \(paneId)"
+            case .err(_, let message, _):
+                return "ERROR: \(message)"
+            }
+        }
+
+        var result = "ERROR: Failed to move surface"
+        v2MainSync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                result = "ERROR: No tab selected"
+                return
+            }
+
+            guard let panelId = resolveSurfaceId(from: surfaceArg, tab: tab),
+                  let bonsplitTabId = tab.surfaceIdFromPanelId(panelId) else {
+                result = "ERROR: Surface not found"
+                return
+            }
+
+            guard let newPaneId = tab.bonsplitController.splitPane(
+                orientation: orientation,
+                movingTab: bonsplitTabId,
+                insertFirst: insertFirst
+            ) else {
+                result = "ERROR: Failed to split pane"
+                return
+            }
+
+            result = "OK \(newPaneId.id.uuidString)"
+        }
+        return result
+    }
+
     private func newPane(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
@@ -20203,18 +20223,27 @@ class TerminalController {
         guard let state = Self.parseReportedShellActivityState(rawState) else {
             return "ERROR: Invalid shell state '\(rawState)' — expected prompt or running"
         }
+        let shellActivitySequence = Self.parseReportedShellActivitySequence(
+            parsed.options["seq"] ?? parsed.options["sequence"]
+        )
 
         if let scope = Self.explicitSocketScope(options: parsed.options) {
             guard socketFastPathState.shouldPublishShellActivity(
                 workspaceId: scope.workspaceId,
                 panelId: scope.panelId,
-                state: state.rawValue
+                state: state.rawValue,
+                sequence: shellActivitySequence
             ) else {
                 return "OK"
             }
             TerminalMutationBus.shared.enqueueMainActorMutation {
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId) else { return }
-                tabManager.updateSurfaceShellActivity(tabId: scope.workspaceId, surfaceId: scope.panelId, state: state)
+                tabManager.updateSurfaceShellActivity(
+                    tabId: scope.workspaceId,
+                    surfaceId: scope.panelId,
+                    state: state,
+                    shellActivitySequence: shellActivitySequence
+                )
             }
             return "OK"
         }
@@ -20256,9 +20285,44 @@ class TerminalController {
                 return
             }
 
-            tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
+            tabManager.updateSurfaceShellActivity(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                state: state,
+                shellActivitySequence: shellActivitySequence
+            )
         }
         return result
+    }
+
+    private func reportForegroundCommand(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let commandLine = parsed.positional.first, !commandLine.isEmpty else {
+            return "ERROR: Missing command — usage: report_foreground_command <command> [--tab=X] [--panel=Y]"
+        }
+        guard let session = TerminalSSHSessionDetector.detectRemoteSession(commandLine: commandLine) else {
+            return "OK"
+        }
+        let shellActivitySequence = Self.parseReportedShellActivitySequence(
+            parsed.options["seq"] ?? parsed.options["sequence"]
+        )
+
+        return schedulePanelMetadataMutation(
+            args: args,
+            options: parsed.options,
+            missingPanelUsage: "report_foreground_command <command> [--tab=X] [--panel=Y]"
+        ) { tab, surfaceId in
+            guard !tab.isRemoteWorkspace,
+                  let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else {
+                return
+            }
+            tabManager.updateSurfaceRemoteSession(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                session: session,
+                shellActivitySequence: shellActivitySequence
+            )
+        }
     }
 
     private func reportPullRequestAction(_ args: String) -> String {

@@ -275,7 +275,19 @@ _cmux_install_cli_wrapper() {
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
 _cmux_now() {
-    printf '%s\n' "${EPOCHSECONDS:-$SECONDS}"
+    if [[ -n "${EPOCHSECONDS:-}" ]]; then
+        printf '%s\n' "$EPOCHSECONDS"
+    else
+        printf '%s\n' "$SECONDS"
+    fi
+}
+
+_cmux_epoch_seconds() {
+    if [[ -n "${EPOCHSECONDS:-}" ]]; then
+        printf '%s\n' "$EPOCHSECONDS"
+    else
+        /bin/date +%s 2>/dev/null || printf '%s\n' "$SECONDS"
+    fi
 }
 
 # Throttle heavy work to avoid prompt latency.
@@ -303,6 +315,7 @@ _CMUX_BASH_HISTORY_LAST_FILE="${_CMUX_BASH_HISTORY_LAST_FILE:-${TMPDIR:-/tmp}/cm
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_SHELL_ACTIVITY_LAST="${_CMUX_SHELL_ACTIVITY_LAST:-}"
+_CMUX_SHELL_ACTIVITY_SEQ="${_CMUX_SHELL_ACTIVITY_SEQ:-$(( $(_cmux_epoch_seconds) * 1000000 ))}"
 _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
 _CMUX_TTY_REPORTED="${_CMUX_TTY_REPORTED:-0}"
 _CMUX_TMUX_PUSH_SIGNATURE="${_CMUX_TMUX_PUSH_SIGNATURE:-}"
@@ -565,8 +578,27 @@ _cmux_report_shell_activity_state() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
+    _CMUX_SHELL_ACTIVITY_SEQ=$(( _CMUX_SHELL_ACTIVITY_SEQ + 1 ))
     _CMUX_SHELL_ACTIVITY_LAST="$state"
-    _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --seq=$_CMUX_SHELL_ACTIVITY_SEQ"
+}
+
+_cmux_report_command_start() {
+    local cmd="$1"
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _CMUX_SHELL_ACTIVITY_SEQ=$(( _CMUX_SHELL_ACTIVITY_SEQ + 1 ))
+    _CMUX_SHELL_ACTIVITY_LAST="running"
+    local payload="report_shell_state running --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --seq=$_CMUX_SHELL_ACTIVITY_SEQ"
+    if [[ -n "$cmd" ]]; then
+        local qcmd="${cmd//\\/\\\\}"
+        qcmd="${qcmd//\"/\\\"}"
+        qcmd="${qcmd//$'\n'/\\n}"
+        qcmd="${qcmd//$'\r'/\\r}"
+        payload+=$'\n'"report_foreground_command \"${qcmd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --seq=$_CMUX_SHELL_ACTIVITY_SEQ"
+    fi
+    _cmux_send_bg "$payload"
 }
 
 _cmux_reset_terminal_keyboard_protocols() {
@@ -1380,7 +1412,7 @@ _cmux_preexec_command() {
         [[ -n "$t" && "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
     fi
 
-    _cmux_report_shell_activity_state running
+    _cmux_report_command_start "$cmd"
     _cmux_report_tty_once
     _cmux_ports_kick command
     _cmux_halt_pr_poll_loop

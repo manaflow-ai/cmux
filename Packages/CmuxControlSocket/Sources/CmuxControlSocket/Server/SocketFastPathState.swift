@@ -11,7 +11,7 @@ internal import os
 /// ```swift
 /// let fastPath = SocketFastPathState()
 /// if fastPath.shouldPublishShellActivity(
-///     workspaceId: workspaceId, panelId: panelId, state: state.rawValue
+///     workspaceId: workspaceId, panelId: panelId, state: state.rawValue, sequence: sequence
 /// ) {
 ///     // forward the state change to the main-actor model
 /// }
@@ -22,10 +22,15 @@ public final class SocketFastPathState: Sendable {
         let panelId: UUID
     }
 
+    private struct ReportedShellActivity {
+        var state: String
+        var sequence: UInt64?
+    }
+
     // Lock carve-out: synchronous compare-and-set on the socket telemetry hot
     // path, called from non-async socket worker threads where an actor hop
     // would reorder racing reports.
-    private let lastReportedShellStates: OSAllocatedUnfairLock<[SocketSurfaceKey: String]>
+    private let lastReportedShellStates: OSAllocatedUnfairLock<[SocketSurfaceKey: ReportedShellActivity]>
     private let maxTrackedShellStates: Int
 
     /// Creates an empty dedupe cache.
@@ -37,28 +42,40 @@ public final class SocketFastPathState: Sendable {
     }
 
     /// Whether a shell-activity report for the surface changed since the last
-    /// publish and should be forwarded; see ``SocketFastPathState`` for an
-    /// example.
+    /// publish, is not stale, and should be forwarded; see
+    /// ``SocketFastPathState`` for an example.
     /// - Parameters:
     ///   - workspaceId: The reporting workspace.
     ///   - panelId: The reporting surface/panel.
     ///   - state: The shell-activity state's raw token.
-    /// - Returns: `true` when the state differs from the last published value
-    ///   for this surface (recording it), `false` for a duplicate.
+    ///   - sequence: Optional monotonic shell report sequence for suppressing
+    ///     late reports from older prompt hooks.
+    /// - Returns: `true` when the report should publish and be recorded,
+    ///   `false` for a duplicate or stale sequenced report.
     public func shouldPublishShellActivity(
         workspaceId: UUID,
         panelId: UUID,
-        state: String
+        state: String,
+        sequence: UInt64? = nil
     ) -> Bool {
         let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
         return lastReportedShellStates.withLock { lastReportedShellStates in
-            if lastReportedShellStates[key] == state {
-                return false
+            if let current = lastReportedShellStates[key] {
+                if let sequence, let currentSequence = current.sequence {
+                    guard sequence > currentSequence else {
+                        return false
+                    }
+                } else if current.state == state {
+                    return false
+                }
             }
             if lastReportedShellStates.count >= maxTrackedShellStates {
                 lastReportedShellStates.removeAll(keepingCapacity: true)
             }
-            lastReportedShellStates[key] = state
+            lastReportedShellStates[key] = ReportedShellActivity(
+                state: state,
+                sequence: sequence ?? lastReportedShellStates[key]?.sequence
+            )
             return true
         }
     }

@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CmuxControlSocket
 import Darwin
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -138,6 +139,68 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 #else
         throw XCTSkip("Socket command policy snapshot helper is debug-only.")
 #endif
+    }
+
+    func testSocketFastPathKeepsSequencedShellActivityOrdered() {
+        let fastPath = SocketFastPathState()
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        XCTAssertTrue(
+            fastPath.shouldPublishShellActivity(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                state: Workspace.PanelShellActivityState.promptIdle.rawValue,
+                sequence: 2
+            )
+        )
+        XCTAssertFalse(
+            fastPath.shouldPublishShellActivity(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                state: Workspace.PanelShellActivityState.commandRunning.rawValue,
+                sequence: 1
+            )
+        )
+        XCTAssertTrue(
+            fastPath.shouldPublishShellActivity(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                state: Workspace.PanelShellActivityState.commandRunning.rawValue,
+                sequence: 3
+            )
+        )
+    }
+
+    func testSocketFastPathPublishesNewerSequencedDuplicateState() {
+        let fastPath = SocketFastPathState()
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        XCTAssertTrue(
+            fastPath.shouldPublishShellActivity(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                state: Workspace.PanelShellActivityState.commandRunning.rawValue,
+                sequence: 1
+            )
+        )
+        XCTAssertTrue(
+            fastPath.shouldPublishShellActivity(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                state: Workspace.PanelShellActivityState.commandRunning.rawValue,
+                sequence: 2
+            )
+        )
+        XCTAssertFalse(
+            fastPath.shouldPublishShellActivity(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                state: Workspace.PanelShellActivityState.commandRunning.rawValue,
+                sequence: 2
+            )
+        )
     }
 
     func testDebugTextBoxEndpointsRejectBlankSurfaceID() throws {

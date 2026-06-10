@@ -383,6 +383,164 @@ struct DetectedSSHSession: Equatable {
 #endif
 }
 
+struct DetectedRemoteTerminalSession: Equatable, Sendable {
+    enum Transport: String, Sendable {
+        case ssh
+        case mosh
+        case osc7
+    }
+
+    let transport: Transport
+    let destination: String?
+    let directory: String?
+
+    init(transport: Transport, destination: String?, directory: String?) {
+        self.transport = transport
+        let trimmedDestination = destination?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.destination = trimmedDestination.isEmpty ? nil : trimmedDestination
+        let trimmedDirectory = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.directory = trimmedDirectory.isEmpty ? nil : trimmedDirectory
+    }
+
+    static func ssh(_ session: DetectedSSHSession) -> DetectedRemoteTerminalSession {
+        DetectedRemoteTerminalSession(
+            transport: .ssh,
+            destination: session.destination,
+            directory: nil
+        )
+    }
+
+    static func ssh(destination: String?) -> DetectedRemoteTerminalSession {
+        DetectedRemoteTerminalSession(
+            transport: .ssh,
+            destination: destination,
+            directory: nil
+        )
+    }
+
+    static func mosh(destination: String?) -> DetectedRemoteTerminalSession {
+        DetectedRemoteTerminalSession(
+            transport: .mosh,
+            destination: destination,
+            directory: nil
+        )
+    }
+
+    static func osc7(host: String, directory: String) -> DetectedRemoteTerminalSession {
+        DetectedRemoteTerminalSession(
+            transport: .osc7,
+            destination: host,
+            directory: directory
+        )
+    }
+
+    var displayDirectory: String {
+        if let directory {
+            guard let destination else { return directory }
+            return "\(destination):\(directory)"
+        }
+        return displayTitle
+    }
+
+    var displayTitle: String {
+        if directory != nil {
+            return displayDirectory
+        }
+        switch transport {
+        case .ssh:
+            if let destination {
+                return "ssh \(destination)"
+            }
+            return String(localized: "remoteSession.title.sshFallback", defaultValue: "SSH session")
+        case .mosh:
+            if let destination {
+                return "mosh \(destination)"
+            }
+            return String(localized: "remoteSession.title.moshFallback", defaultValue: "mosh session")
+        case .osc7:
+            if let destination {
+                return destination
+            }
+            return String(localized: "remoteSession.title.remoteFallback", defaultValue: "Remote session")
+        }
+    }
+
+    static func fromReportedDirectory(
+        _ rawDirectory: String,
+        localHostNames: Set<String>? = nil
+    ) -> DetectedRemoteTerminalSession? {
+        let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "file" || scheme == "kitty-shell-cwd" else {
+            return nil
+        }
+        guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !host.isEmpty else {
+            return nil
+        }
+        let hostNames = localHostNames ?? cachedLocalHostNames
+        guard !isLocalHost(host, localHostNames: hostNames) else {
+            return nil
+        }
+        let path = url.path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else { return nil }
+        return .osc7(host: host, directory: path)
+    }
+
+    private static let cachedLocalHostNames: Set<String> = localHostNames()
+
+    static func localHostNames() -> Set<String> {
+        var names: Set<String> = [
+            "localhost",
+            "127.0.0.1",
+            "::1",
+            ProcessInfo.processInfo.hostName,
+        ]
+        if let name = Host.current().name {
+            names.insert(name)
+        }
+        if let localizedName = Host.current().localizedName {
+            names.insert(localizedName)
+        }
+
+        var normalized: Set<String> = []
+        for name in names {
+            let value = normalizedHostName(name)
+            guard !value.isEmpty else { continue }
+            normalized.insert(value)
+            if value.hasSuffix(".local") {
+                normalized.insert(String(value.dropLast(".local".count)))
+            }
+        }
+        return normalized
+    }
+
+    private static func isLocalHost(_ host: String, localHostNames: Set<String>) -> Bool {
+        let normalized = normalizedHostName(host)
+        guard !normalized.isEmpty else { return false }
+        if localHostNames.contains(normalized) {
+            return true
+        }
+        if normalized.hasSuffix(".local"),
+           localHostNames.contains(String(normalized.dropLast(".local".count))) {
+            return true
+        }
+        return false
+    }
+
+    private static func normalizedHostName(_ host: String) -> String {
+        var normalized = host.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            .lowercased()
+        while normalized.hasSuffix(".") {
+            normalized.removeLast()
+        }
+        return normalized
+    }
+}
+
 enum TerminalSSHSessionDetector {
     struct ProcessSnapshot: Equatable {
         let pid: Int32
@@ -393,7 +551,7 @@ enum TerminalSSHSessionDetector {
     }
 
     static func detect(forTTY ttyName: String) -> DetectedSSHSession? {
-        let normalizedTTY = normalizeTTYName(ttyName)
+        let normalizedTTY = normalizedTTYName(ttyName)
         guard !normalizedTTY.isEmpty else { return nil }
         let processes = processSnapshots(forTTY: normalizedTTY)
         guard !processes.isEmpty else { return nil }
@@ -417,7 +575,7 @@ enum TerminalSSHSessionDetector {
         processes: [ProcessSnapshot],
         argumentsByPID: [Int32: [String]]
     ) -> DetectedSSHSession? {
-        let normalizedTTY = normalizeTTYName(ttyName)
+        let normalizedTTY = normalizedTTYName(ttyName)
         guard !normalizedTTY.isEmpty else { return nil }
 
         let candidates = processes
@@ -439,11 +597,85 @@ enum TerminalSSHSessionDetector {
         return nil
     }
 
+    static func detectRemoteSessionForTesting(
+        ttyName: String,
+        processes: [ProcessSnapshot],
+        argumentsByPID: [Int32: [String]]
+    ) -> DetectedRemoteTerminalSession? {
+        let normalizedTTY = normalizedTTYName(ttyName)
+        guard !normalizedTTY.isEmpty else { return nil }
+
+        let candidates = processes
+            .filter { isForegroundRemoteProcess($0, ttyName: normalizedTTY) }
+            .sorted { lhs, rhs in
+                if lhs.pid != rhs.pid { return lhs.pid > rhs.pid }
+                return lhs.pgid > rhs.pgid
+            }
+
+        for candidate in candidates {
+            switch candidate.executableName {
+            case "ssh":
+                guard let arguments = argumentsByPID[candidate.pid] else {
+                    return .ssh(destination: nil)
+                }
+                if let session = parseSSHCommandLine(arguments) {
+                    return .ssh(session)
+                }
+                continue
+            case "mosh":
+                let destination = argumentsByPID[candidate.pid].flatMap(parseMoshCommandLine)
+                return .mosh(destination: destination)
+            case "mosh-client":
+                return .mosh(destination: nil)
+            default:
+                continue
+            }
+        }
+
+        return nil
+    }
+
+    static func detectRemoteSession(commandLine: String) -> DetectedRemoteTerminalSession? {
+        for segment in shellCommandSegments(commandLine) where !segment.runsInBackground {
+            let commandArguments = remoteCommandArguments(from: segment.arguments)
+            guard let commandName = commandArguments.first.map(executableName) else { continue }
+
+            switch commandName {
+            case "ssh":
+                if let session = parseSSHCommandLine(commandArguments) {
+                    return .ssh(session)
+                }
+                continue
+            case "mosh":
+                return .mosh(destination: parseMoshCommandLine(commandArguments))
+            case "mosh-client":
+                return .mosh(destination: nil)
+            default:
+                continue
+            }
+        }
+        return nil
+    }
+
     private static let psPath = "/bin/ps"
     private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
     private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
+    private static let remoteDisplayExecutableNames: Set<String> = [
+        "ssh",
+        "mosh",
+        "mosh-client",
+    ]
+    private static let moshLongOptionsWithValue: Set<String> = [
+        "bind-server",
+        "client",
+        "family",
+        "predict",
+        "port",
+        "server",
+        "ssh",
+    ]
 
-    private static func normalizeTTYName(_ ttyName: String) -> String {
+    private static func normalizedTTYName(_ ttyName: String) -> String {
         let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         if let lastComponent = trimmed.split(separator: "/").last {
@@ -452,9 +684,18 @@ enum TerminalSSHSessionDetector {
         return trimmed
     }
 
+    private static func isForegroundRemoteProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
+        isForegroundProcess(process, ttyName: ttyName) &&
+            remoteDisplayExecutableNames.contains(process.executableName)
+    }
+
     private static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
-        normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
-            RemoteShellTransport(executableName: process.executableName) != nil &&
+        isForegroundProcess(process, ttyName: ttyName) &&
+            RemoteShellTransport(executableName: process.executableName) != nil
+    }
+
+    private static func isForegroundProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
+        normalizedTTYName(process.tty) == normalizedTTYName(ttyName) &&
             process.pgid > 0 &&
             process.tpgid > 0 &&
             process.pgid == process.tpgid
@@ -558,6 +799,137 @@ enum TerminalSSHSessionDetector {
         return arguments.count == argc ? arguments : nil
     }
 
+    private struct ShellCommandSegment: Equatable {
+        let arguments: [String]
+        let runsInBackground: Bool
+    }
+
+    private static func shellCommandSegments(_ commandLine: String) -> [ShellCommandSegment] {
+        let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        var segments: [ShellCommandSegment] = []
+        var arguments: [String] = []
+        var current = ""
+        var quote: Character?
+        var index = trimmed.startIndex
+
+        func flushCurrent() {
+            if !current.isEmpty {
+                arguments.append(current)
+                current = ""
+            }
+        }
+
+        func flushSegment(runsInBackground: Bool) {
+            flushCurrent()
+            if !arguments.isEmpty {
+                segments.append(ShellCommandSegment(arguments: arguments, runsInBackground: runsInBackground))
+                arguments = []
+            }
+        }
+
+        while index < trimmed.endIndex {
+            let character = trimmed[index]
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                    index = trimmed.index(after: index)
+                    continue
+                }
+                if activeQuote == "\"" && character == "\\" {
+                    let nextIndex = trimmed.index(after: index)
+                    if nextIndex < trimmed.endIndex {
+                        current.append(trimmed[nextIndex])
+                        index = trimmed.index(after: nextIndex)
+                        continue
+                    }
+                }
+                current.append(character)
+                index = trimmed.index(after: index)
+                continue
+            }
+
+            if character == "'" || character == "\"" {
+                quote = character
+                index = trimmed.index(after: index)
+                continue
+            }
+            if character == "\\" {
+                let nextIndex = trimmed.index(after: index)
+                if nextIndex < trimmed.endIndex {
+                    current.append(trimmed[nextIndex])
+                    index = trimmed.index(after: nextIndex)
+                    continue
+                }
+            }
+            let nextIndex = trimmed.index(after: index)
+            if character == "&",
+               current.last == ">" || current.last == "<" || (nextIndex < trimmed.endIndex && trimmed[nextIndex] == ">") {
+                current.append(character)
+                index = nextIndex
+                continue
+            }
+            if character == ";" || character == "|" || character == "&" {
+                let isDoubleSeparator = nextIndex < trimmed.endIndex && trimmed[nextIndex] == character
+                flushSegment(runsInBackground: character == "&" && !isDoubleSeparator)
+                index = isDoubleSeparator ? trimmed.index(after: nextIndex) : nextIndex
+                continue
+            }
+            if character.isWhitespace {
+                flushCurrent()
+                index = trimmed.index(after: index)
+                continue
+            }
+
+            current.append(character)
+            index = trimmed.index(after: index)
+        }
+
+        flushSegment(runsInBackground: false)
+        return segments
+    }
+
+    private static func remoteCommandArguments(from arguments: [String]) -> [String] {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            let name = executableName(argument)
+            if name == "command" || name == "exec" || name == "noglob" {
+                index += 1
+                continue
+            }
+            if isEnvironmentAssignment(argument) {
+                index += 1
+                continue
+            }
+            break
+        }
+        guard index < arguments.count else { return [] }
+        return Array(arguments[index...])
+    }
+
+    private static func isEnvironmentAssignment(_ argument: String) -> Bool {
+        guard let equalsIndex = argument.firstIndex(of: "="),
+              equalsIndex != argument.startIndex,
+              !argument.hasPrefix("-") else {
+            return false
+        }
+        let name = argument[..<equalsIndex]
+        return name.allSatisfy { character in
+            character == "_" || character.isLetter || character.isNumber
+        }
+    }
+
+    private static func executableName(_ argument: String) -> String {
+        argument
+            .split(separator: "/")
+            .last
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+    }
+
     private static func parseCommandLine(
         _ arguments: [String],
         for transport: RemoteShellTransport
@@ -589,6 +961,7 @@ enum TerminalSSHSessionDetector {
         var useIPv6 = false
         var forwardAgent = false
         var compressionEnabled = false
+        var isInteractiveSessionCandidate = true
         var sshOptions: [String] = []
 
         func consumeValue(_ value: String, for option: Character) -> Bool {
@@ -614,6 +987,9 @@ enum TerminalSSHSessionDetector {
                 return true
             case "l":
                 loginName = trimmedValue
+                return true
+            case "O", "W":
+                isInteractiveSessionCandidate = false
                 return true
             case "o":
                 return RemoteShellSessionParsing.consumeSSHOption(
@@ -680,6 +1056,8 @@ enum TerminalSSHSessionDetector {
                     forwardAgent = true
                 case "C":
                     compressionEnabled = true
+                case "G", "V":
+                    isInteractiveSessionCandidate = false
                 default:
                     break
                 }
@@ -687,6 +1065,7 @@ enum TerminalSSHSessionDetector {
             index += 1
         }
 
+        guard isInteractiveSessionCandidate else { return nil }
         guard let destination else { return nil }
         let finalDestination = RemoteShellSessionParsing.resolveDestination(destination, loginName: loginName)
         guard !finalDestination.isEmpty else { return nil }
@@ -704,5 +1083,58 @@ enum TerminalSSHSessionDetector {
             compressionEnabled: compressionEnabled,
             sshOptions: sshOptions
         )
+    }
+
+    private static func parseMoshCommandLine(_ arguments: [String]) -> String? {
+        guard !arguments.isEmpty else { return nil }
+
+        var index = 0
+        if RemoteShellSessionParsing.normalizedExecutableName(arguments[0]) == "mosh" {
+            index = 1
+        }
+
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                index += 1
+                return index < arguments.count ? normalizedMoshDestination(arguments[index]) : nil
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return normalizedMoshDestination(argument)
+            }
+
+            if argument.hasPrefix("--") {
+                let optionText = String(argument.dropFirst(2))
+                let optionName = optionText
+                    .split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                    .first
+                    .map(String.init)?
+                    .lowercased() ?? ""
+                if !optionText.contains("="), moshLongOptionsWithValue.contains(optionName) {
+                    index += 2
+                } else {
+                    index += 1
+                }
+                continue
+            }
+
+            if argument == "-p" {
+                index += 2
+                continue
+            }
+            if argument.hasPrefix("-p"), argument.count > 2 {
+                index += 1
+                continue
+            }
+
+            index += 1
+        }
+
+        return nil
+    }
+
+    private static func normalizedMoshDestination(_ destination: String) -> String? {
+        let trimmed = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
