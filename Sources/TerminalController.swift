@@ -11075,7 +11075,16 @@ class TerminalController {
 #endif
                 return false
             }
-            browserPanel.navigate(to: blankURL)
+            // Discarded/restored tabs also have a fresh nil-url webview but preserve
+            // the user's page; bring that back instead of clobbering it with blank.
+            if browserPanel.restoreDiscardedWebViewIfNeeded(reason: "automation-js") {
+                return true
+            }
+            if let preserved = browserPanel.currentURL {
+                browserPanel.navigate(to: preserved)
+            } else {
+                browserPanel.navigate(to: blankURL)
+            }
             return true
         }
         guard needsKick else { return }
