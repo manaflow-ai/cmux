@@ -4092,8 +4092,15 @@ final class BrowserPanel: Panel, ObservableObject {
         "globe"
     }
 
+    /// Set by the editor save bridge when a `cmux edit` page reports unsaved
+    /// buffer changes; drives tab close-confirmation through `isDirty`.
+    var editorBufferIsDirty = false
+    /// Pending first stroke of a chorded save shortcut (see
+    /// `handleEditorSaveShortcut`).
+    var editorSaveChordPrefixPending = false
+
     var isDirty: Bool {
-        false
+        editorBufferIsDirty
     }
 
     private static func makeWebView(
@@ -4227,6 +4234,10 @@ final class BrowserPanel: Panel, ObservableObject {
         setupReactGrabMessageHandler(for: webView)
         setupMediaPlaybackMessageHandler(for: webView)
         setupEditorSaveMessageHandler(for: webView)
+        webView.onEditorSaveKeyEquivalent = { [weak self, weak webView] event in
+            guard let self, let webView else { return false }
+            return self.handleEditorSaveShortcut(event: event, webView: webView)
+        }
         applyMuteState(to: webView, reason: "bindWebView")
     }
 

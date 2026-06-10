@@ -656,7 +656,14 @@ final class CmuxWebView: WKWebView {
         return super.validateUserInterfaceItem(item)
     }
 
+    /// Panel-provided hook routing the configurable save shortcut to a
+    /// hosted `cmux edit` page; returns whether the event was consumed.
+    var onEditorSaveKeyEquivalent: ((NSEvent) -> Bool)?
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if onEditorSaveKeyEquivalent?(event) == true {
+            return true
+        }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         var handled = false

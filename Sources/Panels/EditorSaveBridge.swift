@@ -117,6 +117,14 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
 
     private static let ioQueue = DispatchQueue(label: "com.manaflow.cmux.editor-save", qos: .userInitiated)
 
+    /// Receives the page's buffer dirty state (already token-authorized) so
+    /// the native panel can drive close-confirmation and tab metadata.
+    private let onDirtyChanged: @MainActor (Bool) -> Void
+
+    init(onDirtyChanged: @escaping @MainActor (Bool) -> Void) {
+        self.onDirtyChanged = onDirtyChanged
+    }
+
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage,
@@ -138,6 +146,14 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
         // means the registry lookup above succeeded.
         if body["probe"] as? Bool == true {
             replyHandler(["ok": true, "value": ["status": "writable"]], nil)
+            return
+        }
+        if let dirty = body["dirty"] as? Bool {
+            // WebKit delivers script messages on the main thread.
+            MainActor.assumeIsolated {
+                onDirtyChanged(dirty)
+            }
+            replyHandler(["ok": true, "value": ["status": "ok"]], nil)
             return
         }
         guard let content = body["content"] as? String else {
@@ -268,15 +284,44 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
 }
 
 extension BrowserPanel {
-    /// Installs the `cmux edit` save endpoint on `webView`. The handler is
-    /// stateless and authorizes purely by frame origin + token registry, so it
-    /// is safe to expose on every browser webview; pages that were not opened
-    /// by `cmux edit` resolve no write target.
+    /// Installs the `cmux edit` save endpoint on `webView`. The handler
+    /// authorizes purely by frame origin + token registry, so it is safe to
+    /// expose on every browser webview; pages that were not opened by
+    /// `cmux edit` resolve no write target. Authorized dirty-state messages
+    /// feed the native panel so tab close-confirmation sees unsaved edits.
     func setupEditorSaveMessageHandler(for webView: WKWebView) {
         webView.configuration.userContentController.addScriptMessageHandler(
-            EditorSaveMessageHandler(),
+            EditorSaveMessageHandler { [weak self] dirty in
+                self?.editorBufferIsDirty = dirty
+            },
             contentWorld: .page,
             name: EditorSaveMessageHandler.handlerName
         )
+    }
+
+    /// Routes the configurable `saveFilePreview` shortcut to the editor page
+    /// (one shared save action across native previews and the Monaco editor;
+    /// the page itself binds no hard-coded shortcut). Returns whether the
+    /// event was consumed. Tracks the chord prefix for two-stroke bindings.
+    func handleEditorSaveShortcut(event: NSEvent, webView: WKWebView) -> Bool {
+        guard editorBufferIsDirty || editorSaveChordPrefixPending else { return false }
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
+        if shortcut.hasChord {
+            if editorSaveChordPrefixPending {
+                editorSaveChordPrefixPending = false
+                guard let secondStroke = shortcut.secondStroke, secondStroke.matches(event: event) else {
+                    return false
+                }
+            } else if shortcut.firstStroke.matches(event: event) {
+                editorSaveChordPrefixPending = true
+                return true
+            } else {
+                return false
+            }
+        } else if !shortcut.matches(event: event) {
+            return false
+        }
+        webView.evaluateJavaScript("window.__cmuxEditorRequestSave && window.__cmuxEditorRequestSave();")
+        return true
     }
 }
