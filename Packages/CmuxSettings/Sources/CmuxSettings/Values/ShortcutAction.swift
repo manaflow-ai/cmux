@@ -243,6 +243,27 @@ extension ShortcutAction {
         }
     }
 
+    /// Whether the app's key router consumes this action *before* general
+    /// configured-shortcut matching whenever its context holds.
+    ///
+    /// The right-sidebar mode shortcuts are pre-routed: while the sidebar is
+    /// focused they win their keystroke outright, and every other binding on the
+    /// same stroke keeps firing outside that context. Conflict detection
+    /// (``ShortcutWhenClause/bindingsCollide(_:lhsHasPriority:_:rhsHasPriority:)``)
+    /// uses this to accept such priority-resolved pairs — e.g. the factory
+    /// default Select Surface `⌃1…9` alongside the sidebar's `⌃1…5` — instead of
+    /// rejecting them as colliding. Mirrors the app target's routing order in
+    /// `handleCustomShortcut`; a drift test asserts the two stay aligned.
+    public var hasPriorityShortcutRouting: Bool {
+        switch self {
+        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
+             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// User-facing display name shown in the Settings UI.
     public var displayName: String {
         switch self {

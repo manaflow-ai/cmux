@@ -49,6 +49,44 @@ struct ShortcutWhenClauseTests {
         #expect(ShortcutWhenClause.parse("!commandPaletteVisible") == .not(.key("commandPaletteVisible")))
     }
 
+    // MARK: - Priority-aware collision (bindingsCollide)
+
+    @Test func priorityResolvedPairsCoexist() {
+        let sidebar = ShortcutWhenClause.atom(.sidebarFocus)
+        // The pre-routed sidebar action owns the overlap; an always-on binding
+        // keeps every other context — the factory Select Surface ⌃1…9 alongside
+        // the sidebar's ⌃1…5.
+        #expect(!ShortcutWhenClause.bindingsCollide(
+            .always, lhsHasPriority: false, sidebar, rhsHasPriority: true))
+        #expect(!ShortcutWhenClause.bindingsCollide(
+            sidebar, lhsHasPriority: true, .always, rhsHasPriority: false))
+    }
+
+    @Test func fullyShadowedLoserStillCollides() {
+        let sidebar = ShortcutWhenClause.atom(.sidebarFocus)
+        // A binding scoped entirely inside the winner's context would never
+        // fire, so the pair must still surface as a conflict.
+        #expect(ShortcutWhenClause.bindingsCollide(
+            sidebar, lhsHasPriority: false, sidebar, rhsHasPriority: true))
+    }
+
+    @Test func equalPrioritySidesFallBackToPlainOverlap() throws {
+        let sidebar = ShortcutWhenClause.atom(.sidebarFocus)
+        // Two pre-routed sidebar actions on one stroke are a real conflict —
+        // both live in the same prioritized context.
+        #expect(ShortcutWhenClause.bindingsCollide(
+            sidebar, lhsHasPriority: true, sidebar, rhsHasPriority: true))
+        // Disjoint clauses coexist regardless of priority flags.
+        let workspace = try #require(ShortcutWhenClause.parse("!sidebarFocus"))
+        #expect(!ShortcutWhenClause.bindingsCollide(
+            workspace, lhsHasPriority: false, sidebar, rhsHasPriority: true))
+        #expect(!ShortcutWhenClause.bindingsCollide(
+            workspace, lhsHasPriority: false, sidebar, rhsHasPriority: false))
+        // Two unprioritized always-on bindings still collide.
+        #expect(ShortcutWhenClause.bindingsCollide(
+            .always, lhsHasPriority: false, .always, rhsHasPriority: false))
+    }
+
     // MARK: - Boolean literals (VS Code parity)
 
     @Test func parsesBareBooleanLiterals() {

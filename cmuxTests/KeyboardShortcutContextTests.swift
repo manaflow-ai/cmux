@@ -246,6 +246,11 @@ final class KeyboardShortcutContextTests: XCTestCase {
                 action.shortcutContext.defaultWhenClause,
                 action.rawValue
             )
+            XCTAssertEqual(
+                settingsAction.hasPriorityShortcutRouting,
+                action.hasPriorityShortcutRouting,
+                action.rawValue
+            )
         }
     }
 

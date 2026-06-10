@@ -19,6 +19,10 @@ public struct KeyboardShortcutsSection: View {
     /// only conflict when some focus state activates both — matching the app
     /// target's authoritative check.
     @State private var whenOverrideClauses: [String: ShortcutWhenClause] = [:]
+    /// The raw `shortcuts.when` expressions keyed by action id, kept alongside
+    /// the parsed ``whenOverrideClauses`` so rows can render the user's own
+    /// clause text verbatim in the scope caption.
+    @State private var whenOverrideRawStrings: [String: String] = [:]
     @State private var streamTask: Task<Void, Never>?
     @State private var chordModeActions: Set<String> = []
     @State private var restoreShortcuts: [String: StoredShortcut] = [:]
@@ -189,7 +193,7 @@ public struct KeyboardShortcutsSection: View {
             return nil
         }()
 
-        let subtitle: String? = nil
+        let subtitle: String? = scopeCaption(for: action)
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: subtitle == nil ? .center : .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -337,14 +341,63 @@ public struct KeyboardShortcutsSection: View {
         whenOverrideClauses[action.rawValue] ?? action.defaultFocusWhenClause
     }
 
+    /// A row caption describing when a context-limited binding fires: the raw
+    /// `shortcuts.when` override when one is configured, otherwise a localized
+    /// description of the action's built-in focus scope. `nil` for ordinary
+    /// always-on shortcuts so unscoped rows stay uncluttered.
+    private func scopeCaption(for action: ShortcutAction) -> String? {
+        if let overrideClause = whenOverrideClauses[action.rawValue] {
+            // An explicit empty/`true` override means "no restriction" — show
+            // nothing rather than the built-in scope it replaced.
+            guard overrideClause != .always else { return nil }
+            let raw = whenOverrideRawStrings[action.rawValue]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !raw.isEmpty else { return nil }
+            let format = String(localized: "shortcut.when.caption.override", defaultValue: "When: %@")
+            return String.localizedStringWithFormat(format, raw)
+        }
+        switch action.defaultFocusWhenClause {
+        case .always:
+            return nil
+        case .atom(.sidebarFocus):
+            return String(
+                localized: "shortcut.when.caption.sidebarFocus",
+                defaultValue: "Only while the right sidebar is focused"
+            )
+        case .atom(.browserFocus):
+            return String(
+                localized: "shortcut.when.caption.browserFocus",
+                defaultValue: "Only while a browser pane is focused"
+            )
+        case .atom(.markdownFocus):
+            return String(
+                localized: "shortcut.when.caption.markdownFocus",
+                defaultValue: "Only while a markdown preview is focused"
+            )
+        default:
+            return String(
+                localized: "shortcut.when.caption.terminalFocus",
+                defaultValue: "Only while a terminal pane is focused"
+            )
+        }
+    }
+
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
         let proposedClause = effectiveWhenClause(for: action)
         for other in ShortcutAction.allCases where other != action {
             // Two bindings on the same keystroke only collide when some focus
-            // state activates both effective `when` clauses. Context-disjoint
-            // clauses (e.g. `!sidebarFocus` workspace digits vs the sidebar's
-            // own digits) coexist, matching the app target's authoritative check.
-            guard ShortcutWhenClause.canCoexist(proposedClause, effectiveWhenClause(for: other)) else { continue }
+            // state activates both effective `when` clauses AND router priority
+            // cannot decide the overlap. Context-disjoint clauses (e.g.
+            // `!sidebarFocus` workspace digits vs the sidebar's own digits)
+            // coexist, and a pre-routed action (sidebar modes) wins its context
+            // outright so the factory Select Surface ⌃1…9 coexists with the
+            // sidebar's ⌃1…5 — matching the app target's authoritative check.
+            guard ShortcutWhenClause.bindingsCollide(
+                proposedClause,
+                lhsHasPriority: action.hasPriorityShortcutRouting,
+                effectiveWhenClause(for: other),
+                rhsHasPriority: other.hasPriorityShortcutRouting
+            ) else { continue }
             let override = bindings[other.rawValue]
             let effective = override ?? other.defaultShortcut
             guard let effective, !effective.isUnbound else { continue }
@@ -374,6 +427,7 @@ public struct KeyboardShortcutsSection: View {
     /// ``detectConflict(for:stroke:)``). Malformed expressions are dropped.
     private func streamWhenOverrides() async {
         for await whenMap in jsonStore.values(for: catalog.shortcuts.when) {
+            whenOverrideRawStrings = whenMap
             whenOverrideClauses = whenMap.compactMapValues { ShortcutWhenClause.parse($0) }
         }
     }
