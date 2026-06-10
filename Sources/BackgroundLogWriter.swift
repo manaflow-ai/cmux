@@ -109,10 +109,12 @@ final class BackgroundLogWriter {
         let sequence = sequence
         sequenceLock.unlock()
 
-        let timestamp = Self.timestampFormatter.string(from: date)
-        let line =
-            "\(timestamp) seq=\(sequence) t+\(String(format: "%.3f", uptimeMs))ms thread=\(threadLabel) frame60=\(frame60) frame120=\(frame120) cmux bg: \(message)\n"
-        sink.write(line)
+        queue.async { [sink] in
+            let timestamp = Self.timestampFormatter.string(from: date)
+            let line =
+                "\(timestamp) seq=\(sequence) t+\(String(format: "%.3f", uptimeMs))ms thread=\(threadLabel) frame60=\(frame60) frame120=\(frame120) cmux bg: \(message)\n"
+            sink.write(line)
+        }
     }
 
     /// Block until all enqueued lines have been written. Used at app

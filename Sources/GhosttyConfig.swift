@@ -148,7 +148,11 @@ struct GhosttyConfig {
     ) -> GhosttyConfig? {
         loadCacheLock.lock()
         defer { loadCacheLock.unlock() }
-        return cachedConfigsByColorScheme[colorScheme]?.config
+        guard let entry = cachedConfigsByColorScheme[colorScheme],
+              entry.signature == signature else {
+            return nil
+        }
+        return entry.config
     }
 
     private static func storeCachedLoad(
