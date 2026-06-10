@@ -159,10 +159,20 @@ import Testing
         "127.0.0.2",
         "127.255.255.255",
         "localhost",
+        "localhost.",
         "sub.localhost",
         "LOCALHOST",
         "::1",
+        "0:0:0:0:0:0:0:1",
         "::ffff:127.0.0.1",
+        // Equivalent spellings the resolver dials as loopback: the
+        // classifier parses bytes, so these cannot slip past as "names".
+        "127.1",
+        "2130706433",
+        "0x7f.0.0.1",
+        "0.0.0.0",
+        "::",
+        "::ffff:7f00:1",
     ])
     func decodeRejectsLoopbackHosts(host: String) throws {
         let encodedHost = host.contains(":") ? "[\(host)]" : host
@@ -277,7 +287,18 @@ import Testing
     @Test(arguments: [
         "127.0.0.1", " 127.0.0.1 ", "127.0.0.2", "127.255.255.255",
         "localhost", "LocalHost", "dev.localhost",
+        "localhost.", "dev.localhost.",
         "::1", "[::1]", "::ffff:127.0.0.1", "[::ffff:127.0.0.1]",
+        // Canonical-equivalent spellings: the classifier parses address
+        // bytes with the resolver's own semantics, so every spelling that
+        // dials the local machine classifies as loopback.
+        "0:0:0:0:0:0:0:1", "[0:0:0:0:0:0:0:1]", "[::1%lo0]",
+        "::ffff:7f00:1", "::127.0.0.1",
+        "127.1", "127.0.1", "2130706433", "0x7f.0.0.1", "0177.0.0.1",
+        // 0.0.0.0/8 and :: connect to the local machine too.
+        "0.0.0.0", "0", "::",
+        // inet_aton reads "127.0.0" as 127.0.0.0.
+        "127.0.0",
     ])
     func matchesLoopbackSpellings(host: String) {
         #expect(CmxLoopbackHost.matches(host))
@@ -286,7 +307,10 @@ import Testing
     @Test(arguments: [
         "100.64.0.5", "128.0.0.1", "126.255.255.255", "10.0.0.1",
         "lawrences-mac.tail1234.ts.net", "localhost.example.com",
-        "fd7a:115c:a1e0::1", "::ffff:100.64.0.5", "127.0.0", "127.0.0.0.1", "",
+        "fd7a:115c:a1e0::1", "::ffff:100.64.0.5", "127.0.0.0.1", "",
+        // 128.1 -> 128.0.0.1 and 1681915909 -> 100.64.0.5: legacy numeric
+        // forms that do NOT land in a self-dialing range stay accepted.
+        "128.1", "1681915909",
     ])
     func rejectsNonLoopbackHosts(host: String) {
         #expect(!CmxLoopbackHost.matches(host))
