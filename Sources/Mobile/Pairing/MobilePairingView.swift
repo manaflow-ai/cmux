@@ -1,3 +1,5 @@
+import AppKit
+import CMUXMobileCore
 import CmuxAuthRuntime
 import SwiftUI
 
@@ -8,7 +10,16 @@ import SwiftUI
 /// instructions. Pairing is gated on sign-in because authorization is a Stack
 /// same-account check; Tailscale is what gives the iPhone a route to this Mac.
 struct MobilePairingView: View {
+    /// Which manual-entry value was just copied, for the brief button flash.
+    private enum CopiedField {
+        case ip
+        case port
+    }
+
     @State private var model = MobilePairingModel()
+    @State private var copiedField: CopiedField?
+    /// Bumped per copy so an older flash's dismissal can't clear a newer one.
+    @State private var copiedFieldGeneration = 0
 
     /// The shared auth coordinator, observed so the view re-runs `refresh()`
     /// when sign-in completes or settles. Captured once; stable post-startup.
@@ -317,10 +328,62 @@ struct MobilePairingView: View {
                     .textSelection(.enabled)
                     .foregroundStyle(.secondary)
             }
+            if let entry = ready.manualEntry {
+                HStack(spacing: 8) {
+                    copyButton(
+                        .ip,
+                        label: String(localized: "mobile.pairing.manual.copyIP", defaultValue: "Copy IP"),
+                        value: entry.host
+                    )
+                    copyButton(
+                        .port,
+                        label: String(localized: "mobile.pairing.manual.copyPort", defaultValue: "Copy Port"),
+                        value: String(entry.port)
+                    )
+                }
+                .padding(.top, 2)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// One of the two manual-entry copy controls. Copies `value` to the
+    /// general pasteboard and briefly swaps its label to a "Copied" check.
+    private func copyButton(_ field: CopiedField, label: String, value: String) -> some View {
+        Button {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(value, forType: .string)
+            flashCopied(field)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: copiedField == field ? "checkmark" : "doc.on.doc")
+                Text(
+                    copiedField == field
+                        ? String(localized: "mobile.pairing.manual.copied", defaultValue: "Copied")
+                        : label
+                )
+            }
+            .font(.caption)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
+    private func flashCopied(_ field: CopiedField) {
+        copiedFieldGeneration &+= 1
+        let generation = copiedFieldGeneration
+        copiedField = field
+        Task { @MainActor in
+            // Bounded, intended auto-dismiss for the "Copied" flash (same
+            // pattern as MarkdownPanelView's copy confirmation); a newer copy
+            // supersedes this one via the generation guard.
+            try? await ContinuousClock().sleep(for: .seconds(1.6))
+            guard copiedFieldGeneration == generation else { return }
+            copiedField = nil
+        }
     }
 
     private func centered<C: View>(@ViewBuilder _ content: () -> C) -> some View {

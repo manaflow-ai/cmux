@@ -44,6 +44,9 @@ final class MobilePairingModel {
         /// Reachable Tailscale `host:port` routes. Empty when Tailscale is not
         /// detected, in which case a real iPhone cannot reach this Mac.
         let tailscaleLines: [String]
+        /// The best route for manual phone entry, behind the "Copy IP" and
+        /// "Copy Port" buttons. `nil` when no phone-dialable route exists.
+        let manualEntry: CmxManualPairingEntry?
 
         /// Whether at least one Tailscale route resolved.
         var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
@@ -160,7 +163,8 @@ final class MobilePairingModel {
                 Ready(
                     attachURL: attachURL,
                     macName: Self.macDisplayName,
-                    tailscaleLines: Self.tailscaleLines(status.routes)
+                    tailscaleLines: Self.tailscaleLines(status.routes),
+                    manualEntry: CmxManualPairingEntry.best(in: status.routes)
                 )
             )
             scheduleExpiryRefresh()
