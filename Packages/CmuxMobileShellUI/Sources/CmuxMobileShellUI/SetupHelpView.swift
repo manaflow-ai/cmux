@@ -88,7 +88,7 @@ struct SetupHelpView: View {
 
     @ViewBuilder
     private func gateSection(_ gate: MobileSetupGuidanceState) -> some View {
-        let content = setupHelpGateContent(for: gate)
+        let content = SetupHelpGateContent.content(for: gate)
         Section {
             VStack(alignment: .leading, spacing: 8) {
                 Text(content.body)
