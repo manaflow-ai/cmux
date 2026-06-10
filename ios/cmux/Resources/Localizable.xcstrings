@@ -817,6 +817,227 @@
         }
       }
     },
+    "mobile.deviceTree.collapseHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapse builds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビルドを折りたたむ"
+          }
+        }
+      }
+    },
+    "mobile.deviceTree.connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続"
+          }
+        }
+      }
+    },
+    "mobile.deviceTree.connectToSeeWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to this build to see its workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドに接続するとワークスペースが表示されます"
+          }
+        }
+      }
+    },
+    "mobile.deviceTree.connectToView": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to view"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続して表示"
+          }
+        }
+      }
+    },
+    "mobile.deviceTree.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No registered devices yet. Pair a Mac to see it here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登録済みのデバイスはまだありません。Macをペアリングするとここに表示されます。"
+          }
+        }
+      }
+    },
+    "mobile.deviceTree.expandHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expand builds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビルドを展開"
+          }
+        }
+      }
+    },
+    "mobile.deviceTree.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devices and their cmux builds come from your team's registry. Tap a build to connect, then a workspace to open it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスとそのcmuxビルドはチームのレジストリから取得されます。ビルドをタップして接続し、ワークスペースをタップして開きます。"
+          }
+        }
+      }
+    },
+    "mobile.deviceTree.lastSeenFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last seen %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終確認 %@"
+          }
+        }
+      }
+    },
+    "mobile.deviceTree.noRoutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not reachable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到達できません"
+          }
+        }
+      }
+    },
+    "mobile.deviceTree.noWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No workspaces yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースはまだありません"
+          }
+        }
+      }
+    },
+    "mobile.deviceTree.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devices"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイス"
+          }
+        }
+      }
+    },
+    "mobile.deviceTree.workspaceCountFormat.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1個のワークスペース"
+          }
+        }
+      }
+    },
+    "mobile.deviceTree.workspaceCountFormat.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d個のワークスペース"
+          }
+        }
+      }
+    },
     "mobile.devices.emptyDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -1459,6 +1680,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "情報"
+          }
+        }
+      }
+    },
+    "mobile.settings.devices": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devices"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイス"
           }
         }
       }
