@@ -14,6 +14,12 @@ export function apnsHostForEnvironment(environment: string): string {
 }
 
 export interface ApnsNotificationInput {
+  /**
+   * `notify` (default) is the visible terminal-banner mirror; `dismiss` is the
+   * banner-less Mac→iOS dismiss-sync push (`content-available` + badge +
+   * `cmux.dismissedIds`) sent when no phone is live-attached.
+   */
+  readonly kind?: "notify" | "dismiss";
   readonly title: string;
   readonly subtitle?: string | null;
   readonly body: string;
@@ -26,6 +32,15 @@ export interface ApnsNotificationInput {
    * so a later Mac→iOS dismiss can target this exact delivered banner.
    */
   readonly notificationId?: string | null;
+  /** The dismissed notification ids carried by a `dismiss` push. */
+  readonly dismissedIds?: readonly string[];
+  /**
+   * Authoritative unread count computed by the Mac at send time; emitted as
+   * `aps.badge` so the icon badge is always SET to the absolute total (never
+   * incremented locally) and drift self-heals. `null`/absent leaves the badge
+   * untouched.
+   */
+  readonly badgeCount?: number | null;
   /** When true, replace real terminal text with a generic fallback. Keep the
    * fallback literal until device tokens carry client localization capability. */
   readonly hideContent?: boolean;
@@ -48,6 +63,7 @@ export const CMUX_APNS_CATEGORY = "cmux.terminal";
  * entitlement).
  */
 export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
+  if (input.kind === "dismiss") return buildDismissPayload(input);
   const hidden = input.hideContent === true;
   const title = hidden ? "cmux" : input.title.trim() || "cmux";
   const body = hidden ? "An agent needs your attention" : input.body;
@@ -63,6 +79,7 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
     "interruption-level": "time-sensitive",
     category: CMUX_APNS_CATEGORY,
   };
+  if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
 
   const cmux: Record<string, string> = {};
   if (input.workspaceId) cmux.workspaceId = input.workspaceId;
@@ -70,6 +87,23 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
   if (input.notificationId) cmux.notificationId = input.notificationId;
 
   return Object.keys(cmux).length > 0 ? { aps, cmux } : { aps };
+}
+
+/**
+ * The Mac→iOS dismiss-sync push: no alert/sound/category (nothing visible),
+ * `aps.badge` set to the authoritative unread total (applied by the system even
+ * when iOS declines to wake the app), and `content-available: 1` so iOS wakes
+ * the app — within its strictly budgeted background-push allowance — to remove
+ * the dismissed delivered banners listed under `cmux.dismissedIds`.
+ *
+ * Deliberately sent as push-type `alert` with priority 5 (see sender): per
+ * Apple's push-type taxonomy a badge update is user-facing, so this is not a
+ * `background` push, and a `background` push may not carry `badge` at all.
+ */
+function buildDismissPayload(input: ApnsNotificationInput): Record<string, unknown> {
+  const aps: Record<string, unknown> = { "content-available": 1 };
+  if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
+  return { aps, cmux: { dismissedIds: [...(input.dismissedIds ?? [])] } };
 }
 
 /**

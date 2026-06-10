@@ -23,6 +23,10 @@ import UserNotifications
 public final class MobilePushCoordinator {
     private let registration: any PushRegistering
     private let analytics: any AnalyticsEmitting
+    /// The system-notification surface used by the cold dismiss lane. Owned here
+    /// (not via the store) because a silent dismiss push can wake the app in the
+    /// background before any scene — and therefore any store — exists.
+    private let deliveredNotificationClearer: any DeliveredNotificationClearing
     // UserDefaults is Apple-documented thread-safe; a synchronous read mirrors
     // the opt-in flag for the menu UI without awaiting the actor service.
     private nonisolated(unsafe) let defaults: UserDefaults
@@ -64,17 +68,22 @@ public final class MobilePushCoordinator {
     ///     ``NoopAnalytics`` for previews/tests.
     ///   - defaults: The store backing the opt-in flag (must match the suite the
     ///     registration service uses). Defaults to `.standard`.
+    ///   - deliveredNotificationClearer: The system-notification seam used to
+    ///     remove banners for a background dismiss push. Defaults to the real
+    ///     `UNUserNotificationCenter`-backed conformance.
     ///   - now: Clock seam for the pending-deeplink expiry. Defaults to
     ///     `Date.init`.
     public init(
         registration: any PushRegistering,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         defaults: UserDefaults = .standard,
+        deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
         now: @escaping () -> Date = Date.init
     ) {
         self.registration = registration
         self.analytics = analytics
         self.defaults = defaults
+        self.deliveredNotificationClearer = deliveredNotificationClearer
         self.now = now
     }
 
@@ -263,6 +272,21 @@ public final class MobilePushCoordinator {
               let notificationId,
               !notificationId.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         await store.dismissNotification(ids: [notificationId])
+    }
+
+    /// Handle a silent Mac→iOS dismiss push (the cold lane: the Mac cleared
+    /// notifications while no phone was live-attached). Removes the matching
+    /// delivered banners directly through the system-notification seam — the
+    /// store may not exist yet on a background wake — while the badge was
+    /// already applied by the system from the push's `aps.badge`.
+    /// - Parameter ids: The dismissed stable notification ids from
+    ///   `cmux.dismissedIds`.
+    public func handleRemoteDismiss(ids: [String]) async {
+        let trimmed = ids
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !trimmed.isEmpty else { return }
+        deliveredNotificationClearer.removeDelivered(ids: trimmed)
     }
 }
 #endif

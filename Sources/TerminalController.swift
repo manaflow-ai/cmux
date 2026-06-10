@@ -13393,6 +13393,8 @@ class TerminalController {
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: false)
         case "notification.dismiss":
             result = v2MobileNotificationDismiss(params: request.params)
+        case "notification.reconcile":
+            result = v2MobileNotificationReconcile(params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         default:
@@ -13652,6 +13654,33 @@ class TerminalController {
             dismissed += 1
         }
         return .ok(["dismissed": dismissed])
+    }
+
+    /// Foreground reconcile sweep for the phone (lane 3 of dismiss-sync): given
+    /// the banner ids currently delivered on the phone, report which were handled
+    /// on this Mac — read in the store, or recently dismissed/removed
+    /// (tombstoned) — plus the authoritative unread count, so the phone clears
+    /// stale banners and SETS its icon badge to the computed total. Ids unknown
+    /// to this Mac are not reported handled (they may belong to a different
+    /// paired Mac). An empty `delivered_ids` is a valid badge-only sync.
+    /// Exchanges only opaque UUIDs and a count, never terminal content.
+    private func v2MobileNotificationReconcile(params: [String: Any]) -> V2CallResult {
+        // Cap the scan: iOS keeps only the most recent delivered notifications,
+        // so anything past this is a malformed or hostile request.
+        let maxDeliveredIDs = 256
+        let rawIDs = ((params["delivered_ids"] as? [Any]) ?? []).prefix(maxDeliveredIDs)
+        let deliveredIDs = rawIDs.compactMap { value -> UUID? in
+            guard let string = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !string.isEmpty else {
+                return nil
+            }
+            return UUID(uuidString: string)
+        }
+        let store = TerminalNotificationStore.shared
+        return .ok([
+            "handled_ids": store.reconcileHandledNotificationIDs(deliveredIDs: deliveredIDs),
+            "unread_count": store.unreadNotificationCount,
+        ])
     }
 
     /// The `workspace.action` sub-actions the mobile data plane may invoke.

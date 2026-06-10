@@ -96,6 +96,33 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         )
     }
 
+    /// Silent dismiss push (the cold lane of Mac→iOS dismiss-sync): the Mac
+    /// cleared notifications while no phone was live-attached, so it sent a
+    /// `content-available` push carrying the dismissed ids. The system applies
+    /// the authoritative badge from `aps.badge` without waking us; when iOS
+    /// grants the background wake — strictly budgeted, a handful per hour at
+    /// best — we also remove the matching delivered banners. Anything iOS
+    /// defers is healed by the reconcile sweep on the next app open/attach.
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any]
+    ) async -> UIBackgroundFetchResult {
+        let dismissedIds = Self.dismissedIDs(from: userInfo)
+        guard !dismissedIds.isEmpty else { return .noData }
+        await pushCoordinator?.handleRemoteDismiss(ids: dismissedIds)
+        return .newData
+    }
+
+    private nonisolated static func dismissedIDs(from userInfo: [AnyHashable: Any]) -> [String] {
+        guard let cmux = userInfo["cmux"] as? [String: Any],
+              let ids = cmux["dismissedIds"] as? [String] else {
+            return []
+        }
+        return ids
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
     @MainActor
     private static func appStateLabel(_ state: UIApplication.State) -> String {
         switch state {
