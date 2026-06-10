@@ -274,13 +274,20 @@ final class NotesTreeRowView: FileExplorerRowView {
 
     /// One vertical hairline per ancestor level, aligned under that
     /// ancestor's disclosure chevron, spanning the full row height so the
-    /// lines connect across rows into continuous guides.
+    /// lines connect across rows into continuous guides. Anchored off the
+    /// cell's actual x (the outline's real indentation result) rather than
+    /// a constant, so alignment holds across explorer styles and insets:
+    /// the ancestor at depth d-1 starts one indent unit per remaining level
+    /// to the left, and its chevron is centered in the slot before its cell.
     private func drawIndentGuides() {
-        guard indentLevel > 0 else { return }
+        guard indentLevel > 0, indentationWidth > 0 else { return }
+        guard let cell = subviews.first(where: { $0 is NSTableCellView }) else { return }
+        let cellX = cell.frame.minX
         NSColor.labelColor.withAlphaComponent(0.2).setFill()
         for depth in 1...indentLevel {
-            let x = CGFloat(depth) * indentationWidth - 6
-            NSRect(x: x, y: 0, width: 1, height: bounds.height).fill()
+            let x = cellX - indentationWidth * CGFloat(indentLevel - depth + 1) - indentationWidth / 2
+            guard x > 0 else { continue }
+            NSRect(x: round(x), y: 0, width: 1, height: bounds.height).fill()
         }
     }
 }
