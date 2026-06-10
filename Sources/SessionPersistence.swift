@@ -1981,6 +1981,19 @@ enum SessionPersistenceStore {
 enum SessionScrollbackReplayStore {
     static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
     private static let directoryName = "cmux-session-scrollback"
+    /// Tagged debug instances share the per-user temp directory, so replay
+    /// files are written under a bundle-scoped subdirectory and the startup
+    /// purge only ever touches this instance's own files.
+    private static var bundleScopedDirectoryComponent: String {
+        let bundleId = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
+        return bundleId.replacingOccurrences(of: "/", with: "-")
+    }
+
+    private static func replayDirectory(tempDirectory: URL) -> URL {
+        tempDirectory
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent(bundleScopedDirectoryComponent, isDirectory: true)
+    }
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
 
@@ -1989,9 +2002,9 @@ enum SessionScrollbackReplayStore {
     /// quitting with hibernated panels leaves theirs behind. Purge leftovers
     /// once per process before the first write of this session.
     private static let purgeStaleReplayFilesOnce: Void = {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(directoryName, isDirectory: true)
-        try? FileManager.default.removeItem(at: directory)
+        try? FileManager.default.removeItem(
+            at: replayDirectory(tempDirectory: FileManager.default.temporaryDirectory)
+        )
     }()
 
     static func replayEnvironment(
@@ -2129,7 +2142,7 @@ enum SessionScrollbackReplayStore {
 
     private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
         guard let data = contents.data(using: .utf8) else { return nil }
-        let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
+        let directory = replayDirectory(tempDirectory: tempDirectory)
 
         do {
             try FileManager.default.createDirectory(

@@ -596,6 +596,14 @@ extension Workspace {
                 } else {
                     restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
                 }
+            } else if !includeScrollback,
+                      !terminalPanel.surface.hasLiveSurface,
+                      let fallbackScrollback = restoredTerminalScrollbackByPanelId[panelId] {
+                // A surface-less panel (lazy start, hibernation restore
+                // window) has no live buffer a later full save could
+                // recapture, so scrollback-free saves keep the last captured
+                // copy instead of overwriting it with nil.
+                resolvedScrollback = fallbackScrollback
             } else {
                 let capturedScrollback: String?
                 if includeScrollback, shouldPersistScrollback, hibernationState == nil {
