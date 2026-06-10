@@ -64,27 +64,30 @@ struct NotesTreePanelView: NSViewRepresentable {
 
     // MARK: - Note drag writer
 
-    /// Drag writer for note rows: composes the Files tab's file-preview writer
-    /// (drag registry + bonsplit tab-transfer payload + fileURL, so dropping on
-    /// a pane opens the markdown viewer and dragging out exports the file) with
-    /// the notes-tree move type so in-tree drags stay filesystem moves.
+    /// Drag writer for note rows: the tree's move type plus a plain file URL
+    /// (Finder export). Deliberately NOT the pane tab-transfer payload — a
+    /// note drag inside the sidebar is a filesystem move like the Files tree,
+    /// and advertising tab-transfer raises bonsplit's window-level pane drop
+    /// overlays, which sit over the sidebar and swallow the drag before the
+    /// outline can accept it.
     final class NoteDragWriter: NSObject, NSPasteboardWriting {
         private let movePath: String
-        private let preview: FilePreviewDragPasteboardWriter
 
         init(filePath: String, displayTitle: String) {
             self.movePath = filePath
-            self.preview = FilePreviewDragPasteboardWriter(filePath: filePath, displayTitle: displayTitle)
             super.init()
         }
 
         func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
-            [NotesTreePanelView.movePasteboardType] + preview.writableTypes(for: pasteboard)
+            [NotesTreePanelView.movePasteboardType, .fileURL]
         }
 
         func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
             if type == NotesTreePanelView.movePasteboardType { return movePath }
-            return preview.pasteboardPropertyList(forType: type)
+            if type == .fileURL {
+                return (URL(fileURLWithPath: movePath) as NSURL).pasteboardPropertyList(forType: .fileURL)
+            }
+            return nil
         }
     }
 
@@ -436,6 +439,15 @@ struct NotesTreePanelView: NSViewRepresentable {
             return outlineView.parent(forItem: node) as? NotesTreeNode
         }
 
+        #if DEBUG
+        private var lastValidateProbe = ""
+        private func probeValidate(_ message: String) {
+            guard message != lastValidateProbe else { return }
+            lastValidateProbe = message
+            cmuxDebugLog("notes.dragover \(message)")
+        }
+        #endif
+
         func outlineView(
             _ outlineView: NSOutlineView,
             validateDrop info: NSDraggingInfo,
@@ -444,6 +456,13 @@ struct NotesTreePanelView: NSViewRepresentable {
         ) -> NSDragOperation {
             let pb = info.draggingPasteboard
             let destNode = dropDestination(for: item, in: outlineView)
+            #if DEBUG
+            probeValidate(
+                "dest=\(((destNode?.path ?? "root") as NSString).lastPathComponent) "
+                + "move=\(pb.string(forType: NotesTreePanelView.movePasteboardType) != nil) "
+                + "types=\((pb.types ?? []).count)"
+            )
+            #endif
             guard let destFolder = destNode?.path ?? store.resolvedRootPath else { return [] }
 
             // Internal move of a note/folder/session already in this tree.
