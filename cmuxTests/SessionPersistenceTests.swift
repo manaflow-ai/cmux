@@ -1960,8 +1960,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
+        try runWithBoundedWait(process, shellDescription: "zsh -lic")
 
         let recorded = (try? String(contentsOf: recordURL, encoding: .utf8)) ?? ""
         XCTAssertTrue(
@@ -2181,9 +2180,25 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
+        try runWithBoundedWait(process, shellDescription: shellURL.path)
         return (try? String(contentsOf: sandbox.recordURL, encoding: .utf8)) ?? ""
+    }
+
+    /// Launches `process` and waits with a deadline so a stalled shell (missing
+    /// shebang interpreter, prompting profile) fails the test with a clear message
+    /// instead of hanging until the CI harness kills the job.
+    private func runWithBoundedWait(
+        _ process: Process,
+        shellDescription: String,
+        timeout: TimeInterval = 30
+    ) throws {
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+        try process.run()
+        if exited.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            XCTFail("Resume shell (\(shellDescription)) did not exit within \(Int(timeout))s; treating as hung.")
+        }
     }
 
     func testRestorableAgentResumeStartupInputEscapesNonAsciiWorkingDirectoryAsAsciiShellInput() throws {
