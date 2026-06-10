@@ -105,6 +105,19 @@ public struct MobileShellRouteAuthPolicy {
         }
     }
 
+    /// Whether the route dials a loopback endpoint, which stays reachable with
+    /// no external network path (simulator/dev pairing to `127.0.0.1`), so an
+    /// offline reachability preflight must not block an attempt that can still
+    /// dial it.
+    /// - Parameter route: The candidate attach route.
+    /// - Returns: `true` when the route's host/port endpoint is a loopback host.
+    public static func routeIsLoopback(_ route: CmxAttachRoute) -> Bool {
+        guard case let .hostPort(host, _) = route.endpoint else {
+            return false
+        }
+        return isLoopbackHost(host)
+    }
+
     /// Whether a manual host should warn the user that it is neither loopback nor Tailscale.
     /// - Parameter host: The manually typed host.
     /// - Returns: `true` when the host is valid but outside the loopback/Tailscale trust set.
