@@ -125,6 +125,57 @@ import Testing
         _ = try? await firstTask.value
     }
 
+    // The Stack token fetch can itself hit the network (the SDK refreshes a
+    // stale access token), so it must sit under the same per-request deadline
+    // as the send: during pairing these requests hold the visible spinner, and
+    // a hung refresh outside the deadline waits on the OS-default request
+    // timeout (~60s) before the per-request bound even starts.
+    @Test func hungStackTokenFetchIsBoundedByRequestTimeout() async throws {
+        let transport = QueuedCancellationProbeTransport()
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59124)
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessTokenProvider: {
+                // Park until cancelled (a refresh that never answers but is
+                // cancellation-responsive when the deadline reaps it).
+                let (stream, continuation) = AsyncStream<Never>.makeStream()
+                await withTaskCancellationHandler {
+                    for await _ in stream {}
+                } onCancel: {
+                    continuation.finish()
+                }
+                throw CancellationError()
+            },
+            rpcRequestTimeoutNanoseconds: 50_000_000
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:])
+
+        do {
+            _ = try await client.sendRequest(request)
+            Issue.record("Expected the hung token fetch to time out")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record("Expected requestTimedOut, got \(error)")
+        }
+        // The deadline fired before auth resolved, so nothing reached the wire.
+        #expect(try await transport.sentRequests().isEmpty)
+    }
+
     @Test func workspaceListResponseDecodesSnakeCaseWireShape() throws {
         let json = Data("""
         {

@@ -89,7 +89,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // help and would only weaken the same-account gate; it surfaces as
             // `.rpcError("account_mismatch", _)`, not `.authorizationFailed`.
             guard case .authorizationFailed = error else { throw error }
-            try await forceRefreshStackTokenForRetry()
+            try await forceRefreshStackTokenForRetry(timeoutNanoseconds: timeoutNanoseconds)
             // Re-run with retry disabled so a fresh token that is still rejected
             // surfaces as a definitive auth failure instead of looping.
             return try await sendAuthenticatedRequest(
@@ -105,10 +105,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// The force-refresher closure maps a transient refresh failure (session
     /// intact) to `.connectionClosed` so a network blip stays retryable and does
     /// not trip the re-auth prompt; a definitive failure surfaces as
-    /// `.authorizationFailed` to drive re-auth.
-    private func forceRefreshStackTokenForRetry() async throws {
+    /// `.authorizationFailed` to drive re-auth. The mint is a network call with
+    /// no deadline of its own, so it runs under the same per-request budget as
+    /// the request it unblocks (a hung refresh surfaces as `.requestTimedOut`,
+    /// retryable, instead of holding the caller on the OS-default timeout).
+    private func forceRefreshStackTokenForRetry(timeoutNanoseconds: UInt64?) async throws {
         do {
-            _ = try await runtime.stackAccessTokenForceRefresher()
+            _ = try await Self.withRequestTimeout(
+                timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
+            ) {
+                try await self.runtime.stackAccessTokenForceRefresher()
+            }
         } catch let error as MobileShellConnectionError {
             throw error
         } catch {
@@ -135,11 +142,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             requestData,
             forceID: !allowAuthRetry
         )
-        let authenticated = try await requestDataWithAuth(augmented)
         return try await Self.withRequestTimeout(
             timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
         ) {
-            try await self.session.send(payload: authenticated, requestID: id)
+            // The Stack token fetch inside `requestDataWithAuth` can itself hit
+            // the network (the SDK refreshes a stale access token), so it must
+            // sit under the same deadline as the send. Pairing-time requests
+            // hold the visible spinner, and a hung token refresh outside the
+            // deadline would wait on the OS-default request timeout (~60s)
+            // before the per-request bound even started.
+            let authenticated = try await self.requestDataWithAuth(augmented)
+            return try await self.session.send(payload: authenticated, requestID: id)
         }
     }
 

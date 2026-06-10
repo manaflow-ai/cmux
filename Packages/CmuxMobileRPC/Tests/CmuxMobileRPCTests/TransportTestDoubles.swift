@@ -19,6 +19,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
         transportFactory: any CmxByteTransportFactory,
         supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .iroh, .websocket, .debugLoopback],
         stackAccessToken: String? = "test-stack-token",
+        stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
         pairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
         now: @escaping @Sendable () -> Date = Date.init,
@@ -26,7 +27,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
-        self.stackAccessTokenProvider = {
+        self.stackAccessTokenProvider = stackAccessTokenProvider ?? {
             guard let stackAccessToken else { throw MissingTestStackAccessToken() }
             return stackAccessToken
         }

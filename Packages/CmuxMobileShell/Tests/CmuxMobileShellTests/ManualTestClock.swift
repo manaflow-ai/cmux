@@ -3,8 +3,8 @@ import Foundation
 /// A manually-advanced virtual clock for deadline tests: time only moves when
 /// the test calls ``advance(by:)``, so timeout behavior is exercised without
 /// real waiting. Sleeps are cancellation-responsive (resuming with
-/// `CancellationError`), matching the contract `withAuthPhaseTimeout` relies on
-/// to clean up the losing deadline child.
+/// `CancellationError`), matching the contract `MobilePairingRouteRace` relies
+/// on to reap a losing attempt's pending stagger sleep.
 final class ManualTestClock: Clock, @unchecked Sendable {
     struct Instant: InstantProtocol, Sendable {
         var offset: Duration
