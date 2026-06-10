@@ -409,10 +409,12 @@ extension PullRequestProbeService {
     }
 
     /// One POST against the GitHub GraphQL API; `nil` on any transport error.
+    /// `authHeader` is required — GraphQL rejects anonymous requests, and the
+    /// only caller already proved a token is present.
     nonisolated func performGraphQLRequest(
         session: URLSession,
         body: Data,
-        authHeader: String?
+        authHeader: String
     ) async -> WorkspacePullRequestHTTPResponse? {
         guard let url = URL(string: "https://api.github.com/graphql") else {
             return nil
@@ -423,9 +425,7 @@ extension PullRequestProbeService {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("cmux-workspace-pr-poller", forHTTPHeaderField: "User-Agent")
-        if let authHeader, !authHeader.isEmpty {
-            request.setValue(authHeader, forHTTPHeaderField: "Authorization")
-        }
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
         request.httpBody = body
 
         do {
