@@ -10606,10 +10606,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               input.setSelectionRange(end, end);
             }
 
-            let trackedFocusId = input.getAttribute("data-cmux-addressbar-focus-id");
-            if (!trackedFocusId) {
-              trackedFocusId = "cmux-ui-test-focus-input-tracked";
-              input.setAttribute("data-cmux-addressbar-focus-id", trackedFocusId);
+            const trackedFocusId = "cmux-ui-test-focus-input-tracked";
+            const focusRegistry = window.__cmuxAddressBarFocusRegistry;
+            if (focusRegistry && typeof focusRegistry.register === "function") {
+              focusRegistry.register(input, trackedFocusId);
             }
             const selectionStart = typeof input.selectionStart === "number" ? input.selectionStart : null;
             const selectionEnd = typeof input.selectionEnd === "number" ? input.selectionEnd : null;

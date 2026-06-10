@@ -3142,9 +3142,59 @@ final class BrowserPanel: Panel, ObservableObject {
     private var suppressWebViewFocusForAddressBar: Bool = false
     private var addressBarFocusRestoreGeneration: UInt64 = 0
     private let blankURLString = "about:blank"
+    /// In-page registry mapping focus-tracking ids to elements without mutating the
+    /// DOM. Replaces the former `data-cmux-addressbar-focus-id` attribute, which
+    /// tripped React/Next.js hydration on dev pages by adding an attribute the
+    /// server-rendered HTML didn't contain. Idempotent and expression-shaped, so
+    /// every focus script can write `const registry = <installer>;`.
+    private static let addressBarFocusRegistryInstaller = """
+    (() => {
+      const existing = window.__cmuxAddressBarFocusRegistry;
+      if (existing) return existing;
+      const byElement = new WeakMap();
+      const byId = new Map();
+      const hasWeakRef = typeof WeakRef === "function";
+      const makeId = () =>
+        "cmux-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+      const store = (el, id) => {
+        byElement.set(el, id);
+        byId.set(id, hasWeakRef ? new WeakRef(el) : el);
+      };
+      const registry = {
+        ensureId(el) {
+          if (!el) return null;
+          const existingId = byElement.get(el);
+          if (existingId) return existingId;
+          const id = makeId();
+          store(el, id);
+          return id;
+        },
+        register(el, id) {
+          if (!el || typeof id !== "string" || !id) return;
+          store(el, id);
+        },
+        find(id) {
+          if (typeof id !== "string" || !id) return null;
+          const entry = byId.get(id);
+          if (!entry) return null;
+          const el = hasWeakRef ? entry.deref() : entry;
+          if (!el || !el.isConnected) {
+            byId.delete(id);
+            return null;
+          }
+          return el;
+        }
+      };
+      window.__cmuxAddressBarFocusRegistry = registry;
+      return registry;
+    })()
+    """
+    // Exposed (internal) for behavior-level focus-tracking tests; see
+    // BrowserAddressBarFocusTrackingTests.
     static let addressBarFocusCaptureScript = """
     (() => {
       try {
+        const registry = \(BrowserPanel.addressBarFocusRegistryInstaller);
         const syncState = (state) => {
           window.__cmuxAddressBarFocusState = state;
           try {
@@ -3173,11 +3223,7 @@ final class BrowserPanel: Panel, ObservableObject {
           return "cleared:noneditable";
         }
 
-        let id = active.getAttribute("data-cmux-addressbar-focus-id");
-        if (!id) {
-          id = "cmux-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
-          active.setAttribute("data-cmux-addressbar-focus-id", id);
-        }
+        const id = registry.ensureId(active);
 
         const state = { id, selectionStart: null, selectionEnd: null };
         if (typeof active.selectionStart === "number" && typeof active.selectionEnd === "number") {
@@ -3226,14 +3272,8 @@ final class BrowserPanel: Panel, ObservableObject {
           return !!el.isContentEditable || tag === "textarea" || (tag === "input" && type !== "hidden");
         };
 
-        const ensureFocusId = (el) => {
-          let id = el.getAttribute("data-cmux-addressbar-focus-id");
-          if (!id) {
-            id = "cmux-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
-            el.setAttribute("data-cmux-addressbar-focus-id", id);
-          }
-          return id;
-        };
+        const registry = \(BrowserPanel.addressBarFocusRegistryInstaller);
+        const ensureFocusId = (el) => registry.ensureId(el);
 
         const snapshot = (el) => {
           if (!isEditable(el)) {
@@ -3308,25 +3348,8 @@ final class BrowserPanel: Panel, ObservableObject {
           return "no_state";
         }
 
-        const selector = '[data-cmux-addressbar-focus-id="' + state.id + '"]';
-        const findTarget = (doc) => {
-          if (!doc) return null;
-          const direct = doc.querySelector(selector);
-          if (direct && direct.isConnected) return direct;
-          const frames = doc.querySelectorAll("iframe,frame");
-          for (let i = 0; i < frames.length; i += 1) {
-            const frame = frames[i];
-            try {
-              const childDoc = frame.contentDocument;
-              if (!childDoc) continue;
-              const nested = findTarget(childDoc);
-              if (nested) return nested;
-            } catch (_) {}
-          }
-          return null;
-        };
-
-        const target = findTarget(document);
+        const registry = \(BrowserPanel.addressBarFocusRegistryInstaller);
+        const target = registry.find(state.id);
         if (!target) {
           clearState();
           return "missing_target";
