@@ -41,6 +41,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "system.ping",
         "system.capabilities",
         "auth.status",
+        "auth.sign_in_url",
         "auth.begin_sign_in",
         "auth.sign_out",
         "feedback.submit",

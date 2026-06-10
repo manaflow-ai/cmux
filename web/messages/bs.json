@@ -673,7 +673,57 @@
       "automatic": "Automatski",
       "paneIdSocket": "ID panela (socket API)",
       "panelIdInternal": "ID panela (interno)",
-      "metaTitle": "Koncepti"
+      "metaTitle": "Koncepti",
+      "workspaceGroups": "Grupe radnih prostora",
+      "workspaceGroupsDesc": "Grupišite povezane radne prostore u sklopive imenovane odjeljke u bočnoj traci. Svaku grupu posjeduje sidreni radni prostor, a može se prikvačiti, preimenovati i dobiti vlastitu ikonu i boju. Novi radni prostori mogu se pokrenuti direktno unutar grupe iz njenog zaglavlja.",
+      "workspaceGroupsLink": "Pročitajte cjelovit vodič o grupama radnih prostora"
+    },
+    "workspaceGroups": {
+      "metaTitle": "Grupe radnih prostora",
+      "metaDescription": "Ugnijezdite radne prostore u sklopive imenovane sekcije u cmux bočnoj traci. Model sidra, kako kreirati i upravljati grupom, te workspace-group CLI.",
+      "title": "Grupe radnih prostora",
+      "intro": "Grupe radnih prostora omogućavaju vam da ugnijezdite radne prostore u sklopive imenovane odjeljke u bočnoj traci. Svaka grupa ima implicitni sidreni radni prostor, prilagodljivo dugme + za pokretanje novih radnih prostora unutar nje, te akcije desnim klikom za preimenovanje, prikvačivanje, razgrupisavanje i uređivanje njene konfiguracije.",
+      "concepts": "Koncepti",
+      "anchorTitle": "Sidreni radni prostor",
+      "anchorDesc": "Svaku grupu posjeduje tačno jedan radni prostor koji se naziva sidro. Zaglavlje grupe u bočnoj traci predstavlja sidro — za njega ne postoji poseban red. Klikom na područje naziva u zaglavlju fokusiraju se paneli sidra; klikom na strelicu prebacuje se sklapanje.",
+      "anchorNew": "Sidra su uvijek potpuno nova kada se grupa kreira. Nikada se ne promovišu iz postojećeg radnog prostora. Radni direktorij sidra nasljeđuje se od prvog odabranog radnog prostora prilikom grupisanja odabira, ili od aktivnog radnog prostora prilikom kreiranja putem CLI bez --cwd.",
+      "anchorClose": "Zatvaranje sidrenog radnog prostora raspušta grupu: svaki drugi član postaje razgrupisani radni prostor i ostaje na listi kartica. Ništa se ne zatvara osim samog sidra. Aplikacija prije toga prikazuje dijalog za potvrdu s prekidačem \"Ne pitaj ponovo\".",
+      "identityTitle": "Identitet grupe",
+      "identityDesc": "Grupa ima naziv, ikonu (SF Symbol, podrazumijevano folder.fill) i opcionalnu prilagođenu boju. Oni su nezavisni od vlastitih prilagođavanja sidrenog radnog prostora. Boja i ikona sidra se prilikom kreiranja preuzimaju iz grupe, ali se nakon toga mogu razlikovati.",
+      "pinningTitle": "Prikvačivanje",
+      "pinningDesc": "Grupe se mogu prikvačiti nezavisno od prikvačavanja pojedinačnih radnih prostora. Prikvačeni redovi najvišeg nivoa, bilo da su pojedinačni radni prostori ili grupe, ostaju iznad neprikvačenih redova. Unutar svakog nivoa, grupe i radni prostori zadržavaju redoslijed kojim ih prevučete.",
+      "layoutIntro": "Bočna traka raspoređuje redove najvišeg nivoa odozgo prema dolje:",
+      "layoutItem1": "Prikvačeni redovi najvišeg nivoa (radni prostori i grupe).",
+      "layoutItem2": "Neprikvačeni redovi najvišeg nivoa (radni prostori i grupe).",
+      "creatingTitle": "Kreiranje grupe",
+      "creatingIntro": "Grupa se kreira na jedan od dva načina: putem prečice na tastaturi ili kontekstualnog menija workspace-a. Oba načina umeću novi sidreni workspace iznad odabira i premještaju odabrane workspace-ove u grupu. Kada grupa postoji, upravljate njome i dodajete joj workspace-ove iz zaglavlja grupe (pogledajte Upravljanje grupom u nastavku).",
+      "keyboardTitle": "S tastature ({shortcut})",
+      "keyboardDesc": "Odaberite dva ili više radnih prostora u bočnoj traci, zatim pritisnite {shortcut}. Novi sidreni radni prostor umeće se iznad odabira i svi odabrani radni prostori postaju potomci. Grupa se automatski imenuje Group 1, Group 2 i tako dalje — preimenujte je bilo kada putem kontekstnog menija zaglavlja.",
+      "keyboardNote": "{shortcut} se podudara s podrazumijevanom prečicom za React Grab. Rukovalac grupe troši kombinaciju tipki samo kada postoji eksplicitan višestruki odabir od najmanje dva radna prostora u bočnoj traci, pa se React Grab i dalje aktivira pri pojedinačnom odabiru te u kontekstu preglednika ili terminala. Promijenite je u Postavke → Tastatura ako ne želite da to dvoje dijele tipku.",
+      "keyboardSingle": "Grupe s jednom karticom ne kreiraju se putem prečice. Za to koristite stavku Nova grupa iz radnog prostora u kontekstualnom meniju radnog prostora.",
+      "contextMenuTitle": "Iz kontekstnog menija radnog prostora",
+      "contextMenuDesc": "Desnim klikom kliknite bilo koji radni prostor u bočnoj traci i odaberite Nova grupa iz radnog prostora, ili Nova grupa iz odabira kada je odabrano više radnih prostora. Ovo koristi isto ponašanje automatskog imenovanja kao i prečica.",
+      "managingTitle": "Upravljanje grupom",
+      "managingIntro": "Kada grupa postoji, kontekstualni meni njenog zaglavlja i dugme + na zaglavlju omogućavaju vam da upravljate grupom i dodajete joj workspace-ove. Nijedno od njih ne kreira novu grupu.",
+      "headerMenuTitle": "Iz kontekstnog menija zaglavlja grupe",
+      "headerMenuDesc": "Desnim klikom kliknite zaglavlje postojeće grupe za Preimenuj grupu…, Zakači grupu / Otkači grupu, Uredi konfiguraciju grupe… (koja otvara ~/.config/cmux/cmux.json), Otvori dokumentaciju grupa radnih prostora, Razgrupiši (zadrži radne prostore) i Obriši grupu (zatvori radne prostore). Brisanje je destruktivno i traži potvrdu; razgrupisavanje zadržava radne prostore i samo uklanja kontejner.",
+      "plusButtonTitle": "Iz dugmeta + na zaglavlju grupe",
+      "plusButtonDesc": "Pređite mišem preko zaglavlja grupe da otkrijete prateće + dugme. Kliknite ga da kreirate novi radni prostor u grupi u radnom direktoriju sidra. Desnim klikom kliknite ga za Novi radni prostor u grupi, Uredi konfiguraciju grupe… i Otvori dokumentaciju grupa radnih prostora.",
+      "plusButtonNote": "Pritiskanje {shortcut} dok je aktivni radni prostor sidro ili član grupe također kreira novi radni prostor unutar te grupe. Podrazumijevani raspored je After current: iz običnog člana grupe novi radni prostor se smješta odmah nakon aktivnog člana, a iz sidra ili zaglavlja smješta se na vrh grupe.",
+      "cliTitle": "CLI",
+      "cliDesc": "Sve operacije nad grupama mogu se skriptirati pomoću podkomandi cmux workspace-group. Oblik s crticom isporučuje se prvi; čim postane dostupan širi prostor imena komandi cmux workspace, cmux workspace group postaje kanonski oblik, dok se oblik s crticom zauvijek zadržava kao alias.",
+      "cliSubcommandsTitle": "Podkomande",
+      "cliCreateNote": "create vraća rukovatelj grupe (podrazumijevano workspace_group:N). Proslijedite --json za potpuni strukturirani payload.",
+      "cliFlagsNote": "Proslijedite set-color ili set-icon praznu vrijednost da očistite boju ili ikonu grupe. delete je nepovratan: zatvara svaki radni prostor član.",
+      "cliExamplesTitle": "Primjeri",
+      "cliExampleGroup": "Grupišite trenutno odabrane radne prostore pod nazivom:",
+      "cliExampleNew": "Pokrenite novi radni prostor unutar postojeće grupe, na primjer povezan sa skriptom radnog stabla:",
+      "cliExampleList": "Izlistajte grupe u fokusiranom prozoru:",
+      "configTitle": "Konfiguracija",
+      "configNote": "Konfiguracija po grupi nalazi se pod ključem workspaceGroups u ~/.config/cmux/cmux.json, indeksirana prema radnom direktoriju sidrenog workspacea. Pogledajte referencu konfiguracije za podržane ključeve, uključujući globalno smještanje novih workspaceova te boju, ikonu, smještaj i akcije kontekstnog menija po direktoriju.",
+      "configLinkText": "referenca konfiguracije workspaceGroups",
+      "persistenceTitle": "Postojanost",
+      "persistenceDesc": "Naziv grupe, sidro, stanje prikvačenosti, stanje sklopljenosti, boja i ikona čuvaju se uz vaše radne prostore i obnavljaju se između pokretanja. Pripadnost grupi pohranjuje se na svakom radnom prostoru."
     },
     "configuration": {
       "title": "Konfiguracija",
@@ -742,12 +792,20 @@
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "shortcutsWhenIntro": "Opcionalni kontekstni predikati po radnji (when klauzule u VS Code stilu), indeksirani cmux ID-jem radnje. Vezivanje se pokreće — i sukobljava s drugim vezivanjem na istom pritisku — samo kada je njegova klauzula ispunjena. Izostavite klauzulu da radnja zadrži ugrađeni kontekst. Rječnik klauzula:",
+      "shortcutsWhenBooleanKeys": "Booleovi ključevi. Nepoznat ili odsutan ključ čita se kao false; prihvataju se i literali true i false.",
+      "shortcutsWhenTypedKeys": "tipizirani ključevi za poređenja: aktivni način desne bočne trake (string) te broj okana i radnih prostora (cijeli brojevi).",
+      "shortcutsWhenOperators": "Booleovi operatori, tipizirana poređenja, regex podudaranje i pripadnost listi. Poređenja se vezuju jače od && i ||.",
+      "shortcutsWhenExample": "Na primjer, ovo čini da Ctrl+1–9 bira radne prostore svuda osim kada desna bočna traka ima fokus (ostavljajući Ctrl+1–5 prebacivaču načina bočne trake), i ograničava izbor površine na bočnu traku za pretragu kada radni prostor ima više okana:"
     },
     "customCommands": {
       "title": "Prilagođene komande",
@@ -1148,6 +1206,7 @@
     "navItems": {
       "gettingStarted": "Početak rada",
       "concepts": "Koncepti",
+      "workspaceGroups": "Grupe radnih prostora",
       "configuration": "Konfiguracija",
       "sessionRestore": "Obnova sesije",
       "customCommands": "Prilagođene komande",
@@ -1429,5 +1488,10 @@
     "downloadLight": "Preuzmi svijetlu ikonu",
     "downloadDark": "Preuzmi tamnu ikonu",
     "brandPage": "Materijali brenda"
+  },
+  "afterSignIn": {
+    "title": "Prijavljeni ste u cmux",
+    "body": "Ako se cmux nije automatski otvorio, koristite dugme ispod.",
+    "button": "Vrati se u cmux"
   }
 }
