@@ -122,11 +122,20 @@ struct TmuxControlModeSessionCoreTests {
         #expect(ended == ["tmux exited (1)"])
     }
 
-    @Test func missingActivePaneEndsSession() {
+    @Test func spontaneousAndEmptyBlocksAreIgnoredNotFatal() {
+        // tmux emits a spontaneous entry block plus an empty refresh-client ack
+        // before the list-panes response. Neither must end the session or be
+        // mistaken for the pane list.
         var core = TmuxControlModeSessionCore()
         _ = core.start(initialSize: TerminalSize(columns: 80, rows: 24))
-        _ = core.consume(Array("%begin 1 1 0\n%end 1 1 0\n".utf8)) // refresh-client
-        let ended = bytes(core.consume(Array("%begin 2 2 1\n%error 2 2 1\n".utf8))).ended
-        #expect(ended == ["no active tmux pane"])
+        let spontaneous = core.consume(Array("%begin 1 323 0\n%end 1 323 0\n".utf8)) // tmux entry block
+        #expect(commands(spontaneous).isEmpty)
+        #expect(bytes(spontaneous).ended.isEmpty)
+        let refresh = core.consume(Array("%begin 2 1 0\n%end 2 1 0\n".utf8)) // refresh-client ack
+        #expect(commands(refresh).isEmpty)
+        #expect(bytes(refresh).ended.isEmpty)
+        // The real list-panes block resolves the pane and triggers capture.
+        let list = core.consume(Array("%begin 3 2 0\n1:%7\n%end 3 2 0\n".utf8))
+        #expect(commands(list) == ["capture-pane -t %7 -p -e -J -S - -E -"])
     }
 }

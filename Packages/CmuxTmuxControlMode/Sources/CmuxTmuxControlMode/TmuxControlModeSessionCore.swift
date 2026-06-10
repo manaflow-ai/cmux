@@ -6,6 +6,14 @@ import Foundation
 /// the surface, end-of-session). The Process- and queue-bound wrapper lives in
 /// ``TmuxControlModeGateway``; keeping the logic here makes it synchronously
 /// testable with a fake transport.
+///
+/// Command responses are matched by **content/phase**, not by a positional
+/// queue: tmux emits spontaneous `%begin`/`%end` blocks on entry (e.g. an
+/// initial empty block), so a positional FIFO desyncs. Instead we send
+/// `list-panes` and treat the first command block whose output parses as a pane
+/// list as the resolver; the first block after we request `capture-pane` is the
+/// snapshot; everything else (the entry block, `refresh-client`/`send-keys`
+/// acknowledgements) is ignored.
 public struct TmuxControlModeSessionCore: Sendable {
     public enum Effect: Equatable, Sendable {
         /// Bytes to write to the gateway's stdin (a tmux command + newline).
@@ -18,30 +26,27 @@ public struct TmuxControlModeSessionCore: Sendable {
         case ended(reason: String?)
     }
 
-    /// Each command we write is answered by exactly one `%begin`…`%end` block,
-    /// in order, so we track what each pending response is for.
-    private enum PendingCommand: Equatable {
-        case ignore        // refresh-client, send-keys: result discarded
-        case resolvePane   // list-panes: parse the active pane id
-        case snapshot      // capture-pane: deliver as the initial snapshot
+    private enum Phase: Equatable {
+        case resolvingPane   // waiting for a command block that parses as a pane list
+        case capturing       // capture-pane requested; next command block is the snapshot
+        case live            // snapshot delivered; command blocks are acknowledgements
     }
 
     private var parser = TmuxControlModeParser()
-    private var pending: [PendingCommand] = []
+    private var phase: Phase = .resolvingPane
 
     private var targetPane: String?
-    private var snapshotDelivered = false
     private var pendingLiveOutput: [UInt8] = []
     private var ended = false
 
     public init() {}
 
-    /// Resolve the active pane, then capture it. The gateway has already been
-    /// spawned for the chosen target; here we negotiate size and snapshot.
+    /// Negotiate size, then ask tmux for its panes so we can resolve the one to
+    /// render. The gateway has already been spawned for the chosen target.
     public mutating func start(initialSize: TerminalSize) -> [Effect] {
         var effects: [Effect] = []
-        effects.append(writeCommand(TmuxControlModeEncoder.refreshClientSize(initialSize), as: .ignore))
-        effects.append(writeCommand(TmuxControlModeEncoder.listActivePanes(), as: .resolvePane))
+        effects.append(.write(commandBytes(TmuxControlModeEncoder.refreshClientSize(initialSize))))
+        effects.append(.write(commandBytes(TmuxControlModeEncoder.listActivePanes())))
         return effects
     }
 
@@ -58,12 +63,12 @@ public struct TmuxControlModeSessionCore: Sendable {
 
     public mutating func sendInput(_ bytes: [UInt8]) -> [Effect] {
         guard !ended, let pane = targetPane, !bytes.isEmpty else { return [] }
-        return [writeCommand(TmuxControlModeEncoder.sendKeys(paneID: pane, bytes: bytes), as: .ignore)]
+        return [.write(commandBytes(TmuxControlModeEncoder.sendKeys(paneID: pane, bytes: bytes)))]
     }
 
     public mutating func resize(_ size: TerminalSize) -> [Effect] {
         guard !ended else { return [] }
-        return [writeCommand(TmuxControlModeEncoder.refreshClientSize(size), as: .ignore)]
+        return [.write(commandBytes(TmuxControlModeEncoder.refreshClientSize(size)))]
     }
 
     /// The gateway process exited.
@@ -77,21 +82,24 @@ public struct TmuxControlModeSessionCore: Sendable {
 
     private mutating func handle(_ event: TmuxControlModeEvent, into effects: inout [Effect]) {
         switch event {
-        case .begin:
-            break
         case let .commandResult(_, output, isError):
-            let kind = pending.isEmpty ? nil : pending.removeFirst()
-            switch kind {
-            case .resolvePane:
-                handleResolvePane(output: output, isError: isError, into: &effects)
-            case .snapshot:
+            switch phase {
+            case .resolvingPane:
+                // Ignore the entry block, refresh-client ack, and any other
+                // block that is not the pane list. Only resolve on a real list.
+                guard !isError, let pane = Self.activePane(from: output) else { return }
+                targetPane = pane
+                phase = .capturing
+                effects.append(.write(commandBytes(TmuxControlModeEncoder.capturePane(paneID: pane))))
+            case .capturing:
                 deliverSnapshot(output: output, into: &effects)
-            case .ignore, .none:
+                phase = .live
+            case .live:
                 break
             }
         case let .output(paneID, bytes):
             guard paneID == targetPane else { return }
-            if snapshotDelivered {
+            if phase == .live {
                 effects.append(.output(bytes))
             } else {
                 pendingLiveOutput.append(contentsOf: bytes)
@@ -107,19 +115,7 @@ public struct TmuxControlModeSessionCore: Sendable {
         }
     }
 
-    private mutating func handleResolvePane(output: [String], isError: Bool, into effects: inout [Effect]) {
-        guard !isError, let pane = Self.activePane(from: output) else {
-            ended = true
-            effects.append(.ended(reason: "no active tmux pane"))
-            return
-        }
-        targetPane = pane
-        effects.append(writeCommand(TmuxControlModeEncoder.capturePane(paneID: pane), as: .snapshot))
-    }
-
     private mutating func deliverSnapshot(output: [String], into effects: inout [Effect]) {
-        guard !snapshotDelivered else { return }
-        snapshotDelivered = true
         var bytes = Array(output.joined(separator: "\r\n").utf8)
         if !output.isEmpty { bytes.append(contentsOf: [0x0D, 0x0A]) } // trailing CRLF
         effects.append(.snapshot(bytes))
@@ -131,30 +127,26 @@ public struct TmuxControlModeSessionCore: Sendable {
 
     // MARK: - Helpers
 
-    private mutating func writeCommand(_ command: String, as kind: PendingCommand) -> Effect {
-        pending.append(kind)
+    private func commandBytes(_ command: String) -> [UInt8] {
         var bytes = Array(command.utf8)
         bytes.append(0x0A) // \n
-        return .write(bytes)
+        return bytes
     }
 
     /// Pick the active pane id from `list-panes -F '#{pane_active}:#{pane_id}'`
-    /// output. Lines look like `1:%3` (active) / `0:%4`.
+    /// output. Lines look like `1:%3` (active) / `0:%4`. Returns nil if no line
+    /// parses as a pane entry (so non-pane command blocks are skipped).
     static func activePane(from output: [String]) -> String? {
+        var firstPane: String?
         for line in output {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard let colon = trimmed.firstIndex(of: ":") else { continue }
             let active = trimmed[trimmed.startIndex..<colon]
             let pane = String(trimmed[trimmed.index(after: colon)...])
-            if active == "1", !pane.isEmpty { return pane }
+            guard pane.hasPrefix("%"), pane.count > 1 else { continue }
+            if firstPane == nil { firstPane = pane }
+            if active == "1" { return pane }
         }
-        // Fall back to the first listed pane if none is flagged active.
-        for line in output {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard let colon = trimmed.firstIndex(of: ":") else { continue }
-            let pane = String(trimmed[trimmed.index(after: colon)...])
-            if !pane.isEmpty { return pane }
-        }
-        return nil
+        return firstPane
     }
 }
