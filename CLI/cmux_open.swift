@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -5842,10 +5843,27 @@ extension CMUXCLI {
             if FileManager.default.fileExists(atPath: appDirectory.path, isDirectory: &isDirectory),
                isDirectory.boolValue,
                FileManager.default.fileExists(atPath: entry.path) {
-                return (sourceDirectory: appDirectory, targetDirectoryName: candidate.targetName)
+                // The shared /tmp asset cache is written by every running cmux
+                // build (stable, nightly, each tagged dev app). Content-key the
+                // directory so builds with different webview bundles coexist
+                // instead of clobbering each other's chunks, which broke pages
+                // whose per-token allowlist no longer matched the files on disk.
+                let targetName = "\(candidate.targetName)-\(try diffViewerAppAssetContentKey(directory: appDirectory))"
+                return (sourceDirectory: appDirectory, targetDirectoryName: targetName)
             }
         }
         throw CLIError(message: "Bundled cmux diff viewer app assets not found")
+    }
+
+    private func diffViewerAppAssetContentKey(directory: URL) throws -> String {
+        var hasher = SHA256()
+        for relativePath in try diffViewerBundledAssetRelativePaths(in: directory).sorted() {
+            hasher.update(data: Data(relativePath.utf8))
+            let fileURL = directory.appendingPathComponent(relativePath, isDirectory: false)
+            hasher.update(data: try Data(contentsOf: fileURL, options: .mappedIfSafe))
+        }
+        let digest = hasher.finalize()
+        return digest.map { String(format: "%02x", $0) }.joined().prefix(12).lowercased()
     }
 
     private func copyDiffViewerAsset(relativePath: String, from sourceDirectory: URL, to targetDirectory: URL) throws {
