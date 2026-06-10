@@ -18074,24 +18074,8 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        // Open the editor with the right project context: prefer the source
-        // panel's working directory, else the workspace directory.
-        let workingDirectory: String? = {
-            if let sourcePanelId {
-                if let dir = panelDirectories[sourcePanelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !dir.isEmpty {
-                    return dir
-                }
-                if let dir = terminalPanel(for: sourcePanelId)?
-                    .requestedWorkingDirectory?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                   !dir.isEmpty {
-                    return dir
-                }
-            }
-            let dir = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            return dir.isEmpty ? nil : dir
-        }()
+        // Open the editor with the right project context (shared resolver).
+        let workingDirectory = resolvedTerminalWorkingDirectory(forPanelId: sourcePanelId)
 
         // Run the editor as the surface's primary process (via Ghostty's
         // `command`, which macOS executes through `login(1)` — a real login
@@ -18105,6 +18089,28 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: invocation,
             waitAfterCommandOverride: false
         )
+    }
+
+    /// Resolves the working directory for a new surface derived from `panelId`:
+    /// the panel's reported cwd, then its requested startup cwd, then the
+    /// workspace directory. Shared by the command-click file-open router and the
+    /// terminal-editor opener so both stay in sync. A nil `panelId` skips the
+    /// per-panel lookups and uses the workspace directory.
+    func resolvedTerminalWorkingDirectory(forPanelId panelId: UUID?) -> String? {
+        if let panelId {
+            if let dir = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !dir.isEmpty {
+                return dir
+            }
+            if let dir = terminalPanel(for: panelId)?
+                .requestedWorkingDirectory?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !dir.isEmpty {
+                return dir
+            }
+        }
+        let dir = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return dir.isEmpty ? nil : dir
     }
 
     /// Split `paneId` and place a brand-new terminal in the resulting pane.

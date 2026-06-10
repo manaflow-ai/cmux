@@ -59,5 +59,12 @@ tmp-*/
 .iter-logs/
 .claude/worktrees/
 
+# Editor / AI-agent scratch directories — never commit (not source)
+.claude/
+.agents/
+.greptile/
+.cursor/
+.coderabbit/
+
 # Local dogfood scratch (screenshots, recordings) — never commit
 artifacts/

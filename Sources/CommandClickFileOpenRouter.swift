@@ -36,26 +36,15 @@ enum CommandClickFileOpenRouter {
 
     /// Resolve the working directory for a terminal surface, preferring the
     /// per-panel directory, then the panel's requested working directory,
-    /// then the workspace-level directory.
+    /// then the workspace-level directory. Delegates to the shared
+    /// `Workspace.resolvedTerminalWorkingDirectory(forPanelId:)` so the
+    /// command-click router and the terminal-editor opener stay in sync.
     @MainActor
     static func resolveWorkingDirectory(
         workspace: Workspace,
         surfaceId: UUID
     ) -> String? {
-        if let dir = workspace.panelDirectories[surfaceId]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !dir.isEmpty {
-            return dir
-        }
-        if let dir = workspace.terminalPanel(for: surfaceId)?
-            .requestedWorkingDirectory?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !dir.isEmpty {
-            return dir
-        }
-        let dir = workspace.currentDirectory
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return dir.isEmpty ? nil : dir
+        workspace.resolvedTerminalWorkingDirectory(forPanelId: surfaceId)
     }
 
     /// Schedule a file open in cmux, deferred to the next runloop tick.
