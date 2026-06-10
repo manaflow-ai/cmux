@@ -32,13 +32,22 @@ struct AgentChatPresenter {
         }
         let workspaceId = workspace.id
         let resolver = resolver
+        // Capture the panel's persisted resume binding on the main actor so the
+        // resolver can fall back to it when the live index has no entry (a
+        // terminal restored after an app relaunch).
+        let resumeBinding = workspace.surfaceResumeBinding(panelId: panelId)
 
         Task {
             // Loading the index and globbing the filesystem is IO; keep it off
             // the main actor, then present on the main actor.
             let resolution = await Task.detached(priority: .userInitiated) {
                 let index = RestorableAgentSessionIndex.load()
-                return resolver.resolve(index: index, workspaceId: workspaceId, panelId: panelId)
+                return resolver.resolve(
+                    index: index,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    resumeBinding: resumeBinding
+                )
             }.value
 
             guard let resolution else {

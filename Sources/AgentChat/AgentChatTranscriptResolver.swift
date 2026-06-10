@@ -46,42 +46,106 @@ struct AgentChatTranscriptResolver {
     ///   - index: The loaded restorable-session index.
     ///   - workspaceId: The panel's workspace id.
     ///   - panelId: The panel id.
+    ///   - resumeBinding: The panel's surface resume binding, consulted when
+    ///     the live index has no entry for the panel.
     /// - Returns: The resolution, or `nil` when the panel has no known agent
     ///   session or the agent kind is not a transcript-backed kind P1 supports.
     func resolve(
         index: RestorableAgentSessionIndex,
         workspaceId: UUID,
-        panelId: UUID
+        panelId: UUID,
+        resumeBinding: SurfaceResumeBindingSnapshot? = nil
     ) -> Resolution? {
-        guard let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) else {
+        // Prefer the live index; fall back to the panel's resume binding when
+        // the index has no entry. A session-restored terminal does not
+        // repopulate the live hook index until the agent re-announces, but its
+        // resume binding (kind + session id + cwd + env) was persisted at
+        // restore, so the chat view can still find the transcript. Only give up
+        // (the "No agent conversation" empty state) when neither source
+        // yields a transcript-backed agent session.
+        guard let inputs = indexInputs(index: index, workspaceId: workspaceId, panelId: panelId)
+            ?? resumeBindingInputs(resumeBinding) else {
             return nil
         }
-        let sessionId = snapshot.sessionId
-        guard !sessionId.isEmpty else { return nil }
-        let cwd = snapshot.workingDirectory
+        guard !inputs.sessionId.isEmpty else { return nil }
 
-        switch snapshot.kind {
+        switch inputs.kind {
         case .claude:
-            let configuredRoot = snapshot.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]
             return Resolution(
                 agentKind: .claudeCode,
-                sessionId: sessionId,
+                sessionId: inputs.sessionId,
                 transcriptURL: claudeTranscriptURL(
-                    sessionId: sessionId,
-                    cwd: cwd,
-                    configuredRoot: configuredRoot
+                    sessionId: inputs.sessionId,
+                    cwd: inputs.cwd,
+                    configuredRoot: inputs.environment?["CLAUDE_CONFIG_DIR"]
                 )
             )
         case .codex:
-            let codexHome = snapshot.launchCommand?.environment?["CODEX_HOME"]
             return Resolution(
                 agentKind: .codex,
-                sessionId: sessionId,
-                transcriptURL: codexTranscriptURL(sessionId: sessionId, codexHome: codexHome)
+                sessionId: inputs.sessionId,
+                transcriptURL: codexTranscriptURL(
+                    sessionId: inputs.sessionId,
+                    codexHome: inputs.environment?["CODEX_HOME"]
+                )
             )
         default:
             // Other agents are not transcript-backed in the P1 parsers.
             return nil
+        }
+    }
+
+    /// The transcript-lookup inputs for a panel, from one of the two sources.
+    private struct ResolutionInputs {
+        let kind: RestorableAgentKind
+        let sessionId: String
+        let cwd: String?
+        let environment: [String: String]?
+    }
+
+    /// Inputs from the live restorable-session index, or `nil` when the index
+    /// has no entry for the panel.
+    private func indexInputs(
+        index: RestorableAgentSessionIndex,
+        workspaceId: UUID,
+        panelId: UUID
+    ) -> ResolutionInputs? {
+        guard let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) else {
+            return nil
+        }
+        return ResolutionInputs(
+            kind: snapshot.kind,
+            sessionId: snapshot.sessionId,
+            cwd: snapshot.workingDirectory,
+            environment: snapshot.launchCommand?.environment
+        )
+    }
+
+    /// Inputs reconstructed from a panel's persisted resume binding, used when
+    /// the live index misses (e.g. a terminal restored after an app relaunch).
+    /// The binding's `checkpointId` is the agent session id the resume path
+    /// uses; `kind` is the persisted agent-kind string.
+    private func resumeBindingInputs(_ binding: SurfaceResumeBindingSnapshot?) -> ResolutionInputs? {
+        guard let binding,
+              let sessionId = binding.checkpointId, !sessionId.isEmpty,
+              let kind = restorableKind(fromBindingKind: binding.kind) else {
+            return nil
+        }
+        return ResolutionInputs(
+            kind: kind,
+            sessionId: sessionId,
+            cwd: binding.cwd,
+            environment: binding.environment
+        )
+    }
+
+    /// Maps a resume binding's kind string to a `RestorableAgentKind`, limited
+    /// to the transcript-backed kinds the P1 parsers support.
+    private func restorableKind(fromBindingKind kind: String?) -> RestorableAgentKind? {
+        switch kind?.lowercased() {
+        case "claude": return .claude
+        case "codex": return .codex
+        default: return nil
         }
     }
 
