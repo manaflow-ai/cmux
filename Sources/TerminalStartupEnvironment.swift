@@ -180,8 +180,24 @@ extension TerminalSurface {
             environment[key] = value
             protectedKeys.insert(key)
         }
+        // The integration dir lives inside the app bundle, which can disappear
+        // while the app is running (e.g. a tagged dev build's DerivedData gets
+        // pruned). Redirecting shell startup at a missing bootstrap would make
+        // the shell silently skip the user's own config (for zsh, ZDOTDIR would
+        // point at a dir with no .zshenv to restore the real ZDOTDIR, so
+        // ~/.zshenv, ~/.zprofile, and ~/.zshrc all stop loading). When the
+        // bundled bootstrap is unreadable, leave the environment untouched so
+        // the shell starts vanilla, and log so the degradation is diagnosable.
+        func bundledBootstrapIsReadable(_ relativePath: String) -> Bool {
+            let path = (integrationDir as NSString).appendingPathComponent(relativePath)
+            if FileManager.default.isReadableFile(atPath: path) { return true }
+            Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
+                .error("cmux \(shellName, privacy: .public) bootstrap unreadable at \(path, privacy: .private); leaving shell startup environment untouched so the user's shell config still loads")
+            return false
+        }
         switch shellName {
         case "zsh":
+            guard bundledBootstrapIsReadable(".zshenv") else { return nil }
             if userGhosttyShellIntegrationMode != "none" { setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION", "1") }
             let candidateZdotdir = (environment["ZDOTDIR"]?.isEmpty == false ? environment["ZDOTDIR"] : nil)
                 ?? getenv("ZDOTDIR").map { String(cString: $0) }
@@ -211,6 +227,7 @@ extension TerminalSurface {
                     .error("cmux bash bootstrap unreadable at \(bashBootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); bash shell integration will not load")
             }
         case "fish":
+            guard bundledBootstrapIsReadable("fish/config.fish") else { return nil }
             applyManagedFishStartupEnvironment(integrationDir: integrationDir, to: &environment, protectedKeys: &protectedKeys)
             return managedFishShellCommand(shell: shell)
         default:
