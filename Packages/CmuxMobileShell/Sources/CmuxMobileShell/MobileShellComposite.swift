@@ -207,6 +207,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // the saved value, re-saving it is redundant and would race the
             // per-terminal key swap) and when the value is unchanged.
             guard !isLoadingDraft, terminalInputText != oldValue else { return }
+            // A user edit claims field ownership for the selected terminal: the
+            // live input is now authoritative, so a still-in-flight stored-draft
+            // load must not apply over it (see ``applyLoadedDraft``).
+            draftLoadPendingTerminalID = nil
             persistCurrentDraft()
         }
     }
@@ -287,6 +291,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The draft text of the terminal we are switching away from, captured with
     /// ``draftedOutgoingTerminalID``.
     @ObservationIgnored private var draftedOutgoingText: String = ""
+    /// The terminal whose stored-draft load is still in flight while the field
+    /// shows the transient cleared placeholder. While this matches a terminal,
+    /// the visible field does NOT represent that terminal's draft yet, so a
+    /// switch away from it must not persist the placeholder over its real
+    /// stored draft (the fast A -> B -> C switch erased B's untouched draft).
+    /// Consumed when the load applies; cleared by a user edit, which claims
+    /// field ownership for the selected terminal (live input wins over a late
+    /// load, so deleted text cannot resurrect). Not observed: bookkeeping, not
+    /// view state.
+    @ObservationIgnored private var draftLoadPendingTerminalID: MobileTerminalPreview.ID?
 
     /// Surface IDs whose next window attach must NOT grab the keyboard.
     ///
@@ -2875,6 +2889,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         to incomingID: MobileTerminalPreview.ID?
     ) {
         guard let draftStore else { return }
+        // The field represents the outgoing terminal's draft only when no load
+        // is still pending for it. During a fast A -> B -> C switch, B's load
+        // has not applied yet and the field is the transient cleared
+        // placeholder, not B's draft; persisting it would erase B's real stored
+        // draft. (A user edit clears the pending marker, so an edited field is
+        // always authoritative and still saved.)
+        let outgoingFieldIsAuthoritative = outgoingID != nil && draftLoadPendingTerminalID != outgoingID
+        draftLoadPendingTerminalID = incomingID
         // Clear the field synchronously so the old terminal's text is not briefly
         // shown under the new terminal while its draft loads. Guarded so this
         // clear is not itself saved.
@@ -2884,7 +2906,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             isLoadingDraft = false
         }
         enqueueDraftOperation { [weak self] in
-            if let outgoingID {
+            if let outgoingID, outgoingFieldIsAuthoritative {
                 await draftStore.saveDraft(outgoingText, forTerminalID: outgoingID.rawValue)
             }
             guard let incomingID else { return }
@@ -2895,14 +2917,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Apply a draft fetched off the main actor back into ``terminalInputText``.
     ///
-    /// Applied only if the terminal it was loaded for is still selected (a fast
-    /// re-switch could otherwise drop a stale draft into the wrong terminal) AND the
-    /// field is still empty — i.e. the user has not started typing into the
-    /// freshly-cleared field during the (tiny) async load window. A non-empty field
-    /// means the user is already composing for this terminal, and that live input
-    /// (saved on its own) must win over the stored copy. The restore write is
+    /// Applied only if this load is still the pending one — a fast re-switch
+    /// repoints ``draftLoadPendingTerminalID`` at the newer incoming terminal,
+    /// and a user edit clears it entirely (live input wins, even when the user
+    /// deleted everything: a late load must not resurrect deleted text into the
+    /// deliberately emptied field). The selected-terminal and empty-field
+    /// guards stay as defense in depth for the same races. The restore write is
     /// guarded so it is not re-saved. An empty restored draft is a no-op.
     private func applyLoadedDraft(_ draft: String, forTerminalID terminalID: MobileTerminalPreview.ID) {
+        guard draftLoadPendingTerminalID == terminalID else { return }
+        draftLoadPendingTerminalID = nil
         guard selectedTerminalID == terminalID,
               terminalInputText.isEmpty,
               !draft.isEmpty else { return }
