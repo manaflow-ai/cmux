@@ -84,19 +84,27 @@ nonisolated extension CmuxTopProcessSnapshot {
 
         switch probe(pid, cacheKey) {
         case .resolved(let scope):
-            guard let scope else {
-                // BUG (issue 5756): a resolved "no cmux scope" is not cached, so
-                // every poll re-probes every non-cmux process. Fixed in the next
-                // commit by caching the negative result under a TTL.
-                return nil
-            }
-            cmuxTopScopeCache.withLock { cache in
+            // Cache the resolved result. Positive scopes are kept indefinitely;
+            // negative scopes are kept only until the TTL elapses so a later exec
+            // is eventually attributed. The key is pruned to live pids each
+            // capture, so a recycled pid gets a fresh key.
+            //
+            // capture() runs concurrently (async task-manager sampling and sync
+            // system.top socket handling), and the probe happened outside the
+            // lock. Never let a stale negative from an older capture clobber a
+            // positive scope a newer capture already discovered for the same
+            // process: if we probed nil but a positive entry now exists, keep and
+            // return it.
+            return cmuxTopScopeCache.withLock { cache -> CmuxTopProcessScope? in
+                if scope == nil, let existing = cache[cacheKey], let existingScope = existing.scope {
+                    return existingScope
+                }
                 cache[cacheKey] = CmuxTopProcessScopeCacheValue(
                     scope: scope,
                     negativeExpiresAtNanos: nowNanoseconds &+ cmuxTopNegativeScopeTTLNanoseconds
                 )
+                return scope
             }
-            return scope
         case .unavailable:
             // Transient failure: do not cache, retry on the next poll.
             return nil
