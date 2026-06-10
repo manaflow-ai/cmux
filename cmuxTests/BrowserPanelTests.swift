@@ -3085,6 +3085,71 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertNil(portal.searchOverlayPanelId(for: window))
     }
 
+    // Crash regression for https://github.com/manaflow-ai/cmux/issues/5733.
+    //
+    // The production crash was a main-thread stack-exhaustion SIGSEGV
+    // (KERN_PROTECTION_FAILURE, "Could not determine thread index for stack guard
+    // region") whose fault site was the find-overlay lookup copying `Entry`
+    // structs out of `entriesByWebViewId.values`. Each Entry copy performs 3
+    // `objc_copyWeak` ops, so at the crash-time load of 166 browser panes the
+    // lookup did ~498 weak-table-locked operations on EVERY key event and EVERY
+    // first-responder change (the reproduced stack showed the scan reached from
+    // both `cmux_performKeyEquivalent` and `cmux_makeFirstResponder` ->
+    // `BrowserPanel.ownedFocusIntent`). That per-call O(panes) weak-copy churn,
+    // stacked on top of the WebKit `doneWithKeyEvent` re-dispatch nesting, is the
+    // bug class that exhausted the 8 MB main-thread stack.
+    //
+    // True 8 MB exhaustion is not cleanly unit-testable (it needs the WebKit IPC
+    // re-dispatch chain under load), so this pins the underlying invariant at the
+    // crash-time pane count: the lookup must resolve off the live slot view
+    // hierarchy, never by enumerating/copying the entries dictionary. The find
+    // overlay is opened on the LAST of 166 host slots (worst case for any scan),
+    // none of which are registered in `entriesByWebViewId`. The fixed
+    // hierarchy-scan finds it (0 Entry copies); the old `entriesByWebViewId.values`
+    // scan would enumerate an empty dictionary and return nil.
+    func testSearchOverlayLookupRemainsHierarchyDrivenAtCrashPaneCount() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        // 166 = the browser-pane count at the time of the production crash (#5731).
+        let paneCount = 166
+        var slots: [WindowBrowserSlotView] = []
+        for index in 0..<paneCount {
+            let slot = WindowBrowserSlotView(
+                frame: NSRect(x: 0, y: CGFloat(index), width: 120, height: 1)
+            )
+            portal.browserPortalTestInstallSlotWithoutEntry(slot)
+            slots.append(slot)
+        }
+
+        let panelId = UUID()
+        guard let targetSlot = slots.last else {
+            XCTFail("Expected slots")
+            return
+        }
+        targetSlot.setSearchOverlay(makeBrowserSearchOverlayConfiguration(panelId: panelId))
+        guard let overlayResponder = targetSlot.browserPortalTestSearchOverlayView else {
+            XCTFail("Expected the slot to host a search overlay view")
+            return
+        }
+
+        XCTAssertEqual(
+            portal.searchOverlayPanelId(for: overlayResponder),
+            panelId,
+            "At the 166-pane crash profile the find-overlay lookup must resolve off the "
+                + "live slot hierarchy with zero Entry weak-copies (#5733)"
+        )
+        // A responder no slot owns must still return nil after scanning all 166 slots.
+        XCTAssertNil(portal.searchOverlayPanelId(for: window))
+    }
+
     func testBrowserPortalHostStaysAboveTerminalPortalHostDuringPortalChurn() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
