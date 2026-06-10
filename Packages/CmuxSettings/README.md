@@ -180,6 +180,26 @@ Tests construct `DefaultsKey` / `JSONKey` directly with a temp-suite
 `UserDefaults` or a temp-dir file URL. The catalog isn't a test fixture; it
 is the production registry. See `Tests/CmuxSettingsTests/` for patterns.
 
+### Keyboard-shortcut `when` clauses
+
+`ShortcutWhenClause` parses a VS Code-style predicate over context keys and
+evaluates it against a `ShortcutContext` value — no app, AppKit, or filesystem
+needed. Build a context by hand and assert evaluation:
+
+```swift
+var context = ShortcutContext()
+context.setBool(ShortcutContextKnownKey.commandPaletteVisible.rawValue, true)
+context.setString(ShortcutContextKnownKey.sidebarMode.rawValue, "find")
+context.setInt(ShortcutContextKnownKey.paneCount.rawValue, 2)
+
+let clause = ShortcutWhenClause.parse("commandPaletteVisible && paneCount > 1")
+#expect(clause?.evaluate(context) == true)
+```
+
+`ShortcutWhenClause.canCoexist(_:_:)` decides whether two clauses can both hold
+(conflict detection); it is exact for the focus atoms and conservative for typed
+comparisons. See `Tests/CmuxSettingsTests/ShortcutWhenClauseTests.swift`.
+
 ## Concurrency
 
 The cmux repo enforces a strict modern-concurrency policy

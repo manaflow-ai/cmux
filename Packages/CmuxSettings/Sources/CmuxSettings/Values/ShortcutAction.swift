@@ -58,11 +58,17 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case closeTab
     case closeOtherTabsInPane
     case closeWorkspace
+    /// Groups the selected workspaces in the workspace list.
+    case groupSelectedWorkspaces
+    /// Toggles collapse for the group containing the focused workspace.
+    case toggleFocusedWorkspaceGroupCollapsed
     case reopenClosedBrowserPanel
     case newSurface
     case toggleTerminalCopyMode
     case focusTextBoxInput
     case attachTextBoxFile
+    /// Sends a Ctrl-F keystroke through to the focused terminal.
+    case sendCtrlFToTerminal
 
     // MARK: Panes
     case focusLeft
@@ -101,6 +107,16 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case showBrowserJavaScriptConsole
     case toggleBrowserFocusMode
     case toggleReactGrab
+    /// Scrolls the focused diff viewer down one step.
+    case diffViewerScrollDown
+    /// Scrolls the focused diff viewer up one step.
+    case diffViewerScrollUp
+    /// Scrolls the focused diff viewer to the bottom.
+    case diffViewerScrollToBottom
+    /// Scrolls the focused diff viewer to the top.
+    case diffViewerScrollToTop
+    /// Opens file search inside the focused diff viewer.
+    case diffViewerOpenFileSearch
 }
 
 extension ShortcutAction {
@@ -140,8 +156,9 @@ extension ShortcutAction {
              .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
+             .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
-             .focusTextBoxInput, .attachTextBoxFile:
+             .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
              .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
@@ -152,8 +169,98 @@ extension ShortcutAction {
              .browserZoomReset, .markdownZoomIn, .markdownZoomOut, .markdownZoomReset,
              .find, .findInDirectory, .findNext, .findPrevious,
              .hideFind, .useSelectionForFind, .toggleBrowserDeveloperTools,
-             .showBrowserJavaScriptConsole, .toggleBrowserFocusMode, .toggleReactGrab:
+             .showBrowserJavaScriptConsole, .toggleBrowserFocusMode, .toggleReactGrab,
+             .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
+             .diffViewerScrollToTop, .diffViewerOpenFileSearch:
             return .browser
+        }
+    }
+
+    /// Whether this action binds the whole `1…9` digit range through a
+    /// single stored placeholder.
+    ///
+    /// ``selectSurfaceByNumber`` and ``selectWorkspaceByNumber`` are special:
+    /// one binding (with the digit normalized to `"1"`) stands in for the
+    /// entire `⌘1`–`⌘9` / `⌃1`–`⌃9` family. UI that displays the binding
+    /// should render it as `⌃1…9` (the range) rather than the literal
+    /// single-digit `⌃1`, and recording any digit `1`–`9` rebinds the whole
+    /// range. All other actions match a single concrete keystroke.
+    public var usesNumberedDigitMatching: Bool {
+        switch self {
+        case .selectSurfaceByNumber, .selectWorkspaceByNumber:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Whether the recorder may accept a shortcut whose first stroke has no modifier.
+    ///
+    /// Most cmux-owned shortcuts require a modifier on the first stroke to avoid
+    /// accidentally stealing plain typing from terminals, editors, and browser
+    /// content. Diff-viewer navigation is intentionally modeled after vim-style
+    /// content shortcuts, so those actions can be rebound to bare first strokes
+    /// such as `j`, `k`, `g`, and `/`.
+    public var allowsBareFirstStroke: Bool {
+        switch self {
+        case .diffViewerScrollDown,
+             .diffViewerScrollUp,
+             .diffViewerScrollToBottom,
+             .diffViewerScrollToTop,
+             .diffViewerOpenFileSearch:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// The action's built-in focus context expressed as a ``ShortcutWhenClause``,
+    /// used when no `shortcuts.when` override applies.
+    ///
+    /// Mirrors the app target's `KeyboardShortcutSettings.Action.shortcutContext`
+    /// default-context mapping so the Settings UI's conflict detection evaluates
+    /// the same effective context the runtime does. A drift test asserts the two
+    /// mappings agree for every shared action.
+    public var defaultFocusWhenClause: ShortcutWhenClause {
+        switch self {
+        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
+             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+            return .atom(.sidebarFocus)
+        case .renameTab, .renameWorkspace:
+            return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+        case .sendCtrlFToTerminal:
+            return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+        case .browserBack, .browserForward, .browserReload,
+             .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
+             .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode,
+             .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
+             .diffViewerScrollToTop, .diffViewerOpenFileSearch:
+            return .atom(.browserFocus)
+        case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
+            return .atom(.markdownFocus)
+        default:
+            return .always
+        }
+    }
+
+    /// Whether the app's key router consumes this action *before* general
+    /// configured-shortcut matching whenever its context holds.
+    ///
+    /// The right-sidebar mode shortcuts are pre-routed: while the sidebar is
+    /// focused they win their keystroke outright, and every other binding on the
+    /// same stroke keeps firing outside that context. Conflict detection
+    /// (``ShortcutWhenClause/bindingsCollide(_:lhsHasPriority:_:rhsHasPriority:)``)
+    /// uses this to accept such priority-resolved pairs — e.g. the factory
+    /// default Select Surface `⌃1…9` alongside the sidebar's `⌃1…5` — instead of
+    /// rejecting them as colliding. Mirrors the app target's routing order in
+    /// `handleCustomShortcut`; a drift test asserts the two stay aligned.
+    public var hasPriorityShortcutRouting: Bool {
+        switch self {
+        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
+             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+            return true
+        default:
+            return false
         }
     }
 
@@ -202,11 +309,17 @@ extension ShortcutAction {
         case .closeTab: return "Close Tab"
         case .closeOtherTabsInPane: return "Close Other Tabs in Pane"
         case .closeWorkspace: return "Close Workspace"
+        case .groupSelectedWorkspaces:
+            return String(localized: "shortcut.groupSelectedWorkspaces.label", defaultValue: "Group Selected Workspaces")
+        case .toggleFocusedWorkspaceGroupCollapsed:
+            return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
         case .reopenClosedBrowserPanel: return "Reopen Last Closed"
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
         case .focusTextBoxInput: return "Focus TextBox Input"
         case .attachTextBoxFile: return "Attach File to TextBox Input"
+        case .sendCtrlFToTerminal:
+            return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
         case .focusLeft: return "Focus Pane Left"
         case .focusRight: return "Focus Pane Right"
         case .focusUp: return "Focus Pane Up"
@@ -241,6 +354,16 @@ extension ShortcutAction {
         case .showBrowserJavaScriptConsole: return "Show Browser JavaScript Console"
         case .toggleBrowserFocusMode: return "Enter Browser Focus Mode"
         case .toggleReactGrab: return "Toggle React Grab"
+        case .diffViewerScrollDown:
+            return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
+        case .diffViewerScrollUp:
+            return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Diff Viewer: Scroll Up")
+        case .diffViewerScrollToBottom:
+            return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Diff Viewer: Scroll to Bottom")
+        case .diffViewerScrollToTop:
+            return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Diff Viewer: Scroll to Top")
+        case .diffViewerOpenFileSearch:
+            return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
         }
     }
 }
