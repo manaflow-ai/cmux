@@ -116,4 +116,57 @@ import Testing
             try CmxAttachTicketInput.decode(url)
         }
     }
+
+    @Test func decodesMinimalPairingCodeURL() throws {
+        // New-phone-scans-new-QR: the minimal v2 grammar (bare routes, no
+        // payload blob) routes through the same input decoder as everything
+        // else the scanner or a deep link can hand us.
+        let decoded = try CmxAttachTicketInput.decode(
+            "cmux-ios://attach?v=2&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
+        )
+        #expect(decoded.workspaceID == "")
+        #expect(decoded.macDeviceID == "")
+        #expect(decoded.macDisplayName == nil)
+        #expect(decoded.expiresAt == nil)
+        #expect(decoded.authToken == nil)
+        #expect(decoded.routes.count == 2)
+        #expect(decoded.routes.map(\.id) == ["tailscale", "tailscale_2"])
+        #expect(decoded.routes.allSatisfy { $0.kind == .tailscale })
+    }
+
+    @Test func minimalPairingCodeRejectsLoopback() {
+        // A scanned v2 code must never point the phone at itself. The legacy
+        // v1 payload grammar is intentionally NOT gated: the dev/simulator
+        // auto-pair flow injects loopback attach URLs in that grammar.
+        #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&r=127.0.0.1:58465")
+        }
+        #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&r=localhost:58465")
+        }
+    }
+
+    @Test func legacyLoopbackPayloadStillDecodesForDevInjection() throws {
+        // The simulator/dev auto-pair path (CMUX_DOGFOOD_ATTACH_URL) builds a
+        // legacy full-key payload with a loopback route; it must keep working.
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "dev-mac",
+            macDisplayName: nil,
+            routes: [
+                try CmxAttachRoute(
+                    id: "debug_loopback",
+                    kind: .debugLoopback,
+                    endpoint: .hostPort(host: "127.0.0.1", port: 58465)
+                ),
+            ],
+            authToken: "dev-token"
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoded = try CmxAttachTicketInput.decode(attachURL(payload: try encoder.encode(ticket)))
+        #expect(decoded.routes == ticket.routes)
+        #expect(decoded.authToken == "dev-token")
+    }
 }

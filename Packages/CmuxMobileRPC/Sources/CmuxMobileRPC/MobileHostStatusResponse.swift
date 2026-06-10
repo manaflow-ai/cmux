@@ -16,11 +16,17 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     /// so this is where a freshly paired phone learns what to call the Mac.
     /// `nil` from older Macs that predate the field.
     public let macDisplayName: String?
+    /// The Mac's stable pairing device id. The minimal v2 pairing QR no
+    /// longer carries it, so this is where a freshly paired phone learns
+    /// which paired-Mac record the connection belongs to (reconnect-on-launch
+    /// and the host switcher key on it). `nil` from older Macs.
+    public let macDeviceID: String?
 
     private enum CodingKeys: String, CodingKey {
         case capabilities
         case terminalFidelity = "terminal_fidelity"
         case macDisplayName = "mac_display_name"
+        case macDeviceID = "mac_device_id"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -28,6 +34,7 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         capabilities = (try container.decodeIfPresent([String].self, forKey: .capabilities)) ?? []
         terminalFidelity = try container.decodeIfPresent(String.self, forKey: .terminalFidelity)
         macDisplayName = try container.decodeIfPresent(String.self, forKey: .macDisplayName)
+        macDeviceID = try container.decodeIfPresent(String.self, forKey: .macDeviceID)
     }
 
     /// Decode a host-status response from raw JSON data.

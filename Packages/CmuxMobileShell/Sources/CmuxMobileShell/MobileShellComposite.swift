@@ -1795,10 +1795,39 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Adopts the Mac name reported by `mobile.host.status`. The compact
-    /// pairing QR no longer carries the name, so this post-handshake report is
-    /// what replaces the device-id placeholder in the UI and fills in the
-    /// paired-Mac store for freshly paired Macs.
+    /// Adopts the identity (`mac_device_id`, `mac_display_name`) reported by
+    /// `mobile.host.status`. The minimal pairing QR carries neither, so this
+    /// post-handshake report is what makes a QR-paired Mac identifiable: the
+    /// device id keys the paired-Mac record (launch reconnect, host switcher)
+    /// and the name replaces the placeholder in the UI.
+    private func applyHostReportedIdentity(deviceID: String?, displayName: String?) async {
+        if let reportedID = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !reportedID.isEmpty,
+           let ticket = activeTicket,
+           ticket.macDeviceID.isEmpty,
+           let adopted = try? CmxAttachTicket(
+               version: ticket.version,
+               workspaceID: ticket.workspaceID,
+               terminalID: ticket.terminalID,
+               macDeviceID: reportedID,
+               macDisplayName: ticket.macDisplayName,
+               routes: ticket.routes,
+               expiresAt: ticket.expiresAt,
+               authToken: ticket.authToken
+           ) {
+            activeTicket = adopted
+            // The connection is now attributable to a real Mac: persist it so
+            // reconnect-on-launch and the host switcher have a record (the
+            // empty-id ticket was skipped by the connect-time persist).
+            await persistPairedMacFromTicket(adopted)
+        }
+        await applyHostReportedDisplayName(displayName)
+    }
+
+    /// Adopts the Mac name reported by `mobile.host.status`. The pairing QR
+    /// no longer carries the name, so this post-handshake report is what
+    /// replaces the placeholder in the UI and fills in the paired-Mac store
+    /// for freshly paired Macs.
     private func applyHostReportedDisplayName(_ reportedName: String?) async {
         guard let name = reportedName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !name.isEmpty,
@@ -1851,7 +1880,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket = try CmxAttachTicketInput.decode(rawURL)
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
-            applyPairingFailure(.invalidCode, phase: "validation")
+            if case MobileSyncPairingPayloadError.loopbackRouteRejected = error {
+                // A scanned/pasted code that only points back at the Mac
+                // itself (127.0.0.1) would make the phone dial itself. Name
+                // the actual fix (Tailscale on the Mac) instead of the
+                // generic invalid-code copy.
+                applyPairingFailure(.loopbackRejected, phase: "validation")
+            } else {
+                applyPairingFailure(.invalidCode, phase: "validation")
+            }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -2528,7 +2565,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // its point of use (`MobileCoreRPCClient.requestDataWithAuth`).
         activeTicket = ticket
         activeRoute = firstRoute
-        connectedHostName = ticket.macDisplayName ?? ticket.macDeviceID
+        connectedHostName = Self.placeholderHostName(for: ticket, firstRoute: firstRoute)
         replaceRemoteClient(with: nil)
 
         guard let runtime else {
@@ -2601,6 +2638,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var data: Data
         var isScoped: Bool
         var preferActiveTicketTarget: Bool
+    }
+
+    /// The name shown for the Mac until `mobile.host.status` reports the real
+    /// one: the ticket's display name, then its device id, then the dialed
+    /// route's host (a minimal v2 pairing code carries neither name nor id,
+    /// so the Tailscale hostname is the best available placeholder).
+    private static func placeholderHostName(
+        for ticket: CmxAttachTicket,
+        firstRoute: CmxAttachRoute
+    ) -> String {
+        if let name = ticket.macDisplayName, !name.isEmpty {
+            return name
+        }
+        if !ticket.macDeviceID.isEmpty {
+            return ticket.macDeviceID
+        }
+        if case let .hostPort(host, _) = firstRoute.endpoint {
+            return host
+        }
+        return ""
     }
 
     private static func supportedRoutes(
@@ -3485,7 +3542,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
             supportsDogfoodFeedback = payload.capabilities.contains(Self.dogfoodFeedbackCapability)
-            await applyHostReportedDisplayName(payload.macDisplayName)
+            await applyHostReportedIdentity(deviceID: payload.macDeviceID, displayName: payload.macDisplayName)
             let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
                 payload.terminalFidelity == "render_grid" ? .renderGrid : .rawBytes
             terminalOutputTransport = transport
