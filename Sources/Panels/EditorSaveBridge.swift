@@ -89,8 +89,20 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
             replyHandler(Self.errorEnvelope(code: "unauthorized", detail: nil), nil)
             return
         }
-        guard let body = message.body as? [String: Any],
-              let content = body["content"] as? String else {
+        guard let body = message.body as? [String: Any] else {
+            replyHandler(Self.errorEnvelope(code: "invalid_request", detail: nil), nil)
+            return
+        }
+        // Capability probe: the page asks at mount time whether this token
+        // still has a live write registration, so a restored page whose
+        // registration died with the previous app instance opens read-only
+        // instead of accepting edits it can never save. Reaching this point
+        // means the registry lookup above succeeded.
+        if body["probe"] as? Bool == true {
+            replyHandler(["ok": true, "value": ["status": "writable"]], nil)
+            return
+        }
+        guard let content = body["content"] as? String else {
             replyHandler(Self.errorEnvelope(code: "invalid_request", detail: nil), nil)
             return
         }
