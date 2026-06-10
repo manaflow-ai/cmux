@@ -96,6 +96,13 @@ public final class AuthCoordinator {
     /// publishes, while a newer attempt that failed before writing does not
     /// block the cleanup.
     @ObservationIgnored private var tokenStoreWriteHighWater: UInt64 = 0
+    /// In-flight credential-exchange tasks by attempt id, registered by
+    /// ``runExchange(_:flow:timeout:_:)`` so ``signOut(onSignedOut:teardownTimeout:)``
+    /// can cancel them. The vendored SDK's token-write chokepoint
+    /// (`publishSessionTokens`) refuses to persist tokens once its flow task
+    /// is cancelled, so a cancelled exchange can never re-store credentials
+    /// behind sign-out's local clear, no matter when its network call resumes.
+    @ObservationIgnored private var activeSignInExchanges: [UInt64: Task<Void, any Error>] = [:]
 
     /// The staleness context a sign-in flow captures before its first await:
     /// the session generation (does a later sign-out invalidate this flow?)
@@ -110,6 +117,33 @@ public final class AuthCoordinator {
     private func beginSignInFlow() -> SignInFlowContext {
         signInAttemptCounter &+= 1
         return SignInFlowContext(generation: sessionGeneration, attempt: signInAttemptCounter)
+    }
+
+    /// Run a sign-in flow's credential exchange as a coordinator-owned child
+    /// task registered under the flow's attempt id, racing the phase deadline
+    /// like ``runPhase(_:timeout:_:)``.
+    ///
+    /// The registration is what makes sign-out able to win against a parked
+    /// exchange: ``signOut(onSignedOut:teardownTimeout:)`` cancels every
+    /// registered exchange before clearing local state, and the SDK's write
+    /// chokepoint drops the token store write of a cancelled flow, so the
+    /// stale exchange can neither resurrect the signed-out session nor
+    /// clobber a newer sign-in's freshly written tokens. Caller cancellation
+    /// is forwarded to the child task.
+    private func runExchange(
+        _ phase: AuthPhase,
+        flow: SignInFlowContext,
+        timeout: Duration,
+        _ operation: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        let exchange = Task { try await self.runPhase(phase, timeout: timeout, operation) }
+        activeSignInExchanges[flow.attempt] = exchange
+        defer { activeSignInExchanges[flow.attempt] = nil }
+        try await withTaskCancellationHandler {
+            try await exchange.value
+        } onCancel: {
+            exchange.cancel()
+        }
     }
 
     /// Creates an auth coordinator.
@@ -451,7 +485,7 @@ public final class AuthCoordinator {
         let fullCode = CMUXAuthMagicLinkCode(code: code, nonce: nonce).composed
         do {
             let client = self.client
-            try await runPhase(.verifyCode, timeout: timeouts.network) {
+            try await runExchange(.verifyCode, flow: flow, timeout: timeouts.network) {
                 try await client.signInWithMagicLink(code: fullCode)
             }
             try await completeSignIn(flow: flow)
@@ -472,7 +506,7 @@ public final class AuthCoordinator {
 
         do {
             let client = self.client
-            try await runPhase(.passwordSignIn, timeout: timeouts.network) {
+            try await runExchange(.passwordSignIn, flow: flow, timeout: timeouts.network) {
                 try await client.signInWithCredential(email: email, password: password)
             }
             try await completeSignIn(flow: flow)
@@ -505,7 +539,7 @@ public final class AuthCoordinator {
             // the sign-in screen loading forever with no error and no way out.
             let client = self.client
             let anchor = self.anchor
-            try await runPhase(.oauth, timeout: timeouts.interactiveFlow) {
+            try await runExchange(.oauth, flow: flow, timeout: timeouts.interactiveFlow) {
                 try await client.signInWithOAuth(provider: provider, anchor: anchor)
             }
             try await completeSignIn(flow: flow)
@@ -535,15 +569,22 @@ public final class AuthCoordinator {
         // The race surfaces as a cancellation (the sign-in UI treats
         // `.cancelled` as a deliberate back-out, not a failure).
         //
+        // This rollback is the second line of defense: sign-out also CANCELS
+        // every registered in-flight exchange (see `runExchange`), and the
+        // SDK's write chokepoint drops a cancelled flow's store write, so a
+        // stale exchange normally never re-stores tokens at all. The
+        // rollback covers a write that already raced past the chokepoint
+        // when the cancellation landed.
+        //
         // Residual, accepted: the high-water mark advances when a flow
         // resumes on this actor, not atomically with the SDK's internal
         // store write, so two interactive sign-in exchanges racing within
-        // one scheduler hop can still mis-order ownership. Interactive
-        // sign-ins are serialized by the UI (one sign-in screen, one
-        // attempt); making this airtight needs coordinator-serialized
-        // attempts (cancel-previous, like HostBrowserSignInFlow's
-        // cancelActiveAttempt) or a compare-and-swap token store, both
-        // follow-up territory.
+        // one scheduler hop (no sign-out involved) can still mis-order
+        // ownership. Interactive sign-ins are serialized by the UI (one
+        // sign-in screen, one attempt); making this airtight needs
+        // coordinator-serialized attempts (cancel-previous, like
+        // HostBrowserSignInFlow's cancelActiveAttempt) or a compare-and-swap
+        // token store, both follow-up territory.
         guard flow.generation == sessionGeneration else {
             if !isAuthenticated && tokenStoreWriteHighWater == flow.attempt {
                 await client.clearLocalSession()
@@ -623,6 +664,24 @@ public final class AuthCoordinator {
         onSignedOut: @escaping @Sendable (_ accessToken: String?, _ refreshToken: String?) async -> Void = { _, _ in },
         teardownTimeout: Duration = .seconds(5)
     ) async {
+        // Cancel in-flight sign-in exchanges FIRST: the SDK's token-write
+        // chokepoint refuses to store after cancellation, so a parked
+        // exchange can never re-store credentials behind this sign-out's
+        // local clear, no matter when its network call resumes. Cancel and
+        // go, deliberately not awaiting the cancelled exchanges: joining
+        // them here would block local-first sign-out on their unwinding
+        // (the rollback in `completeSignIn` stays as belt-and-braces for a
+        // write that already raced past the chokepoint).
+        for exchange in activeSignInExchanges.values { exchange.cancel() }
+
+        // Mark the sign-out epoch synchronously, before the first await
+        // below, so a sign-in completion whose exchange write already raced
+        // past the cancellation chokepoint and which interleaves with the
+        // awaited reads/clear sees a stale epoch and takes its rollback path
+        // instead of publishing over this sign-out. clearAuthState() bumps
+        // again afterwards; epochs only need to be monotonic.
+        sessionGeneration &+= 1
+
         // Capture the teardown credentials with raw stored reads (no refresh,
         // no network) before they are destroyed.
         let accessToken = await client.storedAccessToken()
