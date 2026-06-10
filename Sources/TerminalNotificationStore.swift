@@ -851,6 +851,15 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
     @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
+    /// Coalesced, equality-guarded per-workspace unread projection for the
+    /// sidebar. The workspace list observes THIS instead of the whole store so
+    /// high-frequency notification churn that does not change a workspace's
+    /// badge count or latest-message text never republishes to the sidebar.
+    /// This is the boundary that keeps the workspace list off the store's hot
+    /// publish path (issue #2586 class of sidebar re-render spins). Owned (not
+    /// `@Published`) so its updates stay independent of the store's own
+    /// `objectWillChange`.
+    let sidebarUnread = SidebarUnreadModel()
     // Workspace-level unread drives sidebar workspace badges; pane-level manual
     // unread remains owned by Workspace.manualUnreadPanelIds.
     @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = [] {
@@ -971,7 +980,38 @@ final class TerminalNotificationStore: ObservableObject {
         if notificationMenuSnapshot != nextMenuSnapshot {
             notificationMenuSnapshot = nextMenuSnapshot
         }
+        sidebarUnread.apply(
+            totalUnreadCount: unreadCount,
+            summaries: buildSidebarUnreadSummaries()
+        )
         refreshDockBadge()
+    }
+
+    /// Builds the per-workspace unread summaries the sidebar renders. Mirrors
+    /// `unreadCount(forTabId:)` and `latestNotification(forTabId:)` so the
+    /// coalesced model is a drop-in source for the sidebar's per-row reads.
+    /// Only workspaces with a non-default summary are included; absent entries
+    /// resolve to `(0, nil)` via `SidebarUnreadModel.summary(forWorkspaceId:)`.
+    private func buildSidebarUnreadSummaries() -> [UUID: SidebarWorkspaceUnreadSummary] {
+        var ids = Set(indexes.unreadCountByTabId.keys)
+        ids.formUnion(indexes.latestByTabId.keys)
+        ids.formUnion(workspaceUnreadIndicatorIds)
+        var result: [UUID: SidebarWorkspaceUnreadSummary] = [:]
+        result.reserveCapacity(ids.count)
+        for id in ids {
+            let count = unreadCount(forTabId: id)
+            let latestText: String? = indexes.latestByTabId[id].flatMap { notification in
+                let text = notification.body.isEmpty ? notification.title : notification.body
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            if count == 0, latestText == nil { continue }
+            result[id] = SidebarWorkspaceUnreadSummary(
+                unreadCount: count,
+                latestNotificationText: latestText
+            )
+        }
+        return result
     }
 
     private func logAuthorization(_ message: String) {
@@ -2374,5 +2414,42 @@ final class TerminalNotificationStore: ObservableObject {
             runTag: TaggedRunBadgeSettings.normalizedTag()
         )
         NSApp?.dockTile.badgeLabel = label
+    }
+}
+
+/// Immutable per-workspace unread projection rendered by the sidebar. Equatable
+/// so the coalesced model only republishes when a workspace's badge or
+/// latest-message text actually changes. `latestNotificationText` is the
+/// trimmed body-or-title of the latest notification (read or unread) and is NOT
+/// gated by the `showsSidebarNotificationMessage` setting; the sidebar applies
+/// that gate at its read site.
+struct SidebarWorkspaceUnreadSummary: Equatable {
+    var unreadCount: Int
+    var latestNotificationText: String?
+}
+
+/// Lightweight observable that the workspace sidebar list observes instead of
+/// `TerminalNotificationStore`. `TerminalNotificationStore` drives it from its
+/// single `refreshUnreadPresentation()` coalescing hub with equality guards, so
+/// notification activity that does not change any workspace's badge or
+/// latest-text never fires `objectWillChange` here. This is what lets the
+/// sidebar's `Equatable` list boundary skip rebuilding every workspace row on
+/// unrelated notification churn (see `TerminalNotificationStore.sidebarUnread`).
+@MainActor
+final class SidebarUnreadModel: ObservableObject {
+    @Published private(set) var totalUnreadCount: Int = 0
+    @Published private(set) var summaryByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary] = [:]
+
+    func apply(totalUnreadCount: Int, summaries: [UUID: SidebarWorkspaceUnreadSummary]) {
+        if self.totalUnreadCount != totalUnreadCount {
+            self.totalUnreadCount = totalUnreadCount
+        }
+        if summaryByWorkspaceId != summaries {
+            summaryByWorkspaceId = summaries
+        }
+    }
+
+    func summary(forWorkspaceId id: UUID) -> SidebarWorkspaceUnreadSummary {
+        summaryByWorkspaceId[id] ?? SidebarWorkspaceUnreadSummary(unreadCount: 0, latestNotificationText: nil)
     }
 }
