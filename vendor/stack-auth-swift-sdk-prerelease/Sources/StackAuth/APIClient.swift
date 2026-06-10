@@ -17,6 +17,15 @@ func formURLEncode(_ string: String) -> String {
     return string.addingPercentEncoding(withAllowedCharacters: formURLEncodedAllowedCharacters) ?? string
 }
 
+/// Per-request deadline for every non-interactive Stack Auth network phase:
+/// API requests, token refresh, the OAuth authorize-URL fetch, and the
+/// code/identity-token exchanges. Each is a single HTTPS round trip, so 20s is
+/// generous on a slow cellular link while keeping a dead or blackholed auth
+/// host from pinning a sign-in phase at the OS-default ~60s request timeout.
+/// Sign-in's interactive phase (the ASWebAuthenticationSession browser page)
+/// deliberately has no app-imposed deadline: the user may take minutes there.
+let stackAuthNetworkPhaseTimeout: TimeInterval = 20
+
 // MARK: - JWT Payload
 
 /// Decoded JWT payload for access tokens
@@ -169,7 +178,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
+        request.timeoutInterval = stackAuthNetworkPhaseTimeout
         
         // Required headers
         request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
@@ -324,7 +333,7 @@ actor APIClient {
         let url = URL(string: "\(baseUrl)/api/v1/auth/oauth/token")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
+        request.timeoutInterval = stackAuthNetworkPhaseTimeout
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
         request.setValue(publishableClientKey, forHTTPHeaderField: "x-stack-publishable-client-key")
