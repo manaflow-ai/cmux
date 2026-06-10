@@ -147,7 +147,7 @@
 596	cmuxTests/CmuxEventBusTests.swift
 594	Sources/SettingsNavigation.swift
 594	cmuxTests/PortalTabDragRoutingTests.swift
-590	Sources/App/AgentHibernationController.swift
+594	Sources/App/AgentHibernationController.swift
 588	cmuxTests/CommandPaletteShortcutCustomizationTests.swift
 586	Sources/JSONCParser.swift
 585	Sources/Cloud/VMClient.swift

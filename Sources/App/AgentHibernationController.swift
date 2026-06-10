@@ -545,12 +545,16 @@ extension AppDelegate {
                     let canRestartShell = agent == nil &&
                         !isRemoteTerminal &&
                         !terminalPanel.surface.hasDeferredStartupWorkForBackgroundStart()
-                    // Busy means freeing the PTY could kill live work: not at a
-                    // shell prompt, serving on a listening port, or — for
-                    // shell-restart candidates — background jobs hanging off
-                    // the prompt shell, which produce no prompt or output
-                    // signal of their own.
-                    let isBusy = terminalPanel.needsConfirmClose() ||
+                    // Busy means freeing the PTY could kill live work: the
+                    // shell-integration state reports a running command (or
+                    // Ghostty's prompt heuristic says we are not at one), the
+                    // terminal serves a listening port, or — for shell-restart
+                    // candidates — background jobs hang off the prompt shell
+                    // without any prompt or output signal of their own.
+                    let isBusy = workspace.panelNeedsConfirmClose(
+                        panelId: panelId,
+                        fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
+                    ) ||
                         (canRestartShell &&
                             (!(workspace.surfaceListeningPorts[panelId] ?? []).isEmpty ||
                                 terminalPanel.surface.foregroundProcessHasChildren()))
