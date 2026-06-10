@@ -65,10 +65,16 @@ class BrowserFixtureSocketTestCase: XCTestCase {
         self.app = app
         app.launch()
 
-        XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
-            "Expected app to launch for browser fixture test. state=\(app.state.rawValue)"
-        )
+        // Socket-driven tests do not require frontmost: a backgrounded app still
+        // serves the control socket and hosts browser webviews in its windows.
+        // Busy hosted runners frequently refuse activation ("Running Background"),
+        // so treat foreground as best-effort and gate on the socket instead.
+        if !ensureForegroundAfterLaunch(app, timeout: 12.0) {
+            XCTAssertTrue(
+                app.state == .runningForeground || app.state == .runningBackground,
+                "Expected app to be running for browser fixture test. state=\(app.state.rawValue)"
+            )
+        }
         XCTAssertTrue(
             waitForSocketPong(timeout: 12.0),
             "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
