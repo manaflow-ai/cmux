@@ -83,20 +83,22 @@ Key points:
 - `Sources/TerminalController.swift` — `tmux.attach` V2 RPC.
 - `CLI/cmux.swift` — `cmux tmux attach` verb.
 
-## Revert behavior (current vs planned)
+## Revert behavior: exact original shell preserved
 
-**Current:** on detach the surface respawns a fresh login shell in the same pane
-and tab, in the original working directory.
+On attach, the original terminal surface is **stashed alive (hidden), not
+killed** — its shell, scrollback, history, and cwd keep running. A new
+control-mode panel is bound to the **same bonsplit tab** (no new tab; only the
+cmux panel behind the tab changes, via `surfaceIdToPanelId`). On detach the
+control-mode panel is torn down and the original is restored into the same tab,
+intact — it feels like tmux was a foreground program. This is a cmux-only
+in-place panel swap (`attachControlModeBySwap` / `restoreOriginalAfterControlMode`
+in `Sources/Workspace.swift`); it needs no bonsplit changes because the tab is
+reused and SwiftUI re-renders the new panel after the mapping is re-pointed.
 
-**Planned — restore the exact original shell.** Keep the original shell surface
-alive (suspended, not killed) during the takeover and restore it intact on
-detach, so it feels like tmux was a foreground program (the real-tmux/iTerm2
-feel). cmux panes already hide/show/revive surfaces correctly via tab switching,
-so the clean implementation is: keep the original as a second surface but hide
-its tab from the tab bar while control mode is active, then reselect + unhide it
-on detach. This needs a small "hidden tab" capability in bonsplit
-(`vendor/bonsplit`), which renders the tab bar; the surface preserve/restore
-itself reuses the existing tab-selection machinery.
+If the tab is closed while a control-mode session is active, the stashed
+original is torn down too (`discardControlModeStashIfNeeded`) so it is not
+leaked. The stash lives only in memory, so it does not survive an app restart
+(see Session restore below).
 
 ## Session restore (planned)
 
