@@ -134,6 +134,26 @@ private extension WKWebView {
     }
 }
 
+extension Image {
+    /// Sizes an SF Symbol from an explicit frame rather than font metrics.
+    ///
+    /// A `.font(.system(size:))`-sized symbol can rasterize at 0×0 during a
+    /// transient layout pass (e.g. while a panel's hosting view is first added
+    /// to the hierarchy, before font metrics resolve). macOS 26+ rejects a
+    /// zero raster size with an uncaught `NSInvalidArgumentException`
+    /// (`targetSizeInPoints.width>0 && targetSizeInPoints.height>0`), which
+    /// AppKit turns into a hard crash. Driving the raster size from a fixed
+    /// frame keeps it positive across every layout pass. Mirrors the fix in
+    /// `SidebarHelpMenuButton` (#5670).
+    func cmuxSymbolPixelSize(_ size: CGFloat, weight: Font.Weight = .regular) -> some View {
+        self
+            .resizable()
+            .scaledToFit()
+            .fontWeight(weight)
+            .frame(width: size, height: size, alignment: .center)
+    }
+}
+
 enum BrowserDevToolsIconOption: String, CaseIterable, Identifiable {
     case wrenchAndScrewdriver = "wrench.and.screwdriver"
     case wrenchAndScrewdriverFill = "wrench.and.screwdriver.fill"
@@ -1265,7 +1285,7 @@ struct BrowserPanelView: View {
                 panel.goBack()
             }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: chromeMetrics.navigationIconFontSize, weight: .medium))
+                    .cmuxSymbolPixelSize(chromeMetrics.navigationIconFontSize, weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1281,7 +1301,7 @@ struct BrowserPanelView: View {
                 panel.goForward()
             }) {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: chromeMetrics.navigationIconFontSize, weight: .medium))
+                    .cmuxSymbolPixelSize(chromeMetrics.navigationIconFontSize, weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1292,7 +1312,7 @@ struct BrowserPanelView: View {
 
             Button(action: handleReloadOrStopButtonAction) {
                 Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")
-                    .font(.system(size: chromeMetrics.navigationIconFontSize, weight: .medium))
+                    .cmuxSymbolPixelSize(chromeMetrics.navigationIconFontSize, weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1316,9 +1336,9 @@ struct BrowserPanelView: View {
     private var screenshotPageButton: some View {
         Button(action: handleScreenshotPageButtonAction) {
             Image(systemName: screenshotPageCopied ? "checkmark" : "camera")
+                .cmuxSymbolPixelSize(devToolsButtonIconSize, weight: .medium)
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
                 .foregroundStyle(screenshotPageButtonColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1372,7 +1392,7 @@ struct BrowserPanelView: View {
         Button(action: handleBrowserFocusModeButtonAction) {
             HStack(spacing: 5) {
                 Image(systemName: "keyboard")
-                    .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                    .cmuxSymbolPixelSize(devToolsButtonIconSize, weight: .medium)
                     .scaleEffect(panel.isBrowserFocusModeActive ? 1.08 : 1.0)
                     .animation(.spring(response: 0.18, dampingFraction: 0.82), value: panel.isBrowserFocusModeActive)
                 if panel.isBrowserFocusModeActive {
@@ -1418,9 +1438,9 @@ struct BrowserPanelView: View {
             Task { await panel.toggleOrInjectReactGrab() }
         }) {
             Image(systemName: "cursorarrow.click.2")
+                .cmuxSymbolPixelSize(devToolsButtonIconSize, weight: .medium)
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
                 .foregroundStyle(panel.isReactGrabActive ? Color.accentColor : Color.secondary)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1435,9 +1455,9 @@ struct BrowserPanelView: View {
             openDevTools()
         }) {
             Image(systemName: devToolsIconOption.rawValue)
+                .cmuxSymbolPixelSize(devToolsButtonIconSize, weight: .medium)
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1452,9 +1472,9 @@ struct BrowserPanelView: View {
             isBrowserProfileMenuPresented.toggle()
         }) {
             Image(systemName: "person.crop.circle")
+                .cmuxSymbolPixelSize(devToolsButtonIconSize, weight: .medium)
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1480,9 +1500,9 @@ struct BrowserPanelView: View {
             isBrowserThemeMenuPresented.toggle()
         }) {
             Image(systemName: browserThemeMode.iconName)
+                .cmuxSymbolPixelSize(devToolsButtonIconSize, weight: .medium)
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
                 .foregroundStyle(browserThemeModeIconColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1509,7 +1529,7 @@ struct BrowserPanelView: View {
         }) {
             HStack(spacing: 4) {
                 Image(systemName: "square.and.arrow.down.on.square")
-                    .font(.system(size: 10, weight: .medium))
+                    .cmuxSymbolPixelSize(10, weight: .medium)
                 Text(String(localized: "browser.import.hint.toolbar", defaultValue: "Import"))
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
@@ -1635,7 +1655,7 @@ struct BrowserPanelView: View {
         return HStack(spacing: 4) {
             if showSecureBadge {
                 Image(systemName: "lock.fill")
-                    .font(.system(size: chromeMetrics.secureBadgeFontSize))
+                    .cmuxSymbolPixelSize(chromeMetrics.secureBadgeFontSize)
                     .foregroundColor(.secondary)
             }
 
