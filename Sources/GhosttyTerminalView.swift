@@ -7293,7 +7293,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// prompt with no live children. Background jobs started with `&`
     /// produce no prompt-state or output signal, and an attached `tmux`
     /// client passes the prompt heuristics while its server is not a child —
-    /// both must keep surface hibernation from SIGHUPing the PTY.
+    /// both must keep surface hibernation from SIGHUPing the PTY. Freeing
+    /// the PTY is irreversible, so every unclassifiable state fails closed:
+    /// no live surface handle, no foreground PID (Ghostty reports 0 when
+    /// tcgetpgrp fails), or an unreadable argv all report "not allowed".
     @MainActor
     func foregroundProcessAllowsShellRestart() -> Bool {
 #if DEBUG
@@ -7302,10 +7305,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 #endif
         guard let surface = liveSurfaceForGhosttyAccess(reason: "foregroundProcessAllowsShellRestart") else {
-            return true
+            return false
         }
         let rawPid = ghostty_surface_foreground_pid(surface)
-        guard rawPid > 0, rawPid <= UInt64(Int32.max) else { return true }
+        guard rawPid > 0, rawPid <= UInt64(Int32.max) else { return false }
         let pid = Int(rawPid)
         if CmuxTopProcessSnapshot.hasChildProcesses(parentPID: pid) {
             return false

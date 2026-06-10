@@ -6,7 +6,7 @@
 19958	Sources/Workspace.swift
 19209	Sources/ContentView.swift
 18014	Sources/AppDelegate.swift
-16673	Sources/GhosttyTerminalView.swift
+16676	Sources/GhosttyTerminalView.swift
 13589	Sources/Panels/BrowserPanel.swift
 11916	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9959	Sources/TabManager.swift
@@ -120,6 +120,7 @@
 705	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 701	CLI/CMUXCLI+AgentHookDefinitions.swift
 698	cmuxTests/RestorableAgentHookProviderResumeTests.swift
+697	Sources/App/AgentHibernationController.swift
 697	cmuxTests/TerminalNotificationClearAllTests.swift
 696	cmuxTests/UpdatePillReleaseVisibilityTests.swift
 693	Sources/Panels/BrowserPopupWindowController.swift
@@ -128,7 +129,6 @@
 683	Sources/Panels/CodexAppServerSession.swift
 681	Sources/Panels/AgentSessionProcessStore.swift
 680	Sources/FileExplorerSearchController.swift
-677	Sources/App/AgentHibernationController.swift
 669	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 668	cmuxTests/FeedCoordinatorTests.swift
 668	cmuxTests/KeyboardShortcutContextTests.swift

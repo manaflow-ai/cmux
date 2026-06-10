@@ -287,7 +287,9 @@ final class AgentHibernationController {
             index: index,
             activityByPanel: activityByPanel,
             terminalInputByPanel: terminalInputByPanel,
-            lifecycleChangeByPanel: lifecycleChangeByPanel
+            lifecycleChangeByPanel: lifecycleChangeByPanel,
+            surfaceSettings: surfaceSettings,
+            now: now.timeIntervalSince1970
         )
         let nowTime = now.timeIntervalSince1970
         let isLiveByKey = Dictionary(uniqueKeysWithValues: records.map { record in
@@ -576,7 +578,9 @@ extension AppDelegate {
         index: RestorableAgentSessionIndex,
         activityByPanel: [AgentHibernationPanelKey: TimeInterval],
         terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval],
-        lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval]
+        lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval],
+        surfaceSettings: SurfaceHibernationSettings.Values,
+        now: TimeInterval
     ) -> [AgentHibernationRecord] {
         var records: [AgentHibernationRecord] = []
         var seenManagers: Set<ObjectIdentifier> = []
@@ -586,6 +590,13 @@ extension AppDelegate {
         // after disabling it would restore without its scrollback.
         let shellIntegrationCurrentlyEnabled =
             UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true
+        // Every surface rule requires at least this much quiet before it can
+        // select a shell, so panels under the gate skip the per-process
+        // syscalls below. Tail-fingerprint folding only moves activity
+        // forward, so a panel that fails this unfolded check can never pass
+        // the planner's folded one.
+        let shellRestartCandidateIdleGate =
+            min(surfaceSettings.idleSeconds, surfaceSettings.unmountedIdleSeconds)
 
         func visit(tabManager manager: TabManager, visibleWorkspaceId: UUID?) {
             let managerId = ObjectIdentifier(manager)
@@ -624,17 +635,28 @@ extension AppDelegate {
                         !terminalPanel.surface.hasDeferredStartupWorkForBackgroundStart() &&
                         terminalPanel.surface.runtimeSupportsScrollbackReplay &&
                         shellIntegrationCurrentlyEnabled
+                    let lastActivityAt = max(indexActivity, localActivity, createdAt)
+                    let isProtected = workspaceIsVisible && visiblePanelIds.contains(panelId)
+                    // The planner can only select this shell once it is
+                    // unprotected and past the smallest idle gate, so the
+                    // per-process syscalls (child scan, argv read) run for
+                    // actual candidates instead of every panel every tick.
+                    let isShellRestartCandidate = canRestartShell &&
+                        surfaceSettings.enabled &&
+                        !isProtected &&
+                        now - lastActivityAt >= shellRestartCandidateIdleGate
                     // Busy means freeing the PTY could kill live work: the
                     // shell-integration state reports a running command (or
                     // Ghostty's prompt heuristic says we are not at one), the
                     // terminal serves a listening port, or — for shell-restart
-                    // candidates — background jobs hang off the prompt shell
-                    // without any prompt or output signal of their own.
+                    // candidates — the foreground process is not a bare,
+                    // childless shell (background jobs and attached tmux
+                    // clients produce no prompt or output signal of their own).
                     let isBusy = workspace.panelNeedsConfirmClose(
                         panelId: panelId,
                         fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
                     ) ||
-                        (canRestartShell &&
+                        (isShellRestartCandidate &&
                             (!(workspace.surfaceListeningPorts[panelId] ?? []).isEmpty ||
                                 !terminalPanel.surface.foregroundProcessAllowsShellRestart()))
                     records.append(
@@ -648,8 +670,8 @@ extension AppDelegate {
                             // resolved at evaluation time, after pre-tracking
                             // surfaces are seeded.
                             hasUnconfirmedTerminalInput: agent != nil && terminalInputAt > lifecycleChangeAt,
-                            lastActivityAt: max(indexActivity, localActivity, createdAt),
-                            isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId),
+                            lastActivityAt: lastActivityAt,
+                            isProtected: isProtected,
                             isBusy: isBusy,
                             canRestartShell: canRestartShell,
                             workspaceUnmountedAt: workspaceUnmountedAt,
