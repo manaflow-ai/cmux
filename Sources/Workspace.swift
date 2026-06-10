@@ -10776,8 +10776,12 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
     @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
     var manualUnreadMarkedAt: [UUID: Date] = [:]
-    @Published var statusEntries: [String: SidebarStatusEntry] = [:]
-    @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
+    @Published var statusEntries: [String: SidebarStatusEntry] = [:] {
+        didSet { trimSidebarStatusEntriesIfNeeded() }
+    }
+    @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:] {
+        didSet { trimSidebarMetadataBlocksIfNeeded() }
+    }
     @Published private(set) var latestConversationMessage: String?
     @Published private(set) var latestSubmittedMessage: String?
     @Published private(set) var latestSubmittedAt: Date?
@@ -14453,6 +14457,56 @@ final class Workspace: Identifiable, ObservableObject {
         if logEntries.count > limit {
             logEntries.removeFirst(logEntries.count - limit)
         }
+    }
+
+    /// Upper bound on retained sidebar status pills / metadata blocks per
+    /// workspace. The sidebar `status`/`metadata` socket API lets agents and CI
+    /// scripts insert entries under arbitrary caller-chosen keys. Without a cap,
+    /// a long-running or verbose integration (e.g. ~30 live agent sessions over
+    /// hours, https://github.com/manaflow-ai/cmux/issues/5845) grows these
+    /// `@Published` dictionaries without bound, which both leaks memory and makes
+    /// the per-tick `removeDuplicates` equality check and the
+    /// `sidebarStatusEntriesInDisplayOrder()` / `sidebarMetadataBlocksInDisplayOrder()`
+    /// sorts that feed the sidebar view graph progressively more expensive on the
+    /// main thread. The bound is generous enough that no realistic integration
+    /// (the collapsed sidebar shows at most a handful of pills) is affected;
+    /// it only clamps pathological growth. Mirrors the `logEntries` cap above.
+    static let maxSidebarStatusEntries = 200
+    static let maxSidebarMetadataBlocks = 200
+
+    /// Evicts the lowest-priority, then oldest, status entries once the cap is
+    /// exceeded so retention matches `sidebarStatusEntriesInDisplayOrder()`:
+    /// high-priority and recent entries (the ones actually shown) survive.
+    private func trimSidebarStatusEntriesIfNeeded() {
+        guard statusEntries.count > Self.maxSidebarStatusEntries else { return }
+        let keptKeys = statusEntries.values
+            .sorted { lhs, rhs in
+                if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
+                if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+                return lhs.key < rhs.key
+            }
+            .prefix(Self.maxSidebarStatusEntries)
+            .map(\.key)
+        let kept = Set(keptKeys)
+        // Reassigning re-enters didSet, but the next pass sees count <= cap and
+        // returns immediately, so recursion terminates at depth two.
+        statusEntries = statusEntries.filter { kept.contains($0.key) }
+    }
+
+    /// Mirror of `trimSidebarStatusEntriesIfNeeded()` for metadata blocks,
+    /// matching `sidebarMetadataBlocksInDisplayOrder()` retention.
+    private func trimSidebarMetadataBlocksIfNeeded() {
+        guard metadataBlocks.count > Self.maxSidebarMetadataBlocks else { return }
+        let keptKeys = metadataBlocks.values
+            .sorted { lhs, rhs in
+                if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
+                if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+                return lhs.key < rhs.key
+            }
+            .prefix(Self.maxSidebarMetadataBlocks)
+            .map(\.key)
+        let kept = Set(keptKeys)
+        metadataBlocks = metadataBlocks.filter { kept.contains($0.key) }
     }
 
     // MARK: - Panel Operations
