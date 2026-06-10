@@ -519,9 +519,22 @@ extension AppDelegate {
     }
 
     @discardableResult
-    private func handleCmuxNavigationURLRequest(_ request: CmuxNavigationURLRequest) -> Bool {
+    func handleCmuxNavigationURLRequest(_ request: CmuxNavigationURLRequest) -> Bool {
         let resolver = CmuxNavigationTargetResolver(workspaces: cmuxNavigationWorkspaceDescriptors())
         guard let resolution = resolver.resolve(request.target) else {
+            // On a cold launch the link's target workspace may not exist yet —
+            // startup session restore registers restored windows asynchronously.
+            // Defer the request and replay it once the restore window closes.
+            if shouldDeferNavigationURLRequestsForStartupRestore {
+                pendingStartupNavigationURLRequests.append(request)
+#if DEBUG
+                cmuxDebugLog(
+                    "navigationURL.deferred reason=startupRestorePending " +
+                    "url=\(request.originalURL.absoluteString.prefix(120))"
+                )
+#endif
+                return true
+            }
 #if DEBUG
             switch request.target {
             case .workspace(let workspaceId):

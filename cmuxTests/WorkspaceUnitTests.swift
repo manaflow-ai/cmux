@@ -2917,7 +2917,10 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     private final class DetachedWorkspaceTestPanel: Panel {
         let objectWillChange = ObservableObjectPublisher()
         let id: UUID
-        var stableSurfaceId = UUID()
+        private(set) var stableSurfaceId = UUID()
+        func adoptStableSurfaceId(_ id: UUID) {
+            stableSurfaceId = id
+        }
         let panelType: PanelType = .terminal
         let displayTitle = "Detached"
         let displayIcon: String? = "terminal.fill"

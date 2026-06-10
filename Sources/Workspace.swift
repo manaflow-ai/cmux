@@ -1944,7 +1944,7 @@ extension Workspace {
         // snapshots omit it and keep the fresh value assigned at construction.
         if let stableSurfaceId = snapshot.stableSurfaceId,
            let panel = panels[panelId] {
-            panel.stableSurfaceId = stableSurfaceId
+            panel.adoptStableSurfaceId(stableSurfaceId)
         }
 
         if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
@@ -14917,6 +14917,10 @@ final class Workspace: Identifiable, ObservableObject {
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement
         )
+        // Respawn replaces the panel object but keeps the logical tab (same
+        // panelId/bonsplit tab). Carry the restart-stable surface id over so
+        // durable deep links copied before the respawn keep resolving.
+        replacementPanel.adoptStableSurfaceId(oldPanel.stableSurfaceId)
         configureNewTerminalPanel(replacementPanel)
         panels[panelId] = replacementPanel
         panelTitles[panelId] = replacementPanel.displayTitle

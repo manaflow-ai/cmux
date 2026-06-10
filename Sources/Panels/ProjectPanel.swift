@@ -58,7 +58,12 @@ public enum ProjectPanelLoadState: Sendable, Equatable {
 public final class ProjectPanel: NSObject, Panel, ObservableObject {
     public let id = UUID()
     /// Restart-stable surface identifier for durable deep links. See ``Panel/stableSurfaceId``.
-    public var stableSurfaceId = UUID()
+    public private(set) var stableSurfaceId = UUID()
+
+    /// See ``Panel/adoptStableSurfaceId(_:)`` — restore/respawn-only write path.
+    public func adoptStableSurfaceId(_ id: UUID) {
+        stableSurfaceId = id
+    }
     public let panelType: PanelType = .project
 
     @Published public private(set) var projectURL: URL

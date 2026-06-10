@@ -6,7 +6,12 @@ import SwiftUI
 final class CMUXSidebarExtensionBrowserPanel: NSObject, Panel, ObservableObject {
     let id = UUID()
     /// Restart-stable surface identifier for durable deep links. See ``Panel/stableSurfaceId``.
-    var stableSurfaceId = UUID()
+    private(set) var stableSurfaceId = UUID()
+
+    /// See ``Panel/adoptStableSurfaceId(_:)`` — restore/respawn-only write path.
+    func adoptStableSurfaceId(_ id: UUID) {
+        stableSurfaceId = id
+    }
     let panelType: PanelType = .extensionBrowser
     let browserViewController: NSViewController
 

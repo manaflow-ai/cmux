@@ -3,16 +3,16 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 32562	CLI/cmux.swift
 21996	Sources/TerminalController.swift
-19849	Sources/Workspace.swift
+19853	Sources/Workspace.swift
 19165	Sources/ContentView.swift
-17920	Sources/AppDelegate.swift
-16472	Sources/GhosttyTerminalView.swift
-13591	Sources/Panels/BrowserPanel.swift
+17956	Sources/AppDelegate.swift
+16478	Sources/GhosttyTerminalView.swift
+13596	Sources/Panels/BrowserPanel.swift
 11916	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9939	Sources/TabManager.swift
 8494	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7737	Sources/Panels/BrowserPanelView.swift
-7199	cmuxTests/WorkspaceUnitTests.swift
+7202	cmuxTests/WorkspaceUnitTests.swift
 6948	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6469	cmuxTests/GhosttyConfigTests.swift
 6299	cmuxTests/TerminalAndGhosttyTests.swift
@@ -21,7 +21,7 @@
 5948	Sources/TextBoxInput.swift
 5482	cmuxTests/BrowserConfigTests.swift
 5431	Sources/cmuxApp.swift
-4462	Sources/Panels/FilePreviewPanel.swift
+4467	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
 3948	cmuxTests/WindowAndDragTests.swift
@@ -75,7 +75,7 @@
 1156	cmuxTests/SidebarOrderingTests.swift
 1144	Sources/VaultAgentProcessScanner.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
-1124	Sources/AppDelegate+CmuxSSHURL.swift
+1137	Sources/AppDelegate+CmuxSSHURL.swift
 1084	cmuxTests/AgentHibernationTests.swift
 1068	cmuxTests/FileExplorerStoreTests.swift
 1058	cmuxUITests/BonsplitTabDragUITests.swift
@@ -94,9 +94,9 @@
 913	cmuxTests/WorkspaceGroupTests.swift
 905	Sources/CmuxSSHURLRequest.swift
 878	Sources/WorkspaceContentView.swift
+870	Sources/Panels/TerminalPanel.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 866	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
-865	Sources/Panels/TerminalPanel.swift
 856	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 846	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift

@@ -280,9 +280,18 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     /// persisted in the session snapshot and re-adopted on restore. Durable deep
     /// links (`cmux://workspace/<workspace>/surface/<surface>`) encode this value
     /// so a copied link keeps resolving to the same logical tab across app
-    /// restarts. A freshly created panel gets a fresh `stableSurfaceId`; restore
-    /// overwrites it with the persisted value.
-    var stableSurfaceId: UUID { get set }
+    /// restarts. A freshly created panel gets a fresh `stableSurfaceId`.
+    var stableSurfaceId: UUID { get }
+
+    /// Re-adopts a persisted `stableSurfaceId` onto this panel.
+    ///
+    /// The only sanctioned callers are identity-preserving panel replacement
+    /// paths: session/closed-tab restore (`applySessionPanelMetadata`) and
+    /// in-place terminal respawn. Keeping `stableSurfaceId` read-only with this
+    /// explicit adopt method stops arbitrary holders of `any Panel` from
+    /// silently rewriting a panel's durable identity, which would break
+    /// previously copied links.
+    func adoptStableSurfaceId(_ id: UUID)
 
     /// The type of panel
     var panelType: PanelType { get }

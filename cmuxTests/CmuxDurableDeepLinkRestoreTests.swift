@@ -89,6 +89,30 @@ struct CmuxDurableDeepLinkRestoreTests {
         #expect(resolution == .surface(workspaceId: restoredWorkspace.id, panelId: restoredPanelId))
     }
 
+    @Test func terminalRespawnPreservesStableSurfaceIdForLinks() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let stableSurfaceId = try #require(workspace.panels[panelId]).stableSurfaceId
+        let link = CmuxNavigationURLRequest.surfaceLink(
+            workspaceId: workspace.stableId,
+            surfaceId: stableSurfaceId,
+            scheme: scheme
+        )
+
+        // Respawn replaces the TerminalPanel object while keeping the logical tab.
+        let respawned = try #require(
+            workspace.respawnTerminalSurface(panelId: panelId, command: "true")
+        )
+        #expect(respawned.stableSurfaceId == stableSurfaceId)
+
+        let resolver = CmuxNavigationTargetResolver(
+            workspaces: manager.tabs.map(\.cmuxNavigationDescriptor)
+        )
+        let resolution = try resolver.resolve(parsedTarget(link))
+        #expect(resolution == .surface(workspaceId: workspace.id, panelId: panelId))
+    }
+
     @Test func legacySnapshotWithoutStableIdsRestoresWithFreshOnes() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)

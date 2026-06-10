@@ -5,7 +5,12 @@ import Foundation
 final class AgentSessionPanel: Panel {
     let id: UUID
     /// Restart-stable surface identifier for durable deep links. See ``Panel/stableSurfaceId``.
-    var stableSurfaceId = UUID()
+    private(set) var stableSurfaceId = UUID()
+
+    /// See ``Panel/adoptStableSurfaceId(_:)`` — restore/respawn-only write path.
+    func adoptStableSurfaceId(_ id: UUID) {
+        stableSurfaceId = id
+    }
     let panelType: PanelType = .agentSession
     private(set) var workspaceId: UUID
     let rendererKind: AgentSessionRendererKind
