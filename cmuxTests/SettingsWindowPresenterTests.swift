@@ -212,6 +212,122 @@ final class SettingsWindowPresenterTests: XCTestCase {
         }
     }
 
+    // MARK: - Multi-monitor recovery (issue #5770)
+
+    // A frame saved on a now-disconnected display sits off every active screen.
+    // Selection must recover onto the screen under the cursor instead of leaving
+    // Settings offscreen (the "nothing shows up" multi-monitor symptom).
+    func testTargetVisibleFrameRecoversOffscreenFrameOntoCursorScreen() {
+        let primary = NSRect(x: 0, y: 0, width: 1800, height: 1000)
+        let secondary = NSRect(x: 1800, y: 0, width: 1600, height: 900)
+        // Saved on a third display to the far left that is no longer connected.
+        let orphanFrame = NSRect(x: -2400, y: 400, width: 980, height: 680)
+
+        let target = SettingsWindowPresenter.targetVisibleFrame(
+            windowFrame: orphanFrame,
+            screenVisibleFrames: [primary, secondary],
+            mouseLocation: NSPoint(x: 2000, y: 450), // cursor is on the secondary screen
+            fallbackVisibleFrame: primary
+        )
+
+        XCTAssertEqual(target, secondary)
+    }
+
+    // When the cursor is also off every active screen, fall back to main/first.
+    func testTargetVisibleFrameFallsBackWhenOffscreenAndCursorElsewhere() {
+        let primary = NSRect(x: 0, y: 0, width: 1800, height: 1000)
+        let orphanFrame = NSRect(x: -2400, y: 400, width: 980, height: 680)
+
+        let target = SettingsWindowPresenter.targetVisibleFrame(
+            windowFrame: orphanFrame,
+            screenVisibleFrames: [primary],
+            mouseLocation: NSPoint(x: -3000, y: 9000), // cursor off all screens too
+            fallbackVisibleFrame: primary
+        )
+
+        XCTAssertEqual(target, primary)
+    }
+
+    // A window mostly on a screen stays on that screen even if another exists.
+    func testTargetVisibleFramePrefersScreenWithMostOverlap() {
+        let primary = NSRect(x: 0, y: 0, width: 1800, height: 1000)
+        let secondary = NSRect(x: 1800, y: 0, width: 1600, height: 900)
+        let mostlyOnSecondary = NSRect(x: 1900, y: 100, width: 980, height: 680)
+
+        let target = SettingsWindowPresenter.targetVisibleFrame(
+            windowFrame: mostlyOnSecondary,
+            screenVisibleFrames: [primary, secondary],
+            mouseLocation: NSPoint(x: 10, y: 10), // cursor on primary, but window is on secondary
+            fallbackVisibleFrame: primary
+        )
+
+        XCTAssertEqual(target, secondary)
+    }
+
+    func testClampedFrameMovesOffscreenOriginInsideTargetScreen() {
+        let visible = NSRect(x: 0, y: 0, width: 1800, height: 1000)
+        let inset: CGFloat = 18
+        // Origin far to the left/below the target screen.
+        let offscreen = NSRect(x: -5000, y: -5000, width: 980, height: 680)
+
+        let clamped = SettingsWindowPresenter.clampedFrame(
+            offscreen,
+            minimumSize: SettingsWindowPresenter.minimumSize,
+            into: visible,
+            inset: inset
+        )
+
+        XCTAssertEqual(clamped.size, offscreen.size)
+        XCTAssertGreaterThanOrEqual(clamped.minX, visible.minX + inset)
+        XCTAssertGreaterThanOrEqual(clamped.minY, visible.minY + inset)
+        XCTAssertLessThanOrEqual(clamped.maxX, visible.maxX - inset)
+        XCTAssertLessThanOrEqual(clamped.maxY, visible.maxY - inset)
+    }
+
+    func testClampedFrameShrinksOversizedFrameToVisibleArea() {
+        let visible = NSRect(x: 100, y: 100, width: 1200, height: 800)
+        let inset: CGFloat = 18
+        let oversized = NSRect(x: 0, y: 0, width: 4000, height: 4000)
+
+        let clamped = SettingsWindowPresenter.clampedFrame(
+            oversized,
+            minimumSize: SettingsWindowPresenter.minimumSize,
+            into: visible,
+            inset: inset
+        )
+
+        XCTAssertLessThanOrEqual(clamped.width, visible.width - 2 * inset)
+        XCTAssertLessThanOrEqual(clamped.height, visible.height - 2 * inset)
+        XCTAssertGreaterThanOrEqual(clamped.width, SettingsWindowPresenter.minimumSize.width)
+        XCTAssertGreaterThanOrEqual(clamped.height, SettingsWindowPresenter.minimumSize.height)
+    }
+
+    // MARK: - Silent no-op recovery (issue #5770 / #4053)
+
+    func testOpenOutcomeRetriesWhenWindowDoesNotMaterializeOnFirstAttempt() {
+        XCTAssertEqual(
+            SettingsWindowPresenter.openOutcome(windowExists: false, attempt: 1),
+            .retry
+        )
+    }
+
+    func testOpenOutcomeGivesUpAfterMaxAttempts() {
+        XCTAssertEqual(
+            SettingsWindowPresenter.openOutcome(
+                windowExists: false,
+                attempt: SettingsWindowPresenter.maxOpenAttempts
+            ),
+            .giveUp
+        )
+    }
+
+    func testOpenOutcomeIsMaterializedWhenWindowExists() {
+        XCTAssertEqual(
+            SettingsWindowPresenter.openOutcome(windowExists: true, attempt: 1),
+            .materialized
+        )
+    }
+
     private func makeWindow(
         identifier: String,
         isMiniaturizedForTests: Bool? = nil
