@@ -65,6 +65,8 @@ extension SocketTransport {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return .occupiedOrIndeterminate }
         defer { close(fd) }
+        // Keep the short-lived probe fd out of any concurrent PTY fork.
+        _ = configureCloseOnExec(fd)
 
         let originalFlags = fcntl(fd, F_GETFL, 0)
         guard originalFlags >= 0 else { return .occupiedOrIndeterminate }
