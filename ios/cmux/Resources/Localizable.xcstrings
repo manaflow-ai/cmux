@@ -1905,6 +1905,91 @@
         }
       }
     },
+    "mobile.tailscale.appStoreLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Tailscale in the App Store"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store で Tailscale を開く"
+          }
+        }
+      }
+    },
+    "mobile.tailscale.disconnectedHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac may be unreachable because Tailscale is off here. Turn it on, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスで Tailscale がオフのため、Mac に接続できない可能性があります。Tailscale をオンにしてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.tailscale.genericDevice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "device"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイス"
+          }
+        }
+      }
+    },
+    "mobile.tailscale.inactiveTitleFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale is not active on this %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この%@では Tailscale が有効になっていません"
+          }
+        }
+      }
+    },
+    "mobile.tailscale.pairingHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR pairing usually needs both devices on the same Tailscale network. Turn Tailscale on first, or pair by host and port on a trusted local network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR ペアリングには通常、両方のデバイスが同じ Tailscale ネットワークに接続されている必要があります。まず Tailscale をオンにするか、信頼できるローカルネットワーク上でホストとポートを指定してペアリングしてください。"
+          }
+        }
+      }
+    },
     "mobile.terminal.action.alt": {
       "extractionState": "manual",
       "localizations": {

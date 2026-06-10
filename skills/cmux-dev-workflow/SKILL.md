@@ -5,6 +5,32 @@ description: "Contributor workflow rules for cmux setup, Xcode project normaliza
 
 # cmux Dev Workflow
 
+## Tagged local dev
+
+After making code changes, always run the reload script with a tag to build the Debug app:
+
+```bash
+./scripts/reload.sh --tag <short-tag>
+```
+
+By default, `reload.sh` builds but does not launch the app. Pass `--launch` only when you need to open it automatically.
+
+Never run bare `xcodebuild` or open an untagged `cmux DEV.app`. Untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
+
+For CLI or socket dogfood against a tagged Debug app, use the tag-bound helper and set `CMUX_TAG`:
+
+```bash
+CMUX_TAG=<tag> scripts/cmux-debug-cli.sh list-workspaces
+```
+
+Do not use `/tmp/cmux-cli` for tagged dogfood. That symlink points at the most recently reloaded build.
+
+When rebuilding cmuxd for release/bundling, always use ReleaseFast:
+
+```bash
+cd cmuxd && zig build -Doptimize=ReleaseFast
+```
+
 ## Initial setup
 
 Run the setup script to initialize submodules, build GhosttyKit, and install the pbxproj normalization pre-commit hook:
@@ -38,3 +64,9 @@ To author a NEW sample extension that is tag-ready:
 - `PRODUCT_BUNDLE_IDENTIFIER` = `<appBase>$(CMUX_BUNDLE_ID_SUFFIX)` for the app target and `<appBase>$(CMUX_BUNDLE_ID_SUFFIX).<leaf>` for the appex (suffix before the appex leaf so the appex id stays prefixed by the app id).
 - appex `INFOPLIST_KEY_CFBundleDisplayName` (or the `CFBundleDisplayName` Info.plist value) = `<Name>$(CMUX_DISPLAY_NAME_SUFFIX)`.
 - it must be ad-hoc signed by xcodebuild (Info.plist bound, entitlements intact) for pkd to ingest the tagged copy; do not re-sign post-build.
+
+## Detailed references
+
+- Read [references/tagged-builds.md](references/tagged-builds.md) for detailed tagged reload, app link, socket, and cleanup behavior.
+- Read [references/xcode-project-normalization.md](references/xcode-project-normalization.md) before touching `.xcode-version` or `cmux.xcodeproj/project.pbxproj`.
+- Read [references/sidebar-extension-tagging.md](references/sidebar-extension-tagging.md) when changing ExtensionKit sidebar extension identifiers, tagged sample extensions, or `pluginkit` verification.

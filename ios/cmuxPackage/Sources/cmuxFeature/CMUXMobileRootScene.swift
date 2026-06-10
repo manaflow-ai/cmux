@@ -40,6 +40,11 @@ public struct CMUXMobileRootScene: View {
     /// add-device state.
     private let onboardingStore: MobileOnboardingStore
     #endif
+    /// The app-root tailnet detector (behind the shell UI's read-only
+    /// observing port), injected into the environment so pairing and
+    /// disconnected surfaces can explain a Tailscale-off phone. `nil` on
+    /// non-iOS roots, which simply shows no Tailscale guidance.
+    private let tailscaleStatusMonitor: (any TailscaleStatusObserving)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
     #if DEBUG
     /// The structured diagnostic log injected into the shell store so the DEV
@@ -62,6 +67,8 @@ public struct CMUXMobileRootScene: View {
     ///     the environment (drives workspace-title wrapping).
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
     ///     injected into the root view to gate the one-time onboarding screen.
+    ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
+    ///     the environment for the pairing and disconnected surfaces.
     ///   - diagnosticLog: The structured diagnostic log (DEBUG builds only),
     ///     injected into the shell store for the DEV feedback round-trip.
     public init(
@@ -72,6 +79,7 @@ public struct CMUXMobileRootScene: View {
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
         onboardingStore: MobileOnboardingStore,
+        tailscaleStatusMonitor: any TailscaleStatusObserving,
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.runtime = runtime
@@ -81,6 +89,7 @@ public struct CMUXMobileRootScene: View {
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
         self.onboardingStore = onboardingStore
+        self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.pairedMacStore = Self.openPairedMacStore()
         #if DEBUG
         self.diagnosticLog = diagnosticLog
@@ -98,6 +107,7 @@ public struct CMUXMobileRootScene: View {
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore()
         #if DEBUG
         self.diagnosticLog = nil
@@ -142,6 +152,7 @@ public struct CMUXMobileRootScene: View {
         content
             .environment(auth.coordinator)
             .analytics(analytics)
+            .tailscaleStatusMonitor(tailscaleStatusMonitor)
             #if os(iOS)
             .environment(pushCoordinator)
             .environment(displaySettings)
