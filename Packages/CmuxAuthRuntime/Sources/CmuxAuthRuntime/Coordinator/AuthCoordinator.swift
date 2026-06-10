@@ -83,6 +83,27 @@ public final class AuthCoordinator {
     /// failure must not wipe a newer session). Same pattern as
     /// `HostBrowserSignInFlow.signOutGeneration`.
     @ObservationIgnored private var sessionGeneration: UInt64 = 0
+    /// Monotonic sign-in attempt count: the newest attempt owns the token
+    /// store. A stale attempt's rollback (clearing the tokens its resuming
+    /// exchange re-stored after a sign-out) may only run while it is still
+    /// the newest attempt; a newer in-flight attempt's freshly stored tokens
+    /// must survive even before that attempt publishes.
+    @ObservationIgnored private var signInAttemptCounter: UInt64 = 0
+
+    /// The staleness context a sign-in flow captures before its first await:
+    /// the session generation (does a later sign-out invalidate this flow?)
+    /// and the attempt number (is this flow still the token store's owner?).
+    private struct SignInFlowContext {
+        let generation: UInt64
+        let attempt: UInt64
+    }
+
+    /// Begin a sign-in flow: register it as the newest attempt and capture
+    /// the staleness context. Call before the flow's first await.
+    private func beginSignInFlow() -> SignInFlowContext {
+        signInAttemptCounter &+= 1
+        return SignInFlowContext(generation: sessionGeneration, attempt: signInAttemptCounter)
+    }
 
     /// Creates an auth coordinator.
     ///
@@ -398,7 +419,7 @@ public final class AuthCoordinator {
         }
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, exchange, user fetch) wins.
-        let generation = sessionGeneration
+        let flow = beginSignInFlow()
         try await requireOnline()
         isLoading = true
         defer { isLoading = false }
@@ -409,7 +430,7 @@ public final class AuthCoordinator {
             try await runPhase(.verifyCode, timeout: timeouts.network) {
                 try await client.signInWithMagicLink(code: fullCode)
             }
-            try await completeSignIn(generation: generation)
+            try await completeSignIn(flow: flow)
         } catch {
             throw AuthError(displaySafe: error) ?? error
         }
@@ -420,7 +441,7 @@ public final class AuthCoordinator {
     public func signInWithPassword(email: String, password: String, setLoading: Bool = true) async throws {
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, exchange, user fetch) wins.
-        let generation = sessionGeneration
+        let flow = beginSignInFlow()
         try await requireOnline()
         if setLoading { isLoading = true }
         defer { if setLoading { isLoading = false } }
@@ -430,7 +451,7 @@ public final class AuthCoordinator {
             try await runPhase(.passwordSignIn, timeout: timeouts.network) {
                 try await client.signInWithCredential(email: email, password: password)
             }
-            try await completeSignIn(generation: generation)
+            try await completeSignIn(flow: flow)
         } catch {
             throw AuthError(displaySafe: error) ?? error
         }
@@ -449,7 +470,7 @@ public final class AuthCoordinator {
     private func signInWithOAuth(provider: String) async throws {
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, OAuth exchange, user fetch) wins.
-        let generation = sessionGeneration
+        let flow = beginSignInFlow()
         try await requireOnline()
         isLoading = true
         defer { isLoading = false }
@@ -463,29 +484,30 @@ public final class AuthCoordinator {
             try await runPhase(.oauth, timeout: timeouts.interactiveFlow) {
                 try await client.signInWithOAuth(provider: provider, anchor: anchor)
             }
-            try await completeSignIn(generation: generation)
+            try await completeSignIn(flow: flow)
         } catch {
             log.log("auth.oauth provider=\(provider) failed: \(error)")
             throw AuthError(displaySafe: error) ?? error
         }
     }
 
-    /// - Parameter generation: The session generation captured at the public
-    ///   sign-in entrypoint, before the credential exchange's first await, so
-    ///   a sign-out landing anywhere in the flow wins (not only during the
+    /// - Parameter flow: The context captured at the public sign-in
+    ///   entrypoint, before the credential exchange's first await, so a
+    ///   sign-out landing anywhere in the flow wins (not only during the
     ///   final user fetch).
-    private func completeSignIn(generation: UInt64) async throws {
+    private func completeSignIn(flow: SignInFlowContext) async throws {
         // A sign-out landed during the credential exchange that ran before
         // this completion. The resuming exchange re-stored fresh tokens that
         // the sign-out's clear never saw, so drop those too: otherwise the
         // next launch restore resurrects the session the user just signed out
-        // of. The rollback only runs while no newer session has been
-        // published: when a second sign-in completed before this stale task
-        // resumed, clearing would wipe the newer account's tokens instead.
+        // of. The rollback only runs while this flow is still the NEWEST
+        // sign-in attempt and nothing newer has published: a newer attempt
+        // owns the token store from the moment its exchange writes (even
+        // before it publishes), and clearing here would wipe its tokens.
         // The race surfaces as a cancellation (the sign-in UI treats
         // `.cancelled` as a deliberate back-out, not a failure).
-        guard generation == sessionGeneration else {
-            if !isAuthenticated {
+        guard flow.generation == sessionGeneration else {
+            if !isAuthenticated && flow.attempt == signInAttemptCounter {
                 await client.clearLocalSession()
             }
             throw CancellationError()
@@ -500,10 +522,10 @@ public final class AuthCoordinator {
         // A sign-out landed during the user fetch instead: the exchange's
         // tokens were already in the store when sign-out cleared it, so
         // nothing lingers; only the publish must be dropped.
-        guard generation == sessionGeneration else {
+        guard flow.generation == sessionGeneration else {
             throw CancellationError()
         }
-        await applySignedInUser(user, generation: generation)
+        await applySignedInUser(user, generation: flow.generation)
     }
 
     /// Complete a sign-in whose credentials were established outside the
@@ -518,11 +540,11 @@ public final class AuthCoordinator {
         // The credentials were seeded before this call, so the capture here
         // covers the validation round trip; the seeding flow keeps its own
         // sign-out race guard for the seeded tokens.
-        let generation = sessionGeneration
+        let flow = beginSignInFlow()
         isLoading = true
         defer { isLoading = false }
         do {
-            try await completeSignIn(generation: generation)
+            try await completeSignIn(flow: flow)
         } catch {
             throw AuthError(displaySafe: error) ?? error
         }
