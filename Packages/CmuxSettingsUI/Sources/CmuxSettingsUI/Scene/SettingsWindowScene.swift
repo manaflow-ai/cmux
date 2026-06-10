@@ -48,17 +48,20 @@ public struct SettingsWindowRoot: View {
     // because under search the user can click an individual setting
     // hit and we still want the section pane to follow, but two
     // sibling hits inside one section must each be selectable.
-    @SceneStorage("selectedSettingsSection") private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
-    @SceneStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
-    // Legacy `SettingsRootView` binds `NavigationSplitView`'s
-    // `columnVisibility` so the user can collapse the sidebar via the
-    // toolbar button (or the SidebarCommands menu) and have that state
-    // persist for the lifetime of the window. Without a binding,
-    // `NavigationSplitView` is locked to whatever its initial layout
-    // resolved to, which makes the chevron toggle a no-op in the
-    // package window. Keep this in @State (not @SceneStorage) because
-    // legacy stores it on the transient `SettingsDraftState`, not in
-    // SceneStorage.
+    //
+    // These use @AppStorage, not @SceneStorage: the legacy window kept
+    // them in scene storage, but a cmux-owned AppKit window
+    // (`CmuxHostedWindowController`) is not a SwiftUI scene, so
+    // @SceneStorage would not round-trip — reopening Settings would
+    // always reset to Account. @AppStorage persists the last-viewed
+    // section across reopens (and launches), matching what the scene
+    // window felt like.
+    @AppStorage("selectedSettingsSection") private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
+    @AppStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
+    // Binds `NavigationSplitView`'s `columnVisibility`. The sidebar
+    // stays open (`.all`): see the `.toolbar(removing:)` note in ``body``
+    // for why the hosted window ships without a collapse toggle. Kept as
+    // bindable @State so a future host-owned toolbar toggle can drive it.
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     // Mirrors legacy SettingsView.settingsNavigationGeneration. When
     // multiple navigation requests fire in quick succession (e.g. the
@@ -126,6 +129,20 @@ public struct SettingsWindowRoot: View {
             detailScroll
         }
         .navigationSplitViewStyle(.balanced)
+        // Remove the system-provided sidebar toggle: the sidebar stays
+        // open, like macOS System Settings. `NavigationSplitView`'s
+        // built-in toolbar toggle dispatches AppKit's `toggleSidebar:`
+        // through SwiftUI's own handler, which blanks the whole window
+        // when the view is hosted in a cmux-owned AppKit window
+        // (`CmuxHostedWindowController`, for issue #5321) instead of a
+        // `Window` scene. A binding-driven collapse renders fine when
+        // hosted, but a *replacement* SwiftUI `.toolbar` item bridges into
+        // the hosted `NSHostingController` toolbar lazily (it doesn't
+        // appear until the first `columnVisibility` change), so there is
+        // no eager in-toolbar control to drive it. Restoring a collapse
+        // toggle here needs a native `NSToolbarItem` on the host driving a
+        // shared visibility model — tracked as a follow-up.
+        .toolbar(removing: .sidebarToggle)
         // Inject the built search index so each SettingsCardRow can map
         // its declared cmux.json paths to scroll/highlight anchor ids,
         // and publish the active highlight so the matching row pulses.

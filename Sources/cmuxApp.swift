@@ -374,14 +374,9 @@ struct cmuxApp: App {
                 .settingsRuntime(settingsRuntime)
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
-                    SettingsWindowPresenter.configure(
-                        openWindow: {
-                            openWindow(id: SettingsWindowPresenter.windowID)
-                        },
-                        parentWindowProvider: {
-                            AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
-                        }
-                    )
+                    // SettingsWindowPresenter is configured deterministically in
+                    // AppDelegate.configure (off the racy onAppear), so settings.open
+                    // never defers on a missed onAppear.
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
                         AppDelegate.shared?.updateLog.append("ui test: cmuxApp onAppear")
@@ -821,19 +816,11 @@ struct cmuxApp: App {
             windowAndViewCommands
         }
 
-        Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
-            SettingsWindowRoot(runtime: settingsRuntime)
-                .settingsRuntime(settingsRuntime)
-                .background(WindowAccessor(dedupeByWindow: false) { window in
-                    SettingsWindowPresenter.configure(window: window)
-                })
-                .cmuxAppearanceColorScheme(appearanceMode)
-        }
-        .defaultSize(width: 980, height: 680)
-        .windowResizability(.contentMinSize)
-        .commands {
-            SidebarCommands()
-        }
+        // Settings is a cmux-owned AppKit window (CmuxHostedWindowController via
+        // SettingsWindowPresenter), not a SwiftUI scene, so closing it destroys
+        // the window and it leaves NSApp.windows instead of lingering for AltTab
+        // to resurrect (issue #5321). The hosted SwiftUI view keeps its native
+        // look + animation; `sceneBridgingOptions` bridges the toolbar/toggle.
 
         Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
             ConfigSettingsView()

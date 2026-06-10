@@ -5,11 +5,21 @@ enum SettingsWindowPresenter {
     static let windowID = "settings"
     static let windowIdentifier = "cmux.settings"
     static let minimumSize = NSSize(width: 820, height: 540)
+    static let defaultContentSize = NSSize(width: 980, height: 680)
     private static let visibleAreaInset: CGFloat = 18
 
-    private static var openWindow: (@MainActor () -> Void)?
+    /// Builds the cmux-owned Settings window. Registered deterministically by the
+    /// app composition root (`AppDelegate.configure`) so the presenter stays
+    /// view-agnostic and is ready before any `settings.open`. The passed
+    /// `onWindowWillClose` is wired to ``didCloseWindow()`` so the presenter drops
+    /// its reference and the window deallocates on close.
+    private static var makeWindowController:
+        (@MainActor (@escaping @MainActor () -> Void) -> CmuxHostedWindowController)?
     private static var parentWindowProvider: (@MainActor () -> NSWindow?)?
-    private static weak var settingsWindow: NSWindow?
+    /// The single live Settings window controller, or `nil` when Settings is
+    /// closed. Closing destroys the controller (and its window), so reopening
+    /// builds a fresh one — there is no hidden window kept alive for reuse.
+    private static var windowController: CmuxHostedWindowController?
     private static var pendingNavigationTarget: SettingsNavigationTarget?
     private static var pendingContentNavigationTarget: SettingsNavigationTarget?
     private static var shouldOpenWhenConfigured = false
@@ -18,31 +28,14 @@ enum SettingsWindowPresenter {
 #endif
 
     static func configure(
-        openWindow: @escaping @MainActor () -> Void,
+        makeWindowController: @escaping @MainActor (@escaping @MainActor () -> Void) -> CmuxHostedWindowController,
         parentWindowProvider: @escaping @MainActor () -> NSWindow? = { nil }
     ) {
-        self.openWindow = openWindow
+        self.makeWindowController = makeWindowController
         self.parentWindowProvider = parentWindowProvider
         if shouldOpenWhenConfigured {
             shouldOpenWhenConfigured = false
-            openWindow()
-        }
-    }
-
-    static func configure(window: NSWindow) {
-        let shouldFocusAfterConfiguration = settingsWindow !== window
-        settingsWindow = window
-        window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
-        window.isRestorable = false
-        window.minSize = minimumSize
-        window.contentMinSize = minimumSize
-        window.adoptCmuxPeerWindowLevel()
-        clampToVisibleAreaIfNeeded(window)
-        if shouldFocusAfterConfiguration {
-            Task { @MainActor in
-                guard settingsWindow === window else { return }
-                focus(window)
-            }
+            openNewWindow()
         }
     }
 
@@ -51,7 +44,7 @@ enum SettingsWindowPresenter {
         openWindowOverride: (@MainActor () -> Void)? = nil
     ) {
 #if DEBUG
-        cmuxDebugLog("settings.window.show path=swiftuiWindow")
+        cmuxDebugLog("settings.window.show path=hostedWindow")
         _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(
             envKey: "CMUX_UI_TEST_SETTINGS_OPEN_CAPTURE_PATH"
         ) { payload in
@@ -63,7 +56,7 @@ enum SettingsWindowPresenter {
         pendingNavigationTarget = navigationTarget
         pendingContentNavigationTarget = navigationTarget
 
-        if let window = existingWindow() {
+        if let window = currentWindow() {
             let shouldDeferNavigation = window.isMiniaturized
             if !shouldDeferNavigation {
                 pendingNavigationTarget = nil
@@ -81,11 +74,9 @@ enum SettingsWindowPresenter {
             return
         }
 
-        guard let openWindow else {
-            shouldOpenWhenConfigured = true
-            return
-        }
-        openWindow()
+        // Fresh window: keep the pending navigation target set so the newly
+        // created `SettingsWindowRoot` consumes it on appear.
+        openNewWindow()
     }
 
     static func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
@@ -101,15 +92,19 @@ enum SettingsWindowPresenter {
     }
 
     static func refocusIfVisible() {
-        guard let window = existingWindow() else { return }
+        guard let window = currentWindow() else { return }
         focus(window)
     }
 
 #if DEBUG
+    /// DEBUG-only: the NSWindow the presenter currently tracks as the Settings
+    /// window. `nil` when Settings is closed.
+    static var trackedSettingsWindowForDebug: NSWindow? { windowController?.window }
+
     static func resetForTests() {
-        openWindow = nil
+        makeWindowController = nil
         parentWindowProvider = nil
-        settingsWindow = nil
+        windowController = nil
         pendingNavigationTarget = nil
         pendingContentNavigationTarget = nil
         shouldOpenWhenConfigured = false
@@ -119,23 +114,35 @@ enum SettingsWindowPresenter {
     static func setFocusHandlerForTests(_ handler: @escaping @MainActor (NSWindow) -> Void) {
         focusHandlerForTests = handler
     }
+
+    /// Runs the real focus/clamp/peer-level ordering on a test-provided window so
+    /// the peer-not-child invariant (issue #5081) and visible-area clamping stay
+    /// covered without injecting a full hosted controller.
+    static func performFocusForTests(_ window: NSWindow, parentWindowProvider: @escaping @MainActor () -> NSWindow? = { nil }) {
+        self.parentWindowProvider = parentWindowProvider
+        performFocus(window)
+    }
 #endif
 
-    private static func existingWindow() -> NSWindow? {
-        // Return the settings window whenever it still exists, even if it
-        // is currently ordered out (closed). SwiftUI's single `Window`
-        // scene does not destroy the window on close — it just hides it
-        // (isVisible == false) — and `openWindow(id:)` then no-ops because
-        // the scene still owns that window. So filtering by visibility here
-        // made every reopen-after-close fall through to a dead `openWindow`
-        // call and the window never came back. Reusing the hidden window
-        // lets `show()` re-front it via `makeKeyAndOrderFront`.
-        if let settingsWindow {
-            return settingsWindow
+    private static func openNewWindow() {
+        guard let makeWindowController else {
+            shouldOpenWhenConfigured = true
+            return
         }
-        return NSApp.windows.first {
-            $0.identifier?.rawValue == windowIdentifier
-        }
+        let controller = makeWindowController(didCloseWindow)
+        windowController = controller
+        guard let window = controller.window else { return }
+        focus(window)
+    }
+
+    /// Called from the controller's `windowWillClose`: drop the reference so the
+    /// controller and its window deallocate and leave `NSApp.windows`.
+    private static func didCloseWindow() {
+        windowController = nil
+    }
+
+    private static func currentWindow() -> NSWindow? {
+        windowController?.window
     }
 
     private static func focus(_ window: NSWindow) {

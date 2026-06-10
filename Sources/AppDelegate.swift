@@ -1943,6 +1943,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         self.tabManager = tabManager
         self.settingsRuntime = settingsRuntime
+        // Register the Settings window factory here (deterministic app setup),
+        // not in a SwiftUI `onAppear` (which can fire late or not at all, leaving
+        // `settings.open` to defer forever). Settings is a cmux-owned AppKit
+        // window so closing it destroys it (issue #5321).
+        SettingsWindowPresenter.configure(
+            makeWindowController: { onWindowWillClose in
+                CmuxHostedWindowController(
+                    identifier: SettingsWindowPresenter.windowIdentifier,
+                    title: String(localized: "settings.title", defaultValue: "Settings"),
+                    contentSize: SettingsWindowPresenter.defaultContentSize,
+                    minSize: SettingsWindowPresenter.minimumSize,
+                    rootView: SettingsHostedRootView(runtime: settingsRuntime),
+                    onWindowWillClose: onWindowWillClose
+                )
+            },
+            parentWindowProvider: { AppDelegate.shared?.preferredMainWindowForSettingsPresentation() }
+        )
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
