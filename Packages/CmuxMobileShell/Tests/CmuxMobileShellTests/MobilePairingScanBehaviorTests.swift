@@ -141,10 +141,12 @@ import Testing
         let (store, ticket) = try await connectedPreviewStore()
 
         // Scanning a bad code while connected (e.g. from the Switch Mac sheet)
-        // must surface the failure without tearing down the live session.
+        // must surface the failure without tearing down the live session. The
+        // result is the dedicated `.rejected` (not `.failed`) so the root
+        // attach-auth gate does not clear attach-ticket authentication.
         let result = await store.connectPairingURLResult("cmux-ios://attach?payload=not-base64")
 
-        #expect(result == .failed)
+        #expect(result == .rejected)
         #expect(store.connectionState == .connected)
         #expect(store.activeTicket?.macDeviceID == ticket.macDeviceID)
         // The outcome is reported as an informational notice (the live session

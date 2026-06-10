@@ -6,6 +6,10 @@ public enum MobilePairingURLConnectionResult: Equatable, Sendable {
     case connected
     /// The pairing URL failed to connect.
     case failed
+    /// The code was rejected before any pairing attempt was claimed (an
+    /// undecodable code scanned while a live session exists): the existing
+    /// connection, ticket, and attach authentication were left untouched.
+    case rejected
     /// A newer connection attempt superseded this one before it completed.
     case superseded
 

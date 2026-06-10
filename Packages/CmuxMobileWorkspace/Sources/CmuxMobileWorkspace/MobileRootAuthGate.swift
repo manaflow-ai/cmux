@@ -65,7 +65,9 @@ public struct MobileRootAuthGate {
             return connectionState != .connected || !hasActiveUnexpiredTicket
         case .failed:
             return true
-        case .superseded:
+        case .rejected, .superseded:
+            // A rejected scan never claimed an attempt, so an existing live,
+            // ticketed connection (and the attach auth it backs) stays valid.
             return connectionState != .connected || !hasActiveUnexpiredTicket
         }
     }

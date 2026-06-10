@@ -1253,7 +1253,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .connected
         case let .rejectKeepingConnection(category):
             presentPairingNotice(category, phase: "validation")
-            return .failed
+            // Not `.failed`: the root attach-auth gate clears attach-ticket
+            // authentication on any failed pairing, but this path never claimed
+            // an attempt and the live ticketed session is still up.
+            return .rejected
         case .proceed:
             break
         }

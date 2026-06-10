@@ -72,6 +72,19 @@ import Testing
             connectionState: .connected,
             hasActiveUnexpiredTicket: false
         ))
+        // A rejected scan (bad code scanned while connected) never claimed an
+        // attempt: the live ticketed session keeps backing attach auth, so an
+        // attach-ticket-only user must not be signed out by a stray scan.
+        #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+            pairingResult: .rejected,
+            connectionState: .connected,
+            hasActiveUnexpiredTicket: true
+        ))
+        #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+            pairingResult: .rejected,
+            connectionState: .disconnected,
+            hasActiveUnexpiredTicket: false
+        ))
         #expect(MobileRootAuthGate.shouldReconnectStoredMac(
             stackAuthenticated: true,
             attachTicketAuthenticated: false,
