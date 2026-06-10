@@ -13273,6 +13273,7 @@ private final class SidebarDragFailsafeMonitor: ObservableObject {
     private var keyDownMonitor: Any?
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
+    private var escapePollTask: Task<Void, Never>?
     private var onRequestClear: ((String) -> Void)?
 
     func start(onRequestClear: @escaping (String) -> Void) {
@@ -13304,6 +13305,26 @@ private final class SidebarDragFailsafeMonitor: ObservableObject {
                 return event
             }
         }
+        // The local keyDown monitor above cannot see Escape during a native
+        // NSDraggingSession: the drag runs a nested modal event-tracking loop
+        // that never routes keyDown to app monitors, so "Escape cancels the
+        // drag" silently did nothing. Poll the Escape key's HID state directly
+        // instead (the same trick the mouse-button failsafe already uses via
+        // CGEventSource.buttonState), which is readable inside the drag loop.
+        // Bounded and cancellable: the task is scoped to a live drag and torn
+        // down in stop() when the drag ends. One detection is enough — macOS
+        // also cancels the native session on Escape, so no drop is committed.
+        if escapePollTask == nil {
+            escapePollTask = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    if CGEventSource.keyState(.combinedSessionState, key: Self.escapeKeyCode) {
+                        self?.requestClearSoon(reason: "escape_cancel")
+                        return
+                    }
+                    try? await Task.sleep(for: .milliseconds(20))
+                }
+            }
+        }
         if localMouseMonitor == nil {
             localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
                 if SidebarDragFailsafePolicy.shouldRequestClear(forMouseEventType: event.type) {
@@ -13333,6 +13354,8 @@ private final class SidebarDragFailsafeMonitor: ObservableObject {
             NSEvent.removeMonitor(keyDownMonitor)
             self.keyDownMonitor = nil
         }
+        escapePollTask?.cancel()
+        escapePollTask = nil
         if let localMouseMonitor {
             NSEvent.removeMonitor(localMouseMonitor)
             self.localMouseMonitor = nil
@@ -14940,15 +14963,10 @@ private struct SidebarEmptyArea: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .overlay(alignment: .top) {
-                if topDropIndicatorVisible {
-                    Rectangle()
-                        .fill(cmuxAccentColor())
-                        .frame(height: 2)
-                        .padding(.horizontal, 8)
-                        .offset(y: -(rowSpacing / 2))
-                }
-            }
+            // The end-of-list blue drop line was removed per dogfood feedback,
+            // matching the per-row indicator removal. `topDropIndicatorVisible`
+            // is kept as a stored property so the drop plumbing and Equatable
+            // conformance stay unchanged.
     }
 }
 
