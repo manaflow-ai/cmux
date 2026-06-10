@@ -13,10 +13,10 @@ struct CompactAttachTicket: Codable {
 
     init(_ ticket: CmxAttachTicket) {
         v = ticket.version
-        w = normalizedNonEmpty(ticket.workspaceID)
-        t = normalizedNonEmpty(ticket.terminalID)
+        w = Self.normalizedNonEmpty(ticket.workspaceID)
+        t = Self.normalizedNonEmpty(ticket.terminalID)
         d = ticket.macDeviceID
-        n = normalizedNonEmpty(ticket.macDisplayName)
+        n = Self.normalizedNonEmpty(ticket.macDisplayName)
         // Round up so the compact form never shortens the ticket's lifetime.
         e = Int(ticket.expiresAt.timeIntervalSince1970.rounded(.up))
         r = ticket.routes.map(CompactAttachRoute.init)
@@ -33,11 +33,11 @@ struct CompactAttachTicket: Codable {
             expiresAt: Date(timeIntervalSince1970: TimeInterval(e))
         )
     }
-}
 
-private func normalizedNonEmpty(_ value: String?) -> String? {
-    guard let value, !value.isEmpty else {
-        return nil
+    private static func normalizedNonEmpty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else {
+            return nil
+        }
+        return value
     }
-    return value
 }

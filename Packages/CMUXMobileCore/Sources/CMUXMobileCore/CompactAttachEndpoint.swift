@@ -48,28 +48,28 @@ struct CompactAttachEndpoint: Codable {
         switch t {
         case "host_port":
             guard let h, let p else {
-                throw corruptedEndpoint("host_port endpoint requires h and p")
+                throw Self.corruptedEndpoint("host_port endpoint requires h and p")
             }
             return .hostPort(host: h, port: p)
         case "peer":
             guard let i else {
-                throw corruptedEndpoint("peer endpoint requires i")
+                throw Self.corruptedEndpoint("peer endpoint requires i")
             }
             return .peer(id: i, relayHint: rh, directAddrs: da ?? [], relayURL: ru)
         case "url":
             guard let u else {
-                throw corruptedEndpoint("url endpoint requires u")
+                throw Self.corruptedEndpoint("url endpoint requires u")
             }
             return .url(u)
         default:
-            throw corruptedEndpoint("Unknown attach endpoint type: \(t)")
+            throw Self.corruptedEndpoint("Unknown attach endpoint type: \(t)")
         }
     }
-}
 
-private func corruptedEndpoint(_ message: String) -> DecodingError {
-    DecodingError.dataCorrupted(DecodingError.Context(
-        codingPath: [],
-        debugDescription: message
-    ))
+    private static func corruptedEndpoint(_ message: String) -> DecodingError {
+        DecodingError.dataCorrupted(DecodingError.Context(
+            codingPath: [],
+            debugDescription: message
+        ))
+    }
 }
