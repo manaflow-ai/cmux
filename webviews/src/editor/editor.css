@@ -8,6 +8,7 @@ body,
 }
 
 .cmux-editor-shell {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -20,63 +21,45 @@ body,
   width: 100%;
 }
 
-.cmux-editor-statusbar {
+/* Transient save-attention card (conflict prompt / save error). The editor
+   has no persistent chrome; this floats top-right only when needed and stays
+   clear of the window's bottom-right resize corner. */
+.cmux-editor-overlay {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  z-index: 10;
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 0 0 auto;
-  min-height: 22px;
-  padding: 2px 10px;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  font-size: 11px;
-  background: var(--cmux-editor-chrome-bg, transparent);
+  max-width: min(560px, calc(100% - 28px));
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--cmux-editor-chrome-fg, #888) 25%, transparent);
+  background: var(--cmux-editor-chrome-bg, rgba(30, 30, 30, 0.95));
   color: var(--cmux-editor-chrome-fg, inherit);
-  border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 }
 
-.cmux-editor-statusbar-file {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+.cmux-editor-overlay-message {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  opacity: 0.85;
 }
 
-.cmux-editor-dirty-dot {
-  font-size: 9px;
-  line-height: 1;
-}
-
-.cmux-editor-statusbar-status {
-  margin-left: auto;
-  white-space: nowrap;
-  opacity: 0.7;
-}
-
-.cmux-editor-conflict {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-
-.cmux-editor-conflict-message {
-  opacity: 0.9;
-}
-
-.cmux-editor-conflict-button {
-  font: inherit;
+.cmux-editor-overlay-button {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--cmux-editor-chrome-fg, #888) 35%, transparent);
+  background: transparent;
   color: inherit;
-  background: color-mix(in srgb, currentColor 12%, transparent);
-  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
-  border-radius: 4px;
-  padding: 1px 8px;
+  font: inherit;
   cursor: pointer;
 }
 
-.cmux-editor-conflict-button:hover {
-  background: color-mix(in srgb, currentColor 20%, transparent);
+.cmux-editor-overlay-button:hover {
+  background: color-mix(in srgb, var(--cmux-editor-chrome-fg, #888) 15%, transparent);
 }

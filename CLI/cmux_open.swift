@@ -1033,13 +1033,6 @@ extension CMUXCLI {
             params["diff_viewer_token"] = editor.url.host ?? ""
             params["diff_viewer_files"] = editor.allowedFiles.map(\.jsonObject)
         }
-        // Register the source file as the page token's write target so the
-        // page's Cmd+S save bridge can write it back, in both serving modes
-        // (custom scheme and the localhost HTTP server). Only for writable
-        // files; read-only opens never mint a write capability.
-        if writable {
-            params["editor_file"] = ["path": fileURL.path, "token": editor.token]
-        }
         if let windowHandle { params["window_id"] = windowHandle }
         if let workspaceHandle { params["workspace_id"] = workspaceHandle }
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
@@ -1101,6 +1094,17 @@ extension CMUXCLI {
             files: allowedFiles,
             rootDirectory: directory
         )
+        if !readOnly {
+            // The write capability travels through the uid-owned trusted
+            // directory (0600 sidecar), never through socket params: only a
+            // real `cmux edit` can mint it, so browser.open_split callers
+            // cannot point an editor token at an arbitrary file.
+            let sidecar: [String: Any] = ["token": mapper.token, "path": filePath]
+            let sidecarURL = directory.appendingPathComponent(".editor-\(mapper.token).json", isDirectory: false)
+            let sidecarData = try JSONSerialization.data(withJSONObject: sidecar, options: [.sortedKeys])
+            try sidecarData.write(to: sidecarURL, options: .atomic)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: sidecarURL.path)
+        }
         return EditorWriteResult(
             fileURL: viewerFileURL,
             url: try mapper.viewerURL(for: viewerFileURL),

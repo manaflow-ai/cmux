@@ -136,6 +136,41 @@ enum BrowserImageCopyPasteboardBuilder {
 /// Find-family shortcuts. The configured Find shortcut stays app-owned so cmux can
 /// choose browser find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
+    /// Side length of the window-corner square this view yields to AppKit's
+    /// window-resize machinery when it abuts the window's bottom corners.
+    private static let windowResizeCornerSize: CGFloat = 14
+    /// Thickness of the bottom-edge band yielded for window resizing.
+    private static let windowResizeEdgeBand: CGFloat = 4
+
+    /// Yields the window's bottom resize regions instead of swallowing the
+    /// drag. WKWebView claims mouse-downs in the few-pixel band inside the
+    /// window border, so a webview pane flush with the window's bottom edge
+    /// makes the window impossible to resize from there (reported against the
+    /// Monaco editor pane, but it affects every browser pane). Only the
+    /// bottom edge and bottom corners are yielded; the right/left edges stay
+    /// with the page so overlay scrollbars remain grabbable.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let window {
+            let pointInWindow = convert(point, from: superview)
+            let frameInWindow = convert(bounds, to: nil)
+            let windowBounds = NSRect(origin: .zero, size: window.frame.size)
+            let bottomFlush = abs(frameInWindow.minY - windowBounds.minY) < 1
+            if bottomFlush, pointInWindow.y - windowBounds.minY < Self.windowResizeEdgeBand {
+                return nil
+            }
+            if bottomFlush, pointInWindow.y - windowBounds.minY < Self.windowResizeCornerSize {
+                let nearRight = abs(frameInWindow.maxX - windowBounds.maxX) < 1 &&
+                    windowBounds.maxX - pointInWindow.x < Self.windowResizeCornerSize
+                let nearLeft = abs(frameInWindow.minX - windowBounds.minX) < 1 &&
+                    pointInWindow.x - windowBounds.minX < Self.windowResizeCornerSize
+                if nearRight || nearLeft {
+                    return nil
+                }
+            }
+        }
+        return super.hitTest(point)
+    }
+
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
     // middle-click so navigation delegates can recover intent reliably.

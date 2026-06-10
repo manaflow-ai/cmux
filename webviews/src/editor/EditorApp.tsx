@@ -3,7 +3,7 @@ import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import "./monacoLanguages";
 import { useCallback, type CSSProperties } from "react";
 import type { EditorLabelResolver } from "./editorLabels";
-import { EditorStatusBar } from "./EditorStatusBar";
+import { EditorSaveOverlay } from "./EditorSaveOverlay";
 import type { EditorSaveController } from "./saveController";
 
 /** Props for a single read/edit Monaco surface, fixed for the lifetime of the mount. */
@@ -71,10 +71,23 @@ export function EditorApp({
 
       let contentListener: monaco.IDisposable | null = null;
       let removeSaveShortcut: (() => void) | null = null;
+      let removeTitleSync: (() => void) | null = null;
       if (saveController) {
         saveController.onSaveUnavailable = () => {
           editor.updateOptions({ readOnly: true });
         };
+        // The editor has no persistent chrome; dirty state rides the page
+        // title's leading dot, which cmux surfaces in the tab.
+        const baseTitle = document.title.replace(/^● /, "");
+        const syncTitle = () => {
+          const dirty = saveController.getState().dirty;
+          const next = dirty ? `● ${baseTitle}` : baseTitle;
+          if (document.title !== next) {
+            document.title = next;
+          }
+        };
+        removeTitleSync = saveController.subscribe(syncTitle);
+        syncTitle();
         saveController.attachDocument({
           getValue: () => model.getValue(),
           getVersionId: () => model.getAlternativeVersionId(),
@@ -104,6 +117,7 @@ export function EditorApp({
         removeSaveShortcut = () => window.removeEventListener("keydown", onKeyDown, true);
       }
       return () => {
+        removeTitleSync?.();
         removeSaveShortcut?.();
         contentListener?.dispose();
         if (saveController) {
@@ -117,7 +131,6 @@ export function EditorApp({
     },
     [content, filePath, themeName, options, saveController],
   );
-  const fileName = filePath.split("/").pop() || filePath;
   return (
     <div
       className="cmux-editor-shell"
@@ -127,12 +140,7 @@ export function EditorApp({
       } as CSSProperties}
     >
       <div ref={mountEditor} className="cmux-monaco-root" />
-      <EditorStatusBar
-        fileName={fileName}
-        labels={labels}
-        readOnly={options.readOnly === true}
-        controller={saveController}
-      />
+      <EditorSaveOverlay labels={labels} controller={saveController} />
     </div>
   );
 }

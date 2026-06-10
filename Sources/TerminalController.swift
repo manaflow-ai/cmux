@@ -11553,48 +11553,26 @@ class TerminalController {
         }
     }
 
-    /// `cmux edit` registers the edited file as the page token's write
-    /// target; the page's save bridge resolves the path from this registry by
-    /// the WebKit-reported frame identity, never from page JavaScript. Runs
-    /// for both diff-viewer serving modes (custom scheme and localhost HTTP).
+    /// Registers the editor write capability for a diff-viewer page being
+    /// opened, if a trusted sidecar exists for the URL's token. The file path
+    /// comes exclusively from the uid-owned serving directory (written by
+    /// `cmux edit`), never from socket params, so `browser.open_split`
+    /// callers cannot mint a write capability for arbitrary pages or paths.
     private func v2RegisterEditorFileIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {
-        guard let editorFile = params["editor_file"] as? [String: Any] else {
+        guard let url, v2IsDiffViewerURL(url) else {
             return nil
         }
-        guard let url,
-              v2IsDiffViewerURL(url),
-              let token = editorFile["token"] as? String,
-              let path = editorFile["path"] as? String, path.hasPrefix("/") else {
-            return .err(code: "invalid_params", message: "Invalid editor file registration", data: nil)
-        }
-        // Bind the registration to the page actually being opened: the token
-        // must be the one carried by the URL (origin host for the custom
-        // scheme, first path component for the localhost HTTP server), so a
-        // caller cannot re-point an existing page's write capability.
-        let urlToken: String?
+        let token: String?
         if url.scheme == CmuxDiffViewerURLSchemeHandler.scheme {
-            urlToken = url.host
+            token = url.host
         } else {
-            urlToken = url.path.split(separator: "/", omittingEmptySubsequences: true).first.map(String.init)
+            token = url.path.split(separator: "/", omittingEmptySubsequences: true).first.map(String.init)
         }
-        guard token == urlToken else {
-            return .err(code: "invalid_params", message: "Invalid editor file registration", data: nil)
+        if let token {
+            CmuxEditorSaveRegistry.shared.registerFromTrustedSidecar(token: token)
         }
-        do {
-            try CmuxEditorSaveRegistry.shared.register(
-                token: token,
-                fileURL: URL(fileURLWithPath: path)
-            )
-            return nil
-        } catch {
-            return .err(
-                code: "invalid_params",
-                message: "Invalid editor file registration",
-                data: ["details": error.localizedDescription]
-            )
-        }
+        return nil
     }
-
     private func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
