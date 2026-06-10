@@ -13164,11 +13164,11 @@ class TerminalController {
         workspace: Workspace,
         params: [String: Any]
     ) -> (panel: BrowserPanel, surfaceId: UUID)? {
-        // An explicit surface is authoritative: if surface_id is SUPPLIED (even as a stale or
-        // unresolvable handle) it must resolve to a browser in this workspace, else error. Only a
-        // genuinely ABSENT surface_id falls back to the focused/sole browser. (v2UUID returns nil
-        // for both absent and unresolved, so presence is detected via the raw string.)
-        if v2String(params, "surface_id") != nil {
+        // An explicit surface is authoritative: if surface_id is SUPPLIED (even as a stale,
+        // unresolvable, or empty handle) it must resolve to a browser in this workspace, else nil.
+        // Only a genuinely ABSENT surface_id falls back to the focused/sole browser. Use
+        // v2HasNonNullParam for presence so an empty string is not mistaken for absent.
+        if v2HasNonNullParam(params, "surface_id") {
             guard let sid = v2UUID(params, "surface_id"),
                   let panel = workspace.browserPanel(for: sid) else { return nil }
             return (panel, sid)
@@ -13208,7 +13208,9 @@ class TerminalController {
     /// stale `surface:2`/`workspace:99` ref), so a supplied target must not be treated as omitted
     /// and silently fall back to the focused/selected context. Returns nil when all are valid.
     private func v2RejectUnresolvedHandles(_ params: [String: Any], _ keys: [String]) -> V2CallResult? {
-        for key in keys where v2String(params, key) != nil && v2UUID(params, key) == nil {
+        // Use v2HasNonNullParam (not v2String) for presence: v2String trims empties to nil, so an
+        // empty/whitespace explicit handle would otherwise look absent and silently fall back.
+        for key in keys where v2HasNonNullParam(params, key) && v2UUID(params, key) == nil {
             return .err(code: "invalid_params", message: "Unresolved \(key)", data: nil)
         }
         return nil
