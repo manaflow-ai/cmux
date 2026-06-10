@@ -22,6 +22,7 @@ struct AgentHibernationRecord {
     let isBusy: Bool
     let canRestartShell: Bool
     let workspaceUnmountedAt: TimeInterval?
+    let runtimeSurfaceCreatedAt: TimeInterval
     let hasLiveProcess: Bool
     let processIDs: Set<Int>
 
@@ -55,6 +56,8 @@ final class AgentHibernationController {
     private var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var pendingCommandLineByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var lastCommandStartByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
+    private var seenLivePanelKeys: Set<AgentHibernationPanelKey> = []
+    private var trackingEnabledAt: TimeInterval?
     private var lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
@@ -183,6 +186,12 @@ final class AgentHibernationController {
 
     private func updateTimerForCurrentSettings() {
         let enabled = AgentHibernationSettings.isEnabled() || SurfaceHibernationSettings.isEnabled()
+        if enabled, !AgentHibernationTrackingGate.isEnabled() {
+            // Input typed while tracking was off was never recorded, so panels
+            // that already existed are conservatively seeded as having pending
+            // command-line input when they are first evaluated.
+            trackingEnabledAt = Date().timeIntervalSince1970
+        }
         AgentHibernationTrackingGate.setEnabled(enabled)
         guard enabled else {
             timer?.cancel()
@@ -251,6 +260,15 @@ final class AgentHibernationController {
         let isLiveByKey = Dictionary(uniqueKeysWithValues: records.map { record in
             (record.key, Self.isRecordLive(record))
         })
+        for record in records where record.agent == nil && (isLiveByKey[record.key] ?? false) {
+            guard seenLivePanelKeys.insert(record.key).inserted else { continue }
+            if let trackingEnabledAt, record.runtimeSurfaceCreatedAt < trackingEnabledAt {
+                // The surface predates tracking: its prompt may hold typed
+                // text we never saw. Treat it as pending until a prompt
+                // transition proves the command line settled.
+                pendingCommandLineByPanel[record.key] = nowTime
+            }
+        }
         let liveCount = isLiveByKey.values.filter { $0 }.count
         let liveRestorableCount = records.filter { record in
             record.agent != nil && (isLiveByKey[record.key] ?? false)
@@ -483,6 +501,7 @@ final class AgentHibernationController {
         terminalInputByPanel.removeAll(keepingCapacity: false)
         pendingCommandLineByPanel.removeAll(keepingCapacity: false)
         lastCommandStartByPanel.removeAll(keepingCapacity: false)
+        seenLivePanelKeys.removeAll(keepingCapacity: false)
         lifecycleChangeByPanel.removeAll(keepingCapacity: false)
         confirmations.removeAll(keepingCapacity: false)
         tailFingerprintSamples.removeAll(keepingCapacity: false)
@@ -496,6 +515,7 @@ final class AgentHibernationController {
         terminalInputByPanel = terminalInputByPanel.filter { currentKeys.contains($0.key) }
         pendingCommandLineByPanel = pendingCommandLineByPanel.filter { currentKeys.contains($0.key) }
         lastCommandStartByPanel = lastCommandStartByPanel.filter { currentKeys.contains($0.key) }
+        seenLivePanelKeys = seenLivePanelKeys.filter { currentKeys.contains($0) }
         lifecycleChangeByPanel = lifecycleChangeByPanel.filter { currentKeys.contains($0.key) }
         confirmations = confirmations.filter { key, _ in
             currentKeys.contains(key) && selectedKeys.contains(key)
@@ -579,6 +599,7 @@ extension AppDelegate {
                             isBusy: isBusy,
                             canRestartShell: canRestartShell,
                             workspaceUnmountedAt: workspaceUnmountedAt,
+                            runtimeSurfaceCreatedAt: createdAt,
                             hasLiveProcess: index.hasLiveProcess(workspaceId: workspace.id, panelId: panelId),
                             processIDs: index.processIDs(workspaceId: workspace.id, panelId: panelId)
                         )

@@ -6688,7 +6688,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
+        // Consume the override before attempting creation: if the captured
+        // directory turned invalid and creation fails, a retry must not loop
+        // on the same value.
         let runtimeWorkingDirectory = nextRuntimeWorkingDirectory
+        nextRuntimeWorkingDirectory = nil
         let resolvedWorkingDirectory: String? = {
             if let runtimeWorkingDirectory, !runtimeWorkingDirectory.isEmpty {
                 return runtimeWorkingDirectory
@@ -6777,9 +6781,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         mobileByteTeeContext = teeContext
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
-        }
-        if runtimeWorkingDirectory != nil {
-            nextRuntimeWorkingDirectory = nil
         }
 
         // Session scrollback replay must be one-shot. Reusing it on a later runtime
@@ -7198,9 +7199,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if let replayPath = replayEnvironment[SessionScrollbackReplayStore.environmentKey] {
             additionalEnvironment[SessionScrollbackReplayStore.environmentKey] = replayPath
         }
+        // The directory may have been deleted or its volume unmounted while
+        // the panel was hibernated; staging it anyway would make the shell
+        // spawn fail. Fall back to the default resolution instead.
         let trimmedDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let trimmedDirectory, !trimmedDirectory.isEmpty {
-            nextRuntimeWorkingDirectory = trimmedDirectory
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: trimmedDirectory, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                nextRuntimeWorkingDirectory = trimmedDirectory
+            }
         }
     }
 

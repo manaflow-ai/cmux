@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,12 +7,17 @@ import XCTest
 @testable import cmux
 #endif
 
-final class SurfaceHibernationPolicyTests: XCTestCase {
+// Workspace/TabManager round-trip tests below mutate shared app singletons
+// (AgentHibernationController, portal registries), so the suite runs
+// serialized rather than guarding that state with locks.
+@Suite(.serialized)
+struct SurfaceHibernationPolicyTests {
     private let now: TimeInterval = 100_000
 
     // MARK: - Global LRU cap
 
-    func testGlobalCapCountsPlainShellSurfacesAndEvictsLeastRecentlyUsed() {
+    @Test
+    func globalCapCountsPlainShellSurfacesAndEvictsLeastRecentlyUsed() {
         let plainOld = panelKey()
         let plainMid = panelKey()
         let plainNew = panelKey()
@@ -28,10 +33,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(selected, Set([plainOld]))
+        #expect(selected == Set([plainOld]))
     }
 
-    func testGlobalCapCensusIncludesExemptSurfacesMaterializedByBypassPaths() {
+    @Test
+    func globalCapCensusIncludesExemptSurfacesMaterializedByBypassPaths() {
         // Surfaces force-created for hidden panels (background prime, queued
         // socket input) still count toward the live census even when they are
         // individually exempt from eviction, so the cap reclaims an eligible
@@ -51,10 +57,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(selected, Set([plainOld]))
+        #expect(selected == Set([plainOld]))
     }
 
-    func testGlobalCapEvictionInterleavesAgentAndPlainSurfacesByLRU() {
+    @Test
+    func globalCapEvictionInterleavesAgentAndPlainSurfacesByLRU() {
         let agentOldest = panelKey()
         let plainMiddle = panelKey()
         let plainNewest = panelKey()
@@ -70,10 +77,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(selected, Set([agentOldest, plainMiddle]))
+        #expect(selected == Set([agentOldest, plainMiddle]))
     }
 
-    func testGlobalCapSelectsNothingAtOrUnderLimit() {
+    @Test
+    func globalCapSelectsNothingAtOrUnderLimit() {
         let first = panelKey()
         let second = panelKey()
 
@@ -87,10 +95,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertTrue(selected.isEmpty)
+        #expect(selected.isEmpty)
     }
 
-    func testGlobalCapHonorsIdleGateForRecentlyActiveSurfaces() {
+    @Test
+    func globalCapHonorsIdleGateForRecentlyActiveSurfaces() {
         // Two surfaces over a cap of one, but the only LRU candidate beyond the
         // cap has been active within the idle window: nothing is evicted.
         let recentOld = panelKey()
@@ -106,10 +115,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertTrue(selected.isEmpty)
+        #expect(selected.isEmpty)
     }
 
-    func testLRUTieBreaksByPanelIdForDeterminism() {
+    @Test
+    func lruTieBreaksByPanelIdForDeterminism() {
         let workspaceId = UUID()
         let first = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let second = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
@@ -125,12 +135,13 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(selected, Set([expected]))
+        #expect(selected == Set([expected]))
     }
 
     // MARK: - Unmounted-workspace idle rule
 
-    func testUnmountedWorkspaceSurfacesHibernateAfterIdleWindowWithoutCapPressure() {
+    @Test
+    func unmountedWorkspaceSurfacesHibernateAfterIdleWindowWithoutCapPressure() {
         let unmounted = panelKey()
         let mounted = panelKey()
 
@@ -144,10 +155,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(selected, Set([unmounted]))
+        #expect(selected == Set([unmounted]))
     }
 
-    func testUnmountedRuleRequiresBothQuietAndUnmountedWindows() {
+    @Test
+    func unmountedRuleRequiresBothQuietAndUnmountedWindows() {
         let quiet = panelKey()
         let recentInput = panelKey()
         let recentlyUnmounted = panelKey()
@@ -163,10 +175,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(selected, Set([quiet]))
+        #expect(selected == Set([quiet]))
     }
 
-    func testUnmountedRuleHibernatesIdleAgentPanelsWhenAgentHibernationEnabled() {
+    @Test
+    func unmountedRuleHibernatesIdleAgentPanelsWhenAgentHibernationEnabled() {
         let idleAgent = panelKey()
         let runningAgent = panelKey()
 
@@ -180,10 +193,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(selected, Set([idleAgent]))
+        #expect(selected == Set([idleAgent]))
     }
 
-    func testMountedWorkspaceQuietSurfaceIsNotSelectedWithoutCapPressure() {
+    @Test
+    func mountedWorkspaceQuietSurfaceIsNotSelectedWithoutCapPressure() {
         let mounted = panelKey()
 
         let selected = SurfaceHibernationPlanner.selectedPanelKeys(
@@ -195,12 +209,13 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertTrue(selected.isEmpty)
+        #expect(selected.isEmpty)
     }
 
     // MARK: - Exemptions
 
-    func testBusySurfaceIsExemptFromShellRestartHibernation() {
+    @Test
+    func busySurfaceIsExemptFromShellRestartHibernation() {
         let busyOld = panelKey()
         let idleOld = panelKey()
 
@@ -213,7 +228,7 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             surfaceSettings: surfaceSettings(maxLiveSurfaces: 1),
             now: now
         )
-        XCTAssertEqual(capSelected, Set([idleOld]))
+        #expect(capSelected == Set([idleOld]))
 
         let unmountedSelected = SurfaceHibernationPlanner.selectedPanelKeys(
             inputs: [
@@ -224,10 +239,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             surfaceSettings: surfaceSettings(unmountedIdleSeconds: 1_800, maxLiveSurfaces: 12),
             now: now
         )
-        XCTAssertEqual(unmountedSelected, Set([idleOld]))
+        #expect(unmountedSelected == Set([idleOld]))
     }
 
-    func testAgentPanelsAreNeverShellRestartedWhenAgentHibernationDisabled() {
+    @Test
+    func agentPanelsAreNeverShellRestartedWhenAgentHibernationDisabled() {
         let agentOld = panelKey()
         let plainOld = panelKey()
 
@@ -241,10 +257,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(selected, Set([plainOld]))
+        #expect(selected == Set([plainOld]))
     }
 
-    func testProtectedVisibleSurfaceIsNeverEvicted() {
+    @Test
+    func protectedVisibleSurfaceIsNeverEvicted() {
         let protectedOld = panelKey()
         let backgroundOld = panelKey()
 
@@ -258,10 +275,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(selected, Set([backgroundOld]))
+        #expect(selected == Set([backgroundOld]))
     }
 
-    func testUnconfirmedTerminalInputExemptsSurface() {
+    @Test
+    func unconfirmedTerminalInputExemptsSurface() {
         let unconfirmedOld = panelKey()
         let cleanOld = panelKey()
 
@@ -275,10 +293,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(selected, Set([cleanOld]))
+        #expect(selected == Set([cleanOld]))
     }
 
-    func testSurfaceWithoutHibernationMechanismIsExempt() {
+    @Test
+    func surfaceWithoutHibernationMechanismIsExempt() {
         let deferredStartupOld = panelKey()
         let plainOld = panelKey()
 
@@ -292,10 +311,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(selected, Set([plainOld]))
+        #expect(selected == Set([plainOld]))
     }
 
-    func testNonLiveSurfacesAreNeitherCountedNorSelected() {
+    @Test
+    func nonLiveSurfacesAreNeitherCountedNorSelected() {
         let hibernated = panelKey()
         let live = panelKey()
 
@@ -309,12 +329,13 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertTrue(selected.isEmpty)
+        #expect(selected.isEmpty)
     }
 
     // MARK: - Disabled states and agent-rule parity
 
-    func testDisabledSurfaceHibernationSelectsNoPlainShells() {
+    @Test
+    func disabledSurfaceHibernationSelectsNoPlainShells() {
         let plainOld = panelKey()
         let plainNew = panelKey()
 
@@ -328,10 +349,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertTrue(selected.isEmpty)
+        #expect(selected.isEmpty)
     }
 
-    func testAgentCapBehaviorIsPreservedWhenSurfaceHibernationDisabled() {
+    @Test
+    func agentCapBehaviorIsPreservedWhenSurfaceHibernationDisabled() {
         let workspaceId = UUID()
         let idleOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let idleNew = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
@@ -354,26 +376,28 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(selected, Set([idleOld]))
+        #expect(selected == Set([idleOld]))
     }
 
     // MARK: - Settings
 
-    func testSurfaceHibernationSettingsDefaults() throws {
+    @Test
+    func surfaceHibernationSettingsDefaults() throws {
         let suiteName = "cmux-surface-hibernation-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(SurfaceHibernationSettings.isEnabled(defaults: defaults))
-        XCTAssertEqual(SurfaceHibernationSettings.idleSeconds(defaults: defaults), 300)
-        XCTAssertEqual(SurfaceHibernationSettings.unmountedIdleSeconds(defaults: defaults), 1_800)
-        XCTAssertEqual(SurfaceHibernationSettings.maxLiveSurfaces(defaults: defaults), 12)
-        XCTAssertEqual(SurfaceHibernationSettings.confirmationSeconds(defaults: defaults), 60)
+        #expect(SurfaceHibernationSettings.isEnabled(defaults: defaults))
+        #expect(SurfaceHibernationSettings.idleSeconds(defaults: defaults) == 300)
+        #expect(SurfaceHibernationSettings.unmountedIdleSeconds(defaults: defaults) == 1_800)
+        #expect(SurfaceHibernationSettings.maxLiveSurfaces(defaults: defaults) == 12)
+        #expect(SurfaceHibernationSettings.confirmationSeconds(defaults: defaults) == 60)
     }
 
-    func testSurfaceHibernationSettingsSanitizeAndNotifyOnce() throws {
+    @Test
+    func surfaceHibernationSettingsSanitizeAndNotifyOnce() throws {
         let suiteName = "cmux-surface-hibernation-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let notificationCenter = NotificationCenter()
@@ -397,142 +421,140 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
         )
 
         let values = SurfaceHibernationSettings.values(defaults: defaults)
-        XCTAssertFalse(values.enabled)
-        XCTAssertEqual(values.idleSeconds, 30)
-        XCTAssertEqual(values.unmountedIdleSeconds, 60)
-        XCTAssertEqual(values.maxLiveSurfaces, 1)
-        XCTAssertEqual(notificationCount, 1)
+        #expect(!(values.enabled))
+        #expect(values.idleSeconds == 30)
+        #expect(values.unmountedIdleSeconds == 60)
+        #expect(values.maxLiveSurfaces == 1)
+        #expect(notificationCount == 1)
 
-        XCTAssertEqual(SurfaceHibernationSettings.sanitizedMaxLiveSurfaces(9_999), 256)
+        #expect(SurfaceHibernationSettings.sanitizedMaxLiveSurfaces(9_999) == 256)
 
-        XCTAssertTrue(SurfaceHibernationSettings.reset(defaults: defaults, notificationCenter: notificationCenter))
-        XCTAssertEqual(SurfaceHibernationSettings.values(defaults: defaults).maxLiveSurfaces, 12)
-        XCTAssertEqual(notificationCount, 2)
+        #expect(SurfaceHibernationSettings.reset(defaults: defaults, notificationCenter: notificationCenter))
+        #expect(SurfaceHibernationSettings.values(defaults: defaults).maxLiveSurfaces == 12)
+        #expect(notificationCount == 2)
 
         SurfaceHibernationSettings.setValues(
             enabled: SurfaceHibernationSettings.defaultEnabled,
             defaults: defaults,
             notificationCenter: notificationCenter
         )
-        XCTAssertEqual(notificationCount, 2)
+        #expect(notificationCount == 2)
     }
 
     // MARK: - Hibernate-then-restore round trip
 
     @MainActor
-    func testSurfaceHibernationRoundTripStagesScrollbackAndWorkingDirectory() throws {
+    @Test
+    func surfaceHibernationRoundTripStagesScrollbackAndWorkingDirectory() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
 
         panel.enterSurfaceHibernation(
             scrollback: "hibernated-shell-content",
             workingDirectory: "/tmp/cmux-surface-hibernation",
             lastActivityAt: Date(timeIntervalSince1970: 100)
         )
-        XCTAssertTrue(panel.isSurfaceHibernated)
-        XCTAssertEqual(panel.surfaceHibernationState?.scrollback, "hibernated-shell-content")
-        XCTAssertEqual(panel.surfaceHibernationState?.workingDirectory, "/tmp/cmux-surface-hibernation")
+        #expect(panel.isSurfaceHibernated)
+        #expect(panel.surfaceHibernationState?.scrollback == "hibernated-shell-content")
+        #expect(panel.surfaceHibernationState?.workingDirectory == "/tmp/cmux-surface-hibernation")
 
-        XCTAssertTrue(workspace.restoreSurfaceHibernation(panelId: panelId, focus: false))
-        XCTAssertFalse(panel.isSurfaceHibernated)
+        #expect(workspace.restoreSurfaceHibernation(panelId: panelId, focus: false))
+        #expect(!(panel.isSurfaceHibernated))
 
         let environment = panel.surface.debugAdditionalEnvironmentForTesting()
-        let replayPath = try XCTUnwrap(environment[SessionScrollbackReplayStore.environmentKey])
+        let replayPath = try #require(environment[SessionScrollbackReplayStore.environmentKey])
         let replayContents = try String(contentsOfFile: replayPath, encoding: .utf8)
-        XCTAssertTrue(replayContents.contains("hibernated-shell-content"))
-        XCTAssertEqual(
-            panel.surface.debugNextRuntimeWorkingDirectoryForTesting(),
-            "/tmp/cmux-surface-hibernation"
-        )
+        #expect(replayContents.contains("hibernated-shell-content"))
+        #expect(panel.surface.debugNextRuntimeWorkingDirectoryForTesting() == "/tmp/cmux-surface-hibernation")
     }
 
     @MainActor
-    func testWorkspaceEnterSurfaceHibernationCapturesPanelDirectory() throws {
+    @Test
+    func workspaceEnterSurfaceHibernationCapturesPanelDirectory() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
         workspace.panelDirectories[panelId] = "/tmp/cmux-surface-hibernation-dir"
 
-        XCTAssertTrue(
-            workspace.enterSurfaceHibernation(panelId: panelId, lastActivityAt: Date(timeIntervalSince1970: 50))
-        )
-        XCTAssertTrue(panel.isSurfaceHibernated)
-        XCTAssertEqual(
-            panel.surfaceHibernationState?.workingDirectory,
-            "/tmp/cmux-surface-hibernation-dir"
-        )
-        XCTAssertFalse(
-            workspace.enterSurfaceHibernation(panelId: panelId, lastActivityAt: Date(timeIntervalSince1970: 60)),
+        #expect(workspace.enterSurfaceHibernation(panelId: panelId, lastActivityAt: Date(timeIntervalSince1970: 50)))
+        #expect(panel.isSurfaceHibernated)
+        #expect(panel.surfaceHibernationState?.workingDirectory == "/tmp/cmux-surface-hibernation-dir")
+        #expect(
+            !workspace.enterSurfaceHibernation(panelId: panelId, lastActivityAt: Date(timeIntervalSince1970: 60)),
             "A hibernated panel must not be hibernated twice"
         )
     }
 
     @MainActor
-    func testExplicitInputToSurfaceHibernatedPanelRestoresAndQueues() throws {
+    @Test
+    func explicitInputToSurfaceHibernatedPanelRestoresAndQueues() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
 
         panel.enterSurfaceHibernation(
             scrollback: nil,
             workingDirectory: nil,
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
-        XCTAssertTrue(panel.isSurfaceHibernated)
+        #expect(panel.isSurfaceHibernated)
 
         let result = panel.sendInputResult("pwd\r")
 
-        XCTAssertEqual(result, .queued)
-        XCTAssertFalse(panel.isSurfaceHibernated)
+        #expect(result == .queued)
+        #expect(!(panel.isSurfaceHibernated))
     }
 
     @MainActor
-    func testFocusingSurfaceHibernatedPanelRestoresIt() throws {
+    @Test
+    func focusingSurfaceHibernatedPanelRestoresIt() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
 
         panel.enterSurfaceHibernation(
             scrollback: nil,
             workingDirectory: nil,
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
-        XCTAssertTrue(panel.isSurfaceHibernated)
+        #expect(panel.isSurfaceHibernated)
 
         workspace.focusPanel(panelId)
 
-        XCTAssertFalse(panel.isSurfaceHibernated)
+        #expect(!(panel.isSurfaceHibernated))
     }
 
     @MainActor
-    func testReconcileRestoresRenderedSurfaceHibernatedPanelEvenWhenInputInactive() throws {
+    @Test
+    func reconcileRestoresRenderedSurfaceHibernatedPanelEvenWhenInputInactive() throws {
         // Surface hibernation has no placeholder UI, so a rendered panel must
         // restore even when the workspace is visible but not input-active
         // (e.g. in a non-key window) — unlike agent resume, which stays gated
         // on the presentation flag.
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
 
         panel.enterSurfaceHibernation(
             scrollback: nil,
             workingDirectory: nil,
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
-        XCTAssertTrue(panel.isSurfaceHibernated)
+        #expect(panel.isSurfaceHibernated)
 
         workspace.setAgentHibernationAutoResumePresentationVisible(false)
         _ = workspace.debugReconcileTerminalPortalVisibilityForTesting()
 
-        XCTAssertFalse(panel.isSurfaceHibernated)
+        #expect(!(panel.isSurfaceHibernated))
     }
 
     @MainActor
-    func testAgentHibernatedPanelCannotEnterSurfaceHibernation() throws {
+    @Test
+    func agentHibernatedPanelCannotEnterSurfaceHibernation() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "codex-surface-cross-guard",
@@ -553,19 +575,18 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             agent: snapshot,
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
-        XCTAssertTrue(panel.isAgentHibernated)
+        #expect(panel.isAgentHibernated)
 
-        XCTAssertFalse(
-            workspace.enterSurfaceHibernation(panelId: panelId, lastActivityAt: Date(timeIntervalSince1970: 10))
-        )
-        XCTAssertFalse(panel.isSurfaceHibernated)
+        #expect(!workspace.enterSurfaceHibernation(panelId: panelId, lastActivityAt: Date(timeIntervalSince1970: 10)))
+        #expect(!(panel.isSurfaceHibernated))
     }
 
     @MainActor
-    func testSessionSnapshotCarriesHibernatedScrollback() throws {
+    @Test
+    func sessionSnapshotCarriesHibernatedScrollback() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
 
         panel.enterSurfaceHibernation(
             scrollback: "hibernated-snapshot-content",
@@ -574,19 +595,20 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
         )
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: true)
-        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
+        let panelSnapshot = try #require(snapshot.panels.first { $0.id == panelId })
 
-        XCTAssertEqual(panelSnapshot.terminal?.scrollback, "hibernated-snapshot-content")
+        #expect(panelSnapshot.terminal?.scrollback == "hibernated-snapshot-content")
     }
 
     @MainActor
-    func testScrollbackFreeSnapshotStillPersistsHibernatedScrollback() throws {
+    @Test
+    func scrollbackFreeSnapshotStillPersistsHibernatedScrollback() throws {
         // The freed surface's content exists only in the hibernation state, so
         // even autosaves that skip scrollback capture must not overwrite the
         // session snapshot with nil.
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
 
         panel.enterSurfaceHibernation(
             scrollback: "hibernated-autosave-content",
@@ -595,18 +617,19 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
         )
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
-        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
+        let panelSnapshot = try #require(snapshot.panels.first { $0.id == panelId })
 
-        XCTAssertEqual(panelSnapshot.terminal?.scrollback, "hibernated-autosave-content")
-        XCTAssertEqual(panelSnapshot.terminal?.workingDirectory, "/tmp/cmux-hibernated-autosave-dir")
+        #expect(panelSnapshot.terminal?.scrollback == "hibernated-autosave-content")
+        #expect(panelSnapshot.terminal?.workingDirectory == "/tmp/cmux-hibernated-autosave-dir")
     }
 
     @MainActor
-    func testAutosaveFingerprintTracksSurfaceHibernationTransitions() throws {
+    @Test
+    func autosaveFingerprintTracksSurfaceHibernationTransitions() throws {
         let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
 
         let liveFingerprint = manager.sessionAutosaveFingerprint()
         panel.enterSurfaceHibernation(
@@ -616,30 +639,30 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
         )
         let hibernatedFingerprint = manager.sessionAutosaveFingerprint()
 
-        XCTAssertNotEqual(liveFingerprint, hibernatedFingerprint)
-        XCTAssertTrue(workspace.restoreSurfaceHibernation(panelId: panelId, focus: false))
-        XCTAssertNotEqual(hibernatedFingerprint, manager.sessionAutosaveFingerprint())
+        #expect(liveFingerprint != hibernatedFingerprint)
+        #expect(workspace.restoreSurfaceHibernation(panelId: panelId, focus: false))
+        #expect(hibernatedFingerprint != manager.sessionAutosaveFingerprint())
     }
 
     @MainActor
-    func testWorkspaceUnmountTimestampTracksPortalRendering() {
+    @Test
+    func workspaceUnmountTimestampTracksPortalRendering() {
         let workspace = Workspace()
-        XCTAssertNotNil(
-            workspace.portalRenderingDisabledAt,
+        #expect(
+            workspace.portalRenderingDisabledAt != nil,
             "A workspace that has never rendered must age toward unmounted-idle hibernation"
         )
 
         workspace.setPortalRenderingEnabled(true, reason: "test")
-        XCTAssertNil(workspace.portalRenderingDisabledAt)
+        #expect(workspace.portalRenderingDisabledAt == nil)
 
         workspace.setPortalRenderingEnabled(false, reason: "test")
         let disabledAt = workspace.portalRenderingDisabledAt
-        XCTAssertNotNil(disabledAt)
+        #expect(disabledAt != nil)
 
         workspace.setPortalRenderingEnabled(false, reason: "test")
-        XCTAssertEqual(
-            workspace.portalRenderingDisabledAt,
-            disabledAt,
+        #expect(
+            workspace.portalRenderingDisabledAt == disabledAt,
             "Repeated unmount reconciles must not restart the unmounted clock"
         )
     }
