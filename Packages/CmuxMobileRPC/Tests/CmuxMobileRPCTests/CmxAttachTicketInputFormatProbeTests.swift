@@ -69,6 +69,42 @@ import Testing
         }
     }
 
+    @Test func unreadableAttachPayloadWithVersionQueryItemThrowsUnsupportedVersion() {
+        // Two unreadable shapes, both stamped `v=2` on the URL: "not-base64"
+        // happens to decode as base64 but yields non-JSON bytes (caught at the
+        // JSON decode), while "!!!" is not base64 at all (caught before any
+        // decode). The version marker must win over the generic failure in both.
+        #expect(throws: MobileSyncPairingPayloadError.unsupportedVersion(2)) {
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&payload=not-base64")
+        }
+        #expect(throws: MobileSyncPairingPayloadError.unsupportedVersion(2)) {
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&payload=!!!")
+        }
+    }
+
+    @Test func unreadablePairPayloadWithVersionQueryItemThrowsUnsupportedVersion() {
+        #expect(throws: MobileSyncPairingPayloadError.unsupportedVersion(3)) {
+            try CmxAttachTicketInput.decode("cmux-ios://pair?v=3&payload=not-base64")
+        }
+        #expect(throws: MobileSyncPairingPayloadError.unsupportedVersion(3)) {
+            try CmxAttachTicketInput.decode("cmux-ios://pair?v=3&payload=!!!")
+        }
+    }
+
+    @Test func unreadablePayloadWithCurrentOrNoVersionStaysInvalidURL() {
+        // A current-version `v` cannot explain the unreadable payload, and a
+        // missing `v` carries no marker: both stay the plain invalid-URL error.
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=1&payload=!!!")
+        }
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxAttachTicketInput.decode("cmux-ios://attach?payload=!!!")
+        }
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxAttachTicketInput.decode("cmux-ios://pair?v=1&payload=!!!")
+        }
+    }
+
     @Test func markerlessGarbageStillThrowsOpaqueError() {
         // No format marker anywhere: this really is an unreadable code, so the
         // probe must not invent a version mismatch.

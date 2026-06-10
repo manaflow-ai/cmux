@@ -34,12 +34,18 @@ public struct CmxAttachTicketInput {
                     throw probed
                 }
                 throw error
+            } catch MobileSyncPairingPayloadError.invalidURL {
+                // The payload could not be read at all: the URL's `v` query
+                // item is the last version marker before giving up.
+                throw unreadablePayloadError(of: url, currentVersion: MobileSyncPairingPayload.currentVersion)
             }
         }
-        guard url.scheme == "cmux-ios",
-              url.host == "attach",
-              let data = payloadData(of: url) else {
+        guard url.scheme == "cmux-ios", url.host == "attach" else {
             throw MobileSyncPairingPayloadError.invalidURL
+        }
+        guard let data = payloadData(of: url) else {
+            // Same unreadable-payload fallback as the pair branch.
+            throw unreadablePayloadError(of: url, currentVersion: CmxAttachTicket.currentVersion)
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -130,6 +136,18 @@ public struct CmxAttachTicketInput {
             return MobileSyncPairingPayloadError.unsupportedVersion(version)
         }
         return nil
+    }
+
+    /// The error for a cmux pairing URL whose payload could not be read at
+    /// all: the typed unsupported-version error when the URL's `v` query item
+    /// names a version this build does not speak (the version probe's last
+    /// marker), otherwise plain `invalidURL`.
+    private static func unreadablePayloadError(of url: URL, currentVersion: Int) -> any Error {
+        formatProbeError(
+            payloadData: nil,
+            currentVersion: currentVersion,
+            versionQueryItem: queryItem(of: url, named: "v")
+        ) ?? MobileSyncPairingPayloadError.invalidURL
     }
 
     private static func base64URLDecode(_ value: String) -> Data? {
