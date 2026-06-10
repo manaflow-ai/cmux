@@ -54,6 +54,11 @@ export default function RemoteTmuxPage() {
       <CodeBlock lang="bash">{`cmux ssh-tmux dev@example.com\ncmux ssh-tmux my-ssh-alias --port 2222 --identity ~/.ssh/id_ed25519`}</CodeBlock>
       <p>{t("attachSockets")}</p>
 
+      <DocsHeading level={3} id="permission-denied">{t("troubleshootTitle")}</DocsHeading>
+      <p>{t("troubleshootDesc")}</p>
+      <CodeBlock lang="text">{`Host my-ssh-alias\n    HostName 203.0.113.10\n    User dev\n    IdentityFile ~/.ssh/id_ed25519`}</CodeBlock>
+      <p>{t("troubleshootFallback")}</p>
+
       <DocsHeading level={2} id="how-it-works">{t("howTitle")}</DocsHeading>
       <p>{t("howDesc")}</p>
 
