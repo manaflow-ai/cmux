@@ -16,7 +16,7 @@ final class SettingsWindowPresenterTests: XCTestCase {
     }
 
     func testConfigureWindowLeavesPendingNavigationForSettingsViews() {
-        let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
+        let settingsWindow = makeWindow(identifier: "cmux.unconfiguredSettings.\(UUID().uuidString)")
         var didOpen = false
         defer {
             settingsWindow.orderOut(nil)
@@ -77,6 +77,34 @@ final class SettingsWindowPresenterTests: XCTestCase {
         XCTAssertFalse(didOpen)
         XCTAssertEqual(SettingsWindowPresenter.consumePendingNavigationTarget(), .browserImport)
         XCTAssertEqual(SettingsWindowPresenter.consumePendingContentNavigationTarget(), .browserImport)
+    }
+
+    func testPresenterRetainsConfiguredSettingsWindowForReopen() async {
+        var settingsWindow: NSWindow? = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
+        weak var weakSettingsWindow = settingsWindow
+        var didOpen = false
+        var focusedWindows: [NSWindow] = []
+
+        SettingsWindowPresenter.setFocusHandlerForTests { window in
+            focusedWindows.append(window)
+        }
+
+        SettingsWindowPresenter.configure(window: settingsWindow!)
+        await Task.yield()
+        settingsWindow?.orderOut(nil)
+        settingsWindow = nil
+        await Task.yield()
+
+        XCTAssertNotNil(weakSettingsWindow)
+
+        SettingsWindowPresenter.show(
+            openWindowOverride: { didOpen = true }
+        )
+
+        XCTAssertFalse(didOpen)
+        XCTAssertEqual(focusedWindows.count, 2)
+        XCTAssertTrue(focusedWindows.last === weakSettingsWindow)
+        weakSettingsWindow?.orderOut(nil)
     }
 
     // Settings is a top-level *peer* window, not a child of the main window.
