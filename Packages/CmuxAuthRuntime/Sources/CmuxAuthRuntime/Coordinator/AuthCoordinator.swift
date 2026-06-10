@@ -5,6 +5,15 @@ import OSLog
 
 private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 
+/// How one bounded restore validation resolved: the live `/users/me` probe
+/// finished (with a user or an error), or the restore deadline expired first.
+/// File-scope (not nested in the `@MainActor` coordinator) so the racing tasks
+/// can construct cases without actor isolation.
+private enum RestoreValidationOutcome: Sendable {
+    case finished(Result<CMUXAuthUser?, any Error>)
+    case deadlineExpired
+}
+
 /// The shared, injected auth orchestrator for cmux.
 ///
 /// Owns the observable session state (``isAuthenticated`` / ``currentUser`` /
@@ -31,6 +40,17 @@ private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 @MainActor
 @Observable
 public final class AuthCoordinator {
+    /// Upper bound on how long the launch session restore may wait on the live
+    /// `/users/me` probe before proceeding with the cached session. The probe is
+    /// the only network call that holds the "Restoring session" gate
+    /// (``isRestoringSession``), and the SDK gives it no deadline of its own:
+    /// with WiFi up but the auth API unreachable it sits on the OS-default
+    /// request timeout (~60s) while the user stares at a spinner. 5s covers a
+    /// healthy round-trip with margin; past it the failure is treated exactly
+    /// like a transient network hiccup (cached session preserved, never a
+    /// sign-out).
+    public static let defaultRestoreValidationDeadline: Duration = .seconds(5)
+
     /// Whether a user session is currently active.
     public private(set) var isAuthenticated = false
     /// The signed-in user, if any.
@@ -65,6 +85,10 @@ public final class AuthCoordinator {
     private let launch: AuthLaunchOptions
     private let isOnline: @Sendable () async -> Bool
     private let onSignedIn: @Sendable () async -> Void
+    /// See ``defaultRestoreValidationDeadline``.
+    private let restoreValidationDeadline: Duration
+    /// The clock the restore-validation deadline sleeps on (virtual in tests).
+    private let clock: any Clock<Duration>
 
     private var pendingNonce: String?
     private var debugCredentials: CMUXAuthAutoLoginCredentials?
@@ -86,6 +110,9 @@ public final class AuthCoordinator {
     ///   - onSignedIn: Hook run after a successful sign-in / session restore, for
     ///     side effects above this package (e.g. push token re-upload). Defaults
     ///     to a no-op.
+    ///   - restoreValidationDeadline: Upper bound on the launch session-restore
+    ///     network validation (see ``defaultRestoreValidationDeadline``).
+    ///   - clock: The clock the restore deadline sleeps on (virtual in tests).
     public init(
         client: any AuthClient,
         sessionCache: CMUXAuthSessionCache,
@@ -95,7 +122,9 @@ public final class AuthCoordinator {
         config: AuthConfig,
         launch: AuthLaunchOptions,
         isOnline: @escaping @Sendable () async -> Bool = { true },
-        onSignedIn: @escaping @Sendable () async -> Void = {}
+        onSignedIn: @escaping @Sendable () async -> Void = {},
+        restoreValidationDeadline: Duration = AuthCoordinator.defaultRestoreValidationDeadline,
+        clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.client = client
         self.sessionCache = sessionCache
@@ -106,6 +135,8 @@ public final class AuthCoordinator {
         self.launch = launch
         self.isOnline = isOnline
         self.onSignedIn = onSignedIn
+        self.restoreValidationDeadline = restoreValidationDeadline
+        self.clock = clock
         self.selectedTeamID = teamSelection.selectedTeamID
         primeSessionState()
     }
@@ -278,9 +309,58 @@ public final class AuthCoordinator {
         }
     }
 
+    /// Runs the live `/users/me` session probe bounded by
+    /// ``restoreValidationDeadline``.
+    ///
+    /// The race is first-yield-wins over unstructured tasks rather than a task
+    /// group: a task group joins every child before returning, so a probe whose
+    /// underlying SDK call ignores cancellation would still hold the restoring
+    /// gate for the full OS timeout. Here the deadline's yield wins immediately
+    /// and the probe is abandoned (cancelled best-effort, its late result
+    /// discarded into the finished stream).
+    ///
+    /// - Returns: The probe's user on success.
+    /// - Throws: The probe's error, or ``AuthError/networkError`` when the
+    ///   deadline expired first. A timeout proves nothing definitive about the
+    ///   session, so it must take the same transient path as a network hiccup
+    ///   (preserve the cached session); only the live token store may decide a
+    ///   session is gone.
+    private func currentUserBoundedByRestoreDeadline() async throws -> CMUXAuthUser? {
+        let (stream, continuation) = AsyncStream<RestoreValidationOutcome>.makeStream()
+        let probe = Task { [client] in
+            let result: Result<CMUXAuthUser?, any Error>
+            do {
+                result = .success(try await client.currentUser(throwOnMissing: true))
+            } catch {
+                result = .failure(error)
+            }
+            continuation.yield(.finished(result))
+        }
+        // justification: bounded, cancellable deadline on the injected clock
+        // (virtual in tests); caps how long the launch "Restoring session" gate
+        // may wait on the network probe, cancelled the instant the probe wins.
+        let deadline = Task { [clock, restoreValidationDeadline] in
+            try? await clock.sleep(for: restoreValidationDeadline, tolerance: nil)
+            guard !Task.isCancelled else { return }
+            continuation.yield(.deadlineExpired)
+        }
+        var iterator = stream.makeAsyncIterator()
+        let outcome = await iterator.next() ?? .deadlineExpired
+        probe.cancel()
+        deadline.cancel()
+        continuation.finish()
+        switch outcome {
+        case let .finished(result):
+            return try result.get()
+        case .deadlineExpired:
+            authLog.error("Session restore validation hit its deadline; treating as transient")
+            throw AuthError.networkError
+        }
+    }
+
     private func validateCachedSession() async {
         do {
-            if let user = try await client.currentUser(throwOnMissing: true) {
+            if let user = try await currentUserBoundedByRestoreDeadline() {
                 await applySignedInUser(user)
                 return
             }
