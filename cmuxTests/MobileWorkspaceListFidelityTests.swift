@@ -201,6 +201,36 @@ struct MobileWorkspaceListFidelityTests {
         #expect(after != changed, "a newer notification must change the mobile summary hash")
     }
 
+    /// Why some rows showed no relative time: the payload's only timestamp was
+    /// `preview_at`, sourced from the latest notification, so a workspace that
+    /// never fired a notification carried no timestamp at all and its trailing
+    /// slot stayed empty on the phone. Every workspace payload must carry
+    /// `last_activity_at` (the latest notification when there is one, the
+    /// workspace's creation time otherwise) so every row can render a time.
+    @Test func everyWorkspacePayloadCarriesLastActivity() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+
+        // A freshly created workspace has no notification, so it has no preview
+        // and previously no timestamp of any kind.
+        let payload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: false,
+            requestedTerminalID: nil
+        )
+        #expect(payload["preview_at"] is NSNull, "no notification means no preview timestamp")
+
+        let lastActivity = try #require(
+            payload["last_activity_at"] as? Double,
+            "a quiet workspace must still carry a last-activity stamp"
+        )
+        // The fallback is the workspace's creation time: a real, recent instant,
+        // never the epoch (which the phone treats as "no activity").
+        let now = Date().timeIntervalSince1970
+        #expect(lastActivity > now - 3600)
+        #expect(lastActivity <= now + 60)
+    }
+
     /// The mobile preview line must flatten arbitrary notification text into one
     /// short plain-text line: ANSI escapes stripped, control characters and
     /// newlines collapsed, whitespace runs joined, length capped with an ellipsis,
