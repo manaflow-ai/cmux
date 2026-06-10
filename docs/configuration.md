@@ -2,6 +2,27 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## `shortcuts.bindings`
+
+Controls cmux-owned keyboard shortcuts. Use a string for a single shortcut, a two-item array for a chord, or `null` to unbind. Empty string (`""`), `none`, `clear`, `unbound`, and `disabled` also unbind.
+
+Terminal scrollback shortcuts are configurable here:
+
+```json
+{
+  "shortcuts": {
+    "bindings": {
+      "scrollbackPageUp": "shift+pageup",
+      "scrollbackPageDown": "shift+pagedown",
+      "scrollbackLineUp": null,
+      "scrollbackLineDown": null
+    }
+  }
+}
+```
+
+Line scrolling is unbound by default so shells and terminal applications can receive Shift+Up/Down. Bind `scrollbackLineUp` and `scrollbackLineDown` if you want cmux-owned line scrolling. Aliases `shift+pgup` and `shift+pgdn` are accepted for page scrolling. Saving `cmux.json` applies live after `Cmd+Shift+,` or `cmux reload-config`.
+
 ## `app.confirmQuit`
 
 Controls when cmux asks before quitting:

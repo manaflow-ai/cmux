@@ -1141,6 +1141,9 @@
       "relatedCustomCommands": "Commandes personnalisées"
     },
     "changelog": {
+      "items": {
+        "scrollbackShortcuts": "Raccourcis configurables pour faire défiler le scrollback du terminal par page vers le haut/bas et par ligne vers le haut/bas, avec Shift+Page Up et Shift+Page Down par défaut ; le défilement par ligne est configurable mais non attribué par défaut afin que les shells puissent recevoir Shift+Up/Down."
+      },
       "title": "Changelog",
       "metaDescription": "Notes de version et historique des versions de cmux. Nouvelles fonctionnalités, corrections de bugs et changements pour le terminal macOS natif.",
       "metaTitle": "Journal des modifications"

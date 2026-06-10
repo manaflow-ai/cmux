@@ -133,6 +133,28 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "closeOtherTabsInPane", combos: [["⌥", "⌘", "T"]], description: { en: "Close other tabs in pane", ja: "ペイン内の他のタブを閉じる" } },
       { id: "reopenClosedBrowserPanel", combos: [["⌘", "⇧", "T"]], description: { en: "Reopen last closed", ja: "最後に閉じた項目を再度開く" } },
       { id: "toggleTerminalCopyMode", combos: [["⌘", "⇧", "M"]], description: { en: "Toggle terminal copy mode", ja: "ターミナルコピーモードを切り替え" } },
+      { id: "scrollbackPageUp", combos: [["⇧", "Page Up"]], configValue: "shift+pageup", description: { en: "Scroll terminal page up", ja: "ターミナルを1ページ上へスクロール" } },
+      { id: "scrollbackPageDown", combos: [["⇧", "Page Down"]], configValue: "shift+pagedown", description: { en: "Scroll terminal page down", ja: "ターミナルを1ページ下へスクロール" } },
+      {
+        id: "scrollbackLineUp",
+        combos: [],
+        configValue: "shift+up",
+        description: { en: "Scroll terminal line up", ja: "ターミナルを1行上へスクロール" },
+        note: {
+          en: "unbound by default so shells can receive Shift+Up",
+          ja: "シェルがShift+Upを受け取れるように、デフォルトでは未割り当て",
+        },
+      },
+      {
+        id: "scrollbackLineDown",
+        combos: [],
+        configValue: "shift+down",
+        description: { en: "Scroll terminal line down", ja: "ターミナルを1行下へスクロール" },
+        note: {
+          en: "unbound by default so shells can receive Shift+Down",
+          ja: "シェルがShift+Downを受け取れるように、デフォルトでは未割り当て",
+        },
+      },
       { id: "focusTextBoxInput", combos: [["⌘", "⇧", "A"]], description: { en: "Switch focus between terminal and TextBox input", ja: "ターミナルとTextBox入力のフォーカスを切り替え" } },
       { id: "attachTextBoxFile", combos: [["⌥", "⌘", "⇧", "A"]], description: { en: "Attach file to TextBox input", ja: "TextBox入力にファイルを添付" } },
       {

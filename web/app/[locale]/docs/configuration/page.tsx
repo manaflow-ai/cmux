@@ -128,6 +128,10 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
   //     "toggleFileExplorer": "cmd+opt+b",
+  //     "scrollbackPageUp": "shift+pageup",
+  //     "scrollbackPageDown": "shift+pagedown",
+  //     "scrollbackLineUp": null,
+  //     "scrollbackLineDown": null,
   //     "newTab": ["ctrl+b", "c"],
   //     "commandPalettePrevious": null
   //   }
@@ -166,6 +170,8 @@ function shortcutComboToConfig(combo: string[]) {
     "→": "right",
     "↑": "up",
     "↓": "down",
+    "Page Up": "pageup",
+    "Page Down": "pagedown",
     "↩": "enter",
     "1…9": "1",
   };

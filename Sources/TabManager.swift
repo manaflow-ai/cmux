@@ -2441,6 +2441,25 @@ class TabManager: ObservableObject {
         return panel.surface.toggleKeyboardCopyMode()
     }
 
+    @discardableResult
+    func scrollFocusedTerminalScrollbackPage(up: Bool) -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        guard panel.captureFocusIntent(in: panel.surface.uiWindow) == .terminal(.surface) else { return false }
+        return panel.performBindingAction(up ? "scroll_page_up" : "scroll_page_down")
+    }
+
+    @discardableResult
+    func scrollFocusedTerminalScrollbackLine(up: Bool) -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        guard panel.captureFocusIntent(in: panel.surface.uiWindow) == .terminal(.surface) else { return false }
+        return panel.performBindingAction(Self.scrollbackLineBindingAction(up: up))
+    }
+
+    static func scrollbackLineBindingAction(up: Bool) -> String {
+        // Ghostty uses negative lines for upward viewport movement and positive lines for downward.
+        up ? "scroll_page_lines:-1" : "scroll_page_lines:1"
+    }
+
     /// Forwards a single Ctrl-F (`^F`) key press to the focused terminal surface,
     /// faithfully encoded through Ghostty so it matches whatever the running TUI
     /// would receive from a real keystroke.

@@ -71,6 +71,14 @@ private func restoreUserDefaultForTabManagerTests(_ value: Any?, key: String) {
     }
 }
 
+final class TabManagerScrollbackShortcutTests: XCTestCase {
+    @MainActor
+    func testScrollbackLineBindingActionUsesGhosttySignConvention() {
+        XCTAssertEqual(TabManager.scrollbackLineBindingAction(up: true), "scroll_page_lines:-1")
+        XCTAssertEqual(TabManager.scrollbackLineBindingAction(up: false), "scroll_page_lines:1")
+    }
+}
+
 private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
     private let metadata: GitWorkspaceMetadata
     private var callCount = 0

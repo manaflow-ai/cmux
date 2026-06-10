@@ -110,6 +110,10 @@ enum KeyboardShortcutSettings {
         case reopenClosedBrowserPanel
         case newSurface
         case toggleTerminalCopyMode
+        case scrollbackPageUp
+        case scrollbackPageDown
+        case scrollbackLineUp
+        case scrollbackLineDown
         case focusTextBoxInput
         case attachTextBoxFile
         case sendCtrlFToTerminal
@@ -210,6 +214,10 @@ enum KeyboardShortcutSettings {
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
+            case .scrollbackPageUp: return String(localized: "shortcut.scrollbackPageUp.label", defaultValue: "Scrollback Page Up")
+            case .scrollbackPageDown: return String(localized: "shortcut.scrollbackPageDown.label", defaultValue: "Scrollback Page Down")
+            case .scrollbackLineUp: return String(localized: "shortcut.scrollbackLineUp.label", defaultValue: "Scrollback Line Up")
+            case .scrollbackLineDown: return String(localized: "shortcut.scrollbackLineDown.label", defaultValue: "Scrollback Line Down")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
             case .sendCtrlFToTerminal: return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
@@ -395,6 +403,14 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .toggleTerminalCopyMode:
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
+            case .scrollbackPageUp:
+                return StoredShortcut(key: "pageup", command: false, shift: true, option: false, control: false)
+            case .scrollbackPageDown:
+                return StoredShortcut(key: "pagedown", command: false, shift: true, option: false, control: false)
+            case .scrollbackLineUp:
+                return .unbound
+            case .scrollbackLineDown:
+                return .unbound
             case .focusTextBoxInput:
                 return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)
             case .attachTextBoxFile:
@@ -1408,6 +1424,8 @@ struct ShortcutStroke: Equatable, Hashable {
         case "\t":
             return String(localized: "shortcut.key.tab", defaultValue: "Tab")
         case "space": return String(localized: "shortcut.key.space", defaultValue: "Space")
+        case "pageUp", "pageup": return String(localized: "shortcut.key.pageUp", defaultValue: "Page Up")
+        case "pageDown", "pagedown": return String(localized: "shortcut.key.pageDown", defaultValue: "Page Down")
         case "\r":
             return "↩"
         case "media.brightnessDown":
@@ -1603,8 +1621,15 @@ struct ShortcutStroke: Equatable, Hashable {
             return false
         }
 
+        let recordableKey = Self.recordableKey(from: event)
+        if Self.isPageShortcutKey(shortcutKey),
+           recordableKey?.key.lowercased() == shortcutKey,
+           Self.normalizedModifierFlags(from: event.modifierFlags) == modifierFlags {
+            return true
+        }
+
         return matches(
-            keyCode: Self.recordableKey(from: event)?.keyCode ?? event.keyCode,
+            keyCode: recordableKey?.keyCode ?? event.keyCode,
             modifierFlags: event.modifierFlags,
             eventCharacter: event.charactersIgnoringModifiers,
             layoutCharacterProvider: layoutCharacterProvider
@@ -1621,6 +1646,13 @@ struct ShortcutStroke: Equatable, Hashable {
         guard flags == self.modifierFlags else { return false }
 
         let shortcutKey = key.lowercased()
+        if Self.isArrowShortcutKey(shortcutKey) {
+            guard let expectedKeyCode = Self.keyCodeForShortcutKey(shortcutKey) else {
+                return false
+            }
+            return keyCode == expectedKeyCode
+        }
+
         if Self.usesDirectKeyCodeMatching(shortcutKey) {
             guard let expectedKeyCode = self.keyCode ?? Self.keyCodeForShortcutKey(shortcutKey) else {
                 return false
@@ -1728,6 +1760,8 @@ struct ShortcutStroke: Equatable, Hashable {
         case 124: return "→" // right arrow
         case 125: return "↓" // down arrow
         case 126: return "↑" // up arrow
+        case 116: return "pageup" // kVK_PageUp
+        case 121: return "pagedown" // kVK_PageDown
         case 48: return "\t" // tab
         case 49: return "space" // kVK_Space
         case 36, 76: return "\r" // return, keypad enter
@@ -1782,6 +1816,8 @@ struct ShortcutStroke: Equatable, Hashable {
         case .f18: return RecordableKey(key: "f18", keyCode: eventKeyCode)
         case .f19: return RecordableKey(key: "f19", keyCode: eventKeyCode)
         case .f20: return RecordableKey(key: "f20", keyCode: eventKeyCode)
+        case .pageUp: return RecordableKey(key: "pageup", keyCode: eventKeyCode)
+        case .pageDown: return RecordableKey(key: "pagedown", keyCode: eventKeyCode)
         default:
             return nil
         }
@@ -1910,6 +1946,8 @@ struct ShortcutStroke: Equatable, Hashable {
         case "media.next": return 17
         case "media.previous": return 18
         case "space": return 49
+        case "pageup": return UInt16(kVK_PageUp)
+        case "pagedown": return UInt16(kVK_PageDown)
         case "a": return 0
         case "s": return 1
         case "d": return 2
@@ -1969,7 +2007,15 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
-        key == "space" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+        key == "space" || key == "pageup" || key == "pagedown" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+    }
+
+    private static func isPageShortcutKey(_ key: String) -> Bool {
+        key == "pageup" || key == "pagedown"
+    }
+
+    private static func isArrowShortcutKey(_ key: String) -> Bool {
+        key == "←" || key == "→" || key == "↓" || key == "↑"
     }
 
     private static func functionKeyDisplayString(for key: String) -> String? {
@@ -2041,7 +2087,7 @@ struct ShortcutStroke: Equatable, Hashable {
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17,
         18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
         33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
-        50, 123, 124, 125, 126,
+        50, 116, 121, 123, 124, 125, 126,
     ]
 }
 
@@ -2348,6 +2394,10 @@ extension ShortcutStroke {
             return "\r"
         case "space", "spacebar", "<space>":
             return "space"
+        case "pageup", "page-up", "page_up", "pgup", "pg-up", "pg_up":
+            return "pageup"
+        case "pagedown", "page-down", "page_down", "pgdn", "pg-dn", "pg_dn", "pgdown", "pg-down", "pg_down":
+            return "pagedown"
         case "comma":
             return ","
         case "period", "dot":

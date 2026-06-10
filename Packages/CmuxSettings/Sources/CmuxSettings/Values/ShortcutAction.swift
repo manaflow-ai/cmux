@@ -61,6 +61,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case reopenClosedBrowserPanel
     case newSurface
     case toggleTerminalCopyMode
+    case scrollbackPageUp
+    case scrollbackPageDown
+    case scrollbackLineUp
+    case scrollbackLineDown
     case focusTextBoxInput
     case attachTextBoxFile
 
@@ -141,6 +145,7 @@ extension ShortcutAction {
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
+             .scrollbackPageUp, .scrollbackPageDown, .scrollbackLineUp, .scrollbackLineDown,
              .focusTextBoxInput, .attachTextBoxFile:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
@@ -205,6 +210,10 @@ extension ShortcutAction {
         case .reopenClosedBrowserPanel: return "Reopen Last Closed"
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
+        case .scrollbackPageUp: return String(localized: "shortcut.scrollbackPageUp.displayName", defaultValue: "Scrollback Page Up")
+        case .scrollbackPageDown: return String(localized: "shortcut.scrollbackPageDown.displayName", defaultValue: "Scrollback Page Down")
+        case .scrollbackLineUp: return String(localized: "shortcut.scrollbackLineUp.displayName", defaultValue: "Scrollback Line Up")
+        case .scrollbackLineDown: return String(localized: "shortcut.scrollbackLineDown.displayName", defaultValue: "Scrollback Line Down")
         case .focusTextBoxInput: return "Focus TextBox Input"
         case .attachTextBoxFile: return "Attach File to TextBox Input"
         case .focusLeft: return "Focus Pane Left"

@@ -123,6 +123,17 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .nonBrowserPanel)
     }
 
+    func testScrollbackShortcutsAreScopedOutsideBrowserPanels() {
+        for action in [
+            KeyboardShortcutSettings.Action.scrollbackPageUp,
+            .scrollbackPageDown,
+            .scrollbackLineUp,
+            .scrollbackLineDown,
+        ] {
+            XCTAssertEqual(action.shortcutContext, .nonBrowserPanel)
+        }
+    }
+
     func testRightSidebarContextIsOnlyAvailableWhenRightSidebarHasFocus() {
         let context = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext
 

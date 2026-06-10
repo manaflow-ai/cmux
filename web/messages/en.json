@@ -1381,6 +1381,9 @@
       "daemonPath": "The daemon binary is stored at ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote on the remote host and verified against a SHA-256 manifest embedded in the app."
     },
     "changelog": {
+      "items": {
+        "scrollbackShortcuts": "Configurable terminal scrollback shortcuts for page up/down and line up/down, with Shift+Page Up and Shift+Page Down defaults; line scrolling is configurable but unbound by default so shells can receive Shift+Up/Down."
+      },
       "title": "Changelog",
       "metaTitle": "Changelog",
       "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal."

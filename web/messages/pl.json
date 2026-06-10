@@ -1141,6 +1141,9 @@
       "relatedCustomCommands": "Niestandardowe polecenia"
     },
     "changelog": {
+      "items": {
+        "scrollbackShortcuts": "Konfigurowalne skróty przewijania historii terminala o stronę w górę/dół i o wiersz w górę/dół, z domyślnymi Shift+Page Up i Shift+Page Down; przewijanie o wiersz jest konfigurowalne, ale domyślnie nieprzypisane, aby powłoki mogły odbierać Shift+Up/Down."
+      },
       "title": "Dziennik zmian",
       "metaDescription": "Notatki wydań i historia wersji cmux. Nowe funkcje, poprawki błędów i zmiany dla natywnego terminala macOS.",
       "metaTitle": "Historia zmian"
