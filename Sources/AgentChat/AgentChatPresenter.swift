@@ -32,7 +32,11 @@ struct AgentChatPresenter {
             presentNoSessionAlert()
             return
         }
-        resolveThenPresent(workspaceId: workspace.id, panelId: panelId) { resolution in
+        resolveThenPresent(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            resumeBinding: workspace.surfaceResumeBinding(panelId: panelId)
+        ) { resolution in
             AgentChatWindowController.shared.present(for: resolution)
         }
     }
@@ -52,7 +56,11 @@ struct AgentChatPresenter {
         anchorTabId: TabID,
         paneId: PaneID
     ) {
-        resolveThenPresent(workspaceId: workspace.id, panelId: panelId) { [weak workspace] resolution in
+        resolveThenPresent(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            resumeBinding: workspace.surfaceResumeBinding(panelId: panelId)
+        ) { [weak workspace] resolution in
             workspace?.openAgentChatTab(
                 resolution: resolution,
                 anchorTabId: anchorTabId,
@@ -63,9 +71,14 @@ struct AgentChatPresenter {
 
     /// Resolves a panel's transcript off-main, then either runs `present` with
     /// the resolution or shows the no-session alert, on the main actor.
+    ///
+    /// The `resumeBinding` is captured on the main actor by the caller and lets
+    /// the resolver fall back to it when the live session index has no entry
+    /// (a terminal restored after an app relaunch).
     private func resolveThenPresent(
         workspaceId: UUID,
         panelId: UUID,
+        resumeBinding: SurfaceResumeBindingSnapshot?,
         present: @escaping @MainActor (AgentChatTranscriptResolver.Resolution) -> Void
     ) {
         let resolver = resolver
@@ -74,7 +87,12 @@ struct AgentChatPresenter {
             // the main actor, then present on the main actor.
             let resolution = await Task.detached(priority: .userInitiated) {
                 let index = RestorableAgentSessionIndex.load()
-                return resolver.resolve(index: index, workspaceId: workspaceId, panelId: panelId)
+                return resolver.resolve(
+                    index: index,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    resumeBinding: resumeBinding
+                )
             }.value
 
             guard let resolution else {
