@@ -11502,14 +11502,36 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         window?.makeFirstResponder(self)
         ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, noMods)
+        // Press Cmd as a modifier key event, like flagsChanged does for a real
+        // keypress. Ghostty only refreshes link state under a stationary
+        // pointer through this mods-changed key path — a same-cell mouse_pos
+        // with new mods is ignored — and without the refresh the click is
+        // latched as starting off-link and never opens the OSC 8 target.
+        _ = sendGhosttyKey(surface, debugCommandModifierKeyEvent(action: GHOSTTY_ACTION_PRESS, mods: commandMods))
         ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, commandMods)
         let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, commandMods)
         let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, commandMods)
+        _ = sendGhosttyKey(surface, debugCommandModifierKeyEvent(action: GHOSTTY_ACTION_RELEASE, mods: noMods))
 
         return [
             "pressHandled": pressHandled ? "1" : "0",
             "releaseConsumed": releaseConsumed ? "1" : "0",
         ]
+    }
+
+    private func debugCommandModifierKeyEvent(
+        action: ghostty_input_action_e,
+        mods: ghostty_input_mods_e
+    ) -> ghostty_input_key_s {
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = action
+        keyEvent.keycode = UInt32(kVK_Command)
+        keyEvent.mods = mods
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.text = nil
+        keyEvent.composing = false
+        keyEvent.unshifted_codepoint = 0
+        return keyEvent
     }
 #endif
 
