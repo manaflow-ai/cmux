@@ -6619,12 +6619,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
         }
 
-        // Shell integration: inject startup wrappers for supported shells.
-        // Skipped entirely when the bundled dir is gone (e.g. the app bundle
-        // was deleted while running) so the spawn environment never advertises
-        // a missing CMUX_SHELL_INTEGRATION_DIR and the shell starts vanilla.
-        let shellIntegrationEnabled = UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true
-        if shellIntegrationEnabled,
+        // Shell integration: inject startup wrappers for supported shells; skipped when the bundled dir is missing (deleted app bundle), see shellIntegrationDirectoryExists.
+        if UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path,
            Self.shellIntegrationDirectoryExists(integrationDir) {
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION", "1")
