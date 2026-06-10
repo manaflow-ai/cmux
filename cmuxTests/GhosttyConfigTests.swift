@@ -4544,8 +4544,10 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     // Regression: https://github.com/manaflow-ai/cmux/issues/3459
     // `cmux themes set --light X` encodes `theme = light:X`, which ghostty treats
-    // as conditional config. cmux must still inject the resolved plain theme.
-    func testConditionalThemeOverrideResolvesLightOnlyConditionalTheme() throws {
+    // as conditional config. cmux injects the resolved plain theme for the
+    // explicitly named light side, but must NOT force it onto dark appearances
+    // (the dark side is unset and should keep the inherited/default dark theme).
+    func testConditionalThemeOverrideResolvesExplicitSideOnlyForOneSidedTheme() throws {
         try withTempConfig("theme = light:Catppuccin Latte\n") { path in
             XCTAssertEqual(
                 GhosttyApp.conditionalThemeOverrideConfigContents(
@@ -4554,12 +4556,31 @@ final class GhosttyMouseFocusTests: XCTestCase {
                 ),
                 "theme = Catppuccin Latte"
             )
+            XCTAssertNil(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path]
+                )
+            )
+        }
+    }
+
+    // Regression: https://github.com/manaflow-ai/cmux/issues/3459
+    // Mirror of the one-sided case for `theme = dark:Y` (only the dark side set).
+    func testConditionalThemeOverrideResolvesExplicitSideOnlyForDarkOnlyTheme() throws {
+        try withTempConfig("theme = dark:Catppuccin Mocha\n") { path in
             XCTAssertEqual(
                 GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
                     configPaths: [path]
                 ),
-                "theme = Catppuccin Latte"
+                "theme = Catppuccin Mocha"
+            )
+            XCTAssertNil(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .light,
+                    configPaths: [path]
+                )
             )
         }
     }

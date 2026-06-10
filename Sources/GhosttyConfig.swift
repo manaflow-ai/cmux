@@ -809,12 +809,25 @@ struct GhosttyConfig {
         return rawThemeValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Returns true when the raw `theme` value uses ghostty's conditional
-    /// `light:...`/`dark:...` syntax. cmux must resolve and inject a plain
-    /// `theme = X` override for these values because ghostty mis-applies the
-    /// conditional form (background lands but the foreground/palette stay at the
-    /// default colors). See https://github.com/manaflow-ai/cmux/issues/3459.
-    static func themeValueUsesConditionalThemeSyntax(_ rawThemeValue: String) -> Bool {
+    /// Returns the theme name that the raw `theme` value *explicitly* assigns to
+    /// `preferredColorScheme` via ghostty's conditional `light:...`/`dark:...`
+    /// syntax, or `nil` when that side is not conditionally specified.
+    ///
+    /// Unlike ``resolveThemeName(from:preferredColorScheme:)``, this performs no
+    /// cross-side fallback: `light:X` (with no `dark:` token) returns `X` for
+    /// `.light` and `nil` for `.dark`. cmux injects a resolved plain `theme = X`
+    /// override only for explicitly specified sides, because ghostty mis-applies
+    /// the conditional form (the background lands but the foreground/palette stay
+    /// at the default colors — see
+    /// https://github.com/manaflow-ai/cmux/issues/3459). Injecting for an unset
+    /// side would clobber the user's inherited/default theme for that appearance.
+    static func explicitConditionalThemeName(
+        from rawThemeValue: String,
+        preferredColorScheme: ColorSchemePreference
+    ) -> String? {
+        var lightTheme: String?
+        var darkTheme: String?
+
         for token in rawThemeValue.split(separator: ",").map(String.init) {
             let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !entry.isEmpty else { continue }
@@ -824,11 +837,24 @@ struct GhosttyConfig {
 
             let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            if (key == "light" || key == "dark"), !value.isEmpty {
-                return true
+            guard !value.isEmpty else { continue }
+
+            switch key {
+            case "light":
+                if lightTheme == nil { lightTheme = value }
+            case "dark":
+                if darkTheme == nil { darkTheme = value }
+            default:
+                continue
             }
         }
-        return false
+
+        switch preferredColorScheme {
+        case .light:
+            return lightTheme
+        case .dark:
+            return darkTheme
+        }
     }
 
     static func themeValueUsesSameResolvedThemeInBothColorSchemes(_ rawThemeValue: String) -> Bool {
