@@ -5316,15 +5316,19 @@ private func recordAgentHibernationTerminalInput(
     }
 }
 
-/// Whether input text submits or clears the shell's editable command line:
-/// return/newline runs it, ^C aborts it, ^D sends EOF, ^U kills the line.
-/// Anything else may leave typed text pending at the prompt, which surface
-/// hibernation must not discard.
+/// Whether input text leaves the shell's editable command line settled:
+/// return/newline runs it, ^C aborts it, ^D sends EOF, ^U kills the line —
+/// but only when nothing follows the last such character. A payload like
+/// "echo ok\npartial" runs the first command and leaves "partial" editable
+/// at the next prompt, which surface hibernation must not discard.
 private func terminalInputSettlesCommandLine(_ text: String) -> Bool {
-    text.contains { character in
+    guard let lastSettlingIndex = text.lastIndex(where: { character in
         character == "\r" || character == "\n" ||
             character == "\u{03}" || character == "\u{04}" || character == "\u{15}"
+    }) else {
+        return false
     }
+    return text[text.index(after: lastSettlingIndex)...].isEmpty
 }
 
 final class TerminalSurface: Identifiable, ObservableObject {
