@@ -102,6 +102,40 @@ import Testing
 
         #expect(await fixture.playOutcome() == true)
     }
+
+    // The out-of-band fallback (direct NSSound) fires exactly when the OS
+    // will not deliver the banner. A user who explicitly denied cmux
+    // notifications asked for silence, so the fallback sound is stripped for
+    // .denied - and only for .denied: fresh installs and granted states keep
+    // the audible fallback, and non-sound effects are never touched.
+
+    @Test func deniedAuthorizationStripsFallbackSound() {
+        var effects = TerminalNotificationPolicyEffects()
+        effects.sound = true
+        let denied = TerminalNotificationStore.fallbackEffects(effects, authorizationState: .denied)
+        #expect(!denied.sound)
+    }
+
+    @Test func deniedAuthorizationLeavesOtherEffectsIntact() {
+        var effects = TerminalNotificationPolicyEffects()
+        effects.sound = true
+        let denied = TerminalNotificationStore.fallbackEffects(effects, authorizationState: .denied)
+        #expect(denied.command == effects.command)
+        #expect(denied.record == effects.record)
+        #expect(denied.desktop == effects.desktop)
+        #expect(denied.markUnread == effects.markUnread)
+    }
+
+    @Test func otherAuthorizationStatesKeepFallbackSound() {
+        var effects = TerminalNotificationPolicyEffects()
+        effects.sound = true
+        let states: [NotificationAuthorizationState] = [
+            .notDetermined, .unknown, .authorized, .provisional, .ephemeral,
+        ]
+        for state in states {
+            #expect(TerminalNotificationStore.fallbackEffects(effects, authorizationState: state).sound)
+        }
+    }
 }
 
 /// Drives `playSelectedSound` against a scratch assertion store and scratch
