@@ -3380,6 +3380,12 @@ struct CMUXCLI {
                     print("Already signed in\(email.map { " as \($0)" } ?? ""). Use `cmux auth logout` to sign out first.")
                     break
                 }
+                if let signInURLResponse = try? client.sendV2(method: "auth.sign_in_url"),
+                   let signInURL = signInURLResponse["url"] as? String,
+                   !signInURL.isEmpty {
+                    print("Fallback sign-in URL:")
+                    print(signInURL)
+                }
                 print("Opening sign-in popup on the cmux web app.")
                 // auth.begin_sign_in blocks on the server side until the
                 // popup completes (or 5min timeout). The response is the

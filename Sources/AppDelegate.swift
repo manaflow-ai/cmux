@@ -1159,7 +1159,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        #if DEBUG
+        AuthDebugLog().log("auth.openURLs.received count=\(urls.count) summaries=\(urls.map(Self.authURLDebugSummary).joined(separator: "|"))")
+        #endif
         if handleCmuxExternalURLs(from: urls) {
+            #if DEBUG
+            AuthDebugLog().log("auth.openURLs.handledByExternalRoutes count=\(urls.count)")
+            #endif
             return
         }
 
@@ -1167,6 +1173,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // (built-in cmux schemes) so dropped callbacks are still detected.
         let callbackRouter = auth?.callbackRouter ?? AuthCallbackRouter()
         let authCallbacks = urls.filter(callbackRouter.isAuthCallbackURL)
+        #if DEBUG
+        AuthDebugLog().log("auth.openURLs.authCallbacks count=\(authCallbacks.count)")
+        #endif
         if let browserSignIn = auth?.browserSignIn {
             for url in authCallbacks {
                 Task { @MainActor in
@@ -1209,6 +1218,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
     }
+
+    #if DEBUG
+    private static func authURLDebugSummary(_ url: URL) -> String {
+        let scheme = url.scheme ?? "nil"
+        let target = url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.map(\.name).joined(separator: ",") ?? ""
+        return "\(scheme):\(target.isEmpty ? "nil" : target):\(queryItems.isEmpty ? "none" : queryItems)"
+    }
+    #endif
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if hasVisibleMainTerminalWindow() {
@@ -12445,7 +12463,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             clearConfiguredShortcutChordState()
             return false
         }
-        guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
+        // A recorder being armed must suppress every app-level shortcut so the
+        // keystroke reaches it to be rebound. The legacy in-app recorder signals
+        // this via `KeyboardShortcutRecorderActivity`; the live Settings UI uses
+        // the `CmuxSettingsUI` package recorder, which publishes its own armed
+        // flag (it cannot reach the app-target activity type). Honor both — or
+        // the numbered ⌃/⌘1–9 handler below silently eats keystrokes mid-record
+        // and the recorder never captures (issue #5189).
+        guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive,
+              !RecorderHostButton.isActivelyRecording else {
             clearConfiguredShortcutChordState()
             return false
         }
@@ -12842,7 +12868,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        if let mode = RightSidebarMode.modeShortcut(for: event),
+        if let mode = rightSidebarModeShortcut(for: event),
            let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
            shouldRouteRightSidebarModeShortcut(in: rightSidebarWindow) {
             _ = focusRightSidebarInActiveMainWindow(
@@ -12919,9 +12945,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
-            let focusContext = shortcutEventFocusContext(event)
+            let shortcutContext = shortcutEventFocusContext(event).shortcutContext
             let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
-                action.shortcutContext.isAlwaysAvailable || action.shortcutContext.isAvailable(focusContext)
+                // Arm by the effective `when` clause (its shortcuts.when override or
+                // the built-in context default), matching the keyDown gate, so a
+                // `when`-broadened chord arms in its allowed context and a narrowed
+                // one does not swallow its first stroke elsewhere (issue #5189).
+                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext)
             }
             if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
                 return true
@@ -13302,7 +13332,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Numeric shortcuts for specific workspaces (9 = last workspace)
         // Always consume the event when the digit matches to prevent Ghostty's
         // goto_tab fallback from creating a new window when the index is out of bounds.
-        if let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
+        if shortcutWhenClauseAllows(action: .selectWorkspaceByNumber, event: event),
+           let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
             if let manager = tabManager,
                let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
 #if DEBUG
@@ -13316,7 +13347,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Numeric shortcuts for surfaces within the focused pane (9 = last)
-        if let digit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
+        if shortcutWhenClauseAllows(action: .selectSurfaceByNumber, event: event),
+           let digit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
             if digit == 9 {
                 tabManager?.selectLastSurface()
             } else {
@@ -14726,8 +14758,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
-        if !action.shortcutContext.isAlwaysAvailable && !action.shortcutContext.isAvailable(shortcutEventFocusContext(event)) { return false }
+        if !shortcutWhenClauseAllows(action: action, event: event) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
+    }
+
+    /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
+    /// or its built-in context default) is satisfied by the event's focus state.
+    /// Gates every focus-scoped shortcut, including the numbered workspace/surface
+    /// handlers that previously ignored context (issue #5189).
+    func shortcutWhenClauseAllows(action: KeyboardShortcutSettings.Action, event: NSEvent) -> Bool {
+        KeyboardShortcutSettings.effectiveWhenClause(for: action)
+            .evaluate(shortcutEventFocusContext(event).shortcutContext)
+    }
+
+    /// Resolves a right-sidebar mode shortcut after applying the action's
+    /// effective `when` clause.
+    func rightSidebarModeShortcut(for event: NSEvent) -> RightSidebarMode? {
+        RightSidebarMode.modeShortcut(for: event) { [self] action in
+            shortcutWhenClauseAllows(action: action, event: event)
+        }
     }
 
     fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {
@@ -14761,6 +14810,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         arrowGlyph: String,
         arrowKeyCode: UInt16
     ) -> Bool {
+        guard shortcutWhenClauseAllows(action: action, event: event) else {
+            return false
+        }
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
         guard !shortcut.isUnbound else { return false }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
@@ -15089,6 +15141,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func shouldSuppressStaleCmuxMenuShortcut(event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
+        // While a Settings recorder is armed, every keystroke must reach it to be
+        // captured — including a remapped-away default like the old ⌘1 the user is
+        // trying to record. Suppressing the stale menu shortcut here would consume
+        // that keystroke before `RecorderHostButton.performKeyEquivalent` sees it,
+        // so stand down for both recorders (issue #5189).
+        if KeyboardShortcutRecorderActivity.isAnyRecorderActive || RecorderHostButton.isActivelyRecording {
+            return false
+        }
         if event.window is NSPanel || NSApp.keyWindow is NSPanel || NSApp.modalWindow != nil || NSApp.keyWindow?.attachedSheet != nil {
             return false
         }
@@ -17154,7 +17214,7 @@ private extension NSWindow {
             }
             return false
         }
-        if let mode = RightSidebarMode.modeShortcut(for: event),
+        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event),
            AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                 mode: mode,
