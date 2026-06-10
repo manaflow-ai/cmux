@@ -5300,6 +5300,94 @@ enum CmdClickSupportedFileRouteSettings {
     }
 }
 
+/// Routes Cmd-clicked files of selected extensions into a terminal editor
+/// (e.g. nvim, vim, helix) opened in a new full-pane terminal tab, instead of
+/// the built-in file preview. The editor runs inside a Ghostty-backed pane using
+/// the user's login shell, so TUI editors get a real TTY and the user's PATH.
+///
+/// The feature is opt-in: it stays inert until `terminalEditorExtensions` lists
+/// at least one extension. List specific extensions (e.g. `rs, ts, py`), or the
+/// special `*` token to open every file in the terminal editor except cmux's
+/// native preview types (Markdown, PDF, images, audio, video — see
+/// `cmuxNativePreviewExtensions`), which keep their cmux viewers.
+enum CmdClickTerminalEditorRouteSettings {
+    static let commandKey = "terminalEditorCommand"
+    static let extensionsKey = "terminalEditorExtensions"
+    static let defaultCommand = "nvim"
+
+    /// The editor command to launch (e.g. "nvim", "vim -R", "hx"). Falls back to
+    /// `defaultCommand` when the key is unset; an explicitly blank value disables
+    /// the route (mirrors `preferredEditorCommand` semantics).
+    static func resolvedCommand(defaults: UserDefaults = .standard) -> String? {
+        guard let stored = defaults.string(forKey: commandKey) else { return defaultCommand }
+        let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Lowercased, dot-stripped set of extensions routed to the terminal editor.
+    /// Stored as a newline-joined string (see the settings file store); also
+    /// tolerates comma/semicolon/space separators when set via raw defaults.
+    static func extensions(defaults: UserDefaults = .standard) -> Set<String> {
+        guard let stored = defaults.string(forKey: extensionsKey) else { return [] }
+        let separators = CharacterSet(charactersIn: "\n,; ")
+        var result: Set<String> = []
+        for token in stored.components(separatedBy: separators) {
+            let ext = token
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+                .lowercased()
+            if !ext.isEmpty { result.insert(ext) }
+        }
+        return result
+    }
+
+    /// File types that always keep their cmux built-in viewers and are therefore
+    /// excluded from the `*` (all-files) wildcard: Markdown, PDF, images, audio,
+    /// and video. Listing one of these extensions explicitly still routes it to
+    /// the terminal editor.
+    static let cmuxNativePreviewExtensions: Set<String> = [
+        "md", "markdown", "mkd", "mdx",
+        "pdf",
+        "png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif", "webp", "heic", "heif", "svg", "ico", "icns", "avif",
+        "mp4", "mov", "m4v", "webm", "mkv", "avi",
+        "mp3", "wav", "aac", "flac", "m4a", "ogg", "opus", "aiff",
+    ]
+
+    /// True when `path` should route to the terminal editor. A literal extension
+    /// match always wins; the special `*` token matches every file except
+    /// `cmuxNativePreviewExtensions`, so md/pdf/images/audio/video keep their cmux
+    /// viewers while everything else (code, text, config, extension-less) opens in
+    /// the terminal editor.
+    static func matchesExtension(_ path: String, defaults: UserDefaults = .standard) -> Bool {
+        let configured = extensions(defaults: defaults)
+        guard !configured.isEmpty else { return false }
+        let ext = (path as NSString).pathExtension.lowercased()
+        if !ext.isEmpty, configured.contains(ext) { return true }
+        if configured.contains("*") { return !cmuxNativePreviewExtensions.contains(ext) }
+        return false
+    }
+
+    /// Cheap, off-main-thread-safe gate used by the command-click router. Only
+    /// routes real, readable files (rejects FIFOs, sockets, broken symlinks),
+    /// matching the markdown/file-preview routes.
+    static func shouldRoute(path: String, defaults: UserDefaults = .standard) -> Bool {
+        guard resolvedCommand(defaults: defaults) != nil,
+              matchesExtension(path, defaults: defaults) else { return false }
+        return CmdClickSupportedFileRouteSettings.isReadableRegularFile(path: path)
+    }
+
+    /// The shell input that launches the editor on `path`, ready to be typed
+    /// into a login shell (caller appends the newline that runs it).
+    static func editorInvocation(forFile path: String, defaults: UserDefaults = .standard) -> String? {
+        guard let command = resolvedCommand(defaults: defaults) else { return nil }
+        return "\(command) \(shellQuote(path))"
+    }
+
+    private static func shellQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
 enum PreferredEditorSettings {
     static let key = "preferredEditorCommand"
 

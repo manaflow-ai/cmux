@@ -3,7 +3,8 @@ import Foundation
 
 enum CommandClickFileOpenRouter {
     nonisolated static func shouldRouteInCmux(path: String) -> Bool {
-        CmdClickMarkdownRouteSettings.shouldRoute(path: path)
+        CmdClickTerminalEditorRouteSettings.shouldRoute(path: path)
+            || CmdClickMarkdownRouteSettings.shouldRoute(path: path)
             || CmdClickSupportedFileRouteSettings.shouldRoute(path: path)
     }
 
@@ -13,6 +14,15 @@ enum CommandClickFileOpenRouter {
         sourcePanelId: UUID,
         filePath: String
     ) -> Bool {
+        // Checked first: an extension listed in `terminalEditorExtensions` is an
+        // explicit user override that wins over the markdown/file-preview routes
+        // (so listing "md" opens nvim instead of the markdown viewer). The route
+        // is inert until the user lists extensions, so defaults are unchanged.
+        if CmdClickTerminalEditorRouteSettings.shouldRoute(path: filePath),
+           workspace.openTerminalEditorTab(from: sourcePanelId, filePath: filePath) != nil {
+            return true
+        }
+
         if CmdClickMarkdownRouteSettings.shouldRoute(path: filePath),
            workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
             return true

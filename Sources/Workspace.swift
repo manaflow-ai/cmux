@@ -18048,6 +18048,55 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    /// Open `filePath` in a terminal editor (e.g. nvim) in a new full-pane tab in
+    /// the source panel's pane — matching the built-in file-preview behavior. The
+    /// editor command is delivered as input to the new tab's login shell — never as
+    /// the surface's primary process — so the user's PATH and shell environment are
+    /// available and the tab returns to a prompt when the editor exits. Returns the
+    /// new panel, or nil when the route is disabled or the source pane can't be
+    /// resolved (the caller then falls back to the external preferred-editor opener).
+    @discardableResult
+    func openTerminalEditorTab(from panelId: UUID, filePath: String) -> TerminalPanel? {
+        guard let invocation = CmdClickTerminalEditorRouteSettings.editorInvocation(forFile: filePath) else {
+            return nil
+        }
+
+        // Resolve the pane that owns the source panel (mirrors newTerminalSplit).
+        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
+        var sourcePaneId: PaneID?
+        for paneId in bonsplitController.allPaneIds {
+            if bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == sourceTabId }) {
+                sourcePaneId = paneId
+                break
+            }
+        }
+        guard let paneId = sourcePaneId else { return nil }
+
+        // Inherit the source panel's working directory so the editor opens with
+        // the right project context.
+        let workingDirectory: String? = {
+            if let dir = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !dir.isEmpty {
+                return dir
+            }
+            if let dir = terminalPanel(for: panelId)?
+                .requestedWorkingDirectory?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !dir.isEmpty {
+                return dir
+            }
+            let dir = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            return dir.isEmpty ? nil : dir
+        }()
+
+        return newTerminalSurface(
+            inPane: paneId,
+            focus: true,
+            workingDirectory: workingDirectory,
+            initialInput: invocation + "\n"
+        )
+    }
+
     /// Split `paneId` and place a brand-new terminal in the resulting pane.
     /// Used by the session-index drop path; mirrors `newTerminalSplit(from:...)` but
     /// targets a destination pane directly rather than inheriting from a source panel.

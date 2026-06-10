@@ -33,6 +33,8 @@ public struct AppSection: View {
     @State private var firstClick: DefaultsValueModel<Bool>
     @State private var fileDrop: DefaultsValueModel<FileDropDefaultBehavior>
     @State private var preferredEditor: DefaultsValueModel<String>
+    @State private var terminalEditorCommand: DefaultsValueModel<String>
+    @State private var terminalEditorExtensions: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
     @State private var markdownFontSize: DefaultsValueModel<Int>
@@ -77,6 +79,8 @@ public struct AppSection: View {
         _firstClick = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusPaneOnFirstClick))
         _fileDrop = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileDropDefaultBehavior))
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
+        _terminalEditorCommand = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.terminalEditorCommand))
+        _terminalEditorExtensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.terminalEditorExtensions))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
@@ -273,6 +277,36 @@ public struct AppSection: View {
                 TextField(
                     String(localized: "settings.app.preferredEditor.placeholder", defaultValue: "e.g. code, zed, subl"),
                     text: Binding(get: { preferredEditor.current }, set: { preferredEditor.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+            }
+            SettingsCardDivider()
+
+            // Terminal Editor Command
+            SettingsCardRow(
+                configurationReview: .json("app.terminalEditorCommand"),
+                String(localized: "settings.app.terminalEditorCommand", defaultValue: "Terminal Editor"),
+                subtitle: String(localized: "settings.app.terminalEditorCommand.subtitle", defaultValue: "Command used to open the file types listed below. Runs in a new terminal tab using your login shell, so TUI editors like nvim, vim, or helix get a real TTY and your PATH. Leave empty to disable.")
+            ) {
+                TextField(
+                    String(localized: "settings.app.terminalEditorCommand.placeholder", defaultValue: "e.g. nvim, vim, hx"),
+                    text: Binding(get: { terminalEditorCommand.current }, set: { terminalEditorCommand.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+            }
+            SettingsCardDivider()
+
+            // Terminal Editor File Types
+            SettingsCardRow(
+                configurationReview: .json("app.terminalEditorExtensions"),
+                String(localized: "settings.app.terminalEditorExtensions", defaultValue: "Terminal Editor File Types"),
+                subtitle: String(localized: "settings.app.terminalEditorExtensions.subtitle", defaultValue: "Comma- or space-separated extensions (e.g. rs, ts, py) that Cmd-click opens in the terminal editor instead of the built-in preview. Use * for all files except Markdown, PDF, images, audio, and video.")
+            ) {
+                TextField(
+                    String(localized: "settings.app.terminalEditorExtensions.placeholder", defaultValue: "e.g. rs, ts, py — or * for all"),
+                    text: Binding(get: { terminalEditorExtensions.current }, set: { terminalEditorExtensions.set($0) })
                 )
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
