@@ -196,18 +196,24 @@ final class AgentHibernationController {
         timer.setEventHandler {
             let now = Date()
             Task.detached(priority: .utility) {
-                let agentSettings = AgentHibernationSettings.values()
-                let surfaceSettings = SurfaceHibernationSettings.values()
-                guard agentSettings.enabled || surfaceSettings.enabled else { return }
+                guard AgentHibernationSettings.isEnabled() || SurfaceHibernationSettings.isEnabled() else {
+                    return
+                }
                 // The full index load is an expensive disk/process scan that
                 // only the opt-in agent mechanism needs. Surface-only ticks
                 // still recognize restored agent panels through the in-memory
                 // workspace snapshots and protect running agents via the busy
                 // gates instead.
-                let index = agentSettings.enabled
+                let index = AgentHibernationSettings.isEnabled()
                     ? await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
                     : .empty
                 await MainActor.run {
+                    // Re-read on the main actor: the user may have disabled
+                    // hibernation while the index load was in flight, and a
+                    // stale enabled snapshot must not reach evaluate.
+                    let agentSettings = AgentHibernationSettings.values()
+                    let surfaceSettings = SurfaceHibernationSettings.values()
+                    guard agentSettings.enabled || surfaceSettings.enabled else { return }
                     AgentHibernationController.shared.evaluate(
                         index: index,
                         agentSettings: agentSettings,

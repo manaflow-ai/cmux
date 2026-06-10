@@ -21729,7 +21729,9 @@ class TerminalController {
         #if DEBUG
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif
-        let sendResult = terminalPanel.surface.sendInputResult(text)
+        // Send through the panel so a hibernated surface restores and queues
+        // instead of reporting surfaceUnavailable.
+        let sendResult = terminalPanel.sendInputResult(text)
         switch sendResult {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalInput")
@@ -21788,7 +21790,9 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
         }
 
-        let sendResult = terminalPanel.surface.sendInputResult(escapedPath)
+        // Send through the panel so a hibernated surface restores and queues
+        // instead of reporting surfaceUnavailable.
+        let sendResult = terminalPanel.sendInputResult(escapedPath)
         switch sendResult {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPasteImage")
