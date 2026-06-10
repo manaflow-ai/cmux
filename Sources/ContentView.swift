@@ -10733,20 +10733,14 @@ struct VerticalTabsSidebar: View {
         ]
         if let description = workspace.customDescription, !description.isEmpty { fields["description"] = .string(description) }
         if let color = workspace.customColor, !color.isEmpty { fields["color"] = .string(color) }
-        if let git = workspace.gitBranch {
+        if let git = workspace.sidebarGitBranchesInDisplayOrder().first {
             fields["branch"] = .string(git.branch)
             fields["dirty"] = .bool(git.isDirty)
         }
-        if let pr = workspace.pullRequest {
-            var prFields: [String: SwiftValue] = [
-                "number": .int(pr.number),
-                "label": .string(pr.label),
-                "url": .string(pr.url.absoluteString),
-                "status": .string(pr.status.rawValue),
-                "stale": .bool(pr.isStale),
-            ]
-            if let prBranch = pr.branch { prFields["branch"] = .string(prBranch) }
-            fields["pr"] = .object(prFields)
+        let pullRequestValues = workspace.customSidebarPullRequestValues()
+        if let firstPullRequest = pullRequestValues.first {
+            fields["pr"] = firstPullRequest
+            fields["prs"] = .array(pullRequestValues)
         }
         if let progress = workspace.progress {
             var progressFields: [String: SwiftValue] = ["value": .double(progress.value)]
@@ -11874,7 +11868,7 @@ struct VerticalTabsSidebar: View {
             isPinned: workspace.isPinned,
             rootPath: rootPath,
             projectRootPath: workspace.extensionSidebarProjectRootPath,
-            branchSummary: workspace.gitBranch?.branch,
+            branchSummary: workspace.sidebarGitBranchesInDisplayOrder().first?.branch,
             remoteDisplayTarget: workspace.remoteDisplayTarget,
             remoteConnectionState: workspace.remoteConnectionState.rawValue,
             unreadCount: notificationStore.unreadCount(forTabId: workspace.id),
