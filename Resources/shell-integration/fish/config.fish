@@ -29,6 +29,21 @@ if test "$_cmux_integration_enabled" != 0
         end
     end
 
+    # Replay restored scrollback (session restore and surface hibernation)
+    # exactly once, then remove the one-shot file. Mirrors the zsh/bash
+    # integrations.
+    function _cmux_restore_scrollback_once
+        set -l restore_path "$CMUX_RESTORE_SCROLLBACK_FILE"
+        set -e CMUX_RESTORE_SCROLLBACK_FILE
+        test -n "$restore_path"; or return 0
+        if test -r "$restore_path"
+            command /bin/cat -- "$restore_path" 2>/dev/null
+            command /bin/rm -f -- "$restore_path" >/dev/null 2>&1
+        end
+        return 0
+    end
+    _cmux_restore_scrollback_once
+
     function _cmux_socket_is_unix
         test -n "$CMUX_SOCKET_PATH"; and test -S "$CMUX_SOCKET_PATH"
     end
