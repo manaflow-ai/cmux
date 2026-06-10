@@ -77,7 +77,9 @@ Then right-click the sidebar button and choose **mine**.
   (array of Int) + `portCount`, `unread` (Int notifications), `tabs` + `tabCount`.
   Present when the workspace has them (use `if let` / ternary): `description`,
   `color` (hex), `branch` + `dirty` (Bool) from git, `pr`
-  (`{ number, label, url, status: open|merged|closed, stale, branch }`),
+  (`{ number, label, url, status: open|merged|closed, stale, branch }`, the
+  workspace's first pull request in sidebar display order) + `prs` (array of
+  the same shape with every pull request cmux knows for the workspace),
   `progress` (`{ value: 0..1, label }`), `latestMessage` (last agent message),
   `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
   (`{ target, state, connected }`).
