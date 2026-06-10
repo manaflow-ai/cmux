@@ -103,7 +103,12 @@ public struct MobileLocalScrollEngine: Sendable {
     /// lands on the same content rows. Armed when a fetch response is classified
     /// (``noteFullSnapshot(scrollbackRows:)``), consumed by
     /// ``consumeSnapRequest()`` so the snap, the snapshot apply, and the restore
-    /// run back-to-back in `process_output` order. Cold-attach snapshots clear
+    /// run back-to-back in `process_output` order. The caller delivers a frame's
+    /// metadata and bytes as ONE ordered stream element (see
+    /// `MobileTerminalOutputChunk`), so the arm and the consume happen within
+    /// one synchronous apply: the restore is structurally consumed by the fetch
+    /// snapshot's own apply, never by an interleaved live frame, and cannot go
+    /// stale across a gesture. Cold-attach snapshots clear
     /// it (content may have changed wholesale; snapping to live is correct).
     private var pendingRestoreUpRows: Double?
 
@@ -136,12 +141,13 @@ public struct MobileLocalScrollEngine: Sendable {
     /// bouncing on a re-fetch. A genuinely larger snapshot (or a fresh cold
     /// attach that is not a fetch response) clears that ceiling.
     ///
-    /// Deliberately does NOT touch ``upRowsExact``: metadata rides a separate
-    /// stream from the snapshot's bytes, so zeroing the offset here could race
-    /// ahead of the bytes and suppress the snap-to-live the caller dispatches
-    /// (in `process_output` order) when those bytes apply. The offset is only
-    /// cleared where the surface itself is snapped (``consumeSnapRequest()``),
-    /// keeping the tracked position and the real surface position in step.
+    /// Deliberately does NOT touch ``upRowsExact``: the snapshot's bytes have
+    /// not applied yet (the caller applies a frame's metadata immediately
+    /// before its bytes), so zeroing the offset here would suppress the
+    /// snap-to-live the caller dispatches (in `process_output` order) when
+    /// those bytes apply. The offset is only cleared where the surface itself
+    /// is snapped (``consumeSnapRequest()``), keeping the tracked position and
+    /// the real surface position in step.
     public mutating func noteFullSnapshot(scrollbackRows: Int) {
         hasReceivedFrameMeta = true
         let newRows = max(0, scrollbackRows)

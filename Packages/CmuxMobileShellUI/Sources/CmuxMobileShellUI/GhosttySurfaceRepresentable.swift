@@ -62,7 +62,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
         private var outputTask: Task<Void, Never>?
-        private var frameMetaTask: Task<Void, Never>?
 
         init(surfaceID: String, store: CMUXMobileShellStore) {
             self.surfaceID = surfaceID
@@ -77,22 +76,31 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // Drive every output chunk into the libghostty surface. Ending this
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
+            //
+            // A chunk carries a frame's metadata together with its bytes, so the
+            // Stage 1 local-scroll gates (active screen, snapshot scrollback
+            // depth) are applied immediately before that frame's apply, in
+            // order, with no separate stream to race: a deeper-fetch scroll
+            // restore is armed and consumed around the fetch snapshot's own
+            // bytes within this one iteration (no gesture or live frame can
+            // interleave on the main actor between these synchronous calls).
             outputTask = Task { @MainActor [weak surfaceView] in
-                for await data in store.terminalOutputStream(surfaceID: surfaceID) {
+                for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
-                    surfaceView?.processOutput(data)
-                }
-            }
-            // Carry per-frame metadata (active screen + full-snapshot scrollback
-            // depth) the opaque byte stream cannot: the view gates Stage 1 local
-            // scroll on the active screen and tracks how much history it holds. A
-            // separate stream so the byte channel stays pure content.
-            frameMetaTask = Task { @MainActor [weak surfaceView] in
-                for await meta in store.terminalFrameMetaStream(surfaceID: surfaceID) {
-                    guard !Task.isCancelled else { return }
-                    surfaceView?.setActiveScreen(isAlternate: meta.isAlternateScreen)
-                    if meta.isFullSnapshot {
-                        surfaceView?.setHeldScrollbackRows(meta.scrollbackRows)
+                    guard let view = surfaceView else { continue }
+                    if let meta = chunk.meta {
+                        view.setActiveScreen(isAlternate: meta.isAlternateScreen)
+                        if meta.isFullSnapshot {
+                            view.setHeldScrollbackRows(meta.scrollbackRows)
+                        }
+                    }
+                    // A metadata-only delta (no row changes, e.g. a cursor-blink
+                    // seq bump that flips the active screen) must not reach
+                    // `processOutput`: nothing paints, so nothing may snap the
+                    // scrolled-up reader. A full snapshot always applies, even
+                    // byteless, so the snap + restore it armed runs in its slot.
+                    if !chunk.bytes.isEmpty || chunk.meta?.isFullSnapshot == true {
+                        view.processOutput(chunk.bytes)
                     }
                 }
             }
@@ -101,8 +109,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         func detach() {
             outputTask?.cancel()
             outputTask = nil
-            frameMetaTask?.cancel()
-            frameMetaTask = nil
         }
 
         // MARK: - GhosttySurfaceViewDelegate

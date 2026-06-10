@@ -2620,19 +2620,36 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Per-surface output continuations for the libghostty render path. A mounted
     /// `GhosttySurfaceView` obtains a stream via ``terminalOutputStream(surfaceID:)``
-    /// and receives VT patch bytes derived from render-grid frames. Raw PTY bytes
-    /// flow through the same continuation as a compatibility fallback for older
-    /// Mac hosts.
-    private var terminalByteContinuationsBySurfaceID: [String: AsyncStream<Data>.Continuation] = [:]
+    /// and receives ordered ``MobileTerminalOutputChunk`` elements: VT patch bytes
+    /// derived from render-grid frames together with that frame's metadata, or raw
+    /// PTY bytes (no metadata) as a compatibility fallback for older Mac hosts.
+    private var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation] = [:]
 
-    /// Per-frame metadata the byte stream cannot carry (it is opaque VT bytes),
-    /// surfaced to the terminal view for Stage 1 local (primary-screen) scroll.
-    /// See ``MobileTerminalFrameMetaHub``.
-    let frameMetaHub = MobileTerminalFrameMetaHub()
-
-    /// Yield a chunk of output bytes to the surface's stream, if one is attached.
+    /// Yield raw output bytes (no frame metadata) to the surface's stream, if
+    /// one is attached. Compatibility path for older Mac hosts and the raw
+    /// byte-ring fallback.
     func deliverTerminalBytes(_ bytes: Data, surfaceID: String) {
-        terminalByteContinuationsBySurfaceID[surfaceID]?.yield(bytes)
+        terminalByteContinuationsBySurfaceID[surfaceID]?.yield(MobileTerminalOutputChunk(bytes: bytes))
+    }
+
+    /// Yield one render-grid frame to the surface's stream: its metadata and
+    /// bytes travel as ONE ordered element, so the view applies the metadata
+    /// immediately before that frame's bytes. This makes the local-scroll
+    /// engine's arm-then-consume contract structural (a deeper-fetch restore is
+    /// consumed by the fetch snapshot's own apply, never by an interleaved live
+    /// frame, and bytes can never apply before their own metadata). Delivered
+    /// even when `bytes` is empty: a no-row-change frame still carries the
+    /// active screen.
+    func deliverTerminalFrame(_ frame: MobileTerminalRenderGridFrame, bytes: Data) {
+        let chunk = MobileTerminalOutputChunk(
+            meta: MobileTerminalOutputChunk.FrameMeta(
+                isAlternateScreen: frame.activeScreen == .alternate,
+                isFullSnapshot: frame.full,
+                scrollbackRows: frame.full ? frame.scrollbackRows : 0
+            ),
+            bytes: bytes
+        )
+        terminalByteContinuationsBySurfaceID[frame.surfaceID]?.yield(chunk)
     }
 
     /// Whether a surface currently has an attached output stream consumer.
@@ -2642,7 +2659,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func registerTerminalOutput(
         surfaceID: String,
-        continuation: AsyncStream<Data>.Continuation
+        continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
     ) {
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -2657,31 +2674,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
-        // Finish the frame-meta stream here too so byte-stream teardown cannot
-        // leave a dangling meta continuation (see ``MobileTerminalFrameMetaHub``).
-        frameMetaHub.finish(surfaceID: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
         // pinning the shared grid to our viewport and clears the macOS border.
         clearTerminalViewport(surfaceID: surfaceID)
     }
 
-    /// The per-frame metadata stream for a terminal surface (active screen +
-    /// full-snapshot scrollback depth), consumed alongside
-    /// ``terminalOutputStream(surfaceID:)`` by the terminal view for local scroll.
-    /// - Parameter surfaceID: The terminal surface identifier.
-    /// - Returns: An `AsyncStream` of frame metadata.
-    public func terminalFrameMetaStream(surfaceID: String) -> AsyncStream<MobileTerminalFrameMeta> {
-        frameMetaHub.stream(surfaceID: surfaceID)
-    }
-
-    /// The output byte stream for a terminal surface.
+    /// The output stream for a terminal surface (frame metadata + bytes as one
+    /// ordered element per frame; raw compatibility bytes carry no metadata).
     ///
     /// Obtaining the stream arms a cold-attach replay so the surface catches up
     /// to current state; ending iteration (or cancelling the consuming task)
     /// unregisters the surface and clears its viewport pin on the Mac.
     /// - Parameter surfaceID: The terminal surface identifier.
-    /// - Returns: An `AsyncStream` of output byte chunks.
-    public func terminalOutputStream(surfaceID: String) -> AsyncStream<Data> {
+    /// - Returns: An `AsyncStream` of output chunks.
+    public func terminalOutputStream(surfaceID: String) -> AsyncStream<MobileTerminalOutputChunk> {
         AsyncStream { continuation in
             registerTerminalOutput(surfaceID: surfaceID, continuation: continuation)
             continuation.onTermination = { [weak self] _ in
@@ -2786,11 +2792,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif
-        // Surface the active screen so the view gates local scroll (see
-        // ``MobileTerminalFrameMetaHub`` for the cross-stream ordering contract).
-        frameMetaHub.deliver(from: renderGrid)
-        guard !bytes.isEmpty else { return }
-        deliverTerminalBytes(bytes, surfaceID: renderGrid.surfaceID)
+        // One ordered element: the frame's metadata (active screen, snapshot
+        // scrollback depth) rides with its bytes, so the view's local-scroll
+        // gates always see a frame's metadata immediately before its apply.
+        // Empty-byte frames still flow: a no-row-change frame carries the
+        // active screen.
+        deliverTerminalFrame(renderGrid, bytes: bytes)
     }
 
     private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {

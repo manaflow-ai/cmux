@@ -101,12 +101,15 @@ extension MobileShellComposite {
                     self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
                 }
                 // A render-grid replay (cold attach OR deeper-scrollback fetch) is
-                // a full snapshot that re-flows scrollback into the local surface;
-                // surface its scrollback depth + active screen so the view knows
-                // how much history it now holds (and can classify this snapshot
-                // as a deeper-fetch result or a cold attach).
+                // a full snapshot that re-flows scrollback into the local surface.
+                // Deliver its metadata (scrollback depth + active screen) and its
+                // bytes as ONE ordered element so the view classifies this exact
+                // snapshot (deeper-fetch result vs cold attach) and applies any
+                // scroll restore around this snapshot's own bytes, never around an
+                // interleaved live frame.
                 if let renderGrid {
-                    self.frameMetaHub.deliver(from: renderGrid)
+                    self.deliverTerminalFrame(renderGrid, bytes: deliverBytes ?? Data())
+                    return
                 }
                 guard let deliverBytes, !deliverBytes.isEmpty else {
                     return

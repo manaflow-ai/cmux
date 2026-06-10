@@ -32,22 +32,34 @@ extension GhosttySurfaceView {
         case .began:
             localScroll.notePanBegan()
         case .changed:
-            let translation = gesture.translation(in: self)
-            // Aim for ~1:1 natural scrolling. Measured: the Mac applies a ~3x
-            // line multiplier to the wheel delta, so dividing the finger travel
-            // by (cell height in points × 3) makes a swipe move the content
-            // roughly its own distance. Falls back to a fixed divisor before the
-            // first geometry pass measures the cell.
-            let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
-            let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
-            pendingScrollLines += Double(translation.y) / divisor
-            pendingScrollCell = scrollCell(at: gesture.location(in: self))
-            gesture.setTranslation(.zero, in: self)
+            accumulatePanTranslation(gesture)
         case .ended, .cancelled:
+            // The recognizer can carry residual translation since the last
+            // `.changed` callback; fold it in so the final chunk of the swipe
+            // is not dropped, then flush.
+            accumulatePanTranslation(gesture)
             flushPendingScrollIfNeeded()
         default:
             break
         }
+    }
+
+    /// Fold the gesture's translation since the last call into the pending
+    /// scroll, converted to terminal lines.
+    ///
+    /// Aim for ~1:1 natural scrolling. Measured: the Mac applies a ~3x line
+    /// multiplier to the wheel delta, so dividing the finger travel by (cell
+    /// height in points × 3) makes a swipe move the content roughly its own
+    /// distance. Falls back to a fixed divisor before the first geometry pass
+    /// measures the cell.
+    private func accumulatePanTranslation(_ gesture: UIPanGestureRecognizer) {
+        let translation = gesture.translation(in: self)
+        guard translation.y != 0 else { return }
+        let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
+        let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
+        pendingScrollLines += Double(translation.y) / divisor
+        pendingScrollCell = scrollCell(at: gesture.location(in: self))
+        gesture.setTranslation(.zero, in: self)
     }
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
