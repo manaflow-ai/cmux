@@ -26,6 +26,112 @@ extension Color {
     }
 }
 
+/// Per-state colors for the sidebar agent lifecycle indicators (the status
+/// pills cmux writes for Claude Code, Codex, and every other detected agent).
+///
+/// The agent lifecycle detection — both the in-app `FeedCoordinator` and the
+/// `cmux` CLI hooks that drive `set_status` over the socket — writes each
+/// lifecycle pill with a fixed `(color, icon)` signature. This type recolors
+/// those built-in pills at render time from the user's `sidebar.stateIndicatorColors`
+/// override, so the same color knob applies to every agent and there is no race
+/// with the detection writes (the override wins whenever the snapshot is built,
+/// regardless of which write landed last). When an override is unset the pill
+/// keeps its built-in color, so default behavior is unchanged.
+///
+/// Recoloring keys off the built-in signature, not the agent key, so a pill the
+/// user customized with `cmux set-status --color` (any non-default color) is
+/// never touched.
+enum SidebarAgentStateIndicatorColors {
+    /// UserDefaults keys holding the resolved per-state override hex (or nil).
+    static let runningColorKey = "sidebarStateIndicatorRunningColorHex"
+    static let needsInputColorKey = "sidebarStateIndicatorNeedsInputColorHex"
+    static let idleColorKey = "sidebarStateIndicatorIdleColorHex"
+
+    /// Built-in `(color, icon)` signatures written by the lifecycle detection.
+    static let defaultRunningColorHex = "#4C8DFF"
+    static let defaultNeedsInputColorHex = "#4C8DFF"
+    static let defaultIdleColorHex = "#8E8E93"
+    static let runningIcon = "bolt.fill"
+    static let needsInputIcon = "bell.fill"
+    static let idleIcon = "pause.circle.fill"
+
+    enum State: Equatable {
+        case running
+        case needsInput
+        case idle
+    }
+
+    /// Identifies a built-in agent lifecycle indicator from the `(color, icon)`
+    /// signature the detection writes. Returns nil for anything else — including
+    /// user `cmux set-status --color` overrides — so custom colors are preserved.
+    static func builtInState(colorHex: String?, icon: String?) -> State? {
+        guard let colorHex else { return nil }
+        let color = colorHex.uppercased()
+        let rawIcon = icon ?? ""
+        let normalizedIcon = rawIcon.hasPrefix("sf:") ? String(rawIcon.dropFirst(3)) : rawIcon
+        if color == defaultRunningColorHex, normalizedIcon == runningIcon { return .running }
+        if color == defaultNeedsInputColorHex, normalizedIcon == needsInputIcon { return .needsInput }
+        if color == defaultIdleColorHex, normalizedIcon == idleIcon { return .idle }
+        return nil
+    }
+
+    /// Resolves the effective color hex for a status entry, substituting the
+    /// configured override for its lifecycle state when the entry is a built-in
+    /// indicator and an override is set. Falls back to the entry's own color.
+    static func resolvedColorHex(
+        entryColorHex: String?,
+        entryIcon: String?,
+        runningOverrideHex: String?,
+        needsInputOverrideHex: String?,
+        idleOverrideHex: String?
+    ) -> String? {
+        guard let state = builtInState(colorHex: entryColorHex, icon: entryIcon) else {
+            return entryColorHex
+        }
+        switch state {
+        case .running:
+            return runningOverrideHex ?? entryColorHex
+        case .needsInput:
+            return needsInputOverrideHex ?? entryColorHex
+        case .idle:
+            return idleOverrideHex ?? entryColorHex
+        }
+    }
+
+    /// Returns `entries` with built-in lifecycle pills recolored from the
+    /// configured overrides. Identity-preserving when no override is set.
+    static func recolored(
+        _ entries: [SidebarStatusEntry],
+        runningOverrideHex: String?,
+        needsInputOverrideHex: String?,
+        idleOverrideHex: String?
+    ) -> [SidebarStatusEntry] {
+        if runningOverrideHex == nil, needsInputOverrideHex == nil, idleOverrideHex == nil {
+            return entries
+        }
+        return entries.map { entry in
+            let resolved = resolvedColorHex(
+                entryColorHex: entry.color,
+                entryIcon: entry.icon,
+                runningOverrideHex: runningOverrideHex,
+                needsInputOverrideHex: needsInputOverrideHex,
+                idleOverrideHex: idleOverrideHex
+            )
+            guard resolved != entry.color else { return entry }
+            return SidebarStatusEntry(
+                key: entry.key,
+                value: entry.value,
+                icon: entry.icon,
+                color: resolved,
+                url: entry.url,
+                priority: entry.priority,
+                format: entry.format,
+                timestamp: entry.timestamp
+            )
+        }
+    }
+}
+
 func coloredCircleImage(color: NSColor) -> NSImage {
     let size = NSSize(width: 14, height: 14)
     let image = NSImage(size: size, flipped: false) { rect in
