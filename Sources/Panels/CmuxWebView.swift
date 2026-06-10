@@ -711,6 +711,11 @@ final class CmuxWebView: WKWebView {
             }
         }
 
+        if shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(event, pageURL: url) {
+            _ = super.performKeyEquivalent(with: event)
+            return finish(true)
+        }
+
         if !shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
             return finish(super.performKeyEquivalent(with: event))
         }
@@ -783,6 +788,17 @@ final class CmuxWebView: WKWebView {
                     return
                 }
             }
+        }
+
+        // Inline VS Code owns Cmd+Shift+P for its in-page command palette.
+        // If this path reaches keyDown, forward it to WebKit instead of cmux.
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+           shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(event, pageURL: url) {
+#if DEBUG
+            route = "inlineVSCode"
+#endif
+            super.keyDown(with: event)
+            return
         }
 
         // Some Cmd-based key paths in WebKit don't consistently invoke performKeyEquivalent.

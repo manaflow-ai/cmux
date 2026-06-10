@@ -13,7 +13,10 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `176bd550f`, based on `ff6e1260d`, with the
+Current cmux pinned fork head: `e5c962a72`, advancing the previous cmux pin
+`f78189ac1` with the surface registry serialization for
+https://github.com/manaflow-ai/cmux/issues/5458. The older pinned fork head
+`176bd550f`, based on `ff6e1260d`, includes the
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
 the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
 regex bound for spaced file paths followed by prose. This head keeps the cmux
@@ -22,7 +25,7 @@ clients, bounds shaped glyph iteration during IME/preedit row rebuilds, and
 prevents Cmd-hover from highlighting normal sentence text after a file path.
 It also supports Ctrl-N and Ctrl-P in the cmux theme picker.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e5c962a72795088b9f6a478236a421fe00b0950e-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -212,14 +215,36 @@ tend to conflict together during rebases.
   - Preserves versioned or dotted path components before the first space, such as
     `/tmp/v1.2 captures/video.mp4`.
 
+### 13) Embedded surface registry serialization
+
+- Commits:
+  - `c9b61a8af` (Add surface registry mutation serialization test)
+  - `e5c962a72` (Serialize Ghostty surface registry mutations)
+- Files:
+  - `src/App.zig`
+- Summary:
+  - Adds a deterministic regression test for concurrent embedded runtime
+    surface registry mutation.
+  - Protects the native `App.surfaces` list and `focused_surface` pointer with
+    one mutex so an off-main `ghostty_surface_free` cannot overlap the main
+    actor `ghostty_surface_new` insertion path.
+  - Keeps callbacks such as the quit timer outside the registry mutex to avoid
+    re-entrancy through the embedder.
+  - Publishes
+    `xcframework-e5c962a72795088b9f6a478236a421fe00b0950e-crashsubdir-cmux-crash-v1`
+    and pins its SHA256 in `scripts/ghosttykit-checksums.txt`.
+- Conflict notes:
+  - Any upstream change to `App.addSurface`, `App.deleteSurface`,
+    `App.focusedSurface`, or the embedded surface close path should preserve
+    serialization of registry/focus mutation across create and free.
+
 The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` through the
-`xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1`
-release tag and branch `issue-themes-broken-ctrl-np`.
-Published `xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1` and pinned its
-archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
-pin must be regenerated whenever this commit changes, even for comment-only
-amends, because the release tag is keyed by the Ghostty commit SHA.
+`manaflow-ai/ghostty` through branch `issue-5458-surface-registry-lock`.
+The published archive is
+`xcframework-e5c962a72795088b9f6a478236a421fe00b0950e-crashsubdir-cmux-crash-v1`
+with its checksum pinned in `scripts/ghosttykit-checksums.txt`; regenerate the
+release tag and checksum whenever this Ghostty commit changes, even for
+comment-only amends, because the release tag is keyed by the Ghostty commit SHA.
 
 ## Upstreamed fork changes
 
