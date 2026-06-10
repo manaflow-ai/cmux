@@ -63,3 +63,19 @@ bunx wrangler secret put STACK_PUBLISHABLE_CLIENT_KEY
 ```
 
 Optional plain var `STACK_API_URL` defaults to `https://api.stack-auth.com`.
+
+### Dev/staging instance
+
+A dev instance runs as `cmux-presence-dev` on the team Cloudflare account
+(the same one the regatta subrouter deploys to), configured with the dev
+Stack project's Worker secrets:
+
+```
+https://cmux-presence-dev.debussy.workers.dev
+```
+
+Redeploy it manually with `bunx wrangler deploy --name cmux-presence-dev`
+(its `STACK_*` Worker secrets are already provisioned and survive deploys).
+Point a dev Mac build at it with the `CMUX_PRESENCE_BASE_URL` env override or
+the `presenceServiceURL` defaults key, plus `presenceHeartbeatEnabled` (see
+`Sources/Cloud/PresenceSettings.swift`).

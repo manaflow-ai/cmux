@@ -108,6 +108,11 @@ by the `web-db-migrations` CI job and the cloud-vm migrate workflow
   `CLOUDFLARE_ACCOUNT_ID`. One-time Worker secrets (survive deploys):
   `STACK_PROJECT_ID`, `STACK_PUBLISHABLE_CLIENT_KEY`.
 
+A dev/staging instance (`cmux-presence-dev`, dev Stack project) is live at
+`https://cmux-presence-dev.debussy.workers.dev` on the team Cloudflare
+account; see `workers/presence/README.md` for how to redeploy it and point a
+dev Mac build at it.
+
 ## Clients
 
 - **Mac sender** (`Sources/Cloud/PresenceHeartbeatClient.swift`): flagged off
