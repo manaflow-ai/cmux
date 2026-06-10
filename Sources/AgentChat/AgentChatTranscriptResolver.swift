@@ -127,7 +127,8 @@ struct AgentChatTranscriptResolver {
     /// uses; `kind` is the persisted agent-kind string.
     private func resumeBindingInputs(_ binding: SurfaceResumeBindingSnapshot?) -> ResolutionInputs? {
         guard let binding,
-              let sessionId = binding.checkpointId, !sessionId.isEmpty,
+              let sessionId = binding.checkpointId,
+              isSafeSessionFilenameComponent(sessionId),
               let kind = restorableKind(fromBindingKind: binding.kind) else {
             return nil
         }
@@ -137,6 +138,20 @@ struct AgentChatTranscriptResolver {
             cwd: binding.cwd,
             environment: binding.environment
         )
+    }
+
+    /// Whether a session id from a persisted resume binding is safe to use as a
+    /// transcript filename component. The resume binding is a trust boundary
+    /// (it can be created through the public resume path and does not validate
+    /// the checkpoint id), and the session id is later appended to a project /
+    /// sessions directory, so a value containing a path separator or `..` could
+    /// escape into another reachable `.jsonl`. Mirrors the live index path's
+    /// Claude safe-filename invariant.
+    private func isSafeSessionFilenameComponent(_ sessionId: String) -> Bool {
+        !sessionId.isEmpty
+            && sessionId != "."
+            && sessionId != ".."
+            && sessionId.range(of: #"[\\/]"#, options: .regularExpression) == nil
     }
 
     /// Maps a resume binding's kind string to a `RestorableAgentKind`, limited

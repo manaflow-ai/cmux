@@ -91,6 +91,26 @@ import Testing
         )
     }
 
+    @Test func rejectsResumeBindingCheckpointWithPathSeparator() {
+        let resolver = AgentChatTranscriptResolver(homeDirectory: NSHomeDirectory())
+        for unsafe in ["../other/abc", "a/b", "..", "."] {
+            let binding = SurfaceResumeBindingSnapshot(
+                kind: "claude",
+                command: "claude --resume x",
+                cwd: "/Users/dev/proj",
+                checkpointId: unsafe
+            )
+            #expect(
+                resolver.resolve(
+                    index: .empty,
+                    workspaceId: UUID(),
+                    panelId: UUID(),
+                    resumeBinding: binding
+                ) == nil
+            )
+        }
+    }
+
     @Test func returnsNilForNonTranscriptResumeBindingKind() {
         let resolver = AgentChatTranscriptResolver(homeDirectory: NSHomeDirectory())
         let binding = SurfaceResumeBindingSnapshot(
