@@ -122,6 +122,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
     public private(set) var connectionErrorGuidance: String?
+    /// Non-fatal pairing notice shown as an informational banner while the live
+    /// session stays up (already-paired rescans, a bad code scanned while
+    /// connected, a post-pair save failure). Minted from the same
+    /// ``MobilePairingFailureCategory`` messages as ``connectionError``; cleared
+    /// by ``dismissPairingNotice()`` and whenever a new attempt starts.
+    public private(set) var pairingNotice: String?
+    /// This device's current tailnet status, read at classification time to
+    /// refine reachability failures into the explicit Tailscale-off
+    /// walk-through. Defaults to "unknown" (refinement is a no-op); the
+    /// composition root wires the Tailscale-status detector
+    /// (https://github.com/manaflow-ai/cmux/pull/5722) here.
+    public var tailnetHintProvider: @MainActor () -> MobilePairingTailnetHint = { .unknown }
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
 
@@ -885,6 +897,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute ?? directRoute)
+                .refined(tailnetHint: tailnetHintProvider())
             applyPairingFailure(category, phase: "connect")
             connectionState = .disconnected
             macConnectionStatus = .unavailable
@@ -1185,7 +1198,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return nil
     }
 
-    private func persistPairedMacFromTicket(_ ticket: CmxAttachTicket) async {
+    /// Internal (not private) so tests can drive the store-failure notice path
+    /// directly; only `connect()` calls this in production.
+    func persistPairedMacFromTicket(_ ticket: CmxAttachTicket) async {
         guard let pairedMacStore else { return }
         guard !ticket.macDeviceID.isEmpty else { return }
         // Strip routes that we can't reconnect to without server-side state
@@ -1207,16 +1222,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             hasKnownPairedMac = true
         } catch {
             mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
+            // The session is up but this device couldn't save the pairing, so
+            // the next launch may not reconnect automatically. Tell the user
+            // now instead of letting them discover it as a mystery later.
+            presentPairingNotice(.pairedButNotSaved, phase: "persist")
         }
-    }
-
-    private static func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
-        let routeKind = MobileShellRouteAuthPolicy.manualRouteKind(for: host)
-        return try CmxAttachRoute(
-            id: routeKind.rawValue,
-            kind: routeKind,
-            endpoint: .hostPort(host: host, port: port)
-        )
     }
 
     @discardableResult
@@ -1227,13 +1237,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     public func connectPairingURLResult(_ rawValue: String? = nil) async -> MobilePairingURLConnectionResult {
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
+        // Decode before claiming the attempt (decode is pure): a code scanned
+        // while a live session exists must never tear that session down, and
+        // `beginPairingAttempt` is destructive (cancels the live connection's
+        // tasks and resets the generation). Only a decodable code for a
+        // different Mac proceeds into the full re-pair path while connected.
+        let decodeResult = Result { try CmxAttachTicketInput.decode(rawURL) }
+        switch MobilePairingScanGate.disposition(
+            decodeResult: decodeResult,
+            isConnected: connectionState == .connected,
+            activeMacDeviceID: activeTicket?.macDeviceID
+        ) {
+        case let .alreadyConnected(macName):
+            presentPairingNotice(.alreadyPaired(macName: macName ?? connectedHostName), phase: "validation")
+            return .connected
+        case let .rejectKeepingConnection(category):
+            presentPairingNotice(category, phase: "validation")
+            return .failed
+        case .proceed:
+            break
+        }
         let attemptID = beginPairingAttempt(method: "qr")
         let ticket: CmxAttachTicket
-        do {
-            ticket = try CmxAttachTicketInput.decode(rawURL)
-        } catch {
-            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
-            applyPairingFailure(.invalidCode, phase: "validation")
+        switch decodeResult {
+        case let .success(decoded):
+            ticket = decoded
+        case let .failure(error):
+            applyPairingFailure(MobilePairingFailureCategory.classify(decodeError: error), phase: "validation")
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -1279,6 +1309,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // helper records the analytics failure + guidance.
             if disconnectForAuthorizationFailureIfNeeded(error) { return .failed }
             let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
+                .refined(tailnetHint: tailnetHintProvider())
             applyPairingFailure(category, phase: "connect")
             connectionState = .disconnected
             macConnectionStatus = .unavailable
@@ -1337,17 +1368,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
         }
-    }
-
-    private static func normalizedPairingURL(_ rawValue: String) -> String {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("cmux-ios://") else {
-            return trimmed
-        }
-        let scalars = trimmed.unicodeScalars.filter {
-            !CharacterSet.whitespacesAndNewlines.contains($0)
-        }
-        return String(String.UnicodeScalarView(scalars))
     }
 
     private func manualHostTicket(name: String, host: String, port: Int) async throws -> CmxAttachTicket {
@@ -1789,79 +1809,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         throw lastError ?? MobileShellConnectionError.connectionClosed
     }
 
-    private struct WorkspaceListRequest {
-        var data: Data
-        var isScoped: Bool
-        var preferActiveTicketTarget: Bool
-    }
-
-    private static func supportedRoutes(
-        for ticket: CmxAttachTicket,
-        supportedKinds: [CmxAttachTransportKind]
-    ) -> [CmxAttachRoute] {
-        let orderedRoutes = ticket.routes.sorted(by: routeSortsBefore)
-        guard !supportedKinds.isEmpty else {
-            return orderedRoutes
-        }
-        let supportedKinds = Set(supportedKinds)
-        return orderedRoutes.filter { route in
-            supportedKinds.contains(route.kind)
-        }
-    }
-
-    private static func attachTicketIsUnexpired(_ ticket: CmxAttachTicket, now: Date) -> Bool {
-        ticket.expiresAt > now
-    }
-
-    private static func initialWorkspaceListParams(for ticket: CmxAttachTicket) -> [String: Any] {
-        guard UUID(uuidString: ticket.workspaceID) != nil else {
-            return [:]
-        }
-        var params: [String: Any] = ["workspace_id": ticket.workspaceID]
-        if let terminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !terminalID.isEmpty {
-            params["terminal_id"] = terminalID
-        }
-        return params
-    }
-
-    private static func initialWorkspaceListRequests(for ticket: CmxAttachTicket) throws -> [WorkspaceListRequest] {
-        let scopedParams = initialWorkspaceListParams(for: ticket)
-        let hasAttachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-
-        var requests: [WorkspaceListRequest] = []
-        if hasAttachToken {
-            requests.append(
-                WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
-                    isScoped: false,
-                    preferActiveTicketTarget: true
-                )
-            )
-        }
-
-        if !scopedParams.isEmpty {
-            requests.append(
-                WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: scopedParams),
-                    isScoped: !scopedParams.isEmpty,
-                    preferActiveTicketTarget: true
-                )
-            )
-        }
-
-        if requests.isEmpty {
-            requests.append(
-                WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
-                    isScoped: false,
-                    preferActiveTicketTarget: true
-                )
-            )
-        }
-        return requests
-    }
-
     private func scheduleFullWorkspaceListRefreshIfAvailable(
         client: MobileCoreRPCClient,
         route: CmxAttachRoute,
@@ -2069,10 +2016,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Clear the error and its guidance together (never bare `connectionError
-    /// = nil`) so guidance cannot linger under a cleared headline.
+    /// = nil`) so guidance cannot linger under a cleared headline. Also drops a
+    /// stale ``pairingNotice``: a new attempt or teardown supersedes it.
     private func clearPairingError() {
         connectionError = nil
         connectionErrorGuidance = nil
+        pairingNotice = nil
+    }
+
+    /// Surface a non-fatal scan outcome (already paired, bad code while
+    /// connected, post-pair save failure) as the informational
+    /// ``pairingNotice`` banner without touching the live connection, and emit
+    /// `ios_pairing_scan_rejected` with the category's reason. Not
+    /// `applyPairingFailure`: no pairing attempt is claimed on this path, so
+    /// `ios_pairing_started`/`ios_pairing_failed` must not fire.
+    private func presentPairingNotice(_ category: MobilePairingFailureCategory, phase: String) {
+        assert(!category.message.isEmpty, "presentPairingNotice needs a user-visible message")
+        pairingNotice = category.message
+        analytics.capture("ios_pairing_scan_rejected", [
+            "reason": .string(category.analyticsReason),
+            "failure_phase": .string(phase),
+        ])
+    }
+
+    /// Dismiss the informational pairing notice (the banner's close action).
+    public func dismissPairingNotice() {
+        pairingNotice = nil
     }
 
     /// Record an `ios_pairing_failed` for a `connect()` that returned without
@@ -2096,6 +2065,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// pairing. Does NOT emit `ios_pairing_failed` (no attempt is in flight).
     private func applyOperationalError(_ error: any Error) {
         let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
+            .refined(tailnetHint: tailnetHintProvider())
         connectionError = category.message.isEmpty
             ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
             : category.message
@@ -3180,13 +3150,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case .invalidResponse, .connectionClosed, .requestTimedOut:
             return false
         }
-    }
-
-    private static func routeSortsBefore(_ left: CmxAttachRoute, _ right: CmxAttachRoute) -> Bool {
-        if left.priority == right.priority {
-            return left.id < right.id
-        }
-        return left.priority < right.priority
     }
 
     private func applyPreviewTicket(_ ticket: CmxAttachTicket, route: CmxAttachRoute) {

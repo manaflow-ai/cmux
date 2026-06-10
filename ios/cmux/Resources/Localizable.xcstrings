@@ -959,13 +959,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This pairing link expired. Pair again with a fresh QR/link from that computer."
+            "value": "This code expired. On your Mac, click Refresh Code in the pairing window, then scan the new code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このペアリングリンクの有効期限が切れました。そのコンピュータの新しい QR/リンクでペアリングしてください。"
+            "value": "このコードは有効期限が切れました。Mac のペアリングウィンドウで「コードを更新」をクリックし、新しいコードをスキャンしてください。"
           }
         }
       }
@@ -1112,13 +1112,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invalid pairing code."
+            "value": "This pairing code couldn't be read. On your Mac, click Refresh Code in the pairing window and scan the new code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリングコードが無効です。"
+            "value": "このペアリングコードを読み取れませんでした。Mac のペアリングウィンドウで「コードを更新」をクリックし、新しいコードをスキャンしてください。"
           }
         }
       }
@@ -3839,6 +3839,244 @@
           "stringUnit": {
             "state": "translated",
             "value": "iOSが接続をブロックしました。iOSの設定でcmuxにローカルネットワークの使用を許可してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.notice.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        }
+      }
+    },
+    "mobile.pairing.alreadyPaired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Already connected to this Mac. It's paired on this device, so there's no need to scan its code again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac にはすでに接続しています。このデバイスとペアリング済みのため、コードを再度スキャンする必要はありません。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.alreadyPairedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Already connected to %@. This Mac is paired on this device, so there's no need to scan its code again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にはすでに接続しています。この Mac はこのデバイスとペアリング済みのため、コードを再度スキャンする必要はありません。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.cameraDeniedHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux needs the camera to scan the pairing code from your Mac. Allow Camera for cmux in Settings, then come back and scan again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac のペアリングコードをスキャンするには、cmux がカメラを使用できる必要があります。設定で cmux のカメラを許可してから、戻って再度スキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.codeFromNewerApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This code is from a newer version of cmux. Update cmux on this device, then scan a fresh code."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコードは新しいバージョンの cmux のものです。このデバイスの cmux をアップデートしてから、新しいコードをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.codeFromOlderMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This code is from an older cmux on your Mac. Update cmux on the Mac, then open its pairing window and scan a fresh code."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコードは Mac 上の古い cmux のものです。Mac の cmux をアップデートし、ペアリングウィンドウを開いて新しいコードをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.tailnet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing works over Tailscale: this device and your Mac must both be on the same tailnet with Tailscale running."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングは Tailscale 経由で動作します。このデバイスと Mac が同じ tailnet 上にあり、Tailscale が実行されている必要があります。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.updateMacApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your Mac, choose cmux > Check for Updates, then reopen the pairing window and scan the new code."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac で「cmux」>「アップデートを確認」を選択し、ペアリングウィンドウを開き直して新しいコードをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.updateThisApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install the latest cmux update on this device, then open the pairing window on your Mac and scan again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスに最新の cmux アップデートをインストールしてから、Mac のペアリングウィンドウを開いて再度スキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.notPairingQR": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That QR code isn't a cmux pairing code. On your Mac, open cmux Settings > Mobile to show the pairing code, then scan that."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この QR コードは cmux のペアリングコードではありません。Mac で cmux の設定 >「モバイル」を開いてペアリングコードを表示し、それをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.openSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を開く"
+          }
+        }
+      }
+    },
+    "mobile.pairing.pairedButNotSaved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired, but this device couldn't save the pairing. If cmux doesn't reconnect by itself next time, scan the code from your Mac again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングしましたが、このデバイスに保存できませんでした。次回 cmux が自動的に再接続しない場合は、Mac のコードをもう一度スキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.tailscaleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale is off on this device. Open the Tailscale app, turn it on, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスで Tailscale がオフになっています。Tailscale アプリを開いてオンにしてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.tailscaleOffFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale is off on this device, so %@:%d can't be reached. Open the Tailscale app, turn it on, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスで Tailscale がオフのため、%@:%d に接続できません。Tailscale アプリを開いてオンにしてから、もう一度お試しください。"
           }
         }
       }

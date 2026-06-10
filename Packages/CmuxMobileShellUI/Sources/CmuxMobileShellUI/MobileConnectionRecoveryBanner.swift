@@ -40,11 +40,47 @@ struct MobileConnectionRecoveryBanner: View {
                     showsRetry: false,
                     showsSpinner: true
                 )
+            } else if let notice = store.pairingNotice {
+                noticeBanner(text: notice)
             }
         }
         .animation(.default, value: store.isRecoveringConnection)
         .animation(.default, value: store.connectionRecoveryFailed)
         .animation(.default, value: store.connectionRequiresReauth)
+        .animation(.default, value: store.pairingNotice)
+    }
+
+    /// Informational pairing notice (already paired, a bad code scanned while
+    /// connected, a post-pair save failure): the live session is fine, so this
+    /// is dismissable and carries no Retry.
+    @ViewBuilder
+    private func noticeBanner(text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "info.circle.fill")
+                .foregroundStyle(.white)
+            Text(text)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                store.dismissPairingNotice()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(L10n.string("mobile.notice.dismiss", defaultValue: "Dismiss"))
+            .accessibilityIdentifier("MobilePairingNoticeDismiss")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: 420)
+        .background(.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.top, 8)
+        .padding(.horizontal, 16)
+        .accessibilityIdentifier("MobilePairingNoticeBanner")
     }
 
     /// An authorization failure (wrong account / unverifiable token). Retrying

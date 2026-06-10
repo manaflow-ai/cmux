@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -146,5 +147,163 @@ import Testing
         #expect(result == .failed)
         #expect(store.connectionState == .connected)
         #expect(store.activeTicket?.macDeviceID == ticket.macDeviceID)
+        // The outcome is reported as an informational notice (the live session
+        // is fine), not through the disconnected-pairing error surface.
+        #expect(store.pairingNotice?.isEmpty == false)
+        #expect(store.connectionError == nil)
+    }
+
+    @Test func rescanningTheConnectedMacShowsAlreadyPairedNotice() async throws {
+        let (store, ticket) = try await connectedPreviewStore()
+
+        let result = await store.connectPairingURLResult(try attachURLString(for: ticket))
+
+        #expect(result == .connected)
+        #expect(store.connectionState == .connected)
+        #expect(store.activeTicket?.macDeviceID == ticket.macDeviceID)
+        #expect(store.pairingNotice == "Already connected to Test Mac. This Mac is paired on this device, so there's no need to scan its code again.")
+        #expect(store.connectionError == nil)
+
+        store.dismissPairingNotice()
+        #expect(store.pairingNotice == nil)
+    }
+
+    @Test func scanningADifferentMacWhileConnectedStillRepairs() async throws {
+        let (store, _) = try await connectedPreviewStore()
+        let otherRoute = try CmxAttachRoute(
+            id: "debug_loopback",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56578)
+        )
+        let otherTicket = try CmxAttachTicket(
+            workspaceID: "other-workspace",
+            terminalID: nil,
+            macDeviceID: "other-mac",
+            macDisplayName: "Other Mac",
+            routes: [otherRoute],
+            expiresAt: Date().addingTimeInterval(60)
+        )
+
+        let result = await store.connectPairingURLResult(try attachURLString(for: otherTicket))
+
+        #expect(result == .connected)
+        #expect(store.activeTicket?.macDeviceID == "other-mac")
+        #expect(store.pairingNotice == nil)
+    }
+
+    // MARK: - Post-pair store failure surfaces a notice
+
+    @Test func pairedMacStoreFailureShowsPairedButNotSavedNotice() async throws {
+        let route = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.71.210.41", port: 58465)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60)
+        )
+        let store = MobileShellComposite(
+            pairedMacStore: FailingPairedMacStore(),
+            pairingHintDefaults: UserDefaults(suiteName: "MobilePairingScanBehaviorTests-\(UUID().uuidString)")!
+        )
+        store.signIn()
+
+        await store.persistPairedMacFromTicket(ticket)
+
+        // The session is up but the pairing didn't save: the user is told now,
+        // with the consequence and the recovery, instead of a silent log line.
+        #expect(store.pairingNotice == "Paired, but this device couldn't save the pairing. If cmux doesn't reconnect by itself next time, scan the code from your Mac again.")
+        #expect(store.hasKnownPairedMac == false)
+    }
+}
+
+/// In-memory paired-Mac store whose writes always fail, driving the
+/// post-pair save-failure notice path.
+private struct FailingPairedMacStore: MobilePairedMacStoring {
+    struct WriteFailed: Error {}
+
+    func upsert(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        markActive: Bool,
+        stackUserID: String?,
+        now: Date
+    ) async throws {
+        throw WriteFailed()
+    }
+
+    func loadAll(stackUserID: String?) async throws -> [MobilePairedMac] { [] }
+    func activeMac(stackUserID: String?) async throws -> MobilePairedMac? { nil }
+    func setActive(macDeviceID: String) async throws { throw WriteFailed() }
+    func remove(macDeviceID: String) async throws { throw WriteFailed() }
+    func removeAll() async throws { throw WriteFailed() }
+}
+
+/// Pure tests for the scan gate that decides what a scanned code may do while
+/// a live session exists (the decode-before-attempt guard).
+@MainActor
+@Suite struct MobilePairingScanGateTests {
+    private func ticket(macDeviceID: String, name: String? = "Test Mac") throws -> CmxAttachTicket {
+        try CmxAttachTicket(
+            workspaceID: "ws",
+            terminalID: nil,
+            macDeviceID: macDeviceID,
+            macDisplayName: name,
+            routes: [
+                try CmxAttachRoute(
+                    id: "tailscale",
+                    kind: .tailscale,
+                    endpoint: .hostPort(host: "100.71.210.41", port: 58465)
+                ),
+            ],
+            expiresAt: Date().addingTimeInterval(60)
+        )
+    }
+
+    @Test func disconnectedAlwaysProceeds() throws {
+        struct SomeError: Error {}
+        #expect(MobilePairingScanGate.disposition(
+            decodeResult: .success(try ticket(macDeviceID: "mac-1")),
+            isConnected: false,
+            activeMacDeviceID: nil
+        ) == .proceed)
+        #expect(MobilePairingScanGate.disposition(
+            decodeResult: .failure(SomeError()),
+            isConnected: false,
+            activeMacDeviceID: nil
+        ) == .proceed)
+    }
+
+    @Test func sameMacWhileConnectedIsAlreadyConnected() throws {
+        let disposition = MobilePairingScanGate.disposition(
+            decodeResult: .success(try ticket(macDeviceID: "mac-1", name: "Studio")),
+            isConnected: true,
+            activeMacDeviceID: "mac-1"
+        )
+        #expect(disposition == .alreadyConnected(macName: "Studio"))
+    }
+
+    @Test func differentMacWhileConnectedProceeds() throws {
+        let disposition = MobilePairingScanGate.disposition(
+            decodeResult: .success(try ticket(macDeviceID: "mac-2")),
+            isConnected: true,
+            activeMacDeviceID: "mac-1"
+        )
+        #expect(disposition == .proceed)
+    }
+
+    @Test func undecodableWhileConnectedRejectsWithClassifiedCategory() {
+        let disposition = MobilePairingScanGate.disposition(
+            decodeResult: .failure(MobileSyncPairingPayloadError.expired),
+            isConnected: true,
+            activeMacDeviceID: "mac-1"
+        )
+        #expect(disposition == .rejectKeepingConnection(.ticketExpired))
     }
 }

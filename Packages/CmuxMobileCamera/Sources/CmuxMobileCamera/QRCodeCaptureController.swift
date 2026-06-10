@@ -29,13 +29,17 @@ public final class QRCodeCaptureController: UIViewController {
     ///   - stream: The scan stream that accepted codes are yielded into.
     ///   - accepts: Predicate deciding whether a decoded string is accepted.
     ///   - unavailableText: Localized copy shown when no camera is available.
+    ///   - onRejectedCode: Called once per distinct decoded QR whose payload
+    ///     fails `accepts`, so the host UI can tell the user the code is not a
+    ///     pairing code instead of silently ignoring it.
     public init(
         stream: QRCodeScanStream,
         accepts: @escaping @Sendable (String) -> Bool,
-        unavailableText: String
+        unavailableText: String,
+        onRejectedCode: (@MainActor (String) -> Void)? = nil
     ) {
         self.stream = stream
-        self.receiver = QRCodeMetadataReceiver(stream: stream, accepts: accepts)
+        self.receiver = QRCodeMetadataReceiver(stream: stream, accepts: accepts, onRejected: onRejectedCode)
         self.unavailableText = unavailableText
         super.init(nibName: nil, bundle: nil)
     }

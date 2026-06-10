@@ -25,6 +25,12 @@ public enum MobileSyncPairingPayloadError: Error, Equatable, Sendable {
     case forbiddenSecretField(String)
     case invalidURL
     case invalidPayloadEncoding
+    /// The payload is a cmux pairing payload, but in a grammar this build does
+    /// not speak (for example the compact short-key attach payload newer Macs
+    /// put in the pairing QR). Carries the payload's declared format version
+    /// when one could be read. Distinct from ``invalidURL`` so the client can
+    /// tell the user to update the app instead of uselessly rescanning.
+    case unsupportedPayloadFormat(Int?)
 }
 
 public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {

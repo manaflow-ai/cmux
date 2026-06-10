@@ -50,6 +50,25 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     case ticketExpired
     /// The scanned/typed code was not a valid pairing code.
     case invalidCode
+    /// The code is a cmux pairing code, but in a format or version newer than
+    /// this app can read (an older app scanning a newer Mac's QR). Updating
+    /// this app is the fix; rescanning the same code cannot help.
+    case codeFromNewerApp
+    /// The code's payload version is older than this app supports (a newer app
+    /// scanning a QR from an outdated Mac). Updating the Mac and minting a
+    /// fresh code is the fix.
+    case codeFromOlderMac
+    /// A reachability failure on a Tailscale-shaped address while this device's
+    /// tailnet is known to be inactive. Produced only by
+    /// ``refined(tailnetHint:)``, never directly by ``classify(error:route:)``.
+    case tailscaleOff(host: String?, port: Int?)
+    /// The scanned code belongs to the Mac this device is already connected to.
+    /// A notice, not an error: the live session is kept and nothing is retried.
+    case alreadyPaired(macName: String?)
+    /// Pairing succeeded but the paired Mac could not be saved on this device,
+    /// so the next launch may not reconnect automatically. A post-success
+    /// notice, not an error: the live session is up.
+    case pairedButNotSaved
     /// The pairing code carried only an untrusted manual route that cannot carry
     /// the account credential.
     case unsupportedRoute
@@ -79,6 +98,11 @@ extension MobilePairingFailureCategory {
         case .authFailed: return "auth"
         case .ticketExpired: return "ticket_expired"
         case .invalidCode: return "invalid_code"
+        case .codeFromNewerApp: return "code_newer_version"
+        case .codeFromOlderMac: return "code_older_version"
+        case .tailscaleOff: return "tailscale_off"
+        case .alreadyPaired: return "already_paired"
+        case .pairedButNotSaved: return "paired_store_failed"
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
         case .cancelled: return "cancelled"
@@ -170,12 +194,50 @@ extension MobilePairingFailureCategory {
         case .ticketExpired:
             return L10n.string(
                 "mobile.pairing.attachTicketExpired",
-                defaultValue: "This pairing link expired. Pair again with a fresh QR/link from that computer."
+                defaultValue: "This code expired. On your Mac, click Refresh Code in the pairing window, then scan the new code."
             )
         case .invalidCode:
             return L10n.string(
                 "mobile.pairing.invalidCode",
-                defaultValue: "Invalid pairing code."
+                defaultValue: "This pairing code couldn't be read. On your Mac, click Refresh Code in the pairing window and scan the new code."
+            )
+        case .codeFromNewerApp:
+            return L10n.string(
+                "mobile.pairing.codeFromNewerApp",
+                defaultValue: "This code is from a newer version of cmux. Update cmux on this device, then scan a fresh code."
+            )
+        case .codeFromOlderMac:
+            return L10n.string(
+                "mobile.pairing.codeFromOlderMac",
+                defaultValue: "This code is from an older cmux on your Mac. Update cmux on the Mac, then open its pairing window and scan a fresh code."
+            )
+        case let .tailscaleOff(host, port):
+            return Self.hostPortMessage(
+                key: "mobile.pairing.tailscaleOffFormat",
+                defaultValue: "Tailscale is off on this device, so %@:%d can't be reached. Open the Tailscale app, turn it on, then try again.",
+                fallbackKey: "mobile.pairing.tailscaleOff",
+                fallbackDefaultValue: "Tailscale is off on this device. Open the Tailscale app, turn it on, then try again.",
+                host: host,
+                port: port
+            )
+        case let .alreadyPaired(macName):
+            guard let macName, !macName.isEmpty else {
+                return L10n.string(
+                    "mobile.pairing.alreadyPaired",
+                    defaultValue: "Already connected to this Mac. It's paired on this device, so there's no need to scan its code again."
+                )
+            }
+            return String(
+                format: L10n.string(
+                    "mobile.pairing.alreadyPairedFormat",
+                    defaultValue: "Already connected to %@. This Mac is paired on this device, so there's no need to scan its code again."
+                ),
+                macName
+            )
+        case .pairedButNotSaved:
+            return L10n.string(
+                "mobile.pairing.pairedButNotSaved",
+                defaultValue: "Paired, but this device couldn't save the pairing. If cmux doesn't reconnect by itself next time, scan the code from your Mac again."
             )
         case .unsupportedRoute:
             return L10n.string(
@@ -233,7 +295,22 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.guidance.rescanFresh",
                 defaultValue: "Open the pairing window on your Mac and scan a fresh QR or link."
             )
-        case .invalidCode, .cancelled, .unknown:
+        case .codeFromNewerApp:
+            return L10n.string(
+                "mobile.pairing.guidance.updateThisApp",
+                defaultValue: "Install the latest cmux update on this device, then open the pairing window on your Mac and scan again."
+            )
+        case .codeFromOlderMac:
+            return L10n.string(
+                "mobile.pairing.guidance.updateMacApp",
+                defaultValue: "On your Mac, choose cmux > Check for Updates, then reopen the pairing window and scan the new code."
+            )
+        case .tailscaleOff:
+            return L10n.string(
+                "mobile.pairing.guidance.tailnet",
+                defaultValue: "Pairing works over Tailscale: this device and your Mac must both be on the same tailnet with Tailscale running."
+            )
+        case .invalidCode, .alreadyPaired, .pairedButNotSaved, .cancelled, .unknown:
             return nil
         }
     }
