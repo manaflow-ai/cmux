@@ -50,9 +50,18 @@ enum AppScrollerStylePolicy {
     /// The value AppKit maps to the modern overlay (auto-fading) scroller style.
     static let overlayValue = "WhenScrolling"
 
-    /// Registers the per-app overlay-scroller override. Must run during launch
-    /// before any scroll view (terminal, sidebar, browser pane) is created so
-    /// `NSScroller.preferredScrollerStyle` resolves to overlay from the start.
+    /// Registers the per-app overlay-scroller override.
+    ///
+    /// Call this as early as possible in app launch — **before any
+    /// AppKit-adjacent work** (appearance, language, scroll-view creation).
+    /// AppKit resolves `NSScroller.preferredScrollerStyle` lazily and caches
+    /// it; it only re-resolves when System Settings posts the distributed
+    /// `AppleShowScrollBarsSettingChanged` notification. A local
+    /// `UserDefaults.set` does **not** post that notification, so on the first
+    /// launch after this ships (before the value is persisted) the override
+    /// only takes effect if nothing has queried `preferredScrollerStyle` yet.
+    /// Running first makes the contract self-enforcing rather than relying on
+    /// the ordering of unrelated `init` steps.
     static func applyAtLaunch(defaults: UserDefaults = .standard) {
         // `string(forKey:)` resolves across domains, so once cmux's own
         // application domain holds `WhenScrolling` this is a no-op on every

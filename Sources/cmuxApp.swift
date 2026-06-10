@@ -164,6 +164,10 @@ struct cmuxApp: App {
             Self.terminateForMissingLaunchTag()
         }
 
+        // Force overlay scrollers before any AppKit code resolves and caches
+        // NSScroller.preferredScrollerStyle (appearance/language work below). See #3241.
+        AppScrollerStylePolicy.applyAtLaunch()
+        StartupBreadcrumbLog.append("app.init.scrollerStyle.forced")
         Self.configureGhosttyEnvironment()
         StartupBreadcrumbLog.append("app.init.ghosttyEnvironment.configured")
         _ = KeyboardShortcutSettings.settingsFileStore
@@ -177,8 +181,6 @@ struct cmuxApp: App {
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
         let defaults = UserDefaults.standard
-        // Force overlay scrollers process-wide before any scroll view exists. See #3241.
-        AppScrollerStylePolicy.applyAtLaunch(defaults: defaults)
         AppBundleIconPersistencePolicy.updateDisableDefault(
             defaults: defaults,
             launchArguments: ProcessInfo.processInfo.arguments
