@@ -1133,4 +1133,16 @@ final class BonsplitTabDragUITests: XCTestCase {
         let target = targetTab.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
         source.press(forDuration: 0.25, thenDragTo: target)
     }
+
+    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        // On busy UI runners the app can launch backgrounded; activate once before failing.
+        if app.state == .runningBackground {
+            app.activate()
+            return app.wait(for: .runningForeground, timeout: 6.0)
+        }
+        return false
+    }
 }
