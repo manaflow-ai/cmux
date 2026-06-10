@@ -159,7 +159,17 @@ final class FeedCoordinator: @unchecked Sendable {
         // If this is a blocking actionable event and the app window isn't
         // focused, post a native notification banner with inline action
         // buttons so the user can respond without switching windows.
-        postNotificationIfStillAwaiting(event: event, requestId: requestId)
+        // The sound-gate key lets the banner share its sound window with the
+        // agent-hook notification the same prompt routes through
+        // TerminalNotificationStore, so one decision never dings twice.
+        let soundGateKey = resolvedAttentionTarget.map {
+            TerminalNotificationSoundGate.key(workspaceId: $0.workspaceId, surfaceId: $0.surfaceId)
+        }
+        postNotificationIfStillAwaiting(
+            event: event,
+            requestId: requestId,
+            soundGateKey: soundGateKey
+        )
 
         let deadline: DispatchTime = .now() + waitTimeout
         let waitResult = semaphore.wait(timeout: deadline)
@@ -708,7 +718,11 @@ private extension FeedCoordinator {
     /// Notification eligibility is derived only from the waiter table so
     /// resolved/timed-out requests cannot enqueue stale banners while the main
     /// queue, policy hooks, or notification center catches up.
-    func postNotificationIfStillAwaiting(event: WorkstreamEvent, requestId: String) {
+    func postNotificationIfStillAwaiting(
+        event: WorkstreamEvent,
+        requestId: String,
+        soundGateKey: String? = nil
+    ) {
         Task { @MainActor [weak self] in
             guard let self, self.isAwaitingDecision(requestId: requestId) else {
                 return
@@ -788,7 +802,8 @@ private extension FeedCoordinator {
                     title: title,
                     subtitle: "",
                     body: body,
-                    effects: policyContext.envelope.effects
+                    effects: policyContext.envelope.effects,
+                    soundGateKey: soundGateKey
                 )
             }
 
@@ -822,7 +837,8 @@ private extension FeedCoordinator {
                     title: payload.title,
                     subtitle: payload.subtitle,
                     body: payload.body,
-                    effects: envelope.effects
+                    effects: envelope.effects,
+                    soundGateKey: soundGateKey
                 )
             case .failure(let failure):
                 deliverDefault()
@@ -860,11 +876,22 @@ private extension FeedCoordinator {
         title: String,
         subtitle: String,
         body: String,
-        effects: TerminalNotificationPolicyEffects
+        effects: TerminalNotificationPolicyEffects,
+        soundGateKey: String? = nil
     ) {
+        var effects = effects
         guard isAwaitingDecision(requestId: requestId),
               effects.desktop || effects.sound || effects.command
         else { return }
+
+        // One blocking prompt also fires the agent's notification hook, which
+        // posts a separate banner through TerminalNotificationStore. Share the
+        // per-surface sound window with that path so the prompt dings once no
+        // matter which banner lands first (manaflow-ai/cmux#2322).
+        if effects.sound,
+           !TerminalNotificationSoundGate.shared.shouldPlaySound(forKey: soundGateKey) {
+            effects.sound = false
+        }
 
         if !effects.desktop {
             runFallbackEffectsIfStillAwaiting(

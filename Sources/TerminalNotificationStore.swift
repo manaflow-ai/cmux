@@ -770,6 +770,59 @@ enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
     }
 }
 
+/// Deduplicates notification sounds across independent banner paths.
+///
+/// A single blocking agent prompt can legitimately post two desktop banners
+/// almost at once: the agent's notification hook (`cmux hooks <agent>
+/// notification`) routes through ``TerminalNotificationStore`` while the feed
+/// decision bridge posts its own actionable banner straight to
+/// `UNUserNotificationCenter` (`FeedCoordinator.postNotificationIfStillAwaiting`).
+/// The banners carry different content, so they cannot be deduplicated by
+/// identity — but both request a sound, and the user hears a double ding for
+/// one event (manaflow-ai/cmux#2322).
+///
+/// The gate grants the sound to the first banner per surface inside a short
+/// window and silences follow-ups. Banner visibility is unaffected; denied
+/// attempts do not extend the window.
+final class TerminalNotificationSoundGate: @unchecked Sendable {
+    static let shared = TerminalNotificationSoundGate()
+
+    let suppressionWindow: TimeInterval
+
+    private let lock = NSLock()
+    private var lastGrantDateByKey: [String: Date] = [:]
+    private let maxTrackedKeys = 128
+
+    init(suppressionWindow: TimeInterval = 2.0) {
+        self.suppressionWindow = suppressionWindow
+    }
+
+    /// The dedupe key for a notification target. Keyed by surface when known
+    /// so prompts on different panes of one workspace stay independent.
+    static func key(workspaceId: UUID, surfaceId: UUID?) -> String {
+        (surfaceId ?? workspaceId).uuidString
+    }
+
+    /// Returns whether a sound may play for the given key, recording a grant
+    /// when it does. `nil` keys are never deduplicated.
+    func shouldPlaySound(forKey key: String?, now: Date = Date()) -> Bool {
+        guard let key, !key.isEmpty else { return true }
+        lock.lock()
+        defer { lock.unlock() }
+        if let lastGrant = lastGrantDateByKey[key],
+           abs(now.timeIntervalSince(lastGrant)) < suppressionWindow {
+            return false
+        }
+        if lastGrantDateByKey.count >= maxTrackedKeys {
+            lastGrantDateByKey = lastGrantDateByKey.filter {
+                abs(now.timeIntervalSince($0.value)) < suppressionWindow
+            }
+        }
+        lastGrantDateByKey[key] = now
+        return true
+    }
+}
+
 struct TerminalNotification: Identifiable, Hashable {
     let id: UUID
     let tabId: UUID
@@ -1987,6 +2040,7 @@ final class TerminalNotificationStore: ObservableObject {
         _ notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
+        let effects = effectsAfterSoundGate(effects, for: notification)
         guard effects.desktop else {
             playLocalNotificationFeedback(
                 title: resolvedNotificationTitle(for: notification),
@@ -2057,10 +2111,30 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    /// Strips the sound effect when another banner for the same surface was
+    /// granted a sound moments ago (see ``TerminalNotificationSoundGate``).
+    private func effectsAfterSoundGate(
+        _ effects: TerminalNotificationPolicyEffects,
+        for notification: TerminalNotification
+    ) -> TerminalNotificationPolicyEffects {
+        guard effects.sound else { return effects }
+        let key = TerminalNotificationSoundGate.key(
+            workspaceId: notification.tabId,
+            surfaceId: notification.surfaceId
+        )
+        guard !TerminalNotificationSoundGate.shared.shouldPlaySound(forKey: key) else {
+            return effects
+        }
+        var silenced = effects
+        silenced.sound = false
+        return silenced
+    }
+
     private func playSuppressedNotificationFeedback(
         for notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
+        let effects = effectsAfterSoundGate(effects, for: notification)
         playLocalNotificationFeedback(
             title: resolvedNotificationTitle(for: notification),
             subtitle: notification.subtitle,
