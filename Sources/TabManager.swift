@@ -9345,6 +9345,10 @@ extension TabManager {
                     (workspace.panels[panelId] as? TerminalPanel)?.agentHibernationState,
                     into: &hasher
                 )
+                Self.hashSurfaceHibernationPanelState(
+                    (workspace.panels[panelId] as? TerminalPanel)?.surfaceHibernationState,
+                    into: &hasher
+                )
                 Self.hashSurfaceResumeBindingSnapshot(
                     workspace.effectiveSurfaceResumeBinding(
                         panelId: panelId,
@@ -9444,6 +9448,22 @@ extension TabManager {
 
         hasher.combine(true)
         hashRestorableAgentSnapshot(state.agent, into: &hasher)
+        hasher.combine(state.hibernatedAt.timeIntervalSince1970)
+        hasher.combine(state.lastActivityAt.timeIntervalSince1970)
+    }
+
+    private static func hashSurfaceHibernationPanelState(
+        _ state: SurfaceHibernationPanelState?,
+        into hasher: inout Hasher
+    ) {
+        guard let state else {
+            hasher.combine(false)
+            return
+        }
+
+        // The captured scrollback is immutable while hibernated, so the
+        // timestamps uniquely identify the transition without hashing it.
+        hasher.combine(true)
         hasher.combine(state.hibernatedAt.timeIntervalSince1970)
         hasher.combine(state.lastActivityAt.timeIntervalSince1970)
     }

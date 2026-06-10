@@ -417,6 +417,210 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
         XCTAssertEqual(notificationCount, 2)
     }
 
+    // MARK: - Hibernate-then-restore round trip
+
+    @MainActor
+    func testSurfaceHibernationRoundTripStagesScrollbackAndWorkingDirectory() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+
+        panel.enterSurfaceHibernation(
+            scrollback: "hibernated-shell-content",
+            workingDirectory: "/tmp/cmux-surface-hibernation",
+            lastActivityAt: Date(timeIntervalSince1970: 100)
+        )
+        XCTAssertTrue(panel.isSurfaceHibernated)
+        XCTAssertEqual(panel.surfaceHibernationState?.scrollback, "hibernated-shell-content")
+        XCTAssertEqual(panel.surfaceHibernationState?.workingDirectory, "/tmp/cmux-surface-hibernation")
+
+        XCTAssertTrue(workspace.restoreSurfaceHibernation(panelId: panelId, focus: false))
+        XCTAssertFalse(panel.isSurfaceHibernated)
+
+        let environment = panel.surface.debugAdditionalEnvironmentForTesting()
+        let replayPath = try XCTUnwrap(environment[SessionScrollbackReplayStore.environmentKey])
+        let replayContents = try String(contentsOfFile: replayPath, encoding: .utf8)
+        XCTAssertTrue(replayContents.contains("hibernated-shell-content"))
+        XCTAssertEqual(
+            panel.surface.debugNextRuntimeWorkingDirectoryForTesting(),
+            "/tmp/cmux-surface-hibernation"
+        )
+    }
+
+    @MainActor
+    func testWorkspaceEnterSurfaceHibernationCapturesPanelDirectory() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        workspace.panelDirectories[panelId] = "/tmp/cmux-surface-hibernation-dir"
+
+        XCTAssertTrue(
+            workspace.enterSurfaceHibernation(panelId: panelId, lastActivityAt: Date(timeIntervalSince1970: 50))
+        )
+        XCTAssertTrue(panel.isSurfaceHibernated)
+        XCTAssertEqual(
+            panel.surfaceHibernationState?.workingDirectory,
+            "/tmp/cmux-surface-hibernation-dir"
+        )
+        XCTAssertFalse(
+            workspace.enterSurfaceHibernation(panelId: panelId, lastActivityAt: Date(timeIntervalSince1970: 60)),
+            "A hibernated panel must not be hibernated twice"
+        )
+    }
+
+    @MainActor
+    func testExplicitInputToSurfaceHibernatedPanelRestoresAndQueues() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+
+        panel.enterSurfaceHibernation(
+            scrollback: nil,
+            workingDirectory: nil,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        )
+        XCTAssertTrue(panel.isSurfaceHibernated)
+
+        let result = panel.sendInputResult("pwd\r")
+
+        XCTAssertEqual(result, .queued)
+        XCTAssertFalse(panel.isSurfaceHibernated)
+    }
+
+    @MainActor
+    func testFocusingSurfaceHibernatedPanelRestoresIt() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+
+        panel.enterSurfaceHibernation(
+            scrollback: nil,
+            workingDirectory: nil,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        )
+        XCTAssertTrue(panel.isSurfaceHibernated)
+
+        workspace.focusPanel(panelId)
+
+        XCTAssertFalse(panel.isSurfaceHibernated)
+    }
+
+    @MainActor
+    func testHiddenMountedWorkspaceDoesNotAutoRestoreSurfaceHibernatedPanel() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+
+        panel.enterSurfaceHibernation(
+            scrollback: nil,
+            workingDirectory: nil,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        )
+        XCTAssertTrue(panel.isSurfaceHibernated)
+
+        workspace.setAgentHibernationAutoResumePresentationVisible(false)
+        _ = workspace.debugReconcileTerminalPortalVisibilityForTesting()
+        XCTAssertTrue(panel.isSurfaceHibernated)
+
+        workspace.setAgentHibernationAutoResumePresentationVisible(true)
+
+        XCTAssertFalse(panel.isSurfaceHibernated)
+    }
+
+    @MainActor
+    func testAgentHibernatedPanelCannotEnterSurfaceHibernation() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-surface-cross-guard",
+            workingDirectory: "/tmp/cmux-surface-hibernation",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: "/tmp/cmux-surface-hibernation",
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: snapshot,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        )
+        XCTAssertTrue(panel.isAgentHibernated)
+
+        XCTAssertFalse(
+            workspace.enterSurfaceHibernation(panelId: panelId, lastActivityAt: Date(timeIntervalSince1970: 10))
+        )
+        XCTAssertFalse(panel.isSurfaceHibernated)
+    }
+
+    @MainActor
+    func testSessionSnapshotCarriesHibernatedScrollback() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+
+        panel.enterSurfaceHibernation(
+            scrollback: "hibernated-snapshot-content",
+            workingDirectory: nil,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: true)
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
+
+        XCTAssertEqual(panelSnapshot.terminal?.scrollback, "hibernated-snapshot-content")
+    }
+
+    @MainActor
+    func testAutosaveFingerprintTracksSurfaceHibernationTransitions() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+
+        let liveFingerprint = manager.sessionAutosaveFingerprint()
+        panel.enterSurfaceHibernation(
+            scrollback: nil,
+            workingDirectory: nil,
+            lastActivityAt: Date(timeIntervalSince1970: 100)
+        )
+        let hibernatedFingerprint = manager.sessionAutosaveFingerprint()
+
+        XCTAssertNotEqual(liveFingerprint, hibernatedFingerprint)
+        XCTAssertTrue(workspace.restoreSurfaceHibernation(panelId: panelId, focus: false))
+        XCTAssertNotEqual(hibernatedFingerprint, manager.sessionAutosaveFingerprint())
+    }
+
+    @MainActor
+    func testWorkspaceUnmountTimestampTracksPortalRendering() {
+        let workspace = Workspace()
+        XCTAssertNotNil(
+            workspace.portalRenderingDisabledAt,
+            "A workspace that has never rendered must age toward unmounted-idle hibernation"
+        )
+
+        workspace.setPortalRenderingEnabled(true, reason: "test")
+        XCTAssertNil(workspace.portalRenderingDisabledAt)
+
+        workspace.setPortalRenderingEnabled(false, reason: "test")
+        let disabledAt = workspace.portalRenderingDisabledAt
+        XCTAssertNotNil(disabledAt)
+
+        workspace.setPortalRenderingEnabled(false, reason: "test")
+        XCTAssertEqual(
+            workspace.portalRenderingDisabledAt,
+            disabledAt,
+            "Repeated unmount reconciles must not restart the unmounted clock"
+        )
+    }
+
     // MARK: - Helpers
 
     private func panelKey() -> AgentHibernationPanelKey {

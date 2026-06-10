@@ -1585,6 +1585,9 @@ class TerminalController {
         case "agent_hibernation":
             return agentHibernation(args)
 
+        case "surface_hibernation":
+            return surfaceHibernation(args)
+
         case "clear_agent_pid":
             return clearAgentPID(args)
 
@@ -19590,6 +19593,23 @@ class TerminalController {
             return "OK"
         case "off", "disable", "disabled", "false":
             AgentHibernationSettings.setValues(enabled: false)
+            return "OK"
+        default:
+            return "ERROR: Usage: \(usage)"
+        }
+    }
+
+    private func surfaceHibernation(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        let subcommand = parsed.positional.first?.lowercased()
+        let usage = "surface_hibernation <on|off>"
+
+        switch subcommand {
+        case "on", "enable", "enabled", "true":
+            SurfaceHibernationSettings.setValues(enabled: true)
+            return "OK"
+        case "off", "disable", "disabled", "false":
+            SurfaceHibernationSettings.setValues(enabled: false)
             return "OK"
         default:
             return "ERROR: Usage: \(usage)"

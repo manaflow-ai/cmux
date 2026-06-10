@@ -491,7 +491,7 @@ enum SurfaceHibernationSettings {
 
 enum AgentHibernationTrackingGate {
     private static let lock = NSLock()
-    private static var enabled = AgentHibernationSettings.isEnabled()
+    private static var enabled = AgentHibernationSettings.isEnabled() || SurfaceHibernationSettings.isEnabled()
 
     static func isEnabled() -> Bool {
         lock.lock()

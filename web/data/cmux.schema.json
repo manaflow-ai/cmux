@@ -436,6 +436,39 @@
             }
           }
         },
+        "surfaceHibernation": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Surface Hibernation settings. cmux frees the terminal renderer (Metal buffers, render threads, PTY) of idle plain-shell terminals in hidden workspaces after capturing scrollback, then starts a fresh shell in the captured working directory with the scrollback replayed when the terminal is visited again. Terminals running a foreground process, agent terminals, remote terminals, and terminals with pending startup work are never reclaimed. Also enforces a least-recently-used cap on simultaneously live terminal surfaces.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable Surface Hibernation."
+            },
+            "idleSeconds": {
+              "type": "integer",
+              "minimum": 30,
+              "maximum": 604800,
+              "default": 300,
+              "description": "Minimum seconds without input or focus before the live-surface cap may reclaim a background shell terminal. A short confirmation settle window (~60s) still applies on top of this."
+            },
+            "unmountedIdleSeconds": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 2592000,
+              "default": 1800,
+              "description": "Seconds a workspace must stay unmounted (hidden) — with its terminal quiet — before its idle shell surfaces hibernate even when the live-surface cap is not exceeded."
+            },
+            "maxLiveSurfaces": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256,
+              "default": 12,
+              "description": "Maximum simultaneously live terminal surfaces to keep before cmux hibernates eligible background terminals, oldest first. Every live surface counts toward the limit; only idle, non-busy, non-visible ones are reclaimed."
+            }
+          }
+        },
         "textBoxMaxLines": {
           "type": "integer",
           "minimum": 1,

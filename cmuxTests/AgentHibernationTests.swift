@@ -142,17 +142,18 @@ final class AgentHibernationTests: XCTestCase {
             confirmationSeconds: 5
         )
 
-        let selected = AgentHibernationPlanner.selectedPanelKeys(
+        let selected = SurfaceHibernationPlanner.selectedPanelKeys(
             inputs: [
-                .init(key: idleOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: idleNew, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 10),
-                .init(key: runningOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .running, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: needsInputOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .needsInput, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: unknownOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .unknown, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: unconfirmedInputOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: true, lastActivityAt: now - 300),
-                .init(key: visibleOld, hasRestorableAgent: true, isLive: true, isProtected: true, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: idleOld, mechanism: .agentResume, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: idleNew, mechanism: .agentResume, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 10),
+                .init(key: runningOld, mechanism: .agentResume, isLive: true, isProtected: false, lifecycle: .running, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: needsInputOld, mechanism: .agentResume, isLive: true, isProtected: false, lifecycle: .needsInput, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: unknownOld, mechanism: .agentResume, isLive: true, isProtected: false, lifecycle: .unknown, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: unconfirmedInputOld, mechanism: .agentResume, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: true, lastActivityAt: now - 300),
+                .init(key: visibleOld, mechanism: .agentResume, isLive: true, isProtected: true, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
             ],
-            settings: settings,
+            agentSettings: settings,
+            surfaceSettings: disabledSurfaceSettings(),
             now: now
         )
 
@@ -168,11 +169,12 @@ final class AgentHibernationTests: XCTestCase {
             confirmationSeconds: 5
         )
 
-        let selected = AgentHibernationPlanner.selectedPanelKeys(
+        let selected = SurfaceHibernationPlanner.selectedPanelKeys(
             inputs: [
-                .init(key: key, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: 0),
+                .init(key: key, mechanism: .agentResume, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: 0),
             ],
-            settings: settings,
+            agentSettings: settings,
+            surfaceSettings: disabledSurfaceSettings(),
             now: 1_000
         )
 
@@ -1063,6 +1065,16 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertEqual(preparation, .resumed(queuedStartupInput: false))
         XCTAssertFalse(panel.isAgentHibernated)
         XCTAssertFalse(panel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
+    private func disabledSurfaceSettings() -> SurfaceHibernationSettings.Values {
+        SurfaceHibernationSettings.Values(
+            enabled: false,
+            idleSeconds: SurfaceHibernationSettings.defaultIdleSeconds,
+            unmountedIdleSeconds: SurfaceHibernationSettings.defaultUnmountedIdleSeconds,
+            maxLiveSurfaces: SurfaceHibernationSettings.defaultMaxLiveSurfaces,
+            confirmationSeconds: SurfaceHibernationSettings.defaultConfirmationSeconds
+        )
     }
 
     private func launch(

@@ -462,6 +462,34 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "surfaceHibernation",
+                settingsKey: "terminal.surfaceHibernation.enabled",
+                title: {
+                    String(localized: "settings.terminal.surfaceHibernation", defaultValue: "Surface Hibernation")
+                },
+                sectionTitle: terminal,
+                keywords: [
+                    "terminal.surfaceHibernation.enabled",
+                    "terminal",
+                    "surface",
+                    "hibernation",
+                    "hibernate",
+                    "suspend",
+                    "shell",
+                    "memory",
+                    "idle",
+                    "background",
+                ],
+                isOn: { defaults in SurfaceHibernationSettings.isEnabled(defaults: defaults) },
+                setOn: { newValue, defaults, notificationCenter in
+                    SurfaceHibernationSettings.setValues(
+                        enabled: newValue,
+                        defaults: defaults,
+                        notificationCenter: notificationCenter
+                    )
+                }
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "hideAllSidebarDetails",
                 settingsKey: "sidebar.hideAllDetails",
                 title: {

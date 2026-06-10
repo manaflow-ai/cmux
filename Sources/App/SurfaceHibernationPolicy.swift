@@ -31,7 +31,9 @@ struct SurfaceHibernationPlannerInput: Sendable {
     /// Agent lifecycle reported by hooks; `.unknown` for plain shells.
     let lifecycle: AgentHibernationLifecycleState
     let hasUnconfirmedTerminalInput: Bool
-    let lastActivityAt: TimeInterval
+    /// Mutable so the controller can fold in tail-fingerprint (output-only)
+    /// activity after constructing the input.
+    var lastActivityAt: TimeInterval
     /// When the owning workspace last stopped rendering (unmounted), or nil
     /// while it is mounted.
     let workspaceUnmountedAt: TimeInterval?
@@ -78,12 +80,33 @@ enum SurfaceHibernationPlanner {
         surfaceSettings: SurfaceHibernationSettings.Values,
         now: TimeInterval
     ) -> Set<AgentHibernationPanelKey> {
-        // This mirrors the shipped AgentHibernationPlanner policy: only
-        // restorable-agent terminals are counted or evicted, and only under
-        // agent-cap pressure. Plain-shell surfaces are invisible to it, the
-        // global cap census does not exist, and workspaces unmounted for long
-        // periods keep every runtime surface alive
-        // (https://github.com/manaflow-ai/cmux/issues/5731).
+        var selected = agentCapSelection(inputs: inputs, agentSettings: agentSettings, now: now)
+        selected.formUnion(
+            globalCapSelection(
+                inputs: inputs,
+                agentSettings: agentSettings,
+                surfaceSettings: surfaceSettings,
+                now: now
+            )
+        )
+        selected.formUnion(
+            unmountedIdleSelection(
+                inputs: inputs,
+                agentSettings: agentSettings,
+                surfaceSettings: surfaceSettings,
+                now: now
+            )
+        )
+        return selected
+    }
+
+    /// Live restorable-agent terminals above `maxLiveTerminals`, oldest first.
+    /// Matches the pre-existing agent hibernation cap exactly.
+    private static func agentCapSelection(
+        inputs: [SurfaceHibernationPlannerInput],
+        agentSettings: AgentHibernationSettings.Values,
+        now: TimeInterval
+    ) -> Set<AgentHibernationPanelKey> {
         guard agentSettings.enabled else { return [] }
         let liveRestorable = inputs.filter { $0.mechanism == .agentResume && $0.isLive }
         let excess = liveRestorable.count - agentSettings.maxLiveTerminals
@@ -91,14 +114,82 @@ enum SurfaceHibernationPlanner {
 
         let eligible = liveRestorable
             .filter { input in
-                !input.isProtected &&
-                    input.lifecycle.allowsHibernation &&
-                    !input.hasUnconfirmedTerminalInput &&
+                isEvictable(input, agentSettings: agentSettings) &&
                     now - input.lastActivityAt >= agentSettings.idleSeconds
             }
-            .sorted(by: Self.leastRecentlyUsedFirst)
+            .sorted(by: leastRecentlyUsedFirst)
 
         return Set(eligible.prefix(excess).map(\.key))
+    }
+
+    /// Live surfaces of any kind above `maxLiveSurfaces`, oldest first. Every
+    /// live surface counts toward the census — including exempt ones — so
+    /// surfaces materialized by bypass paths still create eviction pressure.
+    private static func globalCapSelection(
+        inputs: [SurfaceHibernationPlannerInput],
+        agentSettings: AgentHibernationSettings.Values,
+        surfaceSettings: SurfaceHibernationSettings.Values,
+        now: TimeInterval
+    ) -> Set<AgentHibernationPanelKey> {
+        guard surfaceSettings.enabled else { return [] }
+        let live = inputs.filter(\.isLive)
+        let excess = live.count - surfaceSettings.maxLiveSurfaces
+        guard excess > 0 else { return [] }
+
+        let eligible = live
+            .filter { input in
+                guard isEvictable(input, agentSettings: agentSettings) else { return false }
+                let idleGate = input.mechanism == .agentResume
+                    ? agentSettings.idleSeconds
+                    : surfaceSettings.idleSeconds
+                return now - input.lastActivityAt >= idleGate
+            }
+            .sorted(by: leastRecentlyUsedFirst)
+
+        return Set(eligible.prefix(excess).map(\.key))
+    }
+
+    /// Surfaces whose workspace has been unmounted — and which have been quiet
+    /// — for at least `unmountedIdleSeconds`, regardless of cap pressure.
+    private static func unmountedIdleSelection(
+        inputs: [SurfaceHibernationPlannerInput],
+        agentSettings: AgentHibernationSettings.Values,
+        surfaceSettings: SurfaceHibernationSettings.Values,
+        now: TimeInterval
+    ) -> Set<AgentHibernationPanelKey> {
+        guard surfaceSettings.enabled else { return [] }
+        let eligible = inputs.filter { input in
+            guard input.isLive,
+                  isEvictable(input, agentSettings: agentSettings),
+                  let workspaceUnmountedAt = input.workspaceUnmountedAt else {
+                return false
+            }
+            let quietSince = max(input.lastActivityAt, workspaceUnmountedAt)
+            return now - quietSince >= surfaceSettings.unmountedIdleSeconds
+        }
+        return Set(eligible.map(\.key))
+    }
+
+    static func isEvictable(
+        _ input: SurfaceHibernationPlannerInput,
+        agentSettings: AgentHibernationSettings.Values
+    ) -> Bool {
+        guard !input.isProtected,
+              !input.hasUnconfirmedTerminalInput,
+              let mechanism = input.mechanism else {
+            return false
+        }
+        switch mechanism {
+        case .agentResume:
+            // Agent terminals are only reclaimed through their resume path,
+            // which the user opts into separately, and only while the agent
+            // reports an idle lifecycle.
+            return agentSettings.enabled && input.lifecycle.allowsHibernation
+        case .shellRestart:
+            // Freeing the surface ends the shell, so never reclaim one that is
+            // not safely at a prompt.
+            return !input.isBusy
+        }
     }
 
     static func leastRecentlyUsedFirst(

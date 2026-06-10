@@ -5275,8 +5275,24 @@ enum TerminalSurfaceFocusPlacement: Equatable {
     case rightSidebarDock
 }
 
+// Throttle repeated activity records for the same panel: this runs on the
+// keyDown hot path and idle windows are tens of seconds, so sub-second repeats
+// only spend allocations without changing any hibernation decision.
+private let agentHibernationInputRecordLock = NSLock()
+private nonisolated(unsafe) var lastAgentHibernationInputRecord: (panelId: UUID, uptime: TimeInterval)?
+
 private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
+    let uptime = ProcessInfo.processInfo.systemUptime
+    agentHibernationInputRecordLock.lock()
+    if let last = lastAgentHibernationInputRecord,
+       last.panelId == panelId,
+       uptime - last.uptime < 1.0 {
+        agentHibernationInputRecordLock.unlock()
+        return
+    }
+    lastAgentHibernationInputRecord = (panelId, uptime)
+    agentHibernationInputRecordLock.unlock()
     let recordedAt = Date()
     Task { @MainActor in
         AgentHibernationController.shared.recordTerminalInput(
@@ -5425,6 +5441,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     let tmuxStartCommand: String?
     let initialInput: String?
     private var nextRuntimeInitialInput: String?
+    private var nextRuntimeWorkingDirectory: String?
     private let initialEnvironmentOverrides: [String: String]
     var requestedWorkingDirectory: String? { workingDirectory }
     let focusPlacement: TerminalSurfaceFocusPlacement
@@ -5457,7 +5474,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var pendingSocketInputBytes: Int = 0
     private let maxPendingSocketInputBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
-    private var runtimeSurfaceSuspendedForAgentHibernation = false
+    private var runtimeSurfaceSuspendedForHibernation = false
     private var headlessStartupWindow: NSWindow?
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     private var claudeCommandShim: ClaudeCommandShim?
@@ -6054,7 +6071,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func allowsRuntimeSurfaceCreation() -> Bool {
-        portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
+        portalLifecycleState == .live && !runtimeSurfaceSuspendedForHibernation
     }
 
     private var hasDeferredStartupWork: Bool {
@@ -6162,8 +6179,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
-    func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
-        runtimeSurfaceSuspendedForAgentHibernation = true
+    func suspendRuntimeSurfaceForHibernation(reason: String) {
+        runtimeSurfaceSuspendedForHibernation = true
         backgroundSurfaceStartQueued = false
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
@@ -6234,6 +6251,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     func debugAdditionalEnvironmentForTesting() -> [String: String] {
         additionalEnvironment
+    }
+
+    @MainActor
+    func debugNextRuntimeWorkingDirectoryForTesting() -> String? {
+        nextRuntimeWorkingDirectory
     }
 
     func debugForceRefreshCount() -> Int {
@@ -6657,7 +6679,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
+        let runtimeWorkingDirectory = nextRuntimeWorkingDirectory
         let resolvedWorkingDirectory: String? = {
+            if let runtimeWorkingDirectory, !runtimeWorkingDirectory.isEmpty {
+                return runtimeWorkingDirectory
+            }
             if let workingDirectory, !workingDirectory.isEmpty {
                 return workingDirectory
             }
@@ -6742,6 +6768,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         mobileByteTeeContext = teeContext
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
+        }
+        if runtimeWorkingDirectory != nil {
+            nextRuntimeWorkingDirectory = nil
         }
 
         // Session scrollback replay must be one-shot. Reusing it on a later runtime
@@ -7145,9 +7174,25 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
-    func prepareAgentHibernationResume(initialInput: String?) {
-        runtimeSurfaceSuspendedForAgentHibernation = false
+    func prepareHibernationResume(initialInput: String?) {
+        runtimeSurfaceSuspendedForHibernation = false
         prepareNextRuntimeInitialInput(initialInput)
+    }
+
+    /// Stage scrollback replay and a working-directory override for the next
+    /// runtime surface created after hibernation. Both are one-shot: the
+    /// replay file environment is consumed by the next `createSurface` and the
+    /// directory override is cleared once applied.
+    @MainActor
+    func stageHibernationRestore(scrollback: String?, workingDirectory: String?) {
+        let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: scrollback)
+        if let replayPath = replayEnvironment[SessionScrollbackReplayStore.environmentKey] {
+            additionalEnvironment[SessionScrollbackReplayStore.environmentKey] = replayPath
+        }
+        let trimmedDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedDirectory, !trimmedDirectory.isEmpty {
+            nextRuntimeWorkingDirectory = trimmedDirectory
+        }
     }
 
     func setOcclusion(_ visible: Bool) {

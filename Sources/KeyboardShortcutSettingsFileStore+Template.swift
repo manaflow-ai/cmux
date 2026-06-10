@@ -98,6 +98,12 @@ extension CmuxSettingsFileStore {
                         "idleSeconds": Int(AgentHibernationSettings.defaultIdleSeconds),
                         "maxLiveTerminals": AgentHibernationSettings.defaultMaxLiveTerminals,
                     ],
+                    "surfaceHibernation": [
+                        "enabled": SurfaceHibernationSettings.defaultEnabled,
+                        "idleSeconds": Int(SurfaceHibernationSettings.defaultIdleSeconds),
+                        "unmountedIdleSeconds": Int(SurfaceHibernationSettings.defaultUnmountedIdleSeconds),
+                        "maxLiveSurfaces": SurfaceHibernationSettings.defaultMaxLiveSurfaces,
+                    ],
                     "textBoxMaxLines": TerminalTextBoxInputSettings.defaultMaxLines,
                     "resumeCommands": [],
                 ],

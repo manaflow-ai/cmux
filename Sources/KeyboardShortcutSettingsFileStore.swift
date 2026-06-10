@@ -584,6 +584,38 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.agentHibernation", sourcePath: sourcePath)
         }
 
+        if let rawSurfaceHibernation = section["surfaceHibernation"],
+           let surfaceHibernation = rawSurfaceHibernation as? [String: Any] {
+            if let value = jsonBool(surfaceHibernation["enabled"]) {
+                snapshot.managedUserDefaults[SurfaceHibernationSettings.enabledKey] = .bool(value)
+            } else if surfaceHibernation.keys.contains("enabled") {
+                logInvalid("terminal.surfaceHibernation.enabled", sourcePath: sourcePath)
+            }
+            if let value = jsonInt(surfaceHibernation["idleSeconds"]) {
+                snapshot.managedUserDefaults[SurfaceHibernationSettings.idleSecondsKey] = .double(
+                    SurfaceHibernationSettings.sanitizedIdleSeconds(TimeInterval(value))
+                )
+            } else if surfaceHibernation.keys.contains("idleSeconds") {
+                logInvalid("terminal.surfaceHibernation.idleSeconds", sourcePath: sourcePath)
+            }
+            if let value = jsonInt(surfaceHibernation["unmountedIdleSeconds"]) {
+                snapshot.managedUserDefaults[SurfaceHibernationSettings.unmountedIdleSecondsKey] = .double(
+                    SurfaceHibernationSettings.sanitizedUnmountedIdleSeconds(TimeInterval(value))
+                )
+            } else if surfaceHibernation.keys.contains("unmountedIdleSeconds") {
+                logInvalid("terminal.surfaceHibernation.unmountedIdleSeconds", sourcePath: sourcePath)
+            }
+            if let value = jsonInt(surfaceHibernation["maxLiveSurfaces"]) {
+                snapshot.managedUserDefaults[SurfaceHibernationSettings.maxLiveSurfacesKey] = .int(
+                    SurfaceHibernationSettings.sanitizedMaxLiveSurfaces(value)
+                )
+            } else if surfaceHibernation.keys.contains("maxLiveSurfaces") {
+                logInvalid("terminal.surfaceHibernation.maxLiveSurfaces", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("surfaceHibernation") {
+            logInvalid("terminal.surfaceHibernation", sourcePath: sourcePath)
+        }
+
         if let value = jsonInt(section["textBoxMaxLines"]) {
             if value >= TerminalTextBoxInputSettings.minimumMaxLines,
                value <= TerminalTextBoxInputSettings.maximumMaxLines {
@@ -1619,6 +1651,7 @@ final class CmuxSettingsFileStore {
         let apply = {
             var agentSessionAutoResumeDidChange = false
             var agentHibernationDidChange = false
+            var surfaceHibernationDidChange = false
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
@@ -1636,6 +1669,13 @@ final class CmuxSettingsFileStore {
                     change.defaultsKey == AgentHibernationSettings.maxLiveTerminalsKey ||
                     change.defaultsKey == AgentHibernationSettings.confirmationSecondsKey {
                     agentHibernationDidChange = true
+                }
+                if change.defaultsKey == SurfaceHibernationSettings.enabledKey ||
+                    change.defaultsKey == SurfaceHibernationSettings.idleSecondsKey ||
+                    change.defaultsKey == SurfaceHibernationSettings.unmountedIdleSecondsKey ||
+                    change.defaultsKey == SurfaceHibernationSettings.maxLiveSurfacesKey ||
+                    change.defaultsKey == SurfaceHibernationSettings.confirmationSecondsKey {
+                    surfaceHibernationDidChange = true
                 }
 
                 if change.defaultsKey == LanguageSettings.languageKey {
@@ -1659,6 +1699,9 @@ final class CmuxSettingsFileStore {
             }
             if agentHibernationDidChange {
                 AgentHibernationSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if surfaceHibernationDidChange {
+                SurfaceHibernationSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
         }
         if Thread.isMainThread {

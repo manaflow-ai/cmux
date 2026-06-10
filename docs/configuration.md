@@ -44,6 +44,32 @@ Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM
 
 Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
 
+## `terminal.surfaceHibernation`
+
+Surface Hibernation frees the terminal renderer (Metal buffers, render threads, PTY) of idle plain-shell terminals in hidden workspaces. cmux captures the scrollback and working directory first, and when you visit the terminal again it starts a fresh shell in that directory with the scrollback replayed. It also enforces a least-recently-used cap on how many terminal surfaces stay live at once, so background workspaces cannot accumulate unbounded memory.
+
+A terminal is only reclaimed when it is off-screen, safely at a shell prompt (no foreground process), quiet for the idle window, and its output has stayed unchanged for a ~60s confirmation settle window. Agent terminals (covered by Agent Hibernation), remote terminals, tmux-bound terminals, and terminals with pending startup work or queued input are never reclaimed.
+
+```json
+{
+  "terminal": {
+    "surfaceHibernation": {
+      "enabled": true,
+      "idleSeconds": 300,
+      "unmountedIdleSeconds": 1800,
+      "maxLiveSurfaces": 12
+    }
+  }
+}
+```
+
+- `enabled`: turn Surface Hibernation on. Default: `true`.
+- `idleSeconds`: seconds a background shell terminal must be quiet before the live-surface cap may reclaim it. Default: `300`. Range: `30`-`604800`.
+- `unmountedIdleSeconds`: seconds a workspace must stay hidden — with its terminal quiet — before its idle shell surfaces hibernate even without cap pressure. Default: `1800`. Range: `60`-`2592000`.
+- `maxLiveSurfaces`: how many terminal surfaces may stay live at once before cmux hibernates the oldest eligible background ones. Every live surface counts toward the limit; only idle, non-busy, non-visible ones are reclaimed. Default: `12`. Range: `1`-`256`.
+
+Toggle it from the command palette (`⌘⇧P` -> Surface Hibernation), from **Settings > Terminal > Surface Hibernation**, or with `cmux surface-hibernation <on|off>`.
+
 ## `diffViewer.defaultLayout`
 
 Controls the initial layout for newly opened diff viewers.
