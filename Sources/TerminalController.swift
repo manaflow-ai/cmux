@@ -12632,9 +12632,13 @@ class TerminalController {
               __cmuxKey(target, 'keyup', k);
               // Synthetic key events do not run WebKit's native "Enter submits the form" default
               // action. Mirror real-user/Playwright behavior by submitting the owning form when
-              // Enter was not prevented and focus is a single-line field in a form.
+              // Enter was not prevented and focus is a single-line TEXT-LIKE field (the only inputs
+              // whose native Enter behavior submits; checkboxes/radios/buttons/file/etc do not).
               if (k === 'Enter' && kdNotPrevented && target && target.tagName === 'INPUT' && target.form) {
-                try { if (target.form.requestSubmit) { target.form.requestSubmit(); } else { target.form.submit(); } } catch (e) {}
+                const submitTypes = ['text','search','email','url','tel','password','number','date','datetime-local','month','week','time'];
+                if (submitTypes.indexOf((target.type || 'text').toLowerCase()) !== -1) {
+                  try { if (target.form.requestSubmit) { target.form.requestSubmit(); } else { target.form.submit(); } } catch (e) {}
+                }
               }
               return { ok: true };
             })()
@@ -12727,9 +12731,11 @@ class TerminalController {
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (!('checked' in el)) return { ok: false, error: 'not_checkable' };
+              if (el.disabled) return { ok: false, error: 'disabled' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
               if (typeof el.focus === 'function') { try { el.focus({ preventScroll: true }); } catch (e) {} }
               __cmuxSetChecked(el, \(checked ? "true" : "false"));
+              if (el.checked !== \(checked ? "true" : "false")) return { ok: false, error: 'not_changed' };
               return { ok: true };
             })()
             """
