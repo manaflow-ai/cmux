@@ -121,6 +121,34 @@ import Testing
         #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
     }
 
+    /// A 4005 wrapping a non-agent installer cause (auth failure, relaunch failure) must NOT be
+    /// classified as a restart-fixable agent failure, since restarting won't help. It should fall
+    /// through to the generic install-failed copy (which still offers a manual download).
+    @Test(arguments: [4001, 4004])
+    func installFailureWrappingNonAgentCauseIsNotAgentFailure(underlyingCode: Int) {
+        let underlying = NSError(domain: "SUSparkleErrorDomain", code: underlyingCode, userInfo: [
+            NSLocalizedDescriptionKey: "Authorization or relaunch failed.",
+        ])
+        let err = NSError(domain: "SUSparkleErrorDomain", code: 4005, userInfo: [
+            NSLocalizedDescriptionKey: "An error occurred while running the updater.",
+            NSUnderlyingErrorKey: underlying,
+        ])
+        let title = UpdateStateModel.userFacingErrorTitle(for: err)
+        #expect(!title.contains("Start Updater"))
+        #expect(title.contains("Install Update"))
+        #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
+    }
+
+    /// The agent-connection text signal classifies the failure even when no underlying error is
+    /// present (some Sparkle traces only carry the message on the top-level 4005).
+    @Test func installFailureWithAgentTextIsAgentFailure() {
+        let err = NSError(domain: "SUSparkleErrorDomain", code: 4005, userInfo: [
+            NSLocalizedDescriptionKey: "An error occurred while running the updater.",
+            NSLocalizedFailureReasonErrorKey: "The remote port connection was invalidated from the updater.",
+        ])
+        #expect(UpdateStateModel.userFacingErrorTitle(for: err).contains("Start Updater"))
+    }
+
     @Test func downloadErrorOffersManualDownload() {
         let err = NSError(domain: "SUSparkleErrorDomain", code: 2001)
         #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)

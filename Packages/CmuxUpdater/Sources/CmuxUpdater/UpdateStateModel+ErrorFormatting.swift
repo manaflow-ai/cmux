@@ -195,18 +195,31 @@ extension UpdateStateModel {
     ///
     /// The login session's launchd domain can wedge into on-demand-only mode after a very long
     /// uptime, so launchd refuses to spawn Sparkle's installer/progress agent and the install
-    /// times out ("agent connection was never initiated"). This surfaces as ``SUInstallationError``
-    /// (4005) wrapping an underlying Sparkle error, or as ``SUAgentInvalidationError`` (4010).
+    /// times out ("agent connection was never initiated"). This surfaces as
+    /// ``SUAgentInvalidationError`` (4010), or as ``SUInstallationError`` (4005) wrapping Sparkle's
+    /// internal IPC-timeout error (code 10) or carrying the agent-connection text in its trace.
     /// Restarting the Mac recreates the session domain and clears the wedge, so the user-facing
     /// copy points there rather than at the misleading "move into Applications" guidance.
+    ///
+    /// The match is deliberately narrow: a 4005 wrapping a different installer cause (e.g.
+    /// ``SUAuthenticationFailure`` 4001 or ``SURelaunchError`` 4004) is not a restart-fixable
+    /// agent failure, so it falls through to the generic "couldn't install" path.
     private static func isUpdaterAgentConnectionFailure(_ error: NSError) -> Bool {
         guard error.domain == SUSparkleErrorDomain else { return false }
         if error.code == 4010 { return true }
         guard error.code == 4005 else { return false }
-        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError,
-           underlying.domain == SUSparkleErrorDomain {
+        let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
+        // Sparkle's internal "agent connection was never initiated" timeout is code 10 in its own
+        // domain; that is the precise wedged-launchd signal.
+        if let underlying, underlying.domain == SUSparkleErrorDomain, underlying.code == 10 {
             return true
         }
+        return mentionsAgentConnectionFailure(error)
+            || (underlying.map(mentionsAgentConnectionFailure) ?? false)
+    }
+
+    /// Whether an error's user-facing text names the updater agent / remote-port connection drop.
+    private static func mentionsAgentConnectionFailure(_ error: NSError) -> Bool {
         let text = [
             error.localizedDescription,
             (error.userInfo[NSLocalizedFailureReasonErrorKey] as? String) ?? "",
