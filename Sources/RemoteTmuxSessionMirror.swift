@@ -128,11 +128,11 @@ final class RemoteTmuxSessionMirror {
             connection.removeObserver(observerToken)
             self.observerToken = nil
         }
-        for (windowId, mirror) in windowMirrorByWindowId {
+        for mirror in windowMirrorByWindowId.values {
             workspace?.setRemoteTmuxWindowMirror(nil, forPanelId: mirror.panelId)
             mirror.teardown()
-            windowMirrorByWindowId[windowId] = nil
         }
+        windowMirrorByWindowId.removeAll()
     }
 
     /// The tmux window id (if any) whose layout currently contains `paneId`.
@@ -175,20 +175,7 @@ final class RemoteTmuxSessionMirror {
                 ) else { continue }
                 panelIdByWindow[windowId] = panel.id
                 panelIdByPane[firstPaneId] = panel.id
-                // Classify the pane (shell → reflow on resize; TUI/alt-screen → no
-                // reflow). One-shot first (always works) so a shell reflows even on
-                // tmux builds where the live subscription doesn't deliver, then the
-                // subscription for live re-classification (e.g. bash → node).
-                // Queued BEFORE the (3-command) capture so the classification lands
-                // first — it only matters at the next resize, and arriving early
-                // shrinks the window in which a resize hits the no-reflow default.
-                connection.requestPaneReflow(paneId: firstPaneId)
-                connection.subscribePaneReflow(paneId: firstPaneId)
-                connection.capturePane(paneId: firstPaneId)
-                // Track the pane's working directory so the tab shows the remote
-                // cwd (initial value + live `cd`) instead of staying at "~".
-                connection.requestPanePath(paneId: firstPaneId)
-                connection.subscribePanePath(paneId: firstPaneId)
+                connection.seedPane(paneId: firstPaneId)
                 panelId = panel.id
                 createdNewPanel = true
             }
@@ -444,5 +431,22 @@ final class RemoteTmuxSessionMirror {
             }
         }
         return nil
+    }
+
+    /// Computes the target tab order for a remote-tmux-driven reorder, or `nil`
+    /// when no reorder is needed or safe. Pure helper called by
+    /// `Workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder:)`.
+    ///
+    /// - Parameters:
+    ///   - current: the workspace's current mirror-tab order (panel ids).
+    ///   - requested: the tmux window order mapped to panel ids.
+    /// - Returns: the new order to apply, or `nil` when the tabs already match
+    ///   `requested` or when `requested` (restricted to currently-present tabs) is
+    ///   not a permutation of `current` (sets diverge — leave the tabs untouched).
+    nonisolated static func mirrorTabReorder(current: [UUID], requested: [UUID]) -> [UUID]? {
+        let present = Set(current)
+        let desired = requested.filter { present.contains($0) }
+        guard desired.count == current.count, Set(desired) == present else { return nil }
+        return desired == current ? nil : desired
     }
 }

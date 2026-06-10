@@ -78,18 +78,9 @@ final class RemoteTmuxWindowMirror {
             guard let panel = makePanel(paneId) else { continue }
             panelsByPaneId[paneId] = panel
             syntheticPaneIds[paneId] = PaneID()
-            // One-shot reflow classification (always works) + live subscription, so a
-            // shell pane reflows on resize even where the subscription doesn't deliver.
-            // Queued before the capture so the classification lands first (it only
-            // matters at the next resize).
-            connection?.requestPaneReflow(paneId: paneId)
-            connection?.subscribePaneReflow(paneId: paneId)
-            connection?.capturePane(paneId: paneId)
-            // Track this pane's working directory (initial + live) so the window
-            // tab reflects the remote cwd. The session mirror's cwd observer maps
-            // the pane back to this window's tab.
-            connection?.requestPanePath(paneId: paneId)
-            connection?.subscribePanePath(paneId: paneId)
+            // Canonical seed (reflow classification → capture → cwd). The session
+            // mirror's cwd observer maps the pane back to this window's tab.
+            connection?.seedPane(paneId: paneId)
         }
         for (paneId, panel) in panelsByPaneId where !livePaneIds.contains(paneId) {
             // Use the full panel close (detaches the portal from the registry

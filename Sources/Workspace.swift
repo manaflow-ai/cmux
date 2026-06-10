@@ -16290,22 +16290,6 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
-    /// Computes the target tab order for a remote-tmux-driven reorder, or `nil`
-    /// when no reorder is needed or safe.
-    ///
-    /// - Parameters:
-    ///   - current: the workspace's current mirror-tab order (panel ids).
-    ///   - requested: the tmux window order mapped to panel ids.
-    /// - Returns: the new order to apply, or `nil` when the tabs already match
-    ///   `requested` or when `requested` (restricted to currently-present tabs) is
-    ///   not a permutation of `current` (sets diverge — leave the tabs untouched).
-    nonisolated static func mirrorTabReorder(current: [UUID], requested: [UUID]) -> [UUID]? {
-        let present = Set(current)
-        let desired = requested.filter { present.contains($0) }
-        guard desired.count == current.count, Set(desired) == present else { return nil }
-        return desired == current ? nil : desired
-    }
-
     /// Reorders this workspace's remote-tmux mirror tabs so their left-to-right
     /// order matches `panelOrder` (the tmux window order), preserving the user's
     /// current tab selection and pane focus.
@@ -16334,7 +16318,7 @@ final class Workspace: Identifiable, ObservableObject {
         let presentPaneIds = Set(panelOrder.compactMap { paneId(forPanelId: $0) })
         guard presentPaneIds.count == 1, let paneId = presentPaneIds.first else { return false }
         let currentPanelIds = bonsplitController.tabs(inPane: paneId).compactMap { panelIdFromSurfaceId($0.id) }
-        guard let desired = Self.mirrorTabReorder(current: currentPanelIds, requested: panelOrder) else { return false }
+        guard let desired = RemoteTmuxSessionMirror.mirrorTabReorder(current: currentPanelIds, requested: panelOrder) else { return false }
 #if DEBUG
         cmuxDebugLog("remote-tmux: reorder mirror tabs ws=\(id.uuidString.prefix(5)) count=\(desired.count)")
 #endif

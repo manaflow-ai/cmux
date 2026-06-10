@@ -28,14 +28,10 @@ enum RemoteTmuxSessionListParser {
             let name = fields[1]
             guard !id.isEmpty else { continue }
             let windowCount = Int(fields[2].trimmingCharacters(in: .whitespaces)) ?? 0
-            let attached: Bool = {
-                guard fields.count >= 4 else { return false }
-                return (Int(fields[3].trimmingCharacters(in: .whitespaces)) ?? 0) > 0
-            }()
-            let createdUnix: Int? = {
-                guard fields.count >= 5 else { return nil }
-                return Int(fields[4].trimmingCharacters(in: .whitespaces))
-            }()
+            let attached = fields.count >= 4
+                && (Int(fields[3].trimmingCharacters(in: .whitespaces)) ?? 0) > 0
+            let createdUnix: Int? = fields.count >= 5
+                ? Int(fields[4].trimmingCharacters(in: .whitespaces)) : nil
             sessions.append(
                 RemoteTmuxSession(
                     id: id,

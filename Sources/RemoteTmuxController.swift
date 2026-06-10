@@ -642,7 +642,6 @@ final class RemoteTmuxController {
     /// Window close = detach + preserve remote (no kill); pane surfaces are torn
     /// down via `detachObserver`.
     func handleWindowWorkspacesClosed(workspaceIds: [UUID]) {
-        guard !workspaceIds.isEmpty else { return }
         let ids = Set(workspaceIds)
         var affectedHosts: [String: RemoteTmuxHost] = [:]
         for (key, mirror) in sessionMirrors {

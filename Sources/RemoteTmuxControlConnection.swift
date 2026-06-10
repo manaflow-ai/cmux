@@ -97,17 +97,18 @@ final class RemoteTmuxControlConnection {
     /// after a reconnect so the resumed session keeps the mirror's grid instead of
     /// reverting to ssh's default 80×24.
     private var lastClientSize: (columns: Int, rows: Int)?
-    /// Set when a reconnect reaches control mode; the actual pane re-seed is deferred
-    /// to the first post-reconnect `list-windows` result so it can't queue commands
-    /// before the attach's own `%begin`/`%end` block is consumed (which would misalign
-    /// the command-result FIFO).
-    private var pendingReconnectReseed = false
-    /// Set on a FIRST connect whose `.enter` arrived with a grid already stored (or
-    /// not yet computed); the `refresh-client -C` re-apply is deferred to the first
-    /// `list-windows` result for the same FIFO reason as ``pendingReconnectReseed``
-    /// — `.enter` precedes the attach block, and any command queued before that
-    /// block is consumed would shift the positional result FIFO.
-    private var pendingFirstConnectSizeApply = false
+    /// Work deferred from `.enter` to the first `list-windows` result: `.enter`
+    /// precedes the attach's own `%begin`/`%end` block, and any command queued
+    /// before that block is consumed would shift the positional result FIFO.
+    private enum PostAttachAction {
+        /// Reconnect: re-seed every mirrored pane (the fresh client lost the
+        /// screen, subscriptions, and client size).
+        case reseed
+        /// First connect: re-apply a client grid stored before stdin was live,
+        /// so the remote doesn't stay at ssh's default 80×24.
+        case applyClientSize
+    }
+    private var pendingPostAttachAction: PostAttachAction?
 
     /// Trailing-edge debounce for `refresh-client -C`. SwiftUI layout settle makes the
     /// rendered grid oscillate (e.g. cols 154→155→156→161→…, ~15 distinct grids in
@@ -418,8 +419,10 @@ final class RemoteTmuxControlConnection {
             guard let self, self.connectionState == .connected, let size = self.lastClientSize else { return }
             self.send("refresh-client -C \(size.columns)x\(size.rows)")
             // This send already applied the stored grid — the deferred first-connect
-            // apply would only duplicate it.
-            self.pendingFirstConnectSizeApply = false
+            // apply would only duplicate it (a deferred reconnect re-seed must stay).
+            if self.pendingPostAttachAction == .applyClientSize {
+                self.pendingPostAttachAction = nil
+            }
             // Do NOT re-capture here. A re-capture would run capture-pane before the
             // remote app (claude) finishes its post-SIGWINCH redraw, snapshotting the
             // stale pre-resize frame and clobbering the correct redraw — the exact
@@ -582,6 +585,21 @@ final class RemoteTmuxControlConnection {
         )
     }
 
+    /// Seeds (or re-seeds) a mirrored pane in the one canonical sequence: reflow
+    /// classification FIRST (the one-shot query — always works — then the live
+    /// subscription for re-classification, e.g. bash → node), then the content
+    /// capture, then cwd tracking (initial value + live `cd`). Classification is
+    /// queued before the (3-command) capture because it only matters at the next
+    /// resize — the earlier it lands, the smaller the window in which a resize
+    /// hits the conservative no-reflow default on a slow link.
+    func seedPane(paneId: Int) {
+        requestPaneReflow(paneId: paneId)
+        subscribePaneReflow(paneId: paneId)
+        capturePane(paneId: paneId)
+        requestPanePath(paneId: paneId)
+        subscribePanePath(paneId: paneId)
+    }
+
     /// One-shot query of a pane's working directory (`pane_current_path`),
     /// delivered to the cwd observers. Guarantees an initial folder for the
     /// mirrored tab even on tmux builds without control-mode subscriptions.
@@ -702,6 +720,14 @@ final class RemoteTmuxControlConnection {
         // `%exit` or a session found gone on reconnect) notifies exit observers — so
         // detach / quit / window-close (preserve) and transport drops do not.
         connectionState = .ended
+        cancelScheduledWork()
+        teardownProcessHandles()
+    }
+
+    /// Cancels every scheduled follow-up (reconnect, debounced size send, redraw
+    /// kick) and the deferred post-attach work. Shared by deliberate teardown
+    /// (``stop()``) and a genuine remote end (`%exit`).
+    private func cancelScheduledWork() {
         reconnectTask?.cancel()
         reconnectTask = nil
         clientSizeDebounceTask?.cancel()
@@ -709,8 +735,7 @@ final class RemoteTmuxControlConnection {
         attachRedrawKickTask?.cancel()
         attachRedrawKickTask = nil
         pendingAttachRedrawKick = false
-        pendingFirstConnectSizeApply = false
-        teardownProcessHandles()
+        pendingPostAttachAction = nil
     }
 
     /// Tears down the current spawn's process and I/O handles WITHOUT changing
@@ -750,22 +775,17 @@ final class RemoteTmuxControlConnection {
             // The control pipe is dead (broken pipe). Crucially, do NOT enqueue
             // a pending command for a write that never reached tmux: the
             // %begin/%end correlation FIFO is positional, so one phantom entry
-            // permanently misaligns every subsequent command result. Tear the
-            // connection down instead and let observers reconnect.
+            // permanently misaligns every subsequent command result. Keep the
+            // mirror frozen and reconnect instead — the remote tmux session
+            // survives an ssh client death (`beginReconnecting` guards the
+            // source state).
             record("stdin-write-failed")
-            handleWriteFailure()
+            beginReconnecting()
             return
         }
         // Record only after the bytes are confirmed written, so the pending
         // FIFO stays in lock-step with what tmux actually received.
         pendingCommands.append(kind)
-    }
-
-    private func handleWriteFailure() {
-        // A broken-pipe write means the transport dropped. Keep the mirror frozen
-        // and reconnect (the remote tmux session survives an ssh client death)
-        // rather than ending. `beginReconnecting` guards the source state.
-        beginReconnecting()
     }
 
     private func ingest(_ data: Data) {
@@ -879,15 +899,7 @@ final class RemoteTmuxControlConnection {
         for window in windowsByID.values {
             for paneId in window.paneIDsInOrder {
                 observers.emitPaneOutput(paneId, Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8))
-                // Reflow classification first so it lands before the (3-command)
-                // capture seed; the flag only matters at the next resize, and the
-                // earlier it arrives the smaller the window in which a resize hits
-                // the conservative no-reflow default on a slow link.
-                requestPaneReflow(paneId: paneId)
-                subscribePaneReflow(paneId: paneId)
-                capturePane(paneId: paneId)
-                requestPanePath(paneId: paneId)
-                subscribePanePath(paneId: paneId)
+                seedPane(paneId: paneId)
             }
         }
     }
@@ -910,42 +922,24 @@ final class RemoteTmuxControlConnection {
                 reconnectAttemptCount = 0
                 reconnectTask?.cancel()
                 reconnectTask = nil
-                // Resync the surfaces after a reconnect (a fresh client lost the
-                // screen/subscriptions). DON'T reseed here: the attach's own
-                // %begin/%end block hasn't been consumed yet, so queuing CORRELATED
-                // commands now would misalign the %end correlation FIFO. Defer until
-                // the first post-reconnect list-windows result (attach block drained,
-                // windowsByID freshly repopulated). Skipped on the first connect (the
-                // mirror seeds new tabs itself).
-                if wasReconnecting {
-                    pendingReconnectReseed = true
-                } else {
-                    // First connect: if a surface already computed its grid before we
-                    // reached `.connected`, setClientSize stored it but dropped the
-                    // send (no live stdin yet) and nothing re-applies it on first
-                    // connect — so the remote would stay at ssh's 80×24. Do NOT send
-                    // it from here: `.enter` is emitted BEFORE the attach's own
-                    // %begin/%end block is consumed, and EVERY send (even kind
-                    // `.other`) joins the positional result FIFO — a command queued
-                    // now would be popped by the attach block and shift every later
-                    // result one slot. Defer to the first list-windows result (attach
-                    // block drained), exactly like the reconnect re-seed above.
-                    pendingFirstConnectSizeApply = true
-                }
+                // DON'T send anything from here: `.enter` is emitted BEFORE the
+                // attach's own %begin/%end block is consumed, and EVERY send (even
+                // kind `.other`) joins the positional result FIFO — a command
+                // queued now would be popped by the attach block and shift every
+                // later result one slot. Defer to the first list-windows result
+                // (attach block drained, windowsByID freshly repopulated): a
+                // reconnect re-seeds the surfaces (the fresh client lost the
+                // screen and subscriptions); a first connect re-applies a grid
+                // that `setClientSize` stored before stdin was live (nothing else
+                // re-applies it, and the remote would stay at ssh's 80×24).
+                pendingPostAttachAction = wasReconnecting ? .reseed : .applyClientSize
             }
         case let .exit(reason):
             record("exit\(reason.map { " " + $0 } ?? "")")
             // A genuine remote end (session/server intentionally exited). No reconnect.
             guard connectionState != .ended else { return }
             connectionState = .ended
-            reconnectTask?.cancel()
-            reconnectTask = nil
-            clientSizeDebounceTask?.cancel()
-            clientSizeDebounceTask = nil
-            attachRedrawKickTask?.cancel()
-            attachRedrawKickTask = nil
-            pendingAttachRedrawKick = false
-            pendingFirstConnectSizeApply = false
+            cancelScheduledWork()
             observers.notifyExit()
         case let .output(paneId, data):
             paneOutputByteCounts[paneId, default: 0] += data.count
@@ -1066,23 +1060,22 @@ final class RemoteTmuxControlConnection {
                 paneOutputByteCounts = paneOutputByteCounts.filter { livePanes.contains($0.key) }
                 windowOrder = order
                 observers.notifyTopologyChanged()
-                // Now that the attach block is drained and the topology is fresh, run
-                // the deferred reconnect re-seed (re-capture each pane). Queuing the
-                // capture commands here keeps the result FIFO aligned.
-                if pendingReconnectReseed {
-                    pendingReconnectReseed = false
+                // The attach block is drained and the topology is fresh — run the
+                // deferred post-attach work; commands queued here correlate cleanly
+                // (see ``PostAttachAction``).
+                switch pendingPostAttachAction {
+                case .reseed:
                     reseedAfterReconnect()
-                }
-                // First connect: apply the grid that was stored before `.enter` (the
-                // attach block is drained here, so the send's result block correlates
-                // cleanly — see `pendingFirstConnectSizeApply`). A surface that hasn't
-                // computed a grid yet is covered by the debounced `setClientSize`.
-                if pendingFirstConnectSizeApply {
-                    pendingFirstConnectSizeApply = false
+                case .applyClientSize:
+                    // A surface that hasn't computed a grid yet is covered by the
+                    // debounced `setClientSize` instead.
                     if let size = lastClientSize {
                         send("refresh-client -C \(size.columns)x\(size.rows)")
                     }
+                case nil:
+                    break
                 }
+                pendingPostAttachAction = nil
                 // First-connect coverage for the attach redraw kick: if the grid was
                 // computed before `.enter`, no post-connect `setClientSize` may ever
                 // fire (layout settled + same-size dedupe upstream), so the

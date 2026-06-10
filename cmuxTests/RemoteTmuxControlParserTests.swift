@@ -315,23 +315,23 @@ import Testing
     @Test func mirrorTabReorderFollowsRemoteWindowOrder() {
         let a = UUID(), b = UUID(), c = UUID()
         // Remote moved the windows → cmux tabs rearrange to match.
-        #expect(Workspace.mirrorTabReorder(current: [a, b, c], requested: [c, a, b]) == [c, a, b])
+        #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [c, a, b]) == [c, a, b])
         // A requested id that has no tab yet (filtered out) still yields the valid
         // reorder of the present tabs.
-        #expect(Workspace.mirrorTabReorder(current: [a, b], requested: [b, a, UUID()]) == [b, a])
+        #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b], requested: [b, a, UUID()]) == [b, a])
     }
 
     @Test func mirrorTabReorderNoOpsWhenAlreadyOrdered() {
         let a = UUID(), b = UUID(), c = UUID()
-        #expect(Workspace.mirrorTabReorder(current: [a, b, c], requested: [a, b, c]) == nil)
+        #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [a, b, c]) == nil)
     }
 
     @Test func mirrorTabReorderSkipsWhenSetsDiverge() {
         let a = UUID(), b = UUID(), c = UUID()
         // Requested is missing a present tab → not a permutation → leave untouched.
-        #expect(Workspace.mirrorTabReorder(current: [a, b, c], requested: [a, b]) == nil)
+        #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [a, b]) == nil)
         // Requested drops one present tab and only reorders the rest → sets diverge.
-        #expect(Workspace.mirrorTabReorder(current: [a, b, c], requested: [c, b]) == nil)
+        #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [c, b]) == nil)
     }
 
     // MARK: - Reconnect: session-gone classification
