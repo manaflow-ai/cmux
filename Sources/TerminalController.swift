@@ -19324,6 +19324,41 @@ class TerminalController {
         }
     }
 
+    /// Resolves the tab for a panel-scoped sidebar mutation. The caller's
+    /// `--tab` usually carries CMUX_WORKSPACE_ID captured in the pane's spawn
+    /// environment, which goes stale once the pane is moved to another
+    /// workspace, so prefer the tab that currently owns the panel.
+    private func sidebarMutationTab(
+        for target: SidebarMutationTabTarget,
+        panelId: UUID?
+    ) -> Tab? {
+        let requestedTab = resolveSidebarMutationTab(target)
+        guard let panelId else { return requestedTab }
+        if let resolved = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: panelId,
+            preferredWorkspaceId: requestedTab?.id
+        )?.workspace {
+            return resolved
+        }
+        return requestedTab
+    }
+
+    /// Like `scheduleSidebarMutation`, but routes panel-scoped mutations to
+    /// the tab that currently owns the panel and keeps the existing no-op
+    /// behavior when the panel no longer exists anywhere.
+    private func schedulePanelScopedSidebarMutation(
+        target: SidebarMutationTabTarget,
+        panelId: UUID?,
+        mutation: @escaping (TerminalController, Tab) -> Void
+    ) {
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let self,
+                  let tab = self.sidebarMutationTab(for: target, panelId: panelId) else { return }
+            if let panelId, tab.panels[panelId] == nil { return }
+            mutation(self, tab)
+        }
+    }
+
     private func schedulePanelMetadataMutation(
         args: String,
         options: [String: String],
@@ -19435,10 +19470,7 @@ class TerminalController {
             return nil
         }()
 
-        scheduleSidebarMutation(target: target) { _, tab in
-            if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
-                return
-            }
+        schedulePanelScopedSidebarMutation(target: target, panelId: panelResolution.panelId) { _, tab in
             guard Self.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
@@ -19508,10 +19540,7 @@ class TerminalController {
         if let error = panelResolution.error {
             return error
         }
-        scheduleSidebarMutation(target: target) { _, tab in
-            if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
-                return
-            }
+        schedulePanelScopedSidebarMutation(target: target, panelId: panelResolution.panelId) { _, tab in
             let didReplaceAgentRuntime = tab.recordAgentPID(
                 key: key,
                 pid: pid,
@@ -19556,10 +19585,7 @@ class TerminalController {
         ) else {
             return "ERROR: Unsupported agent lifecycle key '\(key)'"
         }
-        scheduleSidebarMutation(target: target) { _, tab in
-            if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
-                return
-            }
+        schedulePanelScopedSidebarMutation(target: target, panelId: panelResolution.panelId) { _, tab in
             tab.setAgentLifecycle(key: key, panelId: panelResolution.panelId, lifecycle: lifecycle)
         }
         return "OK"
@@ -19624,10 +19650,7 @@ class TerminalController {
         if let error = panelResolution.error {
             return error
         }
-        scheduleSidebarMutation(target: target) { _, tab in
-            if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
-                return
-            }
+        schedulePanelScopedSidebarMutation(target: target, panelId: panelResolution.panelId) { _, tab in
             tab.clearAgentPID(
                 key: key,
                 panelId: panelResolution.panelId,
