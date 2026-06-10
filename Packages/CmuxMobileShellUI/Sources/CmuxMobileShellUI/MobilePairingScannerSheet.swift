@@ -10,6 +10,7 @@ struct MobilePairingScannerSheet: View {
     let onCode: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     private let authorization = CameraAuthorization()
     @State private var authorizationStatus = CameraAuthorization().videoStatus
     /// Set when the camera decoded a QR that is not a cmux pairing code, so
@@ -52,6 +53,13 @@ struct MobilePairingScannerSheet: View {
             }
             .navigationTitle(L10n.string("mobile.pairing.scannerTitle", defaultValue: "Scan QR Code"))
             .navigationBarTitleDisplayMode(.inline)
+            // Re-read camera authorization when the user comes back from
+            // Settings (the denied walk-through's Open Settings round trip), so
+            // a fresh grant flips this sheet to the scanner without reopening.
+            .onChange(of: scenePhase) { _, newPhase in
+                guard newPhase == .active, authorizationStatus != .notDetermined else { return }
+                authorizationStatus = authorization.videoStatus
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
