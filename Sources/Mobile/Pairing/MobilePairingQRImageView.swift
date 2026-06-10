@@ -50,7 +50,11 @@ struct MobilePairingQRImageView: View {
     private var qrImage: NSImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(payload.utf8)
-        filter.correctionLevel = "M"
+        // ECC L: the standard choice for screen-to-camera codes, where the
+        // image is pristine (no print damage to correct for). The lower
+        // redundancy drops the QR a version, so each module renders larger
+        // at the same dimension and scans faster.
+        filter.correctionLevel = "L"
         guard let output = filter.outputImage, output.extent.width > 0 else {
             return nil
         }
