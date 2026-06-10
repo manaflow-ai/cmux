@@ -155,7 +155,7 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
         }
         let data = Data(content.utf8)
         do {
-            try data.write(to: fileURL, options: .atomic)
+            try replacePreservingMetadata(fileURL: fileURL, with: data)
         } catch let error as NSError {
             let code = error.domain == NSCocoaErrorDomain && error.code == NSFileWriteNoPermissionError
                 ? "permission_denied"
@@ -163,6 +163,26 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
             return errorEnvelope(code: code, detail: error.localizedDescription)
         }
         return ["ok": true, "value": ["status": "saved", "sha256": sha256Hex(data)]]
+    }
+
+    /// Atomically replaces `fileURL` with `data` while keeping the original
+    /// item's metadata (permissions/executable bit, xattrs), via
+    /// `FileManager.replaceItemAt` and its system-provided replacement
+    /// directory on the same volume. A bare `Data.write(.atomic)` would mint
+    /// a fresh inode with default metadata and needs create rights in the
+    /// file's own directory.
+    private static func replacePreservingMetadata(fileURL: URL, with data: Data) throws {
+        let fileManager = FileManager.default
+        let replacementDirectory = try fileManager.url(
+            for: .itemReplacementDirectory,
+            in: .userDomainMask,
+            appropriateFor: fileURL,
+            create: true
+        )
+        defer { try? fileManager.removeItem(at: replacementDirectory) }
+        let temporaryURL = replacementDirectory.appendingPathComponent(fileURL.lastPathComponent)
+        try data.write(to: temporaryURL)
+        _ = try fileManager.replaceItemAt(fileURL, withItemAt: temporaryURL)
     }
 
     private static func conflictEnvelope(fileMissing: Bool, diskData: Data?) -> [String: Any] {

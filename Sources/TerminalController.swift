@@ -11696,9 +11696,23 @@ class TerminalController {
         guard let editorFile = params["editor_file"] as? [String: Any] else {
             return nil
         }
-        guard v2IsDiffViewerURL(url),
+        guard let url,
+              v2IsDiffViewerURL(url),
               let token = editorFile["token"] as? String,
               let path = editorFile["path"] as? String, path.hasPrefix("/") else {
+            return .err(code: "invalid_params", message: "Invalid editor file registration", data: nil)
+        }
+        // Bind the registration to the page actually being opened: the token
+        // must be the one carried by the URL (origin host for the custom
+        // scheme, first path component for the localhost HTTP server), so a
+        // caller cannot re-point an existing page's write capability.
+        let urlToken: String?
+        if url.scheme == CmuxDiffViewerURLSchemeHandler.scheme {
+            urlToken = url.host
+        } else {
+            urlToken = url.path.split(separator: "/", omittingEmptySubsequences: true).first.map(String.init)
+        }
+        guard token == urlToken else {
             return .err(code: "invalid_params", message: "Invalid editor file registration", data: nil)
         }
         do {
