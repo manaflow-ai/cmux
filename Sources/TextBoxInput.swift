@@ -1737,7 +1737,15 @@ enum TextBoxSubmit {
         }
 
         let pastePayload = TextBoxSubmissionFormatter.formattedText(from: inputParts)
-        return [.pasteText(pastePayload), .namedKey(submitKey)]
+        var events: [DispatchEvent] = [
+            .captureVisibleTextBaseline,
+            .pasteText(pastePayload),
+        ]
+        if let waitNeedle = visibleTextWaitNeedle(for: pastePayload) {
+            events.append(.waitForVisibleText(waitNeedle))
+        }
+        events.append(.namedKey(submitKey))
+        return events
     }
 
     static func send(
