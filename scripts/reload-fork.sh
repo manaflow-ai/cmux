@@ -48,8 +48,6 @@ XCODEBUILD_ARGS=(
   -configuration Release
   -destination 'platform=macOS'
   -derivedDataPath "$DERIVED_DATA"
-  INFOPLIST_KEY_CFBundleName="$FORK_APP_NAME"
-  INFOPLIST_KEY_CFBundleDisplayName="$FORK_APP_NAME"
   PRODUCT_BUNDLE_IDENTIFIER="$FORK_BUNDLE_ID"
 )
 
@@ -67,10 +65,35 @@ fi
 
 xcodebuild "${XCODEBUILD_ARGS[@]}" build
 
-APP="$DERIVED_DATA/Build/Products/Release/cmux.app"
-if [[ ! -d "$APP" ]]; then
-  echo "error: build succeeded but app not found at $APP" >&2
+BUILT_APP="$DERIVED_DATA/Build/Products/Release/cmux.app"
+if [[ ! -d "$BUILT_APP" ]]; then
+  echo "error: build succeeded but app not found at $BUILT_APP" >&2
   exit 1
+fi
+
+# Rename post-build, the way reload.sh handles tagged apps: a global PRODUCT_NAME
+# override would rename every target's product and module and break the build.
+# Editing Info.plist breaks the signature seal, so the bundle is re-signed after.
+APP="$BUILT_APP"
+if [[ "$FORK_APP_NAME" != "cmux" ]]; then
+  APP="$DERIVED_DATA/Build/Products/Release/$FORK_APP_NAME.app"
+  rm -rf "$APP"
+  cp -R "$BUILT_APP" "$APP"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleName $FORK_APP_NAME" "$APP/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $FORK_APP_NAME" "$APP/Contents/Info.plist"
+  ENTITLEMENTS_TMP="$(mktemp -t fork-entitlements).plist"
+  if [[ -n "$FORK_TEAM_ID" ]]; then
+    codesign -d --entitlements "$ENTITLEMENTS_TMP" --xml "$APP" 2>/dev/null
+    SIGN_IDENTITY="$(security find-identity -v -p codesigning | awk -F'"' '/Apple Development/{print $2; exit}')"
+    if [[ -z "$SIGN_IDENTITY" ]]; then
+      echo "error: no valid Apple Development identity found to re-sign after rename" >&2
+      exit 1
+    fi
+    codesign --force --sign "$SIGN_IDENTITY" --entitlements "$ENTITLEMENTS_TMP" "$APP"
+  else
+    codesign --force --sign - "$APP"
+  fi
+  rm -f "$ENTITLEMENTS_TMP"
 fi
 
 echo
