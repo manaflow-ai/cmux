@@ -11494,6 +11494,13 @@ final class Workspace: Identifiable, ObservableObject {
     /// Mapping from bonsplit TabID (surface ID) to panel UUID
     var surfaceIdToPanelId: [TabID: UUID] = [:]
 
+    /// Original terminal panel stashed alive (hidden, not torn down) while a
+    /// control-mode session (e.g. tmux -CC) takes over its tab. Keyed by the
+    /// tab id; on detach the original is restored intact. See
+    /// `attachControlModeBySwap` / `restoreOriginalAfterControlMode` and
+    /// `docs/tmux-control-mode.md`.
+    private var controlModeStashedOriginalPanelId: [TabID: UUID] = [:]
+
     /// Tab IDs that are allowed to close even if they would normally require confirmation.
     /// This is used by app-level confirmation prompts (for example, Close Tab) so the
     /// Bonsplit delegate doesn't block the close after the user already confirmed.
@@ -14933,9 +14940,10 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
-    /// Attach a local tmux control-mode session by **replacing** an existing
-    /// terminal surface in place (same pane and tab — no new tab). When the
-    /// session ends, the surface reverts to a normal shell.
+    /// Attach a local tmux control-mode session over an existing terminal
+    /// surface in place: the original shell is stashed alive (hidden) and the
+    /// control-mode view takes over the same pane and tab (no new tab). On
+    /// detach the original shell is restored intact.
     @discardableResult
     func attachLocalTmuxControlMode(
         target: TmuxAttachTarget,
@@ -14950,7 +14958,187 @@ final class Workspace: Identifiable, ObservableObject {
             tmuxExecutablePath: tmuxPath,
             environment: ProcessInfo.processInfo.environment
         )
-        return respawnTerminalSurface(panelId: panelId, command: "", focus: focus, controlModeSession: session)
+        return attachControlModeBySwap(replacingPanelId: panelId, session: session, focus: focus)
+    }
+
+    /// Stash the original terminal panel alive+hidden and bind a control-mode
+    /// panel to the same tab. The bonsplit tab is reused (no new tab); only the
+    /// cmux panel behind it changes, plus tab chrome. Restored by
+    /// ``restoreOriginalAfterControlMode(tabId:)`` when the session ends.
+    @discardableResult
+    func attachControlModeBySwap(
+        replacingPanelId panelId: UUID,
+        session: any ControlModeSessionSource,
+        focus: Bool? = nil
+    ) -> TerminalPanel? {
+        guard let original = terminalPanel(for: panelId),
+              let tabId = surfaceIdFromPanelId(panelId),
+              let paneId = paneId(forPanelId: panelId) else {
+            return nil
+        }
+        // Don't double-swap a tab already hosting a control-mode session.
+        guard controlModeStashedOriginalPanelId[tabId] == nil else { return nil }
+
+        let selectedInPane = bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+        let paneWasFocused = bonsplitController.focusedPaneId == paneId
+        let shouldFocus = focus ?? (selectedInPane && paneWasFocused)
+        let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        let wasPinned = pinnedPanelIds.contains(panelId)
+
+        // Stash the original alive + hidden: keep its shell/PTY running, just
+        // detach its view from the pane. No teardown, no portal-close lifecycle.
+        original.unfocus()
+        original.hostedView.setVisibleInUI(false)
+        TerminalWindowPortalRegistry.detach(hostedView: original.hostedView)
+
+        let controlPanel = TerminalPanel(
+            workspaceId: id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: inheritedConfig,
+            portOrdinal: portOrdinal,
+            controlModeSession: session
+        )
+        controlPanel.updateTitle(session.displayName)
+        configureNewTerminalPanel(controlPanel)
+        panels[controlPanel.id] = controlPanel
+        panelTitles[controlPanel.id] = controlPanel.displayTitle
+        seedTerminalInheritanceFontPoints(panelId: controlPanel.id, configTemplate: inheritedConfig)
+
+        controlModeStashedOriginalPanelId[tabId] = original.id
+        surfaceIdToPanelId[tabId] = controlPanel.id
+
+        controlPanel.surface.onControlModeSessionEnded = { [weak self] _ in
+            self?.restoreOriginalAfterControlMode(tabId: tabId)
+        }
+
+        let resolvedTitle = resolvedPanelTitle(panelId: controlPanel.id, fallback: controlPanel.displayTitle)
+        bonsplitController.updateTab(
+            tabId,
+            title: resolvedTitle,
+            icon: .some(controlPanel.displayIcon),
+            iconImageData: .some(nil),
+            kind: .some(SurfaceKind.terminal),
+            hasCustomTitle: false,
+            isDirty: controlPanel.isDirty,
+            showsNotificationBadge: false,
+            isLoading: false,
+            isPinned: wasPinned
+        )
+
+        if shouldFocus {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(tabId)
+            focusPanel(controlPanel.id)
+        } else if selectedInPane {
+            bonsplitController.selectTab(tabId)
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        }
+
+        scheduleTerminalGeometryReconcile()
+        scheduleFocusReconcile()
+        return controlPanel
+    }
+
+    /// Restore the stashed original shell into its tab when the control-mode
+    /// session ends, and tear down the control-mode panel.
+    func restoreOriginalAfterControlMode(tabId: TabID) {
+        guard let originalPanelId = controlModeStashedOriginalPanelId[tabId],
+              let original = terminalPanel(for: originalPanelId) else {
+            controlModeStashedOriginalPanelId.removeValue(forKey: tabId)
+            return
+        }
+        let controlPanelId = surfaceIdToPanelId[tabId]
+        guard let paneId = paneId(forPanelId: controlPanelId ?? originalPanelId)
+            ?? paneId(forPanelId: originalPanelId) else {
+            controlModeStashedOriginalPanelId.removeValue(forKey: tabId)
+            return
+        }
+        let selectedInPane = bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+        let paneWasFocused = bonsplitController.focusedPaneId == paneId
+        let wasPinned = pinnedPanelIds.contains(originalPanelId)
+
+        // Tear down the disposable control-mode panel.
+        if let controlPanelId, controlPanelId != originalPanelId,
+           let controlPanel = terminalPanel(for: controlPanelId) {
+            controlPanel.surface.onControlModeSessionEnded = nil
+            controlPanel.unfocus()
+            controlPanel.hostedView.setVisibleInUI(false)
+            TerminalWindowPortalRegistry.detach(hostedView: controlPanel.hostedView)
+            controlPanel.surface.beginPortalCloseLifecycle(reason: "controlMode.detach")
+            discardClosedPanelLifecycleState(
+                panelId: controlPanelId,
+                tabId: tabId,
+                paneId: paneId,
+                panel: controlPanel,
+                origin: "controlMode_detach",
+                closePanel: false,
+                publishSurfaceClosedEvent: false,
+                clearSurfaceNotifications: false,
+                requestTransferredRemoteCleanup: true,
+                cleanupControllerSurfaceState: false
+            )
+            TerminalSurfaceRegistry.shared.unregister(controlPanel.surface)
+            controlPanel.surface.teardownSurface()
+        }
+
+        // Re-bind the original to the tab (the teardown cleared the mapping).
+        controlModeStashedOriginalPanelId.removeValue(forKey: tabId)
+        surfaceIdToPanelId[tabId] = originalPanelId
+
+        original.requestViewReattach()
+        let resolvedTitle = resolvedPanelTitle(panelId: originalPanelId, fallback: original.displayTitle)
+        bonsplitController.updateTab(
+            tabId,
+            title: resolvedTitle,
+            icon: .some(original.displayIcon),
+            iconImageData: .some(nil),
+            kind: .some(SurfaceKind.terminal),
+            hasCustomTitle: panelCustomTitles[originalPanelId] != nil,
+            isDirty: original.isDirty,
+            showsNotificationBadge: false,
+            isLoading: false,
+            isPinned: wasPinned
+        )
+
+        if paneWasFocused && selectedInPane {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(tabId)
+            focusPanel(originalPanelId)
+        } else if selectedInPane {
+            bonsplitController.selectTab(tabId)
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        } else {
+            original.unfocus()
+        }
+
+        scheduleTerminalGeometryReconcile()
+        scheduleFocusReconcile()
+    }
+
+    /// Tear down a control-mode session's stashed original shell when its tab is
+    /// being closed by the user (so the alive-but-hidden original is not leaked).
+    func discardControlModeStashIfNeeded(forTab tabId: TabID) {
+        guard let originalPanelId = controlModeStashedOriginalPanelId.removeValue(forKey: tabId) else { return }
+        guard let original = terminalPanel(for: originalPanelId) else { return }
+        original.surface.onControlModeSessionEnded = nil
+        original.unfocus()
+        original.hostedView.setVisibleInUI(false)
+        TerminalWindowPortalRegistry.detach(hostedView: original.hostedView)
+        original.surface.beginPortalCloseLifecycle(reason: "controlMode.stashClose")
+        discardClosedPanelLifecycleState(
+            panelId: originalPanelId,
+            tabId: nil,
+            paneId: nil,
+            panel: original,
+            origin: "controlMode_stash_close",
+            closePanel: false,
+            publishSurfaceClosedEvent: false,
+            clearSurfaceNotifications: false,
+            requestTransferredRemoteCleanup: true,
+            cleanupControllerSurfaceState: false
+        )
+        TerminalSurfaceRegistry.shared.unregister(original.surface)
+        original.surface.teardownSurface()
     }
 
     /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
@@ -19157,6 +19345,9 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
+        // If this tab was hosting a control-mode session, the alive-but-hidden
+        // original shell is stashed off-tab; tear it down so it is not leaked.
+        discardControlModeStashIfNeeded(forTab: tabId)
         forceCloseTabIds.remove(tabId)
         tabCloseButtonCloseTabIds.remove(tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
