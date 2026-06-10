@@ -3866,6 +3866,17 @@ final class TextBoxInputTextView: NSTextView {
         insertAttachments(attachments, replacementRange: selectedRange())
     }
 
+    /// Appends attachments at the end of the current content without taking
+    /// first responder, so programmatic inserts (diff viewer comment
+    /// attachments) never steal focus from the surface the user is in.
+    func appendAttachmentsWithoutFocusing(_ attachments: [TextBoxAttachment]) {
+        guard !attachments.isEmpty else { return }
+        insertAttachments(
+            attachments,
+            replacementRange: NSRange(location: attributedString().length, length: 0)
+        )
+    }
+
     func insertPendingAttachmentUploadPlaceholder(id: UUID) {
         window?.makeFirstResponder(self)
         var attributes = currentTextAttributes()
