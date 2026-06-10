@@ -170,3 +170,37 @@ final class DiffCommentsAttachResolutionTests: XCTestCase {
         }
     }
 }
+
+final class DiffCommentsBridgeTokenTests: XCTestCase {
+    private let token = "0c33124b-9f59-4ba2-a2c2-9bd3b1cba001"
+
+    func testCustomSchemePageURLYieldsToken() {
+        let url = URL(string: "cmux-diff-viewer://\(token)/diff-1-abc.html")
+        XCTAssertEqual(DiffCommentsBridge.diffViewerToken(from: url), token)
+    }
+
+    func testLocalServerPageWithOriginalFragmentYieldsToken() {
+        let url = URL(string: "http://127.0.0.1:5050/\(token)/diff-1-abc.html#cmux-diff-viewer")
+        XCTAssertEqual(DiffCommentsBridge.diffViewerToken(from: url), token)
+    }
+
+    func testLocalServerPageWithRouterRewrittenFragmentYieldsToken() {
+        // The in-page router rewrites the fragment to "/cmux-diff-viewer"
+        // after boot; live bridge messages carry this form.
+        let url = URL(string: "http://127.0.0.1:5050/\(token)/diff-1-abc.html#/cmux-diff-viewer")
+        XCTAssertEqual(DiffCommentsBridge.diffViewerToken(from: url), token)
+    }
+
+    func testNonLoopbackAndMalformedURLsAreRejected() {
+        XCTAssertNil(DiffCommentsBridge.diffViewerToken(
+            from: URL(string: "http://example.com/\(token)/diff-1-abc.html")
+        ))
+        XCTAssertNil(DiffCommentsBridge.diffViewerToken(
+            from: URL(string: "http://127.0.0.1:5050/not-a-token/diff.html")
+        ))
+        XCTAssertNil(DiffCommentsBridge.diffViewerToken(
+            from: URL(string: "http://127.0.0.1:5050/\(token)/../escape.html")
+        ))
+        XCTAssertNil(DiffCommentsBridge.diffViewerToken(from: nil))
+    }
+}

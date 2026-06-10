@@ -110,12 +110,35 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     nonisolated static func isTrustedDiffViewerFrame(_ frameInfo: WKFrameInfo) -> Bool {
         guard frameInfo.isMainFrame,
-              let components = CmuxDiffViewerURLSchemeHandler.diffViewerComponents(
-                  from: frameInfo.request.url
-              ) else {
+              let token = diffViewerToken(from: frameInfo.request.url) else {
             return false
         }
-        return CmuxDiffViewerURLSchemeHandler.shared.hasActiveSession(token: components.token)
+        return CmuxDiffViewerURLSchemeHandler.shared.hasActiveSession(token: token)
+    }
+
+    /// Extracts the diff viewer session token from a live page URL. Unlike
+    /// `diffViewerComponents(from:)` this ignores the fragment: the viewer's
+    /// in-page router rewrites `#cmux-diff-viewer` to `#/cmux-diff-viewer`
+    /// once the app boots, so live bridge messages carry a different fragment
+    /// than the URL the page was opened with. Token registration (checked by
+    /// the caller) remains the trust authority.
+    nonisolated static func diffViewerToken(from url: URL?) -> String? {
+        if let components = CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: url) {
+            return components.token
+        }
+        guard let url,
+              url.scheme == "http" || url.scheme == "https",
+              url.host == "127.0.0.1" else {
+            return nil
+        }
+        let rawPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
+        let parts = rawPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard parts.count >= 2,
+              CmuxDiffViewerURLSchemeHandler.isValidToken(parts[0]),
+              CmuxDiffViewerURLSchemeHandler.isValidRequestPath("/" + parts.dropFirst().joined(separator: "/")) else {
+            return nil
+        }
+        return parts[0]
     }
 
     private func handle(body: Any, webView: WKWebView?) throws -> Any {

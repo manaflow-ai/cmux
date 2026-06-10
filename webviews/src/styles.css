@@ -803,14 +803,19 @@ body[data-loading="true"] #status::before {
 }
 .comment-composer,
 .comment-card {
-  margin: 4px 8px;
-  padding: 8px;
+  margin: 6px 10px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  max-width: 720px;
   border: 1px solid var(--cmux-diff-border);
-  border-radius: 6px;
-  background: var(--cmux-diff-surface-bg, var(--cmux-diff-muted-bg));
+  border-radius: 8px;
+  background: light-dark(
+    color-mix(in lab, var(--cmux-diff-bg) 94%, #fff),
+    color-mix(in lab, var(--cmux-diff-bg) 92%, #fff)
+  );
+  box-shadow: 0 1px 3px color-mix(in lab, #000 14%, transparent);
   color: var(--cmux-diff-fg);
   font-family: var(--cmux-diff-ui-font-family);
   font-size: 13px;
@@ -820,9 +825,10 @@ body[data-loading="true"] #status::before {
   width: 100%;
   box-sizing: border-box;
   resize: vertical;
-  padding: 5px 7px;
+  min-height: 60px;
+  padding: 6px 8px;
   border: 1px solid var(--cmux-diff-border);
-  border-radius: 5px;
+  border-radius: 6px;
   background: var(--cmux-diff-bg);
   color: var(--cmux-diff-fg);
   font: inherit;
