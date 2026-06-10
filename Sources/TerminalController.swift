@@ -12570,7 +12570,11 @@ class TerminalController {
               const chunk = String(\(textLiteral));
               if ('value' in el) {
                 const newValue = (el.value || '') + chunk;
-                try { el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: chunk })); } catch (e) {}
+                // beforeinput is cancelable; honor a page that rejects the edit (input masks,
+                // controlled editors) instead of forcing the value and drifting from app state.
+                let proceed = true;
+                try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: chunk })); } catch (e) {}
+                if (!proceed) return { ok: true, applied: false };
                 \(Self.reactCompatibleSetValue)
                 try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: chunk })); }
                 catch (e) { el.dispatchEvent(new Event('input', { bubbles: true })); }
@@ -12599,7 +12603,11 @@ class TerminalController {
               if (typeof el.focus === 'function') el.focus();
               const newValue = String(\(textLiteral));
               if ('value' in el) {
-                try { el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
+                // beforeinput is cancelable; honor a page that rejects the edit instead of forcing
+                // the value and drifting from app state.
+                let proceed = true;
+                try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
+                if (!proceed) return { ok: true, applied: false };
                 \(Self.reactCompatibleSetValue)
                 try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: newValue })); }
                 catch (e) { el.dispatchEvent(new Event('input', { bubbles: true })); }
