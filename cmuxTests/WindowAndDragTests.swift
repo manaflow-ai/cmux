@@ -2094,6 +2094,28 @@ struct CustomTitlebarLeadingPaddingTests {
         )
         #expect(visible == hidden)
     }
+
+    // Regression: fullscreen must behave like windowed mode. At the minimum
+    // sidebar width, toggling the sidebar in fullscreen used to jump the
+    // folder/title to a compact 8pt inset when hidden instead of keeping the
+    // sidebar-edge inset it has when visible.
+    @Test func fullscreenToggleAtMinimumWidthDoesNotMoveTitle() {
+        let visible = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: true,
+            isSidebarVisible: true,
+            sidebarWidth: 216,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+        let hidden = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: true,
+            isSidebarVisible: false,
+            sidebarWidth: 216,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+        #expect(visible == hidden)
+    }
 }
 
 
