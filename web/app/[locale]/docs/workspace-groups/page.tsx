@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import { DocsHeading } from "../../components/docs-heading";
@@ -92,7 +93,10 @@ cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
       <CodeBlock lang="bash">{`cmux workspace-group list`}</CodeBlock>
 
       <DocsHeading level={2} id="configuration">{t("configTitle")}</DocsHeading>
-      <Callout type="info">{t("configReservedNote")}</Callout>
+      <p>{t("configNote")}</p>
+      <p>
+        <Link href="/docs/configuration#schema-workspaceGroups">{t("configLinkText")}</Link>
+      </p>
 
       <DocsHeading level={2} id="persistence">{t("persistenceTitle")}</DocsHeading>
       <p>{t("persistenceDesc")}</p>

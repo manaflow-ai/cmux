@@ -765,7 +765,7 @@
       "plusButtonDesc": "グループヘッダーにカーソルを合わせると、末尾に + ボタンが表示されます。クリックすると、アンカーの作業ディレクトリでグループ内に新しいワークスペースを作成します。右クリックすると「New Workspace in Group」、「Edit Group Config」、「Open Workspace Groups Docs」が表示されます。",
       "plusButtonNote": "アクティブなワークスペースがグループのアンカーまたはメンバーのときに {shortcut} を押しても、新しいワークスペースがそのグループ内に作成されます。デフォルトの配置は After current です。通常のグループメンバーからはアクティブなメンバーの直後に、アンカーまたはヘッダーからはグループの先頭に新しいワークスペースが配置されます。",
       "cliTitle": "CLI",
-      "cliDesc": "すべてのグループ操作は cmux workspace-group <subcommand> でスクリプト化できます。ハイフン形式が先に提供されます。より広い cmux workspace <noun> 名前空間が登場すると、cmux workspace group が正式な形式となり、ハイフン形式は今後ずっとエイリアスとして残ります。",
+      "cliDesc": "すべてのグループ操作は cmux workspace-group サブコマンドでスクリプト化できます。ハイフン形式が先に提供されます。より広い cmux workspace コマンド名前空間が登場すると、cmux workspace group が正式な形式となり、ハイフン形式は今後ずっとエイリアスとして残ります。",
       "cliSubcommandsTitle": "サブコマンド",
       "cliCreateNote": "create はグループハンドル（デフォルトでは workspace_group:N）を返します。完全な構造化ペイロードを得るには --json を渡してください。",
       "cliExamplesTitle": "例",
@@ -773,7 +773,8 @@
       "cliExampleNew": "既存のグループ内に新しいワークスペースを作成します（例: worktree スクリプトと連携）。",
       "cliExampleList": "フォーカスされているウィンドウ内のグループを一覧表示します。",
       "configTitle": "設定",
-      "configReservedNote": "グループごとの設定は、~/.config/cmux/cmux.json 内でアンカーの作業ディレクトリをキーとして管理される予定です。workspaceGroups 設定ブロック（cwd ごとの色・アイコン・新規ワークスペースの配置・コンテキストメニューのアクション）は予約済みで、後続のリリースで追加されます。これらの設定キーは提供され次第このページに記載します。",
+      "configNote": "グループごとの設定は、~/.config/cmux/cmux.json 内の workspaceGroups キーに置かれ、アンカーワークスペースの作業ディレクトリをキーとして照合されます。対応しているキー（グローバルな新規ワークスペースの配置や、ディレクトリごとの色・アイコン・配置・コンテキストメニューのアクションなど）については、設定リファレンスを参照してください。",
+      "configLinkText": "workspaceGroups 設定リファレンス",
       "persistenceTitle": "永続化",
       "persistenceDesc": "グループの名前、アンカー、ピン留め状態、折りたたみ状態、色、アイコンはワークスペースとともに保存され、起動をまたいで復元されます。グループのメンバーシップは各ワークスペースに保存されます。"
     },

@@ -806,7 +806,7 @@
       "plusButtonDesc": "Hover over a group header to reveal a trailing + button. Click it to create a new workspace in the group at the anchor's working directory. Right-click it for New Workspace in Group, Edit Group Config, and Open Workspace Groups Docs.",
       "plusButtonNote": "Pressing {shortcut} while the active workspace is a group anchor or member also creates the new workspace inside that group. The default placement is After current: from a regular group member the new workspace lands right after the active member, and from the anchor or header it lands at the top of the group.",
       "cliTitle": "CLI",
-      "cliDesc": "All group operations are scriptable via cmux workspace-group <subcommand>. The hyphenated form ships first; once the broader cmux workspace <noun> namespace lands, cmux workspace group will be the canonical form, with the hyphenated form kept as an alias forever.",
+      "cliDesc": "All group operations are scriptable with the cmux workspace-group subcommands. The hyphenated form ships first; once the broader cmux workspace command namespace lands, cmux workspace group becomes the canonical form, with the hyphenated form kept as an alias forever.",
       "cliSubcommandsTitle": "Subcommands",
       "cliCreateNote": "create returns a group handle (workspace_group:N by default). Pass --json for the full structured payload.",
       "cliExamplesTitle": "Examples",
@@ -814,7 +814,8 @@
       "cliExampleNew": "Spin up a new workspace inside an existing group, for example wired to a worktree script:",
       "cliExampleList": "List groups in the focused window:",
       "configTitle": "Configuration",
-      "configReservedNote": "Per-group configuration will be keyed by the anchor's working directory in ~/.config/cmux/cmux.json. The workspaceGroups configuration block — per-cwd colors, icons, new-workspace placement, and context-menu actions — is reserved and lands in a follow-up. This page will document those config keys once they ship.",
+      "configNote": "Per-group configuration lives under the workspaceGroups key in ~/.config/cmux/cmux.json, keyed by the anchor workspace's working directory. See the configuration reference for the supported keys, including the global new-workspace placement and per-directory color, icon, placement, and context-menu actions.",
+      "configLinkText": "workspaceGroups configuration reference",
       "persistenceTitle": "Persistence",
       "persistenceDesc": "Group name, anchor, pin state, collapse state, color, and icon are saved alongside your workspaces and restored across launches. Group membership is stored on each workspace."
     },
