@@ -518,9 +518,23 @@ final class NotesTreeStore: ObservableObject {
               NotesTreeStorage.isWithin(child: destinationFolder, orEqualTo: notesDir)
         else { return nil }
         let moved = try? NotesTreeStorage.move(sourcePath: sourcePath, intoFolder: destinationFolder)
-        if let moved { postRelocation(from: sourcePath, to: moved) }
+        if let moved {
+            rebaseIndexedBodies(from: sourcePath, to: moved)
+            postRelocation(from: sourcePath, to: moved)
+        }
         reload()
         return moved
+    }
+
+    /// Keep `index.json` pointing at bodies a raw tree move/rename relocated.
+    /// An indexed note that was filed into the tree (or a folder containing
+    /// one) moves with plain FileManager calls; without the rebase its index
+    /// record silently orphans and `cmux note read/open` loses the note.
+    private func rebaseIndexedBodies(from oldPath: String, to newPath: String) {
+        guard let projectRoot else { return }
+        try? CmuxNoteStore.rebaseBodyPaths(
+            projectRoot: projectRoot, fromAbsolutePath: oldPath, toAbsolutePath: newPath
+        )
     }
 
     /// Announce a completed on-disk relocation so open viewers (markdown
@@ -560,6 +574,7 @@ final class NotesTreeStore: ObservableObject {
                 return collapsed
             })
         }
+        rebaseIndexedBodies(from: oldPrefix, to: newPrefix)
         postRelocation(from: oldPrefix, to: newPrefix)
         reload()
         return renamed
@@ -571,6 +586,11 @@ final class NotesTreeStore: ObservableObject {
     func delete(path: String) {
         guard isMutablePath(path) else { return }
         try? FileManager.default.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil)
+        // Indexed notes whose body just went to the Trash (directly, or via a
+        // trashed ancestor folder) must leave the index with it.
+        if let projectRoot {
+            try? CmuxNoteStore.removeRecords(underAbsolutePath: path, projectRoot: projectRoot)
+        }
         reload()
     }
 

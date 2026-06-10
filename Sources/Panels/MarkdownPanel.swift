@@ -175,7 +175,17 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             return
         }
         filePath = remapped
-        if noteBodyPath != nil { noteBodyPath = remapped }
+        if noteBodyPath != nil {
+            // Persisted bodyPath stays in its index-relative form (relative to
+            // `<projectRoot>/.cmux`) so session restore resolves it against the
+            // restored project root instead of pinning this machine's absolute
+            // path.
+            if let range = remapped.range(of: "/.cmux/", options: .backwards) {
+                noteBodyPath = String(remapped[range.upperBound...])
+            } else {
+                noteBodyPath = remapped
+            }
+        }
         displayTitle = (remapped as NSString).lastPathComponent
         // Re-read from the new location (keeping any unsaved editor buffer)
         // and re-arm the watcher there; future saves also land at the new path.

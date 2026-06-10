@@ -223,6 +223,72 @@ enum CmuxNoteStore {
         }
     }
 
+    /// Rewrite indexed `bodyPath`s after a Notes-tree move/rename relocated
+    /// `fromAbsolutePath` (a file, or a directory whose subtree may contain
+    /// indexed bodies) to `toAbsolutePath` with a plain filesystem move.
+    /// Without this, the first drag of an indexed note into the tree makes
+    /// every later tree move of it (or of a folder above it) silently orphan
+    /// the index record. No-op when nothing is indexed under the old path.
+    static func rebaseBodyPaths(
+        projectRoot: String,
+        fromAbsolutePath: String,
+        toAbsolutePath: String
+    ) throws {
+        try withStoreLock {
+            let from = ((fromAbsolutePath as NSString).standardizingPath as NSString)
+                .resolvingSymlinksInPath
+            let to = ((toAbsolutePath as NSString).standardizingPath as NSString)
+                .resolvingSymlinksInPath
+            guard from != to else { return }
+            var index = try loadIndex(projectRoot: projectRoot)
+            let cmuxDir = ((projectRoot as NSString).appendingPathComponent(".cmux") as NSString)
+                .standardizingPath
+            let now = Date().timeIntervalSince1970
+            var changed = false
+            for i in index.notes.indices {
+                let current = noteBodyPath(for: index.notes[i], projectRoot: projectRoot)
+                let rebased: String
+                if current == from {
+                    rebased = to
+                } else if current.hasPrefix(from + "/") {
+                    rebased = to + String(current.dropFirst(from.count))
+                } else {
+                    continue
+                }
+                // bodyPath is stored relative to `<projectRoot>/.cmux`.
+                var relative = rebased
+                if relative.hasPrefix(cmuxDir + "/") {
+                    relative = String(relative.dropFirst(cmuxDir.count + 1))
+                }
+                index.notes[i].bodyPath = relative
+                index.notes[i].updatedAt = now
+                changed = true
+            }
+            if changed {
+                try writeIndex(index, projectRoot: projectRoot)
+            }
+        }
+    }
+
+    /// Drop index records whose body lives at or under `absolutePath` — used
+    /// after the Notes tree trashes a file/folder so `cmux note list` does not
+    /// keep advertising notes whose bodies are in the Trash.
+    static func removeRecords(underAbsolutePath absolutePath: String, projectRoot: String) throws {
+        try withStoreLock {
+            let target = ((absolutePath as NSString).standardizingPath as NSString)
+                .resolvingSymlinksInPath
+            var index = try loadIndex(projectRoot: projectRoot)
+            let before = index.notes.count
+            index.notes.removeAll { note in
+                let path = noteBodyPath(for: note, projectRoot: projectRoot)
+                return path == target || path.hasPrefix(target + "/")
+            }
+            if index.notes.count != before {
+                try writeIndex(index, projectRoot: projectRoot)
+            }
+        }
+    }
+
     static func delete(slug rawSlug: String, projectRoot: String) throws -> Bool {
         try withStoreLock {
             let slug = try NoteSupport.validateSlug(rawSlug)

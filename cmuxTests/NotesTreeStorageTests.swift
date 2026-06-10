@@ -412,6 +412,63 @@ import Testing
         #expect(store.move(sourcePath: note, intoFolder: sub) != nil)
     }
 
+    /// An indexed note filed into the tree must keep its index record through
+    /// later tree moves, folder renames, and deletes — regression for raw
+    /// FileManager tree operations silently orphaning `index.json` bodyPaths.
+    @Test @MainActor func treeMovesKeepIndexedNoteRecordsInSync() throws {
+        let store = NotesTreeStore()
+        store.setWorkspace(
+            title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-idx"
+        )
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-idx"
+        )
+        let created = try CmuxNoteStore.createOrOpen(
+            slug: "tracked", projectRoot: projectRoot, createIfMissing: true
+        )
+        _ = created
+        let folderA = try NotesTreeStorage.newFolder(inFolder: root, preferredName: "a")
+        let folderB = try NotesTreeStorage.newFolder(inFolder: root, preferredName: "b")
+
+        // File the indexed note into the tree (what dropping a flat note does).
+        let inA = try CmuxNoteStore.relocateBody(
+            slug: "tracked", projectRoot: projectRoot, toDirectory: folderA
+        )
+        func indexedPath() throws -> String {
+            let record = try #require(
+                try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "tracked" }
+            )
+            return CmuxNoteStore.noteBodyPath(for: record, projectRoot: projectRoot)
+        }
+        #expect(try indexedPath() == (inA as NSString).standardizingPath)
+
+        // A later in-tree move of the note follows in the index.
+        let inB = try #require(store.move(sourcePath: inA, intoFolder: folderB))
+        #expect(try indexedPath() == (inB as NSString).standardizingPath)
+        #expect(fm.fileExists(atPath: try indexedPath()))
+
+        // Renaming the folder above it rebase-rewrites the record too.
+        let renamedFolder = try #require(store.rename(path: folderB, toName: "b-renamed"))
+        #expect(try indexedPath().hasPrefix((renamedFolder as NSString).standardizingPath + "/"))
+        #expect(fm.fileExists(atPath: try indexedPath()))
+
+        // Deleting the folder removes the record with the body.
+        store.delete(path: renamedFolder)
+        #expect(try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "tracked" } == nil)
+    }
+
+    /// Nested tree paths resolve the same project root as flat note paths —
+    /// regression for restore deriving `<cwd>/.cmux/notes/<leaf>` when a
+    /// relocated note's parent is no longer the notes directory itself.
+    @Test func projectRootResolvesForNestedNotePaths() {
+        #expect(NoteSupport.projectRoot(forNotePath: "/r/p/.cmux/notes/x.md") == "/r/p")
+        #expect(
+            NoteSupport.projectRoot(forNotePath: "/r/p/.cmux/notes/ws-ab12/folder/x.md") == "/r/p"
+        )
+        #expect(NoteSupport.projectRoot(forNotePath: "/r/p/docs/x.md") == nil)
+        #expect(NoteSupport.projectRoot(forNotePath: "/.cmux/notes/x.md") == nil)
+    }
+
     @Test func syncSessionFoldersIsIdempotentAndNeverDeletes() throws {
         let root = try NotesTreeStorage.ensureWorkspaceRoot(
             projectRoot: projectRoot, cwd: "/work", title: "WS"
@@ -455,6 +512,7 @@ import Testing
 
         let panel = MarkdownPanel(workspaceId: UUID(), filePath: oldPath)
         defer { panel.close() }
+        panel.markAsProjectNote(slug: "a", bodyPath: "notes/a.md")
         #expect(panel.content == "hello body")
 
         // Mirror NotesTreeStore.move: relocate on disk, then announce it.
@@ -478,6 +536,9 @@ import Testing
         #expect(panel.filePath == expected)
         #expect(!panel.isFileUnavailable)
         #expect(panel.content == "hello body")
+        // The persisted body path stays index-relative (`notes/...`, relative
+        // to `.cmux`) so session restore resolves against the project root.
+        #expect(panel.noteBodyPath == "notes/dest/a.md")
 
         // Folder rename above the file: the panel's path remaps by prefix.
         let renamedDir = (notesDir as NSString).appendingPathComponent("dest2")

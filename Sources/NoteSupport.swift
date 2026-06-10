@@ -129,15 +129,23 @@ enum NoteSupport {
 
     /// Pure path decomposition for a persisted note path. Unlike
     /// `projectRoot(forCwd:)`, this does not touch the filesystem, so it is
-    /// safe to call from session snapshot and restore projections.
+    /// safe to call from session snapshot and restore projections. Matches the
+    /// last `.cmux/notes` segment anywhere in the path so notes relocated into
+    /// the Notes tree (`<root>/.cmux/notes/<workspace>/<folder>/x.md`) resolve
+    /// the same project root as flat notes.
     static func projectRoot(forNotePath path: String) -> String? {
-        let standardized = (path as NSString).standardizingPath
-        let notesDirectory = (standardized as NSString).deletingLastPathComponent
-        guard (notesDirectory as NSString).lastPathComponent == "notes" else { return nil }
-        let cmuxDirectory = (notesDirectory as NSString).deletingLastPathComponent
-        guard (cmuxDirectory as NSString).lastPathComponent == ".cmux" else { return nil }
-        let projectRoot = (cmuxDirectory as NSString).deletingLastPathComponent
-        return projectRoot.isEmpty ? nil : projectRoot
+        let components = ((path as NSString).standardizingPath as NSString).pathComponents
+        var index = components.count - 2
+        while index >= 1 {
+            if components[index] == "notes", components[index - 1] == ".cmux" {
+                let rootComponents = Array(components[..<(index - 1)])
+                guard !rootComponents.isEmpty else { return nil }
+                let root = NSString.path(withComponents: rootComponents)
+                return root.isEmpty || root == "/" ? nil : root
+            }
+            index -= 1
+        }
+        return nil
     }
 
     /// Pick the project root for restoring a persisted note snapshot without
