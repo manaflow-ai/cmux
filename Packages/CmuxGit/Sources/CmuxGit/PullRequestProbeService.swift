@@ -154,7 +154,10 @@ public struct PullRequestProbeService: Sendable {
                     }
                     if let candidateMatch = cacheEntry.pullRequestsByBranch[candidate.branch] {
                         matchedPullRequest = candidateMatch
-                        matchedCIStatus = cacheEntry.ciStatusByBranch[candidate.branch] ?? .neutral
+                        // Key CI by the resolved PR's number, not its branch, so
+                        // a branch shared by multiple open PRs can't surface
+                        // another PR's glyph.
+                        matchedCIStatus = cacheEntry.ciStatusByNumber[candidateMatch.number] ?? .neutral
                         matchedPullRequestUsedCache = usedCache
                         break
                     }

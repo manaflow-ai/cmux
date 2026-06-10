@@ -147,7 +147,7 @@ extension PullRequestProbeService {
 
         // One GraphQL request per repo per cache window for the CI rollup of
         // all open PRs at once (empty/neutral without a token; never anon REST).
-        let ciStatusMap = await repoCIStatusByBranch(
+        let ciStatusMap = await repoCIStatusByNumber(
             repoSlug: repoSlug,
             session: session,
             authHeader: authHeader
@@ -155,7 +155,7 @@ extension PullRequestProbeService {
         let recentWindowEntry = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: fetchTimestamp,
             pullRequestsByBranch: Self.pullRequestMapByNormalizedBranch(from: allPullRequests),
-            ciStatusByBranch: ciStatusMap
+            ciStatusByNumber: ciStatusMap
         )
         let unresolvedBranches = Self.unresolvedBranches(
             normalizedCandidateBranches,
@@ -263,9 +263,9 @@ extension PullRequestProbeService {
                 fetchedAt: refreshedAt,
                 pullRequestsByBranch: pullRequestsByBranch,
                 // Carry the rollup map forward; per-branch REST fallbacks don't
-                // re-fetch it (branches resolved this way render neutral until
-                // the next full GraphQL window).
-                ciStatusByBranch: baseEntry.ciStatusByBranch,
+                // re-fetch it (PRs resolved this way render neutral until the
+                // next full GraphQL window).
+                ciStatusByNumber: baseEntry.ciStatusByNumber,
                 knownAbsentBranches: knownAbsentBranches
             ),
             transientBranches: transientBranches
@@ -360,17 +360,16 @@ extension PullRequestProbeService {
     // MARK: CI rollup (GraphQL)
 
     /// Fetches the CI rollup for every open PR in one repository with a single
-    /// GraphQL request, keyed by normalized head branch. Returns an empty map
-    /// (every branch renders neutral) without a token — GraphQL rejects
-    /// anonymous requests and we never fall back to anonymous REST — or on any
-    /// transport/decode failure. Called only on a fresh repo fetch, so it adds
-    /// at most one request per repo per cache window and never scales with PR
-    /// count.
-    nonisolated func repoCIStatusByBranch(
+    /// GraphQL request, keyed by PR number. Returns an empty map (every PR
+    /// renders neutral) without a token — GraphQL rejects anonymous requests
+    /// and we never fall back to anonymous REST — or on any transport/decode
+    /// failure. Called only on a fresh repo fetch, so it adds at most one
+    /// request per repo per cache window and never scales with PR count.
+    nonisolated func repoCIStatusByNumber(
         repoSlug: String,
         session: URLSession,
         authHeader: String?
-    ) async -> [String: WorkspaceCIStatus] {
+    ) async -> [Int: WorkspaceCIStatus] {
         guard let authHeader, !authHeader.isEmpty else {
             return [:]
         }
@@ -393,9 +392,9 @@ extension PullRequestProbeService {
             return [:]
         }
 
-        let ciStatusByBranch = decoded.ciStatusByNormalizedBranch()
-        debugLog("workspace.prRefresh.ci.success repo=\(repoSlug) branches=\(ciStatusByBranch.count)")
-        return ciStatusByBranch
+        let ciStatusByNumber = decoded.ciStatusByPullRequestNumber()
+        debugLog("workspace.prRefresh.ci.success repo=\(repoSlug) prs=\(ciStatusByNumber.count)")
+        return ciStatusByNumber
     }
 
     /// Encodes the GraphQL query + `owner`/`name` variables as a JSON request

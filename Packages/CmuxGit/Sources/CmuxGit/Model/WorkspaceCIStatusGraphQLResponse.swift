@@ -61,16 +61,18 @@ struct WorkspaceCIStatusGraphQLResponse: Decodable, Sendable {
     } } } }
     """
 
-    /// Folds the response into a `[normalizedBranch: WorkspaceCIStatus]` map,
-    /// using the same branch normalization as the PR map so keys line up.
-    func ciStatusByNormalizedBranch() -> [String: WorkspaceCIStatus] {
-        var result: [String: WorkspaceCIStatus] = [:]
+    /// Folds the response into a `[pullRequestNumber: WorkspaceCIStatus]` map.
+    ///
+    /// Keyed by PR number rather than head branch so the rollup ties to a
+    /// specific pull request: multiple open PRs can share a head branch name
+    /// (e.g. fork `patch-1` PRs), and the resolver picks one PR per branch via
+    /// `preferredPullRequest` — looking the CI up by that PR's number avoids
+    /// rendering another PR's glyph.
+    func ciStatusByPullRequestNumber() -> [Int: WorkspaceCIStatus] {
+        var result: [Int: WorkspaceCIStatus] = [:]
         for node in data?.repository?.pullRequests.nodes ?? [] {
-            guard let branch = GitMetadataService.normalizedBranchName(node.headRefName) else {
-                continue
-            }
             let rollupState = node.commits.nodes.first?.commit.statusCheckRollup?.state
-            result[branch] = WorkspaceCIStatus(rollupState: rollupState)
+            result[node.number] = WorkspaceCIStatus(rollupState: rollupState)
         }
         return result
     }
