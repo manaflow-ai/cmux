@@ -407,6 +407,54 @@ import Testing
         #expect(coordinator.currentUser == user)
         #expect(store.bool(forKey: "has_tokens"))
     }
+
+    @Test func exchangeResumingInsideSignOutTakesTheRollbackPath() async throws {
+        // Sign-out must already have won by the time it first suspends: an
+        // in-flight credential exchange that resumes while sign-out is parked
+        // inside the token-store clear (one in-flight sign-in plus sign-out,
+        // no second attempt needed) must not complete as a live sign-in.
+        // Before sign-out cancelled in-flight exchanges up front, the resumed
+        // exchange saw the pre-sign-out epoch (sign-out bumps it only after
+        // the clear), passed its completion guard, and left freshly written
+        // tokens behind for the next launch restore to resurrect.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+
+        await client.armCredentialGate()
+        let signIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await client.credentialDidPark()
+
+        // Sign-out runs its token-store clear, then suspends right after it,
+        // before any of its post-clear MainActor code.
+        await client.armClearGate()
+        let signOut = Task { await coordinator.signOut() }
+        await client.clearDidPark()
+
+        // The parked exchange resumes NOW: it writes fresh tokens after the
+        // store clear and completes while sign-out is still suspended. It
+        // must already see the sign-out epoch and take the rollback path.
+        await client.releaseParkedCredential()
+        await #expect(throws: AuthError.cancelled) { try await signIn.value }
+
+        await client.releaseParkedClear()
+        await signOut.value
+
+        #expect(coordinator.isAuthenticated == false)
+        #expect(coordinator.currentUser == nil)
+        #expect(store.bool(forKey: "has_tokens") == false)
+        #expect(await client.accessToken() == nil)
+        #expect(await client.refreshToken() == nil)
+    }
 }
 
 /// Mutable connectivity flag for scripting `isOnline` mid-test.
