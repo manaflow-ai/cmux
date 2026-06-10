@@ -1003,6 +1003,96 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(hooks["stop"])
     }
 
+    func testLifecycleHookCommandsDispatchInBackgroundWhileFeedHooksStayForeground() throws {
+        let backgroundMarker = "cmux-agent-hook-background-v1"
+        for def in CMUXCLI.agentDefs where !def.events.isEmpty {
+            for event in def.events {
+                let command = CMUXCLI.hookCommandString(for: def, event: event)
+                XCTAssertTrue(
+                    command.contains(backgroundMarker),
+                    "Expected \(def.name) \(event.cmuxSubcommand) to use background dispatch, saw \(command)"
+                )
+                XCTAssertTrue(
+                    command.contains("nohup sh -c"),
+                    "Expected \(def.name) \(event.cmuxSubcommand) to detach from the agent hook process, saw \(command)"
+                )
+                XCTAssertTrue(
+                    command.contains("cmux hooks \(def.name) \(event.cmuxSubcommand)"),
+                    "Expected \(def.name) \(event.cmuxSubcommand) to invoke the real hook handler, saw \(command)"
+                )
+            }
+        }
+
+        for def in CMUXCLI.agentDefs where !def.feedHookEvents.isEmpty {
+            for agentEvent in def.feedHookEvents {
+                let command = CMUXCLI.feedHookCommandString(for: def, agentEvent: agentEvent)
+                XCTAssertFalse(
+                    command.contains(backgroundMarker),
+                    "Feed hook \(def.name) \(agentEvent) must stay foreground so approval responses can propagate, saw \(command)"
+                )
+                XCTAssertTrue(
+                    command.contains("hooks feed --source \(def.name) --event \(agentEvent)"),
+                    "Expected \(def.name) \(agentEvent) to invoke the feed bridge, saw \(command)"
+                )
+            }
+        }
+    }
+
+    func testLifecycleHookCommandReturnsBeforeSlowHandlerFinishes() throws {
+        let def = try XCTUnwrap(CMUXCLI.agentDef(named: "codex"))
+        let event = try XCTUnwrap(def.events.first { $0.cmuxSubcommand == "prompt-submit" })
+        let command = CMUXCLI.hookCommandString(for: def, event: event)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-background-hook-\(UUID().uuidString)", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let tmpDir = root.appendingPathComponent("tmp", isDirectory: true)
+        let markerURL = root.appendingPathComponent("handler-output.txt", isDirectory: false)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fakeCmuxURL = binDir.appendingPathComponent("cmux", isDirectory: false)
+        let fakeCmux = """
+        #!/bin/sh
+        payload="$(cat)"
+        sleep 1
+        printf '%s\\n%s\\n' "$*" "$payload" > "$CMUX_HOOK_TEST_MARKER"
+        printf '{}\\n'
+        """
+        try fakeCmux.write(to: fakeCmuxURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCmuxURL.path)
+
+        let startedAt = Date()
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SURFACE_ID": "surface-test",
+                "CMUX_BUNDLED_CLI_PATH": fakeCmuxURL.path,
+                "CMUX_HOOK_TEST_MARKER": markerURL.path,
+                "TMPDIR": tmpDir.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"prompt":"name this workspace"}"#,
+            timeout: 1
+        )
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertLessThan(elapsed, 0.5, "Lifecycle hook should return before the slow handler completes")
+
+        XCTAssertTrue(
+            waitForFile(at: markerURL, timeout: 3),
+            "Expected detached hook worker to run the real cmux handler"
+        )
+        let marker = try String(contentsOf: markerURL, encoding: .utf8)
+        XCTAssertTrue(marker.contains("hooks codex prompt-submit"), marker)
+        XCTAssertTrue(marker.contains("name this workspace"), marker)
+    }
+
     func testKiroFeedDenyUsesPreToolUseExitCodeTwo() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("kiro-feed-deny")
@@ -3695,5 +3785,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
             )
         }
+    }
+
+    private func waitForFile(at url: URL, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: url.path) {
+                return true
+            }
+            usleep(50_000)
+        }
+        return FileManager.default.fileExists(atPath: url.path)
     }
 }

@@ -368,6 +368,14 @@ extension CMUXCLI {
     }
 
     static func hookCommandString(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
+        backgroundAgentHookShellCommand(
+            "cmux hooks \(def.name) \(event.cmuxSubcommand)",
+            for: def,
+            logSlug: "\(def.name)-\(event.cmuxSubcommand)"
+        )
+    }
+
+    static func legacySynchronousHookCommandString(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
         agentHookShellCommand("cmux hooks \(def.name) \(event.cmuxSubcommand)", for: def)
     }
 
@@ -385,6 +393,25 @@ extension CMUXCLI {
 
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
     private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
+    private static let backgroundHookMarker = "cmux-agent-hook-background-v1"
+
+    private static func backgroundAgentHookShellCommand(
+        _ command: String,
+        for def: AgentHookDef,
+        logSlug: String
+    ) -> String {
+        let foregroundCommand = agentHookShellCommand(command, for: def)
+        let workerScript = """
+        payload="${CMUX_HOOK_PAYLOAD:-}"; command="${CMUX_HOOK_COMMAND:-}"; cleanup() { [ -n "$payload" ] && rm -f "$payload"; }; trap cleanup EXIT INT TERM; [ -n "$payload" ] && [ -n "$command" ] || exit 0; ( eval "$command" ) < "$payload" & child=$!; remaining=30; while [ "$remaining" -gt 0 ]; do kill -0 "$child" 2>/dev/null || break; sleep 1; remaining=$((remaining - 1)); done; if kill -0 "$child" 2>/dev/null; then kill "$child" 2>/dev/null || true; fi; wait "$child" 2>/dev/null || true
+        """
+        let prerequisite: String
+        if usesPinnedHookDispatch(def) {
+            prerequisite = "if [ \"$\(def.disableEnvVar)\" != \"1\" ]; then"
+        } else {
+            prerequisite = "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then"
+        }
+        return ": \(backgroundHookMarker); \(prerequisite) cmux_hook_payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-\(logSlug).json.XXXXXX\")\" || { echo '{}'; exit 0; }; cat > \"$cmux_hook_payload\" || true; cmux_hook_log_dir=\"${TMPDIR:-/tmp}/cmux-agent-hooks\"; mkdir -p \"$cmux_hook_log_dir\" 2>/dev/null || true; CMUX_HOOK_PAYLOAD=\"$cmux_hook_payload\" CMUX_HOOK_COMMAND=\(shellSingleQuote(foregroundCommand)) nohup sh -c \(shellSingleQuote(workerScript)) >> \"$cmux_hook_log_dir/\(logSlug).log\" 2>&1 & echo '{}'; else echo '{}'; fi"
+    }
 
     private static func agentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         if usesPinnedHookDispatch(def) {

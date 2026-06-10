@@ -45,6 +45,10 @@ That writes `.opencode/plugins/cmux-feed.js` in the current directory.
 
 Session hooks write `~/.cmuxterm/<agent>-hook-sessions.json`. Each entry stores the agent session ID, cmux workspace ID, surface ID, cwd, process ID when available, current lifecycle (`running`, `idle`, `needsInput`, or `unknown`), and a sanitized launch command. On app relaunch, cmux rebuilds each workspace and runs the agent's native resume command with the saved session ID.
 
+Lifecycle hook commands installed by cmux are fire-and-forget. They copy the hook payload to a temp file, start `cmux hooks <agent> <event>` in the background, and immediately return `{}` to the agent. This keeps session-start, prompt-submit, stop, notification, and session-end hooks from blocking the agent while cmux updates workspace state, Feed telemetry, notifications, and restore records.
+
+Feed bridge hooks stay foreground. Some Feed events need to return approval decisions or propagate a denial exit code, so cmux gives those hooks a longer timeout instead of detaching them.
+
 The sanitizer preserves model, sandbox, config, and cwd-related flags. It drops prompts, credentials, old session selectors, and noninteractive commands so relaunch resumes the session instead of starting a new task or leaking secrets.
 
 Grok uses its `Notification` hook for user-facing completion messages. cmux records `Stop` as idle state, but leaves the visible notification text to the `Notification` payload so repeated turns keep Grok's own message instead of a generic completion fallback.

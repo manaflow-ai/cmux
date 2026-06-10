@@ -27346,6 +27346,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
             insertHashes(
                 eventLabel: eventLabel,
+                command: Self.legacySynchronousHookCommandString(for: def, event: event),
+                timeouts: [5_000, 600]
+            )
+            insertHashes(
+                eventLabel: eventLabel,
                 command: "cmux codex-hook \(event.cmuxSubcommand)",
                 timeouts: [hookTimeoutMs, 600]
             )
