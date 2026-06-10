@@ -51,9 +51,10 @@ enum WorkspaceRemoteReconnectPolicy {
         case .reachable, .indeterminate:
             return Evaluation(consecutiveUnreachableProbes: 0, decision: .scheduleRetry)
         case .unreachable:
+            let streak = previousConsecutiveUnreachableProbes + 1
             return Evaluation(
-                consecutiveUnreachableProbes: previousConsecutiveUnreachableProbes + 1,
-                decision: .scheduleRetry
+                consecutiveUnreachableProbes: streak,
+                decision: streak >= Self.maxConsecutiveUnreachableProbes ? .suspend : .scheduleRetry
             )
         }
     }
