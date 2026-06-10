@@ -272,6 +272,18 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(!compactCoder.isCompactPayload(Data("not json".utf8)))
 }
 
+@Test func compactDecodeRejectsUnsupportedPayloadVersion() throws {
+    // The decoded `v` must reach validation: a future compact grammar
+    // revision that bumps the version has to fail loudly on today's phones,
+    // not silently misdecode as a version-1 ticket.
+    let futureVersion = Data("""
+    {"v":2,"d":"mac-1","r":[{"k":"tailscale","e":{"h":"100.64.1.2","p":49831}}]}
+    """.utf8)
+    #expect(throws: CmxAttachTicketError.unsupportedVersion(2)) {
+        try compactCoder.decode(futureVersion)
+    }
+}
+
 @Test func compactDecodeRejectsUnknownRouteKindAndEndpointType() throws {
     let unknownKind = Data("""
     {"v":1,"d":"mac-1","e":4000000000,"r":[{"i":"x","k":"carrier-pigeon","e":{"t":"host_port","h":"100.64.1.2","p":49831}}]}
