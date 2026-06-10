@@ -90,7 +90,11 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
             replyHandler(["ok": true, "value": initResultPayload()], nil)
         case "chat.subscribe":
             Task { [weak self] in
-                guard let self else { return }
+                guard let self else {
+                    // The page awaits every reply; never leak the handler.
+                    replyHandler(["ok": false, "error": ["code": "cancelled"]], nil)
+                    return
+                }
                 do {
                     try await self.subscribe()
                     replyHandler(["ok": true, "value": NSNull()], nil)

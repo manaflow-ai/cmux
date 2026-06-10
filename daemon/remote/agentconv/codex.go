@@ -321,15 +321,25 @@ func decodeCodexToolOutput(raw json.RawMessage) (*ToolOutput, bool) {
 	}
 	var text string
 	if err := json.Unmarshal(raw, &text); err != nil {
-		// Object form: keep its "output"/"content" field when present.
-		var object map[string]any
+		// Object form: same {output, metadata.exit_code} shape, just not
+		// string-encoded. Keep "content" as a text fallback.
+		var object struct {
+			Output   string `json:"output"`
+			Content  string `json:"content"`
+			Metadata *struct {
+				ExitCode *float64 `json:"exit_code"`
+			} `json:"metadata"`
+		}
 		if err := json.Unmarshal(raw, &object); err == nil {
-			if inner, ok := object["output"].(string); ok {
-				text = inner
-			} else if inner, ok := object["content"].(string); ok {
-				text = inner
+			failed := object.Metadata != nil && object.Metadata.ExitCode != nil && *object.Metadata.ExitCode != 0
+			if object.Output != "" {
+				return &ToolOutput{Text: object.Output, IsError: failed}, failed
+			}
+			if object.Content != "" {
+				return &ToolOutput{Text: object.Content, IsError: failed}, failed
 			}
 		}
+		return &ToolOutput{}, false
 	}
 	var wrapper struct {
 		Output   string `json:"output"`

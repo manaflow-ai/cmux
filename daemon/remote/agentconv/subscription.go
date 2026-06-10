@@ -137,6 +137,9 @@ func (s *Subscription) run(config Config, parser transcriptParser, reader *trans
 			conversation = parser.conv()
 			lines, _, err = reader.readNewLines()
 			if err != nil {
+				if !emit(Event{Type: EventError, Seq: nextSeq(), Message: err.Error(), Recoverable: true}) {
+					return
+				}
 				continue
 			}
 			for _, line := range lines {

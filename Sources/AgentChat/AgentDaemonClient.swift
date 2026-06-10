@@ -45,7 +45,6 @@ final class AgentDaemonClient: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard !started else { return }
-        started = true
 
         process.executableURL = binaryURL
         process.arguments = ["serve", "--stdio"]
@@ -63,7 +62,10 @@ final class AgentDaemonClient: @unchecked Sendable {
             }
             self?.consume(data)
         }
+        // Mark started only after the launch succeeds so a throw here leaves
+        // the client retryable instead of wedged in a half-started state.
         try process.run()
+        started = true
     }
 
     /// Allocates the next request id, failing once the client is terminated.

@@ -79,19 +79,31 @@ func listClaudeSessions(claudeDir, cwdFilter string) []sessionWithTime {
 		return nil
 	}
 	projectsDir := filepath.Join(claudeDir, "projects")
+	// The encoded project dir is only an optimization: Claude's encoding has
+	// changed across versions (slashes, dots, and spaces all observed mapping
+	// to "-"), so the parsed per-line cwd below is the ground truth and a cwd
+	// filter must never silently exclude a differently-encoded dir.
 	var projectDirs []string
+	encodedDir := ""
 	if cwdFilter != "" {
-		projectDirs = []string{filepath.Join(projectsDir, EncodeClaudeProjectDir(cwdFilter))}
-	} else {
-		entries, err := os.ReadDir(projectsDir)
-		if err != nil {
-			return nil
+		encodedDir = filepath.Join(projectsDir, EncodeClaudeProjectDir(cwdFilter))
+	}
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return nil
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
 		}
-		for _, entry := range entries {
-			if entry.IsDir() {
-				projectDirs = append(projectDirs, filepath.Join(projectsDir, entry.Name()))
-			}
+		dir := filepath.Join(projectsDir, entry.Name())
+		if dir == encodedDir {
+			continue
 		}
+		projectDirs = append(projectDirs, dir)
+	}
+	if encodedDir != "" {
+		projectDirs = append([]string{encodedDir}, projectDirs...)
 	}
 	var sessions []sessionWithTime
 	for _, dir := range projectDirs {
@@ -108,7 +120,9 @@ func listClaudeSessions(claudeDir, cwdFilter string) []sessionWithTime {
 			if ref.SessionID == "" {
 				ref.SessionID = strings.TrimSuffix(filepath.Base(path), ".jsonl")
 			}
-			if cwdFilter != "" && ref.Cwd != "" && ref.Cwd != cwdFilter {
+			// Filter on the parsed cwd; a transcript with no parseable cwd only
+			// matches through the encoded-dir fast path.
+			if cwdFilter != "" && ref.Cwd != cwdFilter && !(ref.Cwd == "" && filepath.Dir(path) == encodedDir) {
 				continue
 			}
 			ref.UpdatedAt = info.ModTime().UTC().Format(time.RFC3339)

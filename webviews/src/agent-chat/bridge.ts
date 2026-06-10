@@ -135,5 +135,16 @@ export function resolveAgentChatBridge(): AgentChatBridgeClient {
       dispose() {},
     };
   }
-  return createMockAgentChatBridge();
+  // The fixture-replaying mock only engages in dev/test builds. In a packaged
+  // app a missing WebKit handler is a wiring bug; fail closed instead of
+  // rendering convincing fake data.
+  if (import.meta.env?.DEV || import.meta.env?.MODE === "test") {
+    return createMockAgentChatBridge();
+  }
+  return {
+    kind: "native",
+    init: () => Promise.reject(new AgentChatBridgeError("Native bridge is unavailable.", "no_bridge")),
+    subscribe: () => Promise.reject(new AgentChatBridgeError("Native bridge is unavailable.", "no_bridge")),
+    dispose() {},
+  };
 }

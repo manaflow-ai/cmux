@@ -84,6 +84,9 @@ func (s *rpcServer) handleAgentSessionOpen(req rpcRequest) rpcResponse {
 
 func (s *rpcServer) handleAgentSessionClose(req rpcRequest) rpcResponse {
 	subscriptionID := stringParam(req.Params, "subscription_id")
+	if subscriptionID == "" {
+		return agentParamError(req, "subscription_id is required")
+	}
 	s.mu.Lock()
 	state := s.agentSubs[subscriptionID]
 	delete(s.agentSubs, subscriptionID)
