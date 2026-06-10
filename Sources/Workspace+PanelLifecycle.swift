@@ -165,9 +165,34 @@ extension Workspace {
                 icon: "pause.circle.fill",
                 color: "#8E8E93"
             )
+            demoteAcknowledgedAgentLifecycle(statusKey: key, panelId: panelId)
             didChange = true
         }
         return didChange
+    }
+
+    /// Drops any `.needsInput` per-panel agent lifecycle for an acknowledged
+    /// status key to `.idle`, matching the demoted "Idle" sidebar status.
+    ///
+    /// Without this the sidebar shows Idle while
+    /// ``agentHibernationLifecycleState(panelId:fallback:)`` still reports
+    /// `.needsInput`, leaving hibernation blocked until a later hook clears it.
+    /// Scoped to `panelId` when the acknowledgement names one; otherwise every
+    /// panel still stuck on `.needsInput` for the key is demoted. Only entries
+    /// currently in `.needsInput` are touched, so a concurrent `.running`
+    /// update from the agent is never clobbered.
+    private func demoteAcknowledgedAgentLifecycle(statusKey: String, panelId: UUID?) {
+        let panelIds: [UUID]
+        if let panelId {
+            panelIds = [panelId]
+        } else {
+            panelIds = agentLifecycleStatesByPanelId.compactMap { panelId, states in
+                states[statusKey] == .needsInput ? panelId : nil
+            }
+        }
+        for panelId in panelIds where agentLifecycleStatesByPanelId[panelId]?[statusKey] == .needsInput {
+            setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .idle)
+        }
     }
 
     private func isStructuredAgentInputStatus(_ entry: SidebarStatusEntry) -> Bool {
