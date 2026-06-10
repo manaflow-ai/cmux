@@ -81,7 +81,7 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
         didReceive message: WKScriptMessage,
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
-        guard let token = Self.editorToken(for: message.frameInfo),
+        guard let token = Self.editorToken(for: message),
               let fileURL = CmuxEditorSaveRegistry.shared.fileURL(forToken: token) else {
             replyHandler(Self.errorEnvelope(code: "unauthorized", detail: nil), nil)
             return
@@ -114,16 +114,20 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
     /// URL (the page cannot forge `frameInfo.request.url`). The token is an
     /// unguessable per-open capability; the registry lookup is what
     /// authorizes the write.
-    private static func editorToken(for frameInfo: WKFrameInfo) -> String? {
-        guard frameInfo.isMainFrame else { return nil }
-        let origin = frameInfo.securityOrigin
+    private static func editorToken(for message: WKScriptMessage) -> String? {
+        guard message.frameInfo.isMainFrame else { return nil }
+        let origin = message.frameInfo.securityOrigin
         if origin.protocol == CmuxDiffViewerURLSchemeHandler.scheme {
             return origin.host
         }
-        if origin.protocol == "http",
-           origin.host == "127.0.0.1",
-           let frameURL = frameInfo.request.url,
-           frameURL.fragment == "cmux-diff-viewer" {
+        if origin.protocol == "http", origin.host == "127.0.0.1" {
+            // The token is the first path component of the main-frame URL.
+            // Read it from the webview (WebKit-owned, matches the main frame
+            // for main-frame messages); `frameInfo.request.url` is empty for
+            // script messages on some WebKit versions. No fragment check: the
+            // hash router rewrites it and it is not the security boundary;
+            // the unguessable token + registry lookup below is.
+            guard let frameURL = message.webView?.url else { return nil }
             let components = frameURL.path.split(separator: "/", omittingEmptySubsequences: true)
             return components.first.map(String.init)
         }
