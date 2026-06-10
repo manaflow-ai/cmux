@@ -69,4 +69,81 @@ import Testing
             .appendingPathComponent("Assertions.json", isDirectory: false)
         #expect(!NotificationSoundSettings.isSuppressedByActiveFocus(assertionsFileURL: missing))
     }
+
+    // The canonical repro for the Focus bug is: the user enables a Focus, and
+    // the next notification must already be silent. A cached Focus snapshot
+    // that refreshes only after deciding lets exactly that first sound punch
+    // through, so these tests drive the real playback entry point and assert
+    // on the per-play decision, not on the pure predicate.
+
+    @Test func firstPlayAfterFocusActivationIsSuppressed() async throws {
+        let fixture = try ActiveFocusFixture()
+        defer { fixture.cleanUp() }
+
+        try fixture.writeAssertions(#"{"data":[{"storeAssertionRecords":[{"a":1}]}]}"#)
+        #expect(await fixture.playOutcome() == false)
+    }
+
+    @Test func firstPlayAfterFocusEndsIsAudible() async throws {
+        let fixture = try ActiveFocusFixture()
+        defer { fixture.cleanUp() }
+
+        try fixture.writeAssertions(#"{"data":[{"storeAssertionRecords":[{"a":1}]}]}"#)
+        #expect(await fixture.playOutcome() == false)
+
+        // The Focus ended: the very next play must be audible again.
+        try fixture.writeAssertions(#"{"data":[{"storeAssertionRecords":[]}]}"#)
+        #expect(await fixture.playOutcome() == true)
+    }
+
+    @Test func playbackFailsOpenWhenAssertionStoreIsMissing() async throws {
+        let fixture = try ActiveFocusFixture(createAssertionsFile: false)
+        defer { fixture.cleanUp() }
+
+        #expect(await fixture.playOutcome() == true)
+    }
+}
+
+/// Drives `playSelectedSound` against a scratch assertion store and scratch
+/// defaults whose selected sound is "none", so the decision is observable
+/// without audible output.
+private struct ActiveFocusFixture {
+    let directory: URL
+    let assertionsFileURL: URL
+    let defaults: UserDefaults
+    private let suiteName: String
+
+    init(createAssertionsFile: Bool = true) throws {
+        let fileManager = FileManager.default
+        directory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-dnd-play-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        assertionsFileURL = directory.appendingPathComponent("Assertions.json", isDirectory: false)
+        if createAssertionsFile {
+            try Data(#"{"data":[]}"#.utf8).write(to: assertionsFileURL)
+        }
+        suiteName = "cmux-tests-notification-sound-\(UUID().uuidString)"
+        defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.set("none", forKey: NotificationSoundSettings.key)
+    }
+
+    func writeAssertions(_ json: String) throws {
+        try Data(json.utf8).write(to: assertionsFileURL)
+    }
+
+    func playOutcome() async -> Bool {
+        await withCheckedContinuation { continuation in
+            NotificationSoundSettings.playSelectedSound(
+                defaults: defaults,
+                assertionsFileURL: assertionsFileURL
+            ) { didPlay in
+                continuation.resume(returning: didPlay)
+            }
+        }
+    }
+
+    func cleanUp() {
+        defaults.removePersistentDomain(forName: suiteName)
+        try? FileManager.default.removeItem(at: directory)
+    }
 }

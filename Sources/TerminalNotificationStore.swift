@@ -334,7 +334,9 @@ enum NotificationSoundSettings {
     /// (fail-open) and warms the cache off-main, so the `@MainActor` playback
     /// path never reads `Assertions.json` synchronously. Slightly stale by
     /// design, which is acceptable for an out-of-band fallback sound.
-    static func isActiveFocusSuppressionCached() -> Bool {
+    static func isActiveFocusSuppressionCached(
+        assertionsFileURL: URL = defaultAssertionsFileURL
+    ) -> Bool {
         dndSuppressionLock.lock()
         let snapshot = cachedDndSuppression ?? false
         let needsRefresh = !dndRefreshInFlight
@@ -343,7 +345,7 @@ enum NotificationSoundSettings {
 
         if needsRefresh {
             dndAssertionQueue.async {
-                let suppressed = isSuppressedByActiveFocus()
+                let suppressed = isSuppressedByActiveFocus(assertionsFileURL: assertionsFileURL)
                 dndSuppressionLock.lock()
                 cachedDndSuppression = suppressed
                 dndRefreshInFlight = false
@@ -353,11 +355,25 @@ enum NotificationSoundSettings {
         return snapshot
     }
 
-    static func playSelectedSound(defaults: UserDefaults = .standard) {
+    /// Plays the user-selected notification sound unless an active macOS
+    /// Focus / Do Not Disturb mode should silence it.
+    ///
+    /// `completion` runs on the main queue with whether the sound was allowed
+    /// to play. It exists so tests can observe the gate decision; production
+    /// callers pass nothing.
+    static func playSelectedSound(
+        defaults: UserDefaults = .standard,
+        assertionsFileURL: URL = defaultAssertionsFileURL,
+        completion: ((_ didPlay: Bool) -> Void)? = nil
+    ) {
         // Honor macOS Focus / Do Not Disturb for the out-of-band fallback sound.
-        if isActiveFocusSuppressionCached() { return }
+        if isActiveFocusSuppressionCached(assertionsFileURL: assertionsFileURL) {
+            completion?(false)
+            return
+        }
         let value = defaults.string(forKey: key) ?? defaultValue
         playSound(value: value, defaults: defaults)
+        completion?(true)
     }
 
     static func previewSound(value: String, defaults: UserDefaults = .standard) {
