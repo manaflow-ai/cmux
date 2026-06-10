@@ -1152,8 +1152,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // The registry is team-scoped and rejected the call on auth/scope
             // grounds (401/403): the cached list may be another scope's data, so
             // clear it. The tree falls back to local paired Macs via
-            // `deviceTreeDevices`, so the sheet stays usable.
-            registryDevices = []
+            // `deviceTreeDevices`, so the sheet stays usable. Guarded on the
+            // requesting user still being current (mirroring the `.ok` path):
+            // a stale 401 from a signed-out session that lands after a
+            // different user signed in must not blank the new user's tree.
+            if identityProvider?.currentUserID == requestingUserID {
+                registryDevices = []
+            }
             return
         case .transientFailure:
             // Network blip / 5xx / malformed body: keep what we have rather than
