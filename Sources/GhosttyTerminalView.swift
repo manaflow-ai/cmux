@@ -5299,36 +5299,16 @@ enum TerminalSurfaceFocusPlacement: Equatable {
 // compares the latest input timestamp against the latest agent lifecycle
 // change, so suppressing a "repeat" keystroke could hide input typed right
 // after an idle lifecycle report and let hibernation kill an active agent.
-private func recordAgentHibernationTerminalInput(
-    workspaceId: UUID,
-    panelId: UUID,
-    settlesCommandLine: Bool = false
-) {
+private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
     let recordedAt = Date()
     Task { @MainActor in
         AgentHibernationController.shared.recordTerminalInput(
             workspaceId: workspaceId,
             panelId: panelId,
-            recordedAt: recordedAt,
-            settlesCommandLine: settlesCommandLine
+            recordedAt: recordedAt
         )
     }
-}
-
-/// Whether input text leaves the shell's editable command line settled:
-/// return/newline runs it, ^C aborts it, ^D sends EOF, ^U kills the line —
-/// but only when nothing follows the last such character. A payload like
-/// "echo ok\npartial" runs the first command and leaves "partial" editable
-/// at the next prompt, which surface hibernation must not discard.
-private func terminalInputSettlesCommandLine(_ text: String) -> Bool {
-    guard let lastSettlingIndex = text.lastIndex(where: { character in
-        character == "\r" || character == "\n" ||
-            character == "\u{03}" || character == "\u{04}" || character == "\u{15}"
-    }) else {
-        return false
-    }
-    return text[text.index(after: lastSettlingIndex)...].isEmpty
 }
 
 final class TerminalSurface: Identifiable, ObservableObject {
@@ -7268,16 +7248,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendText(_ text: String) -> Bool {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
-        let settlesCommandLine = terminalInputSettlesCommandLine(text)
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return false }
             let queued = enqueuePendingSocketInput(.pasteText(data))
             if queued {
-                recordAgentHibernationTerminalInput(
-                    workspaceId: tabId,
-                    panelId: id,
-                    settlesCommandLine: settlesCommandLine
-                )
+                recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
                 requestBackgroundSurfaceStartIfNeeded()
             }
             return queued
@@ -7286,11 +7261,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return false
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return false }
-        recordAgentHibernationTerminalInput(
-            workspaceId: tabId,
-            panelId: id,
-            settlesCommandLine: settlesCommandLine
-        )
+        recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
         writeTextData(data, to: liveSurface)
         return true
     }
@@ -7321,16 +7292,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
-        let normalizedKeyName = keyName.lowercased()
-        let settlesCommandLine = normalizedKeyName == "enter" || normalizedKeyName == "return"
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
-            recordAgentHibernationTerminalInput(
-                workspaceId: tabId,
-                panelId: id,
-                settlesCommandLine: settlesCommandLine
-            )
+            recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
             requestBackgroundSurfaceStartIfNeeded()
             return .queued
         }
@@ -7338,11 +7303,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return .surfaceUnavailable
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
-        recordAgentHibernationTerminalInput(
-            workspaceId: tabId,
-            panelId: id,
-            settlesCommandLine: settlesCommandLine
-        )
+        recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
         sendKeyEvent(surface: liveSurface, keycode: event.keycode, mods: event.mods)
         return .sent
     }
@@ -7405,16 +7366,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendInputResult(_ text: String) -> InputSendResult {
         guard !text.isEmpty else { return .sent }
-        let settlesCommandLine = terminalInputSettlesCommandLine(text)
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             let queued = enqueuePendingSocketInput(text)
             if queued {
-                recordAgentHibernationTerminalInput(
-                    workspaceId: tabId,
-                    panelId: id,
-                    settlesCommandLine: settlesCommandLine
-                )
+                recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
                 requestBackgroundSurfaceStartIfNeeded()
             }
             return queued ? .queued : .inputQueueFull
@@ -7423,11 +7379,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return .surfaceUnavailable
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
-        recordAgentHibernationTerminalInput(
-            workspaceId: tabId,
-            panelId: id,
-            settlesCommandLine: settlesCommandLine
-        )
+        recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
         sendInput(text, to: liveSurface)
         return .sent
     }
@@ -9625,12 +9577,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func recordDirectAgentHibernationTerminalInput(settlesCommandLine: Bool = false) {
+    private func recordDirectAgentHibernationTerminalInput() {
         guard let terminalSurface else { return }
         recordAgentHibernationTerminalInput(
             workspaceId: terminalSurface.tabId,
-            panelId: terminalSurface.id,
-            settlesCommandLine: settlesCommandLine
+            panelId: terminalSurface.id
         )
     }
 
@@ -10146,9 +10097,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.keyDown(with: event)
             return
         }
-        recordDirectAgentHibernationTerminalInput(
-            settlesCommandLine: event.characters.map(terminalInputSettlesCommandLine) ?? false
-        )
+        recordDirectAgentHibernationTerminalInput()
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
@@ -16064,9 +16013,7 @@ extension GhosttyNSView: NSTextInputClient {
         guard !sanitizedChars.isEmpty else { return }
 
         // Otherwise send directly to the terminal
-        recordDirectAgentHibernationTerminalInput(
-            settlesCommandLine: terminalInputSettlesCommandLine(sanitizedChars)
-        )
+        recordDirectAgentHibernationTerminalInput()
         sendTextToSurface(
             sanitizedChars,
             preserveLiteralEscape: !isExternalCommittedText

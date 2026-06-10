@@ -54,6 +54,7 @@ final class AgentHibernationController {
     private var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var pendingCommandLineByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
+    private var lastCommandStartByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
@@ -118,24 +119,44 @@ final class AgentHibernationController {
         }
     }
 
-    func recordTerminalInput(
-        workspaceId: UUID,
-        panelId: UUID,
-        recordedAt: Date? = nil,
-        settlesCommandLine: Bool = false
-    ) {
+    func recordTerminalInput(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
         let recordedAt = recordedAt ?? Date()
         let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
         terminalInputByPanel[key] = recordedAt.timeIntervalSince1970
-        // Typed input that did not submit or clear the command line leaves
-        // editable text at the prompt; freeing the PTY would discard it, so
-        // shell-restart hibernation treats the panel as having unconfirmed
-        // input until a return/interrupt/EOF/kill-line settles it.
-        if settlesCommandLine {
-            pendingCommandLineByPanel.removeValue(forKey: key)
-        } else {
-            pendingCommandLineByPanel[key] = recordedAt.timeIntervalSince1970
+        // Any input may leave editable text at the prompt — a bare return can
+        // open a PS2 continuation (unclosed quote, heredoc), so no keystroke
+        // proves the line settled. Only the shell's own prompt transitions
+        // clear this; see recordShellActivityTransition.
+        pendingCommandLineByPanel[key] = recordedAt.timeIntervalSince1970
+    }
+
+    /// Shell-integration prompt transitions are the only trustworthy signal
+    /// that the editable command line settled: preexec marks the moment input
+    /// was consumed into a command, and the following precmd (prompt idle)
+    /// clears pending input recorded before that consumption. Input typed
+    /// while a command runs stays pending — it reappears editable at the next
+    /// prompt — and PS2 continuations never produce these transitions at all.
+    func recordShellActivityTransition(
+        workspaceId: UUID,
+        panelId: UUID,
+        state: PanelShellActivityState,
+        recordedAt: Date? = nil
+    ) {
+        guard AgentHibernationTrackingGate.isEnabled() else { return }
+        let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
+        let now = (recordedAt ?? Date()).timeIntervalSince1970
+        switch state {
+        case .commandRunning:
+            lastCommandStartByPanel[key] = now
+        case .promptIdle:
+            if let pendingAt = pendingCommandLineByPanel[key],
+               let commandStartAt = lastCommandStartByPanel[key],
+               pendingAt <= commandStartAt {
+                pendingCommandLineByPanel.removeValue(forKey: key)
+            }
+        case .unknown:
+            break
         }
     }
 
@@ -455,6 +476,7 @@ final class AgentHibernationController {
         activityByPanel.removeAll(keepingCapacity: false)
         terminalInputByPanel.removeAll(keepingCapacity: false)
         pendingCommandLineByPanel.removeAll(keepingCapacity: false)
+        lastCommandStartByPanel.removeAll(keepingCapacity: false)
         lifecycleChangeByPanel.removeAll(keepingCapacity: false)
         confirmations.removeAll(keepingCapacity: false)
         tailFingerprintSamples.removeAll(keepingCapacity: false)
@@ -467,6 +489,7 @@ final class AgentHibernationController {
         activityByPanel = activityByPanel.filter { currentKeys.contains($0.key) }
         terminalInputByPanel = terminalInputByPanel.filter { currentKeys.contains($0.key) }
         pendingCommandLineByPanel = pendingCommandLineByPanel.filter { currentKeys.contains($0.key) }
+        lastCommandStartByPanel = lastCommandStartByPanel.filter { currentKeys.contains($0.key) }
         lifecycleChangeByPanel = lifecycleChangeByPanel.filter { currentKeys.contains($0.key) }
         confirmations = confirmations.filter { key, _ in
             currentKeys.contains(key) && selectedKeys.contains(key)

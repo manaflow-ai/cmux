@@ -12475,6 +12475,11 @@ final class Workspace: Identifiable, ObservableObject {
         let previousState = panelShellActivityStates[panelId] ?? .unknown
         guard previousState != state else { return }
         panelShellActivityStates[panelId] = state
+        AgentHibernationController.shared.recordShellActivityTransition(
+            workspaceId: id,
+            panelId: panelId,
+            state: state
+        )
         if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
             updateRestoredAgentResumeState(
                 panelId: panelId,
