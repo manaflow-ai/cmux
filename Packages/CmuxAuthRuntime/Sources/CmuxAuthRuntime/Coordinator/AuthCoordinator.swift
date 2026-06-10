@@ -73,6 +73,16 @@ public final class AuthCoordinator {
     private var debugCredentials: CMUXAuthAutoLoginCredentials?
     private var bootstrapTask: Task<Void, Never>?
     private var isRevalidatingSession = false
+    /// Monotonic session-clear count, bumped by ``clearAuthState()``. Flows
+    /// that publish session state after suspension points (launch restore,
+    /// foreground revalidation, sign-in completion) capture it at entry and
+    /// drop their writes when it has moved on: local-first sign-out clears
+    /// state up front with no trailing clear, so a sign-out that lands while
+    /// such a flow is parked in a network call must win instead of being
+    /// overwritten by the stale result (and conversely, a stale validation
+    /// failure must not wipe a newer session). Same pattern as
+    /// `HostBrowserSignInFlow.signOutGeneration`.
+    @ObservationIgnored private var sessionGeneration: UInt64 = 0
 
     /// Creates an auth coordinator.
     ///
@@ -229,10 +239,14 @@ public final class AuthCoordinator {
         if isRevalidatingSession { return }
         isRevalidatingSession = true
         defer { isRevalidatingSession = false }
+        let generation = sessionGeneration
 
         let cachedUser = loadCachedUser()
+        // accessToken() may refresh over the network; a sign-out can land
+        // while these reads are parked, so re-check the generation after.
         let hasAccessToken = await client.accessToken() != nil
         let hasRefreshToken = await client.refreshToken() != nil
+        guard generation == sessionGeneration else { return }
         let hasStoredTokens = hasAccessToken || hasRefreshToken
 
         #if DEBUG
@@ -264,7 +278,7 @@ public final class AuthCoordinator {
             if currentUser == nil, let cachedUser {
                 currentUser = cachedUser
             }
-            await validateCachedSession()
+            await validateCachedSession(generation: generation)
             return
         }
 
@@ -291,12 +305,16 @@ public final class AuthCoordinator {
         }
     }
 
-    private func validateCachedSession() async {
+    private func validateCachedSession(generation: UInt64) async {
         do {
             let client = self.client
             let user = try await runPhase(.validateSession, timeout: timeouts.network) {
                 try await client.currentUser(throwOnMissing: true)
             }
+            // A sign-out landed while the fetch was in flight: the user's
+            // later intent wins. Drop the stale result instead of
+            // republishing a session whose local tokens are already gone.
+            guard generation == sessionGeneration else { return }
             if let user {
                 await applySignedInUser(user)
                 return
@@ -305,6 +323,9 @@ public final class AuthCoordinator {
             await clearPersistedStackSession()
             clearAuthState()
         } catch {
+            // Same staleness rule for the failure paths: a stale clear here
+            // could wipe a session established after this flow began.
+            guard generation == sessionGeneration else { return }
             // Drive the clear-vs-preserve decision from LIVE session validity, not
             // the error code alone. The SDK throws the same `UserNotSignedInError`
             // ("USER_NOT_SIGNED_IN") for two opposite situations: a genuine
@@ -317,7 +338,9 @@ public final class AuthCoordinator {
             // time with a confusing host-side message. The live token store is the
             // ground truth: if no refresh token survives, the session is genuinely
             // gone and the user must see the sign-in page.
-            if await client.refreshToken() == nil {
+            let refreshTokenSurvives = await client.refreshToken() != nil
+            guard generation == sessionGeneration else { return }
+            if !refreshTokenSurvives {
                 authLog.error(
                     "Session validation failed and no refresh token survives; routing to login error=\(error.localizedDescription, privacy: .private)"
                 )
@@ -439,12 +462,21 @@ public final class AuthCoordinator {
     }
 
     private func completeSignIn() async throws {
+        let generation = sessionGeneration
         let client = self.client
         let user = try await runPhase(.fetchUser, timeout: timeouts.network) {
             try await client.currentUser(throwOnMissing: true)
         }
         guard let user else {
             throw AuthError.unauthorized
+        }
+        // A sign-out landed while the user fetch was in flight: the user's
+        // later intent wins. Surface it as a cancellation (the sign-in UI
+        // treats `.cancelled` as a deliberate back-out, not a failure)
+        // instead of publishing a session whose local tokens were just
+        // destroyed.
+        guard generation == sessionGeneration else {
+            throw CancellationError()
         }
         await applySignedInUser(user)
     }
@@ -692,6 +724,7 @@ public final class AuthCoordinator {
     }
 
     private func clearAuthState() {
+        sessionGeneration &+= 1
         pendingNonce = nil
         userCache.clear()
         sessionCache.clear()

@@ -345,6 +345,16 @@ public final class HostBrowserSignInFlow {
             try await coordinator.completeExternalSignIn()
         } catch {
             log.log("auth.callback completion failed: \(error)")
+            if signOutGeneration != generation {
+                // A sign-out raced the validation round trip and the
+                // coordinator dropped the publish (its session-generation
+                // guard surfaces cancellation); drop the seeded tokens too so
+                // the dead callback credentials don't linger in the store.
+                await tokenStore.clearTokensIfCurrent(
+                    accessToken: payload.accessToken,
+                    refreshToken: payload.refreshToken
+                )
+            }
             return false
         }
         log.log("auth.callback.coordinator.complete.end attempt=\(attemptID.map(String.init) ?? "external") signedIn=\(coordinator.isAuthenticated)")
