@@ -90,6 +90,49 @@ import Testing
         #expect(coordinator.selectedTeamID == nil)
         #expect(await hookRuns.value == 1)
     }
+
+    @Test func signOutDuringCredentialExchangeWins() async throws {
+        // The credential exchange itself is a network await that stores fresh
+        // tokens when it resumes. A sign-out landing while the exchange is in
+        // flight clears an empty-or-old store and bumps the generation, but
+        // the resuming exchange then RE-stores tokens sign-out never saw and
+        // the completion publishes the session: sign-out silently undone. The
+        // sign-in flow must capture the generation before the exchange, drop
+        // the completion, and clear the just-stored tokens (surfacing the
+        // race as a cancellation, which the sign-in UI treats as a deliberate
+        // back-out).
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+
+        await client.armCredentialGate()
+        let signIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await client.credentialDidPark()
+
+        await coordinator.signOut()
+        #expect(coordinator.isAuthenticated == false)
+
+        // The exchange resumes, stores fresh tokens, and the flow completes.
+        await client.releaseParkedCredential()
+        await #expect(throws: AuthError.cancelled) { try await signIn.value }
+
+        #expect(coordinator.isAuthenticated == false)
+        #expect(coordinator.currentUser == nil)
+        #expect(store.bool(forKey: "has_tokens") == false)
+        // The tokens the resuming exchange stored must not outlive sign-out,
+        // or the next launch restore resurrects the signed-out session.
+        #expect(await client.accessToken() == nil)
+        #expect(await client.refreshToken() == nil)
+    }
 }
 
 /// Counts `onSignedIn` hook runs across actor hops.
