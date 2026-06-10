@@ -62,35 +62,6 @@ struct NotesTreePanelView: NSViewRepresentable {
         container.updateEmptyState(hasWorkspace: store.hasWorkspace, isEmpty: store.rootNodes.isEmpty)
     }
 
-    // MARK: - Note drag writer
-
-    /// Drag writer for note rows: the tree's move type plus a plain file URL
-    /// (Finder export). Deliberately NOT the pane tab-transfer payload — a
-    /// note drag inside the sidebar is a filesystem move like the Files tree,
-    /// and advertising tab-transfer raises bonsplit's window-level pane drop
-    /// overlays, which sit over the sidebar and swallow the drag before the
-    /// outline can accept it.
-    final class NoteDragWriter: NSObject, NSPasteboardWriting {
-        private let movePath: String
-
-        init(filePath: String, displayTitle: String) {
-            self.movePath = filePath
-            super.init()
-        }
-
-        func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
-            [NotesTreePanelView.movePasteboardType, .fileURL]
-        }
-
-        func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
-            if type == NotesTreePanelView.movePasteboardType { return movePath }
-            if type == .fileURL {
-                return (URL(fileURLWithPath: movePath) as NSURL).pasteboardPropertyList(forType: .fileURL)
-            }
-            return nil
-        }
-    }
-
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
@@ -401,13 +372,11 @@ struct NotesTreePanelView: NSViewRepresentable {
             )
             #endif
             guard let node = item as? NotesTreeNode, !node.path.isEmpty else { return nil }
-            // Notes drag like Files-tab files: the file-preview writer carries
-            // the pane-drop payload (markdown viewer) and a fileURL, composed
-            // with the move type for in-tree drags. Index-owned flat notes
-            // move through the flat store on drop (body + index together).
-            if case .note = node.kind {
-                return NotesTreePanelView.NoteDragWriter(filePath: node.path, displayTitle: node.displayName)
-            }
+            // Every row drags with cmux-private types only. Adding .fileURL
+            // (Finder export) hands the drag to the window-spanning terminal
+            // host — it registers for file URLs (drop-on-terminal pastes the
+            // path) and sits above the sidebar, so the outline never sees the
+            // drag and in-tree note moves silently stop working.
             let pbItem = NSPasteboardItem()
             // Virtual session rows have nothing on disk to move; they drag as
             // pure session pointers (still resumable on a pane / droppable in
