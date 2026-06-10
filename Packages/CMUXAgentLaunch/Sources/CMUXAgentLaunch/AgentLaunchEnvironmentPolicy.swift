@@ -29,6 +29,15 @@ public enum AgentLaunchEnvironmentPolicy {
         "HERMES_CODEX_BASE_URL",
     ]
 
+    /// Keys campfire computes itself on every boot. Replaying a captured
+    /// PI_PACKAGE_DIR would pin a resumed campfire to the previous binary's
+    /// extracted asset cache (version+fingerprint keyed) after an upgrade, so
+    /// it is dropped for campfire resumes specifically; pi/omp keep it (Nix
+    /// installs rely on it).
+    private static let campfireManagedEnvironmentKeys: Set<String> = [
+        "PI_PACKAGE_DIR",
+    ]
+
     private static let safeEnvironmentKeys: Set<String> = [
         // AMP_API_KEY is intentionally NOT allowlisted: it's a secret.
         // Amp resolves auth from ~/.config/amp/settings.json on resume.
@@ -38,6 +47,9 @@ public enum AgentLaunchEnvironmentPolicy {
         "AMP_URL",
         "ANTHROPIC_BASE_URL",
         "ANTHROPIC_MODEL",
+        "CAMPFIRE_CODING_AGENT_DIR",
+        "CAMPFIRE_CODING_AGENT_SESSION_DIR",
+        "CAMPFIRE_RELAY_URL",
         "CLAUDE_CONFIG_DIR",
         "CMUX_CUSTOM_CLAUDE_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
@@ -93,6 +105,11 @@ public enum AgentLaunchEnvironmentPolicy {
         }
         if kind != "hermes-agent" {
             for key in hermesAgentEnvironmentKeys {
+                result.removeValue(forKey: key)
+            }
+        }
+        if kind == "campfire" {
+            for key in campfireManagedEnvironmentKeys {
                 result.removeValue(forKey: key)
             }
         }

@@ -141,6 +141,21 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         )
     }
 
+    static var builtInCampfire: CmuxVaultAgentRegistration {
+        CmuxVaultAgentRegistration(
+            id: "campfire",
+            name: "Campfire",
+            detect: CmuxVaultAgentDetectRule(
+                processName: "campfire",
+                alternateArgvContains: ["campfire"]
+            ),
+            sessionIdSource: .piSessionFile,
+            resumeCommand: "{{executable}} --session {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: "~/.campfire/agent/sessions"
+        )
+    }
+
     static var builtInAntigravity: CmuxVaultAgentRegistration {
         CmuxVaultAgentRegistration(
             id: "antigravity",
@@ -380,6 +395,7 @@ struct CmuxVaultAgentRegistry: Sendable {
         var registrations = [
             CmuxVaultAgentRegistration.builtInPi,
             CmuxVaultAgentRegistration.builtInOmp,
+            CmuxVaultAgentRegistration.builtInCampfire,
             CmuxVaultAgentRegistration.builtInAntigravity,
             CmuxVaultAgentRegistration.builtInGrok,
         ]

@@ -1070,6 +1070,7 @@ enum PiSessionLocator {
             ?? process.environment["PI_CODING_AGENT_SESSION_DIR"]
             ?? configuredSessionDirectory(for: registration)
             ?? ompAgentSessionsRoot(for: process, registration: registration)
+            ?? campfireAgentSessionsRoot(for: process, registration: registration)
             ?? registration.sessionDirectory
             ?? defaultSessionsRoot()
         let expandedRoot = (sessionRoot as NSString).expandingTildeInPath
@@ -1105,10 +1106,29 @@ enum PiSessionLocator {
         return (agentRoot as NSString).appendingPathComponent("sessions")
     }
 
+    private static func campfireAgentSessionsRoot(
+        for process: VaultObservedAgentProcess,
+        registration: CmuxVaultAgentRegistration
+    ) -> String? {
+        guard registration.id == "campfire" else { return nil }
+        if let sessionRoot = nonEmptyEnvironmentValue("CAMPFIRE_CODING_AGENT_SESSION_DIR", in: process.environment) {
+            return NSString(string: sessionRoot).expandingTildeInPath
+        }
+        guard let agentRoot = nonEmptyEnvironmentValue("CAMPFIRE_CODING_AGENT_DIR", in: process.environment) else {
+            return nil
+        }
+        let expandedAgentRoot = NSString(string: agentRoot).expandingTildeInPath
+        return (expandedAgentRoot as NSString).appendingPathComponent("sessions")
+    }
+
     private static func configuredSessionDirectory(for registration: CmuxVaultAgentRegistration) -> String? {
         guard let sessionDirectory = registration.sessionDirectory else { return nil }
         if registration.id == "omp",
            sessionDirectory == CmuxVaultAgentRegistration.builtInOmp.sessionDirectory {
+            return nil
+        }
+        if registration.id == "campfire",
+           sessionDirectory == CmuxVaultAgentRegistration.builtInCampfire.sessionDirectory {
             return nil
         }
         return sessionDirectory
