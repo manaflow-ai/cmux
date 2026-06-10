@@ -7218,16 +7218,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if let replayPath = replayEnvironment[SessionScrollbackReplayStore.environmentKey] {
             additionalEnvironment[SessionScrollbackReplayStore.environmentKey] = replayPath
         }
-        // The directory may have been deleted or its volume unmounted while
-        // the panel was hibernated; staging it anyway would make the shell
-        // spawn fail. Fall back to the default resolution instead.
+        // No disk I/O here: this runs on interactive selection/focus paths and
+        // a stat on a dead network mount can hang the main thread. A stale
+        // directory is harmless — Ghostty ignores an unspawnable cwd at spawn
+        // time and falls back (termio/Exec.zig logs "cannot spawn command at
+        // cwd, ignoring"), and the override is consumed even when creation
+        // fails, so retries cannot loop on a bad value.
         let trimmedDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let trimmedDirectory, !trimmedDirectory.isEmpty {
-            var isDirectory: ObjCBool = false
-            if FileManager.default.fileExists(atPath: trimmedDirectory, isDirectory: &isDirectory),
-               isDirectory.boolValue {
-                nextRuntimeWorkingDirectory = trimmedDirectory
-            }
+            nextRuntimeWorkingDirectory = trimmedDirectory
         }
     }
 

@@ -478,19 +478,23 @@ struct SurfaceHibernationPolicyTests {
 
     @MainActor
     @Test
-    func surfaceHibernationRestoreSkipsStagingDeletedWorkingDirectory() throws {
+    func surfaceHibernationRestoreStagesCapturedDirectoryWithoutDiskChecks() throws {
+        // Staging must not stat the path (a dead network mount would hang the
+        // main thread); Ghostty ignores an unspawnable cwd at spawn time and
+        // the override is consumed even when creation fails.
+        let missingDirectory = "/tmp/cmux-surface-hibernation-missing-\(UUID().uuidString)"
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
 
         panel.enterSurfaceHibernation(
             scrollback: nil,
-            workingDirectory: "/tmp/cmux-surface-hibernation-missing-\(UUID().uuidString)",
+            workingDirectory: missingDirectory,
             lastActivityAt: Date(timeIntervalSince1970: 100)
         )
 
         #expect(workspace.restoreSurfaceHibernation(panelId: panelId, focus: false))
-        #expect(panel.surface.debugNextRuntimeWorkingDirectoryForTesting() == nil)
+        #expect(panel.surface.debugNextRuntimeWorkingDirectoryForTesting() == missingDirectory)
     }
 
     @MainActor
