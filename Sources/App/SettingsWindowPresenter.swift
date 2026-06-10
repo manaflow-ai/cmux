@@ -191,7 +191,7 @@ enum SettingsWindowPresenter {
         if windowExists {
             return .materialized
         }
-        return .giveUp
+        return attempt < maxOpenAttempts ? .retry : .giveUp
     }
 
     private static func logExistingWindowState(_ window: NSWindow) {
@@ -308,6 +308,12 @@ enum SettingsWindowPresenter {
             return bestFrame
         }
 
+        // The window is off every active screen. Recover onto the screen under
+        // the cursor when possible so Settings appears where the user is looking.
+        if let mouseLocation,
+           let mouseScreen = screenVisibleFrames.first(where: { $0.contains(mouseLocation) }) {
+            return mouseScreen
+        }
         return fallbackVisibleFrame ?? screenVisibleFrames.first
     }
 
