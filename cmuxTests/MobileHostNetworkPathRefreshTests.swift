@@ -122,16 +122,23 @@ import Testing
 
     @Test func resolutionRacingInvalidationCannotRepolluteCache() async {
         let resolver = MobileRouteResolver()
+        // Two-way handshake: `started` proves the resolution is genuinely in
+        // flight (its cache generation already captured) before the
+        // invalidation runs — `async let` alone does not guarantee the child
+        // has begun — and `gate` holds it there until after the invalidation.
+        let started = DispatchSemaphore(value: 0)
         let gate = DispatchSemaphore(value: 0)
         // Start a resolution that represents the OLD network and hold it
         // in flight while the path changes underneath it.
         async let staleResolution = resolver.routesResolvingTailscaleDNS(
             port: 51000,
             resolveHosts: {
+                started.signal()
                 gate.wait()
                 return ["stale-old-net.tail1234.ts.net"]
             }
         )
+        started.wait()
         resolver.invalidateResolvedTailscaleHostCache()
         gate.signal()
         // The awaiting caller still gets the hosts it resolved (it asked
