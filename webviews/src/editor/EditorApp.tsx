@@ -116,12 +116,18 @@ export function EditorApp({
         contentListener = model.onDidChangeContent(() => {
           saveController.noteContentChanged();
         });
-        // No in-page shortcut: the native side routes cmux's configurable
-        // save shortcut (saveFilePreview) here through this entrypoint.
-        (window as unknown as { __cmuxEditorRequestSave?: () => void }).__cmuxEditorRequestSave =
-          () => saveController.requestSave();
+        // No in-page shortcuts: the native side routes cmux's save shortcut
+        // and the standard undo/redo chords here, so the app's Edit menu can
+        // never shadow Monaco's own model undo (WKWebView's native undo: does
+        // nothing useful for a Monaco buffer).
+        const win = window as unknown as Record<string, unknown>;
+        win.__cmuxEditorRequestSave = () => saveController.requestSave();
+        win.__cmuxEditorUndo = () => editor.trigger("cmuxMenu", "undo", null);
+        win.__cmuxEditorRedo = () => editor.trigger("cmuxMenu", "redo", null);
         removeSaveShortcut = () => {
-          delete (window as unknown as { __cmuxEditorRequestSave?: () => void }).__cmuxEditorRequestSave;
+          delete win.__cmuxEditorRequestSave;
+          delete win.__cmuxEditorUndo;
+          delete win.__cmuxEditorRedo;
         };
       }
       return () => {

@@ -4095,8 +4095,11 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Set by the editor save bridge when a `cmux edit` page reports unsaved
     /// buffer changes; drives tab close-confirmation through `isDirty`.
     var editorBufferIsDirty = false
+    /// True while a `cmux edit` Monaco page is live in this webview; gates the
+    /// undo/redo key routing so plain browser pages keep default behavior.
+    var editorPageActive = false
     /// Pending first stroke of a chorded save shortcut (see
-    /// `handleEditorSaveShortcut`).
+    /// `handleEditorKeyEquivalent`).
     var editorSaveChordPrefixPending = false
 
     var isDirty: Bool {
@@ -4236,7 +4239,7 @@ final class BrowserPanel: Panel, ObservableObject {
         setupEditorSaveMessageHandler(for: webView)
         webView.onEditorSaveKeyEquivalent = { [weak self, weak webView] event in
             guard let self, let webView else { return false }
-            return self.handleEditorSaveShortcut(event: event, webView: webView)
+            return self.handleEditorKeyEquivalent(event: event, webView: webView)
         }
         applyMuteState(to: webView, reason: "bindWebView")
     }
@@ -4269,6 +4272,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 // its dirty mirror so close-confirmation and the save
                 // shortcut never act on a page that is gone.
                 self.editorBufferIsDirty = false
+                self.editorPageActive = false
                 self.editorSaveChordPrefixPending = false
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
