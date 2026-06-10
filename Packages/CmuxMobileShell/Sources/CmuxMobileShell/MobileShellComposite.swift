@@ -203,6 +203,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
 
     private let runtime: (any MobileSyncRuntime)?
+    /// Clock the pairing route race staggers attempts on (virtual in tests).
+    private let pairingRouteRaceClock: any Clock<Duration>
     private let pairedMacStore: (any MobilePairedMacStoring)?
     /// Best-effort, team-scoped lookup of fresher attach routes from the device
     /// registry. Optional and failure-tolerant: when `nil` or unreachable,
@@ -338,9 +340,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         reachability: any ReachabilityProviding = ReachabilityService(),
         pairingHintDefaults: UserDefaults = .standard,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        pairingRouteRaceClock: any Clock<Duration> = ContinuousClock()
     ) {
         self.runtime = runtime
+        self.pairingRouteRaceClock = pairingRouteRaceClock
         self.pairedMacStore = pairedMacStore
         self.deviceRegistry = deviceRegistry
         self.identityProvider = identityProvider
@@ -1732,67 +1736,67 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return nil
         }
 
-        let workspaceListRequests = try Self.initialWorkspaceListRequests(for: ticket)
+        let workspaceListRequests = try MobilePairingWorkspaceListRequest.initialRequests(for: ticket)
         // Stack auth is now the authorization gate for every request, so enable
         // it by default on any route trusted to carry the token (Tailscale,
         // loopback, LAN, .local). Untrusted manual public hosts stay off and
         // therefore cannot authorize, which is intended.
         let routeAllowsStackAuthFallback = allowsStackAuthFallback
             ?? supportedRoutes.allSatisfy(MobileShellRouteAuthPolicy.routeAllowsStackAuth)
-        var lastError: (any Error)?
-        for route in supportedRoutes {
-            activeRoute = route
-            mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
-            let client = MobileCoreRPCClient(
-                runtime: runtime,
-                route: route,
-                ticket: ticket,
-                allowsStackAuthFallback: routeAllowsStackAuthFallback
+        // Happy-Eyeballs over the candidate routes: attempts start concurrently
+        // with a short priority stagger, the first success wins, and losers are
+        // cancelled and torn down. With the per-attempt bounds (3s TCP connect,
+        // 4s pairing request) the worst case is a few seconds instead of every
+        // route's timeout stacking sequentially.
+        let routeAttempt = MobilePairingRouteAttempt(
+            runtime: runtime,
+            ticket: ticket,
+            requests: workspaceListRequests,
+            allowsStackAuthFallback: routeAllowsStackAuthFallback
+        )
+        let win: MobilePairingRouteAttempt.Win
+        do {
+            win = try await MobilePairingRouteRace(clock: pairingRouteRaceClock).run(
+                routes: supportedRoutes,
+                endsRace: { MobilePairingRouteAttempt.failureEndsRouteRace($0) },
+                onDiscardedSuccess: { await $0.client.disconnect() },
+                attempt: { try await routeAttempt.run(route: $0) }
             )
-            for workspaceListRequest in workspaceListRequests {
-                do {
-                    let resultData = try await client.sendRequest(
-                        workspaceListRequest.data,
-                        timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
-                    )
-                    let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-                    guard generation == connectionGeneration, isSignedIn else { return nil }
-                    replaceRemoteClient(with: client)
-                    startTerminalRefreshPolling()
-                    clearPairingError()
-                    await persistPairedMacFromTicket(ticket)
-                    applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
-                    syncSelectedTerminalForWorkspace()
-                    connectionState = .connected
-                    markMacConnectionHealthy()
-                    diagnosticLog?.record(DiagnosticEvent(.pairOk))
-                    if workspaceListRequest.isScoped {
-                        scheduleFullWorkspaceListRefreshIfAvailable(
-                            client: client,
-                            route: route,
-                            generation: generation
-                        )
-                    }
-                    return nil
-                } catch {
-                    lastError = error
-                    guard generation == connectionGeneration, isSignedIn else { return nil }
-                    mobileShellLog.error(
-                        "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
-                    )
-                }
+        } catch let raceFailure as MobilePairingRouteRaceFailure {
+            guard generation == connectionGeneration, isSignedIn else { return nil }
+            // Surface the most actionable route's failure (race-ending host
+            // answers first), with activeRoute pointed at that route so the
+            // classifier names the right host/port in the message.
+            clearRemoteConnectionContext()
+            diagnosticLog?.record(DiagnosticEvent(.pairFail))
+            guard let representative = raceFailure.representative else {
+                throw MobileShellConnectionError.connectionClosed
             }
+            activeRoute = representative.route
+            throw representative.error
         }
-
-        clearRemoteConnectionContext()
-        diagnosticLog?.record(DiagnosticEvent(.pairFail))
-        throw lastError ?? MobileShellConnectionError.connectionClosed
-    }
-
-    private struct WorkspaceListRequest {
-        var data: Data
-        var isScoped: Bool
-        var preferActiveTicketTarget: Bool
+        guard generation == connectionGeneration, isSignedIn else {
+            await win.client.disconnect()
+            return nil
+        }
+        activeRoute = win.route
+        replaceRemoteClient(with: win.client)
+        startTerminalRefreshPolling()
+        clearPairingError()
+        await persistPairedMacFromTicket(ticket)
+        applyRemoteWorkspaceList(win.response, preferActiveTicketTarget: win.request.preferActiveTicketTarget)
+        syncSelectedTerminalForWorkspace()
+        connectionState = .connected
+        markMacConnectionHealthy()
+        diagnosticLog?.record(DiagnosticEvent(.pairOk))
+        if win.request.isScoped {
+            scheduleFullWorkspaceListRefreshIfAvailable(
+                client: win.client,
+                route: win.route,
+                generation: generation
+            )
+        }
+        return nil
     }
 
     private static func supportedRoutes(
@@ -1811,55 +1815,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static func attachTicketIsUnexpired(_ ticket: CmxAttachTicket, now: Date) -> Bool {
         ticket.expiresAt > now
-    }
-
-    private static func initialWorkspaceListParams(for ticket: CmxAttachTicket) -> [String: Any] {
-        guard UUID(uuidString: ticket.workspaceID) != nil else {
-            return [:]
-        }
-        var params: [String: Any] = ["workspace_id": ticket.workspaceID]
-        if let terminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !terminalID.isEmpty {
-            params["terminal_id"] = terminalID
-        }
-        return params
-    }
-
-    private static func initialWorkspaceListRequests(for ticket: CmxAttachTicket) throws -> [WorkspaceListRequest] {
-        let scopedParams = initialWorkspaceListParams(for: ticket)
-        let hasAttachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-
-        var requests: [WorkspaceListRequest] = []
-        if hasAttachToken {
-            requests.append(
-                WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
-                    isScoped: false,
-                    preferActiveTicketTarget: true
-                )
-            )
-        }
-
-        if !scopedParams.isEmpty {
-            requests.append(
-                WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: scopedParams),
-                    isScoped: !scopedParams.isEmpty,
-                    preferActiveTicketTarget: true
-                )
-            )
-        }
-
-        if requests.isEmpty {
-            requests.append(
-                WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
-                    isScoped: false,
-                    preferActiveTicketTarget: true
-                )
-            )
-        }
-        return requests
     }
 
     private func scheduleFullWorkspaceListRefreshIfAvailable(
