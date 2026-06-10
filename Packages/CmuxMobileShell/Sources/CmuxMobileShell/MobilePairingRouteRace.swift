@@ -46,6 +46,13 @@ struct MobilePairingRouteRace: Sendable {
     ///     *host* rather than the route (auth rejection, expired ticket, an RPC
     ///     error answer): every other route would get the same answer, so the
     ///     race ends immediately instead of waiting out the remaining attempts.
+    ///     This short-circuit stops *waiting*; it does not override a success.
+    ///     A sibling attempt that completes successfully after the race-ending
+    ///     failure (cancellation is cooperative) still wins, because a live,
+    ///     authorized connection is definitive proof pairing works. With a
+    ///     one-time ticket this is the common race: the attempt that consumed
+    ///     the ticket succeeds while a sibling's "already used" rejection ends
+    ///     the race, and the user must get the connection, not the rejection.
     ///   - onDiscardedSuccess: Cleanup for a success that completed after the
     ///     winner was chosen (close its connection so it does not leak).
     ///   - attempt: Dials one route. Must be cancellation-responsive for losers
@@ -87,6 +94,11 @@ struct MobilePairingRouteRace: Sendable {
                 switch outcome.result {
                 case let .success(value):
                     if winner == nil {
+                        // Deliberately also taken after a race-ending failure:
+                        // the short-circuit stops waiting on pending attempts,
+                        // but an attempt that still completed with a live,
+                        // authorized connection beats any failure (see the
+                        // one-time-ticket race in `endsRace`'s documentation).
                         winner = value
                         group.cancelAll()
                     } else {

@@ -226,6 +226,47 @@ import Testing
         #expect(await probe.startedRouteIDs == ["a"])
     }
 
+    @Test func successCompletingAfterRaceEndingFailureStillWins() async throws {
+        let clock = ManualTestClock()
+        let probe = RaceProbe()
+        let routes = [try route("a", host: "100.64.0.1"), try route("b", host: "100.64.0.2")]
+        let race = MobilePairingRouteRace(clock: clock)
+
+        let raceTask = Task {
+            try await race.run(
+                routes: routes,
+                endsRace: { MobilePairingRouteAttempt.failureEndsRouteRace($0) },
+                onDiscardedSuccess: { await probe.recordDiscarded($0) },
+                attempt: { route in
+                    await probe.recordStart(route.id, at: clock.now.offset)
+                    if route.id == "a" {
+                        // The one-time-ticket race: this attempt consumed the
+                        // ticket and connects, but its success only completes
+                        // after route b's "already used" rejection has ended
+                        // the race and cancelled it.
+                        await self.parkUntilCancelledThenReturn()
+                    } else {
+                        throw MobileShellConnectionError.attachTicketExpired
+                    }
+                    return route.id
+                }
+            )
+        }
+
+        // Route a starts and parks; advancing past the stagger starts route b,
+        // whose definitive host answer ends the race and cancels route a, which
+        // then completes successfully anyway.
+        await probe.waitForStarts(1)
+        await clock.waitUntilSleepers(count: 1)
+        clock.advance(by: .milliseconds(250))
+
+        // The live connection must win; the race-ending failure stops waiting,
+        // it does not override an established connection.
+        let winner = try await raceTask.value
+        #expect(winner == "a")
+        #expect(await probe.discardedValues.isEmpty)
+    }
+
     @Test func allFailedSurfacesMostActionableRouteFailure() async throws {
         let clock = ManualTestClock()
         let probe = RaceProbe()
