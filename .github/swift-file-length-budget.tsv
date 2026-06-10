@@ -52,9 +52,9 @@
 1860	cmuxTests/NotificationAndMenuBarTests.swift
 1811	Sources/SessionIndexStore.swift
 1751	Sources/WindowDragHandleView.swift
+1729	Sources/RestorableAgentSession.swift
 1721	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
 1721	cmuxTests/TerminalControllerSocketSecurityTests.swift
-1717	Sources/RestorableAgentSession.swift
 1693	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1643	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1574	cmuxTests/MarkdownPanelTests.swift
@@ -154,6 +154,7 @@
 588	cmuxTests/CommandPaletteShortcutCustomizationTests.swift
 586	Sources/JSONCParser.swift
 585	Sources/Cloud/VMClient.swift
+583	Sources/Panels/MarkdownPanel.swift
 580	Packages/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
 578	cmuxUITests/FeedSidebarUITests.swift
@@ -162,7 +163,6 @@
 568	Packages/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
 566	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizer.swift
 562	cmuxTests/AgentExecutableResolverTests.swift
-561	Sources/Panels/MarkdownPanel.swift
 560	cmuxTests/GhosttyConfigPathResolverTests.swift
 558	Packages/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
 554	Sources/Panels/BrowserAutomation.swift

@@ -11,7 +11,16 @@ extension TerminalSurface {
     /// (its `TabManager` only knows that window's workspaces); a single
     /// last-writer-wins closure would drop every other window's workspaces, so
     /// ``resolveWorkspaceNotesDirectory(_:)`` searches all registered windows.
-    @MainActor private static var workspaceNotesDirectoryResolvers: [ObjectIdentifier: (UUID) -> String?] = [:]
+    /// The owner is held weakly and dead entries are pruned on every access,
+    /// so closed windows can't accumulate stale resolvers (or collide via a
+    /// recycled `ObjectIdentifier`).
+    private struct WorkspaceNotesDirectoryResolverEntry {
+        weak var owner: AnyObject?
+        let resolve: (UUID) -> String?
+    }
+
+    @MainActor private static var workspaceNotesDirectoryResolvers:
+        [ObjectIdentifier: WorkspaceNotesDirectoryResolverEntry] = [:]
 
     /// Register (or replace) a window's notes-dir resolver, keyed by `owner`
     /// (typically that window's `TabManager`). App-target DI seam — set on the
@@ -20,7 +29,9 @@ extension TerminalSurface {
         owner: AnyObject,
         _ resolve: @escaping (UUID) -> String?
     ) {
-        workspaceNotesDirectoryResolvers[ObjectIdentifier(owner)] = resolve
+        pruneWorkspaceNotesDirectoryResolvers()
+        workspaceNotesDirectoryResolvers[ObjectIdentifier(owner)] =
+            WorkspaceNotesDirectoryResolverEntry(owner: owner, resolve: resolve)
     }
 
     /// Remove a window's resolver (e.g. when its window closes).
@@ -32,10 +43,17 @@ extension TerminalSurface {
     /// returning the first match (a given workspace id lives in exactly one
     /// window's `TabManager`).
     @MainActor static func resolveWorkspaceNotesDirectory(_ workspaceId: UUID) -> String? {
-        for resolve in workspaceNotesDirectoryResolvers.values {
-            if let dir = resolve(workspaceId) { return dir }
+        pruneWorkspaceNotesDirectoryResolvers()
+        for entry in workspaceNotesDirectoryResolvers.values {
+            if let dir = entry.resolve(workspaceId) { return dir }
         }
         return nil
+    }
+
+    @MainActor private static func pruneWorkspaceNotesDirectoryResolvers() {
+        workspaceNotesDirectoryResolvers = workspaceNotesDirectoryResolvers.filter {
+            $0.value.owner != nil
+        }
     }
 
     static let managedTerminalType = "xterm-256color"

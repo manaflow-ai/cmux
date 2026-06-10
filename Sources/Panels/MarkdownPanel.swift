@@ -91,6 +91,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
     private var autoSaveTask: Task<Void, Never>?
+    /// The in-flight write started by `saveTextContent`, kept so the close
+    /// path can order a final flush after it without depending on this
+    /// panel staying alive.
+    private var activeSaveTask: Task<Void, Never>?
     private var pendingSearchNeedle: String?
     private var pendingTextViewFocus = false
     private weak var textView: NSTextView?
@@ -284,7 +288,23 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         // textView, so flush before clearing it; the write Task captures content by
         // value and completes even as this panel is released.
         if behavesAsNote, isDirty {
-            _ = saveTextContent()
+            if saveTextContent() == nil, isSaving {
+                // An older snapshot is mid-write and saveTextContent no-ops
+                // while saving. Once this panel is released its completion
+                // can't re-flush (weak self), so order a final write of the
+                // newest text after the in-flight one, independent of this
+                // panel's lifetime.
+                let fileURL = URL(fileURLWithPath: filePath)
+                let encoding = textEncoding
+                let finalContent = textView?.string ?? textContent
+                let inFlight = activeSaveTask
+                Task.detached(priority: .utility) {
+                    _ = await inFlight?.value
+                    _ = await FilePreviewTextSaver.save(
+                        content: finalContent, to: fileURL, encoding: encoding
+                    )
+                }
+            }
         }
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
@@ -417,7 +437,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         let fileURL = URL(fileURLWithPath: filePath)
         let encoding = textEncoding
 
-        return Task { [weak self, currentContent, fileURL, encoding, generation] in
+        let task = Task { [weak self, currentContent, fileURL, encoding, generation] in
             let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
             guard let self, self.activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
@@ -445,6 +465,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             }
         }
+        activeSaveTask = task
+        return task
     }
 
     // MARK: - File I/O
