@@ -5303,12 +5303,31 @@ enum TerminalSurfaceFocusPlacement: Equatable {
 // "repeat" keystroke could hide input typed right after an idle lifecycle
 // report and let hibernation kill an active agent.
 @MainActor
-private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
+private func recordAgentHibernationTerminalInput(
+    workspaceId: UUID,
+    panelId: UUID,
+    leavesTrailingTextAfterCommand: Bool = false
+) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
     AgentHibernationController.shared.recordTerminalInput(
         workspaceId: workspaceId,
-        panelId: panelId
+        panelId: panelId,
+        leavesTrailingTextAfterCommand: leavesTrailingTextAfterCommand
     )
+}
+
+/// Whether a batched payload both runs a command and leaves text editable at
+/// the next prompt, e.g. "echo ok\npartial": the first prompt transition
+/// after it must not clear the pending-input hibernation guard. Keyboard
+/// input arrives per keystroke and never matches.
+private func terminalInputLeavesTrailingTextAfterCommand(_ text: String) -> Bool {
+    guard let lastSettlingIndex = text.lastIndex(where: { character in
+        character == "\r" || character == "\n" ||
+            character == "\u{03}" || character == "\u{04}" || character == "\u{15}"
+    }) else {
+        return false
+    }
+    return !text[text.index(after: lastSettlingIndex)...].isEmpty
 }
 
 final class TerminalSurface: Identifiable, ObservableObject {
@@ -7256,11 +7275,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendText(_ text: String) -> Bool {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
+        let leavesTrailingText = terminalInputLeavesTrailingTextAfterCommand(text)
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return false }
             let queued = enqueuePendingSocketInput(.pasteText(data))
             if queued {
-                recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+                recordAgentHibernationTerminalInput(
+                    workspaceId: tabId,
+                    panelId: id,
+                    leavesTrailingTextAfterCommand: leavesTrailingText
+                )
                 requestBackgroundSurfaceStartIfNeeded()
             }
             return queued
@@ -7269,7 +7293,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return false
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return false }
-        recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+        recordAgentHibernationTerminalInput(
+            workspaceId: tabId,
+            panelId: id,
+            leavesTrailingTextAfterCommand: leavesTrailingText
+        )
         writeTextData(data, to: liveSurface)
         return true
     }
@@ -7374,11 +7402,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendInputResult(_ text: String) -> InputSendResult {
         guard !text.isEmpty else { return .sent }
+        let leavesTrailingText = terminalInputLeavesTrailingTextAfterCommand(text)
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             let queued = enqueuePendingSocketInput(text)
             if queued {
-                recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+                recordAgentHibernationTerminalInput(
+                    workspaceId: tabId,
+                    panelId: id,
+                    leavesTrailingTextAfterCommand: leavesTrailingText
+                )
                 requestBackgroundSurfaceStartIfNeeded()
             }
             return queued ? .queued : .inputQueueFull
@@ -7387,7 +7420,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return .surfaceUnavailable
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
-        recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+        recordAgentHibernationTerminalInput(
+            workspaceId: tabId,
+            panelId: id,
+            leavesTrailingTextAfterCommand: leavesTrailingText
+        )
         sendInput(text, to: liveSurface)
         return .sent
     }
