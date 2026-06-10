@@ -636,7 +636,7 @@ extension AppDelegate {
                     ) ||
                         (canRestartShell &&
                             (!(workspace.surfaceListeningPorts[panelId] ?? []).isEmpty ||
-                                terminalPanel.surface.foregroundProcessHasChildren()))
+                                !terminalPanel.surface.foregroundProcessAllowsShellRestart()))
                     records.append(
                         AgentHibernationRecord(
                             key: key,

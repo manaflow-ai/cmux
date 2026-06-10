@@ -7285,23 +7285,38 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
-    /// Whether the surface's foreground process (the shell, when sitting at a
-    /// prompt) has live child processes. Background jobs started with `&`
-    /// produce no prompt-state or output signal, so this is the guard that
-    /// keeps surface hibernation from SIGHUPing them.
+    private static let shellRestartForegroundShellNames: Set<String> = [
+        "zsh", "bash", "fish", "sh", "dash", "login", "-zsh", "-bash", "-fish", "-sh"
+    ]
+
+    /// Whether the surface's foreground process is a shell sitting at a
+    /// prompt with no live children. Background jobs started with `&`
+    /// produce no prompt-state or output signal, and an attached `tmux`
+    /// client passes the prompt heuristics while its server is not a child —
+    /// both must keep surface hibernation from SIGHUPing the PTY.
     @MainActor
-    func foregroundProcessHasChildren() -> Bool {
+    func foregroundProcessAllowsShellRestart() -> Bool {
 #if DEBUG
         if let foregroundProcessHasChildrenOverrideForTesting {
-            return foregroundProcessHasChildrenOverrideForTesting
+            return !foregroundProcessHasChildrenOverrideForTesting
         }
 #endif
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "foregroundProcessHasChildren") else {
-            return false
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "foregroundProcessAllowsShellRestart") else {
+            return true
         }
         let rawPid = ghostty_surface_foreground_pid(surface)
-        guard rawPid > 0, rawPid <= UInt64(Int32.max) else { return false }
-        return CmuxTopProcessSnapshot.hasChildProcesses(parentPID: Int(rawPid))
+        guard rawPid > 0, rawPid <= UInt64(Int32.max) else { return true }
+        let pid = Int(rawPid)
+        if CmuxTopProcessSnapshot.hasChildProcesses(parentPID: pid) {
+            return false
+        }
+        guard let executable = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: pid)?
+            .arguments.first else {
+            // Unknown foreground process: be conservative.
+            return false
+        }
+        let name = URL(fileURLWithPath: executable).lastPathComponent
+        return Self.shellRestartForegroundShellNames.contains(name)
     }
 
     func noteClipboardReadCompleted() {

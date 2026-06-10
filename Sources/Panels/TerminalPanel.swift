@@ -704,8 +704,20 @@ final class TerminalPanel: Panel, ObservableObject {
     func prepareSurfaceHibernationRestore() -> Bool {
         guard let state = surfaceHibernationState else { return false }
         surfaceHibernationState = nil
+        // The managed shell integration is the replay file's consumer. When
+        // the user disabled integration while this panel was hibernated, the
+        // relaunched shell has no replay hook, so staging the file would only
+        // orphan it in the child environment. Drop it instead: the captured
+        // text still reaches the session snapshot through the fallback seeded
+        // at hibernation time, matching how app-relaunch session restore
+        // behaves when integration is disabled.
+        let shellIntegrationEnabled = UserDefaults.standard
+            .object(forKey: "sidebarShellIntegration") as? Bool ?? true
+        if !shellIntegrationEnabled, let orphanedReplayPath = state.replayFilePath {
+            try? FileManager.default.removeItem(atPath: orphanedReplayPath)
+        }
         surface.stageHibernationRestore(
-            replayFilePath: state.replayFilePath,
+            replayFilePath: shellIntegrationEnabled ? state.replayFilePath : nil,
             workingDirectory: state.workingDirectory
         )
         surface.prepareHibernationResume(initialInput: nil)

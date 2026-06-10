@@ -26,8 +26,9 @@ struct SurfaceHibernationPlannerInput: Sendable {
     /// Visible in the selected workspace's rendered layout.
     let isProtected: Bool
     /// Freeing the PTY could kill live work: the surface is not safely at a
-    /// shell prompt (`needsConfirmClose`), the prompt shell has background
-    /// child processes, or the terminal owns listening ports.
+    /// shell prompt (`needsConfirmClose`), the foreground process is not a
+    /// bare shell (e.g. an attached tmux client) or has background child
+    /// processes, or the terminal owns listening ports.
     let isBusy: Bool
     /// Agent lifecycle reported by hooks; `.unknown` for plain shells.
     let lifecycle: AgentHibernationLifecycleState
