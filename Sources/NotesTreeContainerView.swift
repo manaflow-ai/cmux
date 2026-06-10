@@ -292,20 +292,6 @@ final class NotesTreeOutlineView: NSOutlineView {
     weak var coordinator: NotesTreePanelView.Coordinator?
     private var contextNode: NotesTreeNode?
 
-    #if DEBUG
-    override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        cmuxDebugLog("notes.mouseDown row=\(row(at: point))")
-        super.mouseDown(with: event)
-        cmuxDebugLog("notes.mouseDown.returned")
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        cmuxDebugLog("notes.mouseDragged")
-        super.mouseDragged(with: event)
-    }
-    #endif
-
     // MARK: Keyboard
 
     override func keyDown(with event: NSEvent) {

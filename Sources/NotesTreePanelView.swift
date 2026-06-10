@@ -386,23 +386,7 @@ struct NotesTreePanelView: NSViewRepresentable {
 
         // MARK: Drag-to-move
 
-        func outlineView(
-            _ outlineView: NSOutlineView,
-            draggingSession session: NSDraggingSession,
-            willBeginAt screenPoint: NSPoint,
-            forItems draggedItems: [Any]
-        ) {
-            #if DEBUG
-            cmuxDebugLog("notes.drag.begin items=\(draggedItems.count)")
-            #endif
-        }
-
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-            #if DEBUG
-            cmuxDebugLog(
-                "notes.drag.writer node=\((((item as? NotesTreeNode)?.path ?? "?") as NSString).lastPathComponent)"
-            )
-            #endif
             guard let node = item as? NotesTreeNode, !node.path.isEmpty else { return nil }
             // Note rows drag with the full Files-tab payload (fileURL +
             // preview transfer types) so terminal drops insert the path or
@@ -460,15 +444,6 @@ struct NotesTreePanelView: NSViewRepresentable {
             return outlineView.parent(forItem: node) as? NotesTreeNode
         }
 
-        #if DEBUG
-        private var lastValidateProbe = ""
-        private func probeValidate(_ message: String) {
-            guard message != lastValidateProbe else { return }
-            lastValidateProbe = message
-            cmuxDebugLog("notes.dragover \(message)")
-        }
-        #endif
-
         func outlineView(
             _ outlineView: NSOutlineView,
             validateDrop info: NSDraggingInfo,
@@ -477,13 +452,6 @@ struct NotesTreePanelView: NSViewRepresentable {
         ) -> NSDragOperation {
             let pb = info.draggingPasteboard
             let destNode = dropDestination(for: item, in: outlineView)
-            #if DEBUG
-            probeValidate(
-                "dest=\(((destNode?.path ?? "root") as NSString).lastPathComponent) "
-                + "move=\(pb.string(forType: NotesTreePanelView.movePasteboardType) != nil) "
-                + "types=\((pb.types ?? []).count)"
-            )
-            #endif
             guard let destFolder = destNode?.path ?? store.resolvedRootPath else { return [] }
 
             // Internal move of a note/folder/session already in this tree.
@@ -529,14 +497,6 @@ struct NotesTreePanelView: NSViewRepresentable {
                 resolvedDest = destNode?.path ?? store.resolvedRootPath
             }
             guard let destFolder = resolvedDest else { return false }
-            #if DEBUG
-            cmuxDebugLog(
-                "notes.drop dest=\(((destNode?.path ?? "root") as NSString).lastPathComponent) "
-                + "virtual=\(destNode?.isVirtual ?? false) "
-                + "move=\(pb.string(forType: NotesTreePanelView.movePasteboardType) != nil) "
-                + "session=\(pb.availableType(from: [NotesTreePanelView.sessionDragPasteboardType]) != nil)"
-            )
-            #endif
             // Internal move wins (a Notes session folder carries both types, but
             // within the tree we move it rather than duplicate it). Index-owned
             // flat notes route through the flat store so the index's bodyPath
@@ -548,12 +508,6 @@ struct NotesTreePanelView: NSViewRepresentable {
                 let moved = treeOwnedSource
                     ? store.move(sourcePath: source, intoFolder: destFolder)
                     : store.moveFlatNote(path: source, intoFolder: destFolder)
-                #if DEBUG
-                cmuxDebugLog(
-                    "notes.drop.move treeOwned=\(treeOwnedSource) "
-                    + "src=\((source as NSString).lastPathComponent) ok=\(moved != nil)"
-                )
-                #endif
                 guard let moved else { return false }
                 reloadNow()
                 selectRow(forPath: moved)
