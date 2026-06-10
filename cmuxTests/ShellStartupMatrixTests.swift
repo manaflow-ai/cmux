@@ -113,6 +113,115 @@ struct ShellStartupMatrixTests {
         expectEqual(environment["CMUX_FISH_USER_CONFIG_ALREADY_LOADED"], "1")
     }
 
+    // A tagged dev build's DerivedData (or any app bundle) can be deleted while
+    // the app keeps running. Redirecting ZDOTDIR at a now-missing integration
+    // dir makes zsh silently skip the user's ~/.zshenv/.zprofile/.zshrc, because
+    // the bundled .zshenv that restores the real ZDOTDIR never runs. When the
+    // bundled bootstrap is unreadable, the spawn environment must be left
+    // untouched so the shell starts vanilla and the user's config still loads.
+    @Test
+    func zshStartupLeavesUserConfigReachableWhenBundledZshenvIsMissing() {
+        let missingIntegrationDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tests-deleted-bundle-\(UUID().uuidString)")
+            .appendingPathComponent("shell-integration")
+            .path
+        let originalEnvironment = [
+            "ZDOTDIR": "/Users/example/.zsh",
+            "GHOSTTY_RESOURCES_DIR": "/Applications/Ghostty.app/Contents/Resources",
+        ]
+        var environment = originalEnvironment
+        var protectedKeys: Set<String> = []
+
+        let command = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
+            shell: "/bin/zsh",
+            integrationDir: missingIntegrationDir,
+            userGhosttyShellIntegrationMode: "detect",
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        expectEqual(command, nil)
+        expectEqual(environment, originalEnvironment)
+        expectTrue(protectedKeys.isEmpty)
+    }
+
+    @Test
+    func fishStartupFallsBackToVanillaStartupWhenBundledConfigIsMissing() {
+        let missingIntegrationDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tests-deleted-bundle-\(UUID().uuidString)")
+            .appendingPathComponent("shell-integration")
+            .path
+        let originalEnvironment = ["XDG_CONFIG_HOME": "/Users/example/.config"]
+        var environment = originalEnvironment
+        var protectedKeys: Set<String> = []
+
+        let command = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
+            shell: "/opt/homebrew/bin/fish",
+            integrationDir: missingIntegrationDir,
+            userGhosttyShellIntegrationMode: "detect",
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        expectEqual(command, nil)
+        expectEqual(environment, originalEnvironment)
+        expectTrue(protectedKeys.isEmpty)
+    }
+
+    // End-to-end repro of the dogfood report "new terminals don't respect
+    // zshrc": spawn a real interactive zsh with the environment cmux produces
+    // when the bundled integration dir has been deleted, and assert the user's
+    // ~/.zshrc still ran.
+    @Test
+    func zshStillLoadsUserZshrcWhenBundledIntegrationDirIsDeleted() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zshrc-deleted-bundle-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try "export CMUX_TEST_USER_ZSHRC=1\n"
+            .write(to: home.appendingPathComponent(".zshrc"), atomically: true, encoding: .utf8)
+        let missingIntegrationDir = root
+            .appendingPathComponent("deleted-bundle/Contents/Resources/shell-integration")
+            .path
+
+        var environment = [
+            "HOME": home.path,
+            "PATH": "/usr/bin:/bin",
+            "TERM": "xterm-256color",
+            "USER": NSUserName(),
+        ]
+        var protectedKeys: Set<String> = []
+        _ = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
+            shell: "/bin/zsh",
+            integrationDir: missingIntegrationDir,
+            userGhosttyShellIntegrationMode: "detect",
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        // -i clears the ambient test-runner environment so only the spawn
+        // environment computed above (plus zsh's own startup files) applies.
+        let arguments = ["-i"] + environment.map { "\($0.key)=\($0.value)" } + [
+            "/bin/zsh",
+            "-ic",
+            "print -rn -- \"user_zshrc_loaded=${CMUX_TEST_USER_ZSHRC:-no}\"",
+        ]
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: arguments,
+            timeout: 5
+        )
+
+        expectEqual(result.status, 0, result.stderr)
+        expectFalse(result.timedOut, result.stderr)
+        expectTrue(
+            result.stdout.contains("user_zshrc_loaded=1"),
+            "expected user .zshrc to load with a deleted integration dir; got stdout=\(result.stdout) stderr=\(result.stderr)"
+        )
+    }
+
     @Test(arguments: ["/bin/sh", "/bin/dash", "/bin/ksh", "/bin/tcsh", "/bin/csh", "/usr/local/bin/nu", "/usr/local/bin/pwsh"])
     func unsupportedLocalShellsKeepEnvironmentUnchanged(shell: String) {
         let originalEnvironment = ["CUSTOM": "1"]
