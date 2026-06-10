@@ -1,10 +1,38 @@
 import { CodeView, WorkerPoolContextProvider, type CodeViewHandle, useWorkerPool } from "@pierre/diffs/react";
 import { getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme } from "@pierre/diffs";
+import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
+import { lineTextFor } from "./comments/anchor";
+import {
+  applyCommentAnnotations,
+  sidebarCommentEntries,
+  withCommentAnnotations,
+  type CommentAnnotation,
+  type SidebarCommentEntry,
+} from "./comments/annotations";
+import {
+  attachComment,
+  deleteComment as bridgeDeleteComment,
+  diffCommentsBridgeAvailable,
+  saveComment as bridgeSaveComment,
+} from "./comments/bridge";
+import { CommentComposer } from "./comments/CommentComposer";
+import { CommentsSidebarSection } from "./comments/CommentsSection";
+import { attachmentForComment } from "./comments/format";
+import { resolveCommentLabels, type DiffCommentLabels } from "./comments/labels";
+import { SavedComment } from "./comments/SavedComment";
+import type {
+  CommentAttachState,
+  CommentDraft,
+  CommentTarget,
+  DiffCommentRecord,
+  DiffCommentSide,
+} from "./comments/types";
+import { useCommentsBootstrap } from "./comments/useCommentsBootstrap";
 import { fileName, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
 import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh, selectPierreFileTreePath } from "./file-tree-refresh";
 import { Icon, type IconName } from "./icons";
@@ -30,7 +58,10 @@ type ConfigProps = {
 type AppState = {
   activeItemId: string;
   activeTreePath: string;
+  attachOnSave: boolean;
+  comments: DiffCommentRecord[];
   copyFeedback: string;
+  draft: CommentDraft | null;
   fileSearchOpen: boolean;
   filesWidth: number;
   filesVisible: boolean;
@@ -44,9 +75,13 @@ type AppState = {
 
 type AppAction =
   | { type: "append-items"; items: DiffItem[] }
+  | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
   | { type: "set-active-item"; itemId: string; treePath?: string }
+  | { type: "set-attach-on-save"; value: boolean }
+  | { type: "set-comments"; comments: DiffCommentRecord[] }
   | { type: "set-copy-feedback"; message: string }
+  | { type: "set-draft"; draft: CommentDraft | null }
   | { type: "set-file-search-open"; open: boolean }
   | { type: "set-files-width"; width: number }
   | { type: "set-files-visible"; visible: boolean }
@@ -54,20 +89,41 @@ type AppAction =
   | { type: "set-option"; key: keyof DiffViewerOptions; value: any }
   | { type: "set-options-open"; open: boolean }
   | { type: "set-status"; status: DiffViewerStatus }
-  | { type: "set-tree-source"; source: FileTreeSource };
+  | { type: "set-tree-source"; source: FileTreeSource }
+  | { type: "upsert-comment"; comment: DiffCommentRecord };
 
 const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
 const defaultWorkerModuleURL = "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js";
 const persistedLayoutKey = "cmux.diffViewer.layout";
+const persistedAttachOnSaveKey = "cmux.diffViewer.attachToTextBox";
 type DiffViewerLayout = DiffViewerOptions["layout"];
+
+function readPersistedAttachOnSave(): boolean {
+  try {
+    return window.localStorage.getItem(persistedAttachOnSaveKey) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function persistAttachOnSave(value: boolean): void {
+  try {
+    window.localStorage.setItem(persistedAttachOnSaveKey, value ? "true" : "false");
+  } catch {
+    // Storage may be unavailable for some generated viewer origins.
+  }
+}
 
 function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStatus): AppState {
   const payload = config.payload ?? {};
   return {
     activeItemId: "",
     activeTreePath: "",
+    attachOnSave: readPersistedAttachOnSave(),
+    comments: [],
     copyFeedback: "",
+    draft: null,
     fileSearchOpen: false,
     filesWidth: 252,
     filesVisible: true,
@@ -92,9 +148,10 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
   case "append-items": {
-    const nextItems = state.options.collapsed
-      ? action.items.map((item) => ({ ...item, collapsed: true }))
-      : action.items;
+    const nextItems = action.items.map((item) => {
+      const annotated = withCommentAnnotations(item, state.comments, state.draft);
+      return state.options.collapsed ? { ...annotated, collapsed: true } : annotated;
+    });
     return {
       ...state,
       activeItemId: state.activeItemId || nextItems[0]?.id || "",
@@ -102,10 +159,21 @@ function reducer(state: AppState, action: AppAction): AppState {
       status: state.status.loading ? createDiffViewerStatus("", { loading: false }) : state.status,
     };
   }
+  case "remove-comment": {
+    const comments = state.comments.filter((comment) => comment.id !== action.id);
+    return {
+      ...state,
+      comments,
+      items: applyCommentAnnotations(state.items, comments, state.draft),
+    };
+  }
   case "rename-item":
     return {
       ...state,
       activeItemId: state.activeItemId === action.oldId ? action.newId : state.activeItemId,
+      draft: state.draft?.itemId === action.oldId
+        ? { ...state.draft, itemId: action.newId }
+        : state.draft,
       items: state.items.map((item) => (
         item.id === action.oldId || item.id === action.newId
           ? { ...item, id: action.newId, version: (item.version ?? 0) + 1 }
@@ -118,8 +186,23 @@ function reducer(state: AppState, action: AppAction): AppState {
       activeItemId: action.itemId,
       activeTreePath: action.treePath ?? state.activeTreePath,
     };
+  case "set-attach-on-save":
+    persistAttachOnSave(action.value);
+    return { ...state, attachOnSave: action.value };
+  case "set-comments":
+    return {
+      ...state,
+      comments: action.comments,
+      items: applyCommentAnnotations(state.items, action.comments, state.draft),
+    };
   case "set-copy-feedback":
     return { ...state, copyFeedback: action.message };
+  case "set-draft":
+    return {
+      ...state,
+      draft: action.draft,
+      items: applyCommentAnnotations(state.items, state.comments, action.draft),
+    };
   case "set-file-search-open":
     return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
   case "set-files-width":
@@ -154,6 +237,17 @@ function reducer(state: AppState, action: AppAction): AppState {
       treeSource: source,
     };
   }
+  case "upsert-comment": {
+    const exists = state.comments.some((comment) => comment.id === action.comment.id);
+    const comments = exists
+      ? state.comments.map((comment) => (comment.id === action.comment.id ? action.comment : comment))
+      : [...state.comments, action.comment];
+    return {
+      ...state,
+      comments,
+      items: applyCommentAnnotations(state.items, comments, state.draft),
+    };
+  }
   }
 }
 
@@ -171,13 +265,82 @@ export function App({ config, initialStatus }: ConfigProps) {
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
   const highlighterOptions = workerHighlighterOptions(state.options, appearance);
+  const repoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
+  const bridgeAvailable = diffCommentsBridgeAvailable() && repoRoot != null;
+  const commentLabels = resolveCommentLabels(payload);
+  const commentTarget: CommentTarget | undefined = payload.commentTarget &&
+    typeof payload.commentTarget === "object"
+    ? payload.commentTarget
+    : undefined;
+  const [attachStates, setAttachStates] = useState<Record<string, CommentAttachState>>({});
+  const comments = useDiffComments({
+    bridgeAvailable,
+    commentTarget,
+    dispatch,
+    latestState,
+    repoRoot,
+    setAttachStates,
+  });
   const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
+  renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
 
   usePageDataAttributes(state);
   usePendingReplacement(payload, label, dispatch);
   useRenderDiff(config, label, dispatch, latestState);
+  useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
   useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch);
   useOptionsDismiss(state.optionsOpen, dispatch);
+
+  const renderCommentAnnotation = (annotation: CommentAnnotation, item: DiffItem) => {
+    const metadata = annotation.metadata;
+    if (metadata.kind === "draft") {
+      return (
+        <CommentComposer
+          attachOnSave={bridgeAvailable && state.attachOnSave}
+          labels={commentLabels}
+          showAttachToggle={bridgeAvailable}
+          onAttachOnSaveChange={(value) => dispatch({ type: "set-attach-on-save", value })}
+          onCancel={() => dispatch({ type: "set-draft", draft: null })}
+          onSave={(message) => comments.saveDraft(item, message)}
+        />
+      );
+    }
+    return (
+      <SavedComment
+        attachState={attachStates[metadata.comment.id] ?? { phase: "idle" }}
+        bridgeAvailable={bridgeAvailable}
+        comment={metadata.comment}
+        labels={commentLabels}
+        onAttach={(target, explicit) => comments.attach(metadata.comment, item.fileDiff, target, explicit)}
+        onDelete={() => comments.remove(metadata.comment)}
+        onSaveMessage={(message) => comments.editMessage(metadata.comment, message)}
+      />
+    );
+  };
+
+  const commentEntries = sidebarCommentEntries(state.items, state.comments);
+  const selectCommentEntry = (entry: SidebarCommentEntry) => {
+    if (entry.itemId == null) {
+      return;
+    }
+    if (entry.anchor.state === "outdated") {
+      codeViewRef.current?.scrollTo({ type: "item", id: entry.itemId, align: "start", behavior: "smooth-auto" });
+    } else {
+      codeViewRef.current?.scrollTo({
+        type: "line",
+        id: entry.itemId,
+        lineNumber: entry.anchor.line,
+        side: entry.comment.side,
+        align: "center",
+        behavior: "smooth-auto",
+      });
+    }
+    dispatch({
+      type: "set-active-item",
+      itemId: entry.itemId,
+      treePath: state.treeSource?.treePathByItemId.get(entry.itemId),
+    });
+  };
 
   const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
   const scrollToItem = (itemId: string) => {
@@ -226,7 +389,11 @@ export function App({ config, initialStatus }: ConfigProps) {
       />
       <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
         <FilesSidebar
+          commentEntries={commentEntries}
+          commentLabels={commentLabels}
+          hasDraft={state.draft != null}
           label={label}
+          onSelectComment={selectCommentEntry}
           onSelectItem={scrollToItem}
           selectedPath={selectedTreePath}
           dispatch={dispatch}
@@ -245,6 +412,8 @@ export function App({ config, initialStatus }: ConfigProps) {
                 containerRef={viewerContainerRef}
                 items={state.items}
                 options={renderedCodeViewOptions}
+                renderAnnotation={(annotation, item) =>
+                  renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
               />
             </WorkerPoolContextProvider>
           ) : null}
@@ -264,6 +433,138 @@ export function App({ config, initialStatus }: ConfigProps) {
 
 function resolveDiffViewerAssetURL(rawURL: string | undefined): URL {
   return new URL(rawURL || defaultWorkerModuleURL, window.location.href);
+}
+
+/**
+ * Bundles the diff comment handlers: loading persisted comments, opening a
+ * draft from the gutter utility, saving/editing/deleting, and attaching a
+ * saved comment to a terminal TextBox through the native bridge.
+ */
+function useDiffComments({
+  bridgeAvailable,
+  commentTarget,
+  dispatch,
+  latestState,
+  repoRoot,
+  setAttachStates,
+}: {
+  bridgeAvailable: boolean;
+  commentTarget: CommentTarget | undefined;
+  dispatch: React.Dispatch<AppAction>;
+  latestState: React.MutableRefObject<AppState>;
+  repoRoot: string | null;
+  setAttachStates: React.Dispatch<React.SetStateAction<Record<string, CommentAttachState>>>;
+}) {
+  const onLoaded = useCallback(
+    (comments: DiffCommentRecord[]) => dispatch({ type: "set-comments", comments }),
+    [dispatch],
+  );
+
+  const onGutterUtilityClick = (range: SelectedLineRange, context: { item: DiffItem }) => {
+    const side: DiffCommentSide = range.side === "deletions" ? "deletions" : "additions";
+    dispatch({
+      type: "set-draft",
+      draft: {
+        itemId: context.item.id,
+        side,
+        startLine: Math.min(range.start, range.end),
+        endLine: Math.max(range.start, range.end),
+      },
+    });
+  };
+
+  const attach = (
+    comment: DiffCommentRecord,
+    fileDiff: any,
+    target: CommentTarget | undefined,
+    explicit: boolean,
+  ) => {
+    if (!bridgeAvailable || repoRoot == null) {
+      return;
+    }
+    setAttachStates((previous) => ({ ...previous, [comment.id]: { phase: "attaching" } }));
+    attachComment(repoRoot, attachmentForComment(comment, fileDiff), target ?? commentTarget, explicit)
+      .then((result) => {
+        setAttachStates((previous) => ({
+          ...previous,
+          [comment.id]:
+            result.status === "attached"
+              ? { phase: "attached", terminal: result.terminal }
+              : result.status === "picker"
+                ? { phase: "picker", candidates: result.candidates }
+                : { phase: "unavailable" },
+        }));
+      })
+      .catch((error) => {
+        console.warn("cmux diff comment attach failed", error);
+        setAttachStates((previous) => ({ ...previous, [comment.id]: { phase: "failed" } }));
+      });
+  };
+
+  const saveDraft = (item: DiffItem, message: string) => {
+    const draft = latestState.current.draft;
+    if (draft == null || draft.itemId !== item.id || message.trim() === "") {
+      return;
+    }
+    const input = {
+      filePath: fileName(item.fileDiff, ""),
+      side: draft.side,
+      startLine: draft.startLine,
+      endLine: draft.endLine,
+      lineText: lineTextFor(item.fileDiff, draft.side, draft.endLine) ?? "",
+      message,
+    };
+    const save = bridgeAvailable && repoRoot != null
+      ? bridgeSaveComment(repoRoot, input)
+      : Promise.resolve(localCommentRecord(input));
+    save
+      .then((saved) => {
+        dispatch({ type: "upsert-comment", comment: saved });
+        dispatch({ type: "set-draft", draft: null });
+        if (bridgeAvailable && latestState.current.attachOnSave) {
+          attach(saved, item.fileDiff, commentTarget, false);
+        }
+      })
+      .catch((error) => console.warn("cmux diff comment save failed", error));
+  };
+
+  const editMessage = (comment: DiffCommentRecord, message: string) => {
+    if (message.trim() === "") {
+      return;
+    }
+    const updated = { ...comment, message, updatedAt: new Date().toISOString() };
+    const save = bridgeAvailable && repoRoot != null
+      ? bridgeSaveComment(repoRoot, updated)
+      : Promise.resolve(updated);
+    save
+      .then((saved) => dispatch({ type: "upsert-comment", comment: saved }))
+      .catch((error) => console.warn("cmux diff comment edit failed", error));
+  };
+
+  const remove = (comment: DiffCommentRecord) => {
+    if (bridgeAvailable && repoRoot != null) {
+      bridgeDeleteComment(repoRoot, comment.id)
+        .catch((error) => console.warn("cmux diff comment delete failed", error));
+    }
+    dispatch({ type: "remove-comment", id: comment.id });
+    setAttachStates((previous) => {
+      if (!(comment.id in previous)) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[comment.id];
+      return next;
+    });
+  };
+
+  return { attach, editMessage, onGutterUtilityClick, onLoaded, remove, saveDraft };
+}
+
+function localCommentRecord(
+  input: Omit<DiffCommentRecord, "id" | "createdAt" | "updatedAt">,
+): DiffCommentRecord {
+  const now = new Date().toISOString();
+  return { ...input, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
 }
 
 function initialDiffViewerLayout(payload: Record<string, any>): DiffViewerLayout {
@@ -590,14 +891,22 @@ function MenuButton({
 }
 
 function FilesSidebar({
+  commentEntries,
+  commentLabels,
   dispatch,
+  hasDraft,
   label,
+  onSelectComment,
   onSelectItem,
   selectedPath,
   state,
 }: {
+  commentEntries: SidebarCommentEntry[];
+  commentLabels: DiffCommentLabels;
   dispatch: React.Dispatch<AppAction>;
+  hasDraft: boolean;
   label: DiffViewerLabelResolver;
+  onSelectComment: (entry: SidebarCommentEntry) => void;
   onSelectItem: (itemId: string) => void;
   selectedPath: string;
   state: AppState;
@@ -676,6 +985,12 @@ function FilesSidebar({
           <div className="visually-hidden">{state.status.message}</div>
         )}
       </div>
+      <CommentsSidebarSection
+        entries={commentEntries}
+        hasDraft={hasDraft}
+        labels={commentLabels}
+        onSelect={onSelectComment}
+      />
     </aside>
   );
 }
