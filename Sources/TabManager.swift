@@ -4113,9 +4113,12 @@ class TabManager: ObservableObject {
         let visibleIds = providedVisibleWorkspaceIds ?? currentVisibleIds
         guard visibleIds == currentVisibleIds else { return nil }
         guard let currentVisibleIndex = visibleIds.firstIndex(of: tabId) else { return nil }
-        guard targetIndex >= 0, targetIndex < visibleIds.count else { return nil }
         guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
 
+        // Do not reject out-of-range indices: `clampedVisibleReorderIndex`
+        // clamps to the legal range, matching the historical raw-index
+        // `workspaceReorderPlan(toIndex:)` behavior that CLI/socket reorder
+        // callers rely on (e.g. `--index 999` means "move to the bottom").
         let clampedTargetIndex = clampedVisibleReorderIndex(
             for: workspace,
             targetIndex: targetIndex,

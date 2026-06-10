@@ -208,6 +208,24 @@ final class WorkspaceVisibilityTests: XCTestCase {
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, fourth.id, third.id, second.id])
     }
 
+    func testReorderVisibleWorkspaceClampsOutOfRangeIndexToBottom() throws {
+        // CLI/socket reorder callers historically pass an out-of-range index
+        // (e.g. `--index 999`) to mean "move to the bottom". The visible-index
+        // reorder path must clamp like the raw-index path instead of rejecting.
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace(select: false)
+        let third = manager.addWorkspace(select: false)
+
+        let plan = try XCTUnwrap(
+            manager.visibleWorkspaceReorderPlan(tabId: first.id, toVisibleIndex: 999)
+        )
+        XCTAssertEqual(plan.toIndex, 2)
+
+        XCTAssertTrue(manager.reorderVisibleWorkspace(tabId: first.id, toVisibleIndex: 999))
+        XCTAssertEqual(manager.visibleWorkspaceTabs.map(\.id), [second.id, third.id, first.id])
+    }
+
     func testSidebarReorderWorkspaceUsesVisibleIndicesAndPreservesHiddenSlots() throws {
         let manager = TabManager()
         let first = try XCTUnwrap(manager.tabs.first)
