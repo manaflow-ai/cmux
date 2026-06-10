@@ -10577,6 +10577,10 @@ struct VerticalTabsSidebar: View {
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
+    /// Workspace order captured when a sidebar drag begins, so an Escape-cancel
+    /// can undo the live reorder and put the row back where it started. Nil when
+    /// no drag is in flight.
+    @State private var dragReorderSnapshot: [UUID]?
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
     )
@@ -11056,6 +11060,9 @@ struct VerticalTabsSidebar: View {
             cmuxDebugLog("sidebar.dragState.sidebar tab=\(debugShortSidebarTabId(newDraggedTabId))")
 #endif
             if newDraggedTabId != nil {
+                // Snapshot the order at drag start so an Escape-cancel can undo
+                // the live reorder. Captured before any drop hover mutates it.
+                dragReorderSnapshot = tabManager.tabs.map(\.id)
                 // The failsafe monitor probes the real mouse-button state and
                 // posts `mouse_up_failsafe` if no mouse is held down. That's
                 // correct for HID-driven drags, but `debug.sidebar.simulate_drag`
@@ -11071,6 +11078,8 @@ struct VerticalTabsSidebar: View {
             dragFailsafeMonitor.stop()
             dragAutoScrollController.stop()
             dragState.clearDropIndicator()
+            // Drag ended (committed via drop); discard the undo snapshot.
+            dragReorderSnapshot = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.requestClear)) { notification in
             guard dragState.draggedTabId != nil || dragState.dropIndicator != nil else { return }
@@ -11078,6 +11087,21 @@ struct VerticalTabsSidebar: View {
 #if DEBUG
             cmuxDebugLog("sidebar.dragClear tab=\(debugShortSidebarTabId(dragState.draggedTabId)) reason=\(reason)")
 #endif
+            // Escape undoes the live reorder by restoring the order captured at
+            // drag start, then clears. A normal mouse release commits via
+            // performDrop (keeping the live order), so only the explicit
+            // escape_cancel reason restores.
+            if reason == "escape_cancel",
+               let snapshot = dragReorderSnapshot,
+               snapshot != tabManager.tabs.map(\.id) {
+#if DEBUG
+                cmuxDebugLog("sidebar.dragCancel.restoreOrder reason=\(reason)")
+#endif
+                _ = withAnimation(SidebarGroupAnimation.structure) {
+                    tabManager.reorderWorkspaces(orderedWorkspaceIds: snapshot)
+                }
+            }
+            dragReorderSnapshot = nil
             dragState.clearDrag()
         }
         .onChange(of: tabManager.tabs.map(\.id)) { tabIds in
@@ -15857,7 +15881,8 @@ struct TabItemView: View, Equatable {
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .contentShape(Rectangle())
-        .opacity(isBeingDragged ? 0.6 : 1)
+        // Live reorder relocates the dragged row through the list as you drag,
+        // so it no longer sits greyed-out in place.
         .overlay {
             SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
         }
@@ -15869,12 +15894,6 @@ struct TabItemView: View, Equatable {
                 tabManager.closeWorkspaceWithConfirmation(tab)
             }
         }
-        // Animated drop gap: when a drag would insert above this row, open a
-        // row-tall space so the list visibly shifts apart to preview where the
-        // workspace lands. Replaces the old blue insertion line. The model is
-        // not reordered until drop, so this is purely a layout animation.
-        .padding(.top, topDropIndicatorVisible ? SidebarWorkspaceGroupingMetrics.dropGapHeight : 0)
-        .animation(SidebarGroupAnimation.collapse, value: topDropIndicatorVisible)
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
         }
@@ -17913,6 +17932,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         activateForeignDragIfNeeded()
         dragAutoScrollController.updateFromDragLocation()
         updateDropIndicator(for: info)
+        commitLiveReorder(for: info)
     }
 
     func dropExited(info: DropInfo) {
@@ -17928,6 +17948,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         activateForeignDragIfNeeded()
         dragAutoScrollController.updateFromDragLocation()
         updateDropIndicator(for: info)
+        commitLiveReorder(for: info)
 #if DEBUG
         cmuxDebugLog(
             "sidebar.dropUpdated target=\(targetTabId?.uuidString.prefix(5) ?? "end") " +
@@ -18158,6 +18179,65 @@ struct SidebarTabDropDelegate: DropDelegate {
             return
         }
         dragState.setDropIndicator(nextIndicator, usesTopLevelRows: usesTopLevelRows)
+    }
+
+    /// Live intra-window reorder: as the drag moves over rows, immediately move
+    /// the dragged workspace to the hovered drop slot (within `withAnimation`)
+    /// instead of only previewing with an indicator and committing on drop. The
+    /// dragged row physically travels through the list; the actual commit on
+    /// `performDrop` then no-ops because the order is already correct.
+    ///
+    /// Reuses the exact planner the drop commit uses (`targetIndex` from the
+    /// freshly-set indicator, with the same pinned/group/legal-range inputs), so
+    /// pinned tiers and group boundaries are respected on every step. Only fires
+    /// when the resolved index actually changes, so it runs once per row crossed
+    /// rather than on every pointer move. Cross-window drags are skipped (the
+    /// workspace isn't in this window yet).
+    private func commitLiveReorder(for info: DropInfo) {
+        guard let draggedTabId = effectiveDraggedTabId,
+              !isCrossWindowDrag(draggedTabId) else { return }
+        let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: draggedTabId,
+            targetWorkspaceId: targetTabId
+        )
+        let reorderTabIds = tabManager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: draggedTabId,
+            targetWorkspaceId: targetTabId
+        )
+        let pinnedTabIds = tabManager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: draggedTabId,
+            targetWorkspaceId: targetTabId
+        )
+        let legalInsertionRange = tabManager.sidebarReorderLegalInsertionRange(
+            forDraggedWorkspaceId: draggedTabId,
+            targetWorkspaceId: targetTabId,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        guard let fromIndex = reorderTabIds.firstIndex(of: draggedTabId),
+              let targetIndex = SidebarDropPlanner.targetIndex(
+                draggedTabId: draggedTabId,
+                targetTabId: targetTabId,
+                indicator: dragState.dropIndicator,
+                tabIds: reorderTabIds,
+                pinnedTabIds: pinnedTabIds,
+                legalInsertionRange: legalInsertionRange
+              ),
+              fromIndex != targetIndex else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "sidebar.liveReorder tab=\(draggedTabId.uuidString.prefix(5)) " +
+            "from=\(fromIndex) to=\(targetIndex) " +
+            "target=\(targetTabId?.uuidString.prefix(5) ?? "end") topLevel=\(usesTopLevelRows)"
+        )
+#endif
+        _ = withAnimation(SidebarGroupAnimation.structure) {
+            tabManager.reorderSidebarWorkspace(
+                tabId: draggedTabId,
+                toIndex: targetIndex,
+                isDragOperation: true,
+                usesTopLevelRows: usesTopLevelRows
+            )
+        }
     }
 
     /// Drop indicator for a foreign workspace hovering this window. The dragged

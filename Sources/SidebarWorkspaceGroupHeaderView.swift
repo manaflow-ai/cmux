@@ -235,11 +235,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-        .opacity(isBeingDragged ? 0.6 : 1)
-        // Animated drop gap above the header (see TabItemView): the list shifts
-        // apart to preview the drop slot, replacing the old blue line.
-        .padding(.top, topDropIndicatorVisible ? SidebarWorkspaceGroupingMetrics.dropGapHeight : 0)
-        .animation(SidebarGroupAnimation.collapse, value: topDropIndicatorVisible)
+        // Live reorder moves the dragged row through the list instead of
+        // greying it in place, so don't dim during drag.
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
