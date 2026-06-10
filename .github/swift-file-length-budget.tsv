@@ -157,6 +157,7 @@
 577	cmuxTests/AppearanceSettingsTests.swift
 574	Sources/Feed/FeedTextEditorDebugWindowController.swift
 568	Packages/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
+566	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizer.swift
 562	Sources/App/WorkspaceRuntimeSettings.swift
 562	cmuxTests/AgentExecutableResolverTests.swift
 560	cmuxTests/GhosttyConfigPathResolverTests.swift
