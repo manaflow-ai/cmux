@@ -2724,15 +2724,14 @@ struct TextBoxInputContainer: View {
             hasMarkedText: hasMarkedText
         )
 
-        HStack(alignment: .bottom, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
+            if pendingCommentCount > 0 {
+                pendingCommentsChip(count: pendingCommentCount, foreground: foreground)
+            }
+            HStack(alignment: .bottom, spacing: 6) {
             addFilesButton(foreground: foreground)
                 .offset(x: TextBoxLayout.leadingButtonHorizontalOffset)
                 .padding(.bottom, TextBoxLayout.buttonBottomPadding)
-
-            if pendingCommentCount > 0 {
-                pendingCommentsChip(count: pendingCommentCount, foreground: foreground)
-                    .padding(.bottom, TextBoxLayout.buttonBottomPadding)
-            }
 
             ZStack(alignment: .leading) {
                 TextBoxInputView(
@@ -2782,6 +2781,7 @@ struct TextBoxInputContainer: View {
             sendButton(canSend: canSend, foreground: foreground)
                 .offset(x: TextBoxLayout.trailingButtonHorizontalOffset)
                 .padding(.bottom, TextBoxLayout.buttonBottomPadding)
+            }
         }
         .padding(.horizontal, TextBoxLayout.pillHorizontalPadding)
         .padding(.vertical, TextBoxLayout.pillVerticalPadding)
@@ -2848,20 +2848,74 @@ struct TextBoxInputContainer: View {
         .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
     }
 
+    @State private var showPendingCommentsPreview = false
+
     private func pendingCommentsChip(count: Int, foreground: Color) -> some View {
-        Text(pendingCommentsLabel(count))
-            .font(.system(size: 11, weight: .medium))
-            .lineLimit(1)
-            .padding(.horizontal, 8)
-            .frame(height: TextBoxLayout.attachmentChipHeight)
-            .background(Capsule().fill(Color.accentColor.opacity(0.22)))
-            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.45), lineWidth: 1))
-            .foregroundStyle(foreground)
+        HStack(spacing: 5) {
+            Image(systemName: "text.bubble")
+                .font(.system(size: 11, weight: .medium))
+            Text(pendingCommentsLabel(count))
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+            Button {
+                dismissPendingComments()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .frame(width: 16, height: 16)
+                    .background(Circle().fill(foreground.opacity(0.12)))
+            }
+            .buttonStyle(.plain)
             .help(String(
-                localized: "textbox.diffComments.tooltip",
-                defaultValue: "Diff review comments are included when you submit"
+                localized: "textbox.diffComments.dismiss",
+                defaultValue: "Dismiss comments without sending"
             ))
-            .accessibilityLabel(pendingCommentsLabel(count))
+        }
+        .padding(.leading, 9)
+        .padding(.trailing, 5)
+        .frame(height: 26)
+        .background(
+            Capsule().fill(foreground.opacity(0.10))
+        )
+        .overlay(
+            Capsule().strokeBorder(foreground.opacity(0.18), lineWidth: 1)
+        )
+        .foregroundStyle(foreground.opacity(0.92))
+        .onHover { hovering in
+            showPendingCommentsPreview = hovering
+        }
+        .popover(isPresented: $showPendingCommentsPreview, arrowEdge: .top) {
+            pendingCommentsPreview()
+        }
+        .accessibilityLabel(pendingCommentsLabel(count))
+    }
+
+    private func pendingCommentsPreview() -> some View {
+        let entries = surface.owningWorkspace().map {
+            commentPool.entriesByWorkspace[$0.id] ?? []
+        } ?? []
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                    Text(entry.submissionText.trimmingCharacters(in: .whitespacesAndNewlines))
+                        .font(.system(size: 11, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(12)
+        }
+        .frame(minWidth: 320, idealWidth: 440, maxWidth: 520, maxHeight: 360)
+    }
+
+    private func dismissPendingComments() {
+        guard let workspaceId = surface.owningWorkspace()?.id else { return }
+        let dismissed = DiffCommentSubmissionPool.shared.consumeAll(workspaceId: workspaceId)
+        // Mark consumed so viewer reloads do not resurrect the chip; the
+        // comments stay saved in the diff viewer.
+        for (repoRoot, entries) in Dictionary(grouping: dismissed, by: \.repoRoot) {
+            DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
+        }
     }
 
     private func pendingCommentsLabel(_ count: Int) -> String {

@@ -1,4 +1,4 @@
-import { excerptFor, type CommentFileDiff } from "./anchor";
+import { diffExcerptFor, excerptFor, type CommentFileDiff } from "./anchor";
 import type { DiffCommentRecord } from "./types";
 
 export function commentBasename(filePath: string): string {
@@ -26,10 +26,15 @@ export function commentSubmissionText(
     ? `lines ${comment.startLine}-${comment.endLine}`
     : `line ${comment.startLine}`;
   const version = comment.side === "deletions" ? "old" : "new";
-  const excerpt = excerptFor(fileDiff, comment.side, comment.startLine, comment.endLine);
   const sections = [`Review comment on ${comment.filePath} ${lineRef} (${version} version):`];
-  if (excerpt !== "") {
-    sections.push(excerpt);
+  const diffExcerpt = diffExcerptFor(fileDiff, comment.side, comment.startLine, comment.endLine);
+  if (diffExcerpt !== "") {
+    sections.push(`\`\`\`diff\n${diffExcerpt}\n\`\`\``);
+  } else {
+    const excerpt = excerptFor(fileDiff, comment.side, comment.startLine, comment.endLine);
+    if (excerpt !== "") {
+      sections.push(excerpt);
+    }
   }
   sections.push(comment.message);
   return `${sections.join("\n\n")}\n`;

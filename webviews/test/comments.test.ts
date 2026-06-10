@@ -178,3 +178,34 @@ test("resolveCommentLabels prefers payload labels and falls back to English", ()
   expect(labels.comments).toBe("コメント");
   expect(labels.addComment).toBe("Add comment");
 });
+
+test("diffExcerptFor renders paired -/+ rows with trimmed context", async () => {
+  const { diffExcerptFor } = await import("../src/comments/anchor");
+  const withContent = {
+    ...fileDiff,
+    hunks: [
+      {
+        additionStart: 10,
+        additionCount: 3,
+        additionLineIndex: 0,
+        deletionStart: 9,
+        deletionCount: 2,
+        deletionLineIndex: 0,
+        hunkContent: [
+          { type: "context" as const, lines: 1, additionLineIndex: 0, deletionLineIndex: 0 },
+          { type: "change" as const, deletions: 1, deletionLineIndex: 1, additions: 2, additionLineIndex: 1 },
+        ],
+      },
+    ],
+  };
+  // Comment on the added lines 11-12: the paired deletion shows too.
+  expect(diffExcerptFor(withContent, "additions", 11, 12)).toBe(
+    "-let b = 2;\n+const b = 2;\n+const c = 3;",
+  );
+  // Comment including the leading context line 10.
+  expect(diffExcerptFor(withContent, "additions", 10, 12)).toBe(
+    " const a = 1;\n-let b = 2;\n+const b = 2;\n+const c = 3;",
+  );
+  // No hunkContent → empty (submission falls back to numbered excerpt).
+  expect(diffExcerptFor(fileDiff, "additions", 10, 12)).toBe("");
+});

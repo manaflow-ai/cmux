@@ -1,5 +1,9 @@
 import type { AnchorResult, DiffCommentRecord, DiffCommentSide } from "./types";
 
+type CommentHunkContent =
+  | { type: "context"; lines: number; additionLineIndex: number; deletionLineIndex: number }
+  | { type: "change"; additions: number; additionLineIndex: number; deletions: number; deletionLineIndex: number };
+
 type CommentHunk = {
   additionStart: number;
   additionCount: number;
@@ -7,6 +11,7 @@ type CommentHunk = {
   deletionStart: number;
   deletionCount: number;
   deletionLineIndex: number;
+  hunkContent?: CommentHunkContent[];
 };
 
 export type CommentFileDiff = {
@@ -90,6 +95,60 @@ export function anchorComment(
     return { state: "moved", line, delta: line - comment.endLine };
   }
   return { state: "outdated" };
+}
+
+/**
+ * Builds a unified-diff excerpt (` `/`-`/`+` prefixed rows) for the hunk
+ * region the commented range touches. Whole change blocks are kept so `-`
+ * rows stay paired with their `+` rows; context is trimmed to the commented
+ * range. Falls back to "" when the file has no hunk content (capped rows).
+ */
+export function diffExcerptFor(
+  fileDiff: CommentFileDiff | null | undefined,
+  side: DiffCommentSide,
+  startLine: number,
+  endLine: number,
+): string {
+  const first = Math.min(startLine, endLine);
+  const last = Math.max(startLine, endLine);
+  const additionLines = fileDiff?.additionLines ?? [];
+  const deletionLines = fileDiff?.deletionLines ?? [];
+  const rows: string[] = [];
+  for (const hunk of fileDiff?.hunks ?? []) {
+    const range = hunkRange(hunk, side);
+    if (last < range.start || first >= range.start + range.count || hunk.hunkContent == null) {
+      continue;
+    }
+    let additionLine = hunk.additionStart;
+    let deletionLine = hunk.deletionStart;
+    for (const content of hunk.hunkContent) {
+      if (content.type === "context") {
+        for (let offset = 0; offset < content.lines; offset += 1) {
+          const lineNumber = side === "additions" ? additionLine + offset : deletionLine + offset;
+          if (lineNumber >= first && lineNumber <= last) {
+            rows.push(` ${additionLines[content.additionLineIndex + offset] ?? ""}`);
+          }
+        }
+        additionLine += content.lines;
+        deletionLine += content.lines;
+        continue;
+      }
+      const blockTouchesRange = side === "additions"
+        ? content.additions > 0 && additionLine <= last && additionLine + content.additions - 1 >= first
+        : content.deletions > 0 && deletionLine <= last && deletionLine + content.deletions - 1 >= first;
+      if (blockTouchesRange) {
+        for (let offset = 0; offset < content.deletions; offset += 1) {
+          rows.push(`-${deletionLines[content.deletionLineIndex + offset] ?? ""}`);
+        }
+        for (let offset = 0; offset < content.additions; offset += 1) {
+          rows.push(`+${additionLines[content.additionLineIndex + offset] ?? ""}`);
+        }
+      }
+      additionLine += content.additions;
+      deletionLine += content.deletions;
+    }
+  }
+  return rows.slice(0, excerptLineCap).join("\n");
 }
 
 /**
