@@ -17,7 +17,7 @@
 6489	cmuxTests/GhosttyConfigTests.swift
 6299	cmuxTests/TerminalAndGhosttyTests.swift
 6119	CLI/cmux_open.swift
-6158	cmuxTests/SessionPersistenceTests.swift
+6220	cmuxTests/SessionPersistenceTests.swift
 5948	Sources/TextBoxInput.swift
 5482	cmuxTests/BrowserConfigTests.swift
 5431	Sources/cmuxApp.swift

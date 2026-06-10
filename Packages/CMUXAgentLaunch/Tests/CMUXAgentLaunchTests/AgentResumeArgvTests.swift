@@ -112,16 +112,15 @@ struct AgentResumeArgvTests {
     @Test("Portable claude resume command wraps the POSIX rendering for any login shell")
     func portableClaudeResumeShellCommand() {
         #expect(
-            AgentResumeArgv.portableClaudeResumeShellCommand(
-                posixCommand: "\"${CMUX_CLAUDE_WRAPPER_SHIM:-claude}\" --resume SID"
-            ) == "/bin/sh -c '\"${CMUX_CLAUDE_WRAPPER_SHIM:-claude}\" --resume SID'"
+            AgentResumeArgv.portableClaudeResumeShellCommand(posixCommand: "claude --resume SID")
+                == "/bin/sh -c 'claude --resume SID'"
         )
         // Embedded single quotes survive via the POSIX '\'' escape, so quoted env
         // prefixes and argv words round-trip through the nested sh layer.
         #expect(
             AgentResumeArgv.portableClaudeResumeShellCommand(
-                posixCommand: "'env' 'A=b c' \"${CMUX_CLAUDE_WRAPPER_SHIM:-claude}\" '--resume' 'SID'"
-            ) == "/bin/sh -c ''\\''env'\\'' '\\''A=b c'\\'' \"${CMUX_CLAUDE_WRAPPER_SHIM:-claude}\" '\\''--resume'\\'' '\\''SID'\\'''"
+                posixCommand: "'env' 'A=b c' claude '--resume' 'SID'"
+            ) == "/bin/sh -c ''\\''env'\\'' '\\''A=b c'\\'' claude '\\''--resume'\\'' '\\''SID'\\'''"
         )
     }
 
@@ -129,11 +128,12 @@ struct AgentResumeArgvTests {
     func renderedPortableClaudeResumeShellCommand() {
         let quote: (String) -> String = { "'" + $0 + "'" }
         // Bare `claude` executable: token substituted, command wrapped for non-POSIX shells.
+        let substituted = "'env' 'A=b' \(AgentResumeArgv.claudeWrapperShellExecutableToken) '--resume' 'SID'"
         #expect(
             AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
                 parts: ["env", "A=b", "claude", "--resume", "SID"],
                 quote: quote
-            ) == "/bin/sh -c ''\\''env'\\'' '\\''A=b'\\'' \"${CMUX_CLAUDE_WRAPPER_SHIM:-claude}\" '\\''--resume'\\'' '\\''SID'\\'''"
+            ) == "/bin/sh -c '" + substituted.replacingOccurrences(of: "'", with: "'\\''") + "'"
         )
         // Launcher resumes that resolve to cmux's own CLI emit no bare `claude`:
         // already-portable quoted words stay unwrapped.

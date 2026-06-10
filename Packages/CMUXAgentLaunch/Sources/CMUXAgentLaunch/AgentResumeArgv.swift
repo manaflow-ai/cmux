@@ -34,15 +34,22 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// `CMUX_CLAUDE_WRAPPER_SHIM` is a *managed* terminal environment variable (set by
     /// `TerminalStartupEnvironment` / `GhosttyTerminalView`) pointing at the per-surface
     /// shim that execs the wrapper. It is inherited by every descendant shell regardless
-    /// of `PATH`/function shadowing, so rendering the claude executable as
-    /// `"${CMUX_CLAUDE_WRAPPER_SHIM:-claude}"` makes the executed resume command route
-    /// through the wrapper (hooks fire) inside the `-lic` launcher, and falls back to
-    /// bare `claude` outside cmux. https://github.com/manaflow-ai/cmux/issues/5639
+    /// of `PATH`/function shadowing, so resolving the claude executable through it makes
+    /// the executed resume command route through the wrapper (hooks fire) inside the
+    /// `-lic` launcher. https://github.com/manaflow-ai/cmux/issues/5639
     ///
-    /// The token is POSIX parameter expansion, which fish (`${…}` is a parse error) and
-    /// csh/tcsh (no `:-` modifier) reject, so any command containing it must reach those
-    /// shells wrapped via ``portableClaudeResumeShellCommand(posixCommand:)``.
-    public static let claudeWrapperShellExecutableToken = "\"${CMUX_CLAUDE_WRAPPER_SHIM:-claude}\""
+    /// The token guards on `[ -x … ]`, not bare `${VAR:-claude}` expansion: macOS reaps
+    /// idle files under the temporary directory after ~3 days, and a long-idle surface
+    /// can hold the env var while the shim file is gone. Parameter expansion alone would
+    /// exec the dead path and hard-fail resume; the executability guard degrades to bare
+    /// `claude` (PATH resolution — hooks lost but resume works), the same graceful
+    /// fallback used when the variable is unset outside cmux.
+    ///
+    /// The token is POSIX command substitution, which fish and csh/tcsh reject, so any
+    /// command containing it must reach those shells wrapped via
+    /// ``portableClaudeResumeShellCommand(posixCommand:)``.
+    public static let claudeWrapperShellExecutableToken =
+        "\"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\""
 
     /// Wraps a rendered claude resume/fork command so it parses in any login shell.
     ///
