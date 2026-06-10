@@ -1429,5 +1429,10 @@
     "downloadLight": "Last ned lyst ikon",
     "downloadDark": "Last ned mørkt ikon",
     "brandPage": "Merkevareressurser"
+  },
+  "afterSignIn": {
+    "title": "Logget på cmux",
+    "body": "Hvis cmux ikke åpnet automatisk, bruk knappen nedenfor.",
+    "button": "Gå tilbake til cmux"
   }
 }

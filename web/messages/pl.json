@@ -1429,5 +1429,10 @@
     "downloadLight": "Pobierz jasną ikonę",
     "downloadDark": "Pobierz ciemną ikonę",
     "brandPage": "Zasoby marki"
+  },
+  "afterSignIn": {
+    "title": "Zalogowano do cmux",
+    "body": "Jeśli cmux nie otworzył się automatycznie, użyj przycisku poniżej.",
+    "button": "Wróć do cmux"
   }
 }

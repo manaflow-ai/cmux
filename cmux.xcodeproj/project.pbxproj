@@ -65,6 +65,7 @@
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */; };
+		A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A47E00010000000000000002 /* AuthEnvironmentTests.swift */; };
 		B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
 		C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */; };
 		A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
@@ -838,6 +839,7 @@
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthEnvironment.swift; sourceTree = "<group>"; };
+		A47E00010000000000000002 /* AuthEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthEnvironmentTests.swift; sourceTree = "<group>"; };
 		B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
 		C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundWorkspacePrimeCoordinator.swift; sourceTree = "<group>"; };
 		A50012F0 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
@@ -2216,6 +2218,7 @@
 				C7A50C000000000000000001 /* CmuxTopProcessCPUTests.swift */,
 				D7AB34300000000000000006 /* SidebarWorkspaceDropPlannerTests.swift */,
 				D7AB34300000000000000106 /* SidebarTabDropIndicatorPredicateTests.swift */,
+				A47E00010000000000000002 /* AuthEnvironmentTests.swift */,
 				C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */,
 				491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */,
 				9C1BEA3D2E6F49709A71C021 /* TerminalControllerTerminalTextTests.swift */,
@@ -3162,6 +3165,7 @@
 				C34670010000000000000001 /* AppDelegateRenameShortcutContextTests.swift in Sources */,
 				F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */,
 				A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */,
+				A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */,
 				D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */,
 				BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */,
 				E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */,

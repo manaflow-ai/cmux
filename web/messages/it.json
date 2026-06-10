@@ -1429,5 +1429,10 @@
     "downloadLight": "Scarica icona chiara",
     "downloadDark": "Scarica icona scura",
     "brandPage": "Asset del brand"
+  },
+  "afterSignIn": {
+    "title": "Accesso a cmux effettuato",
+    "body": "Se cmux non si è aperto automaticamente, usa il pulsante qui sotto.",
+    "button": "Torna a cmux"
   }
 }

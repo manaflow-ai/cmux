@@ -1723,5 +1723,10 @@
     "downloadLight": "Download light icon",
     "downloadDark": "Download dark icon",
     "brandPage": "Brand assets"
+  },
+  "afterSignIn": {
+    "title": "Signed in to cmux",
+    "body": "If cmux did not open automatically, use the button below.",
+    "button": "Return to cmux"
   }
 }

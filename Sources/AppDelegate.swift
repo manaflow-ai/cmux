@@ -1159,7 +1159,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        #if DEBUG
+        AuthDebugLog().log("auth.openURLs.received count=\(urls.count) summaries=\(urls.map(Self.authURLDebugSummary).joined(separator: "|"))")
+        #endif
         if handleCmuxExternalURLs(from: urls) {
+            #if DEBUG
+            AuthDebugLog().log("auth.openURLs.handledByExternalRoutes count=\(urls.count)")
+            #endif
             return
         }
 
@@ -1167,6 +1173,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // (built-in cmux schemes) so dropped callbacks are still detected.
         let callbackRouter = auth?.callbackRouter ?? AuthCallbackRouter()
         let authCallbacks = urls.filter(callbackRouter.isAuthCallbackURL)
+        #if DEBUG
+        AuthDebugLog().log("auth.openURLs.authCallbacks count=\(authCallbacks.count)")
+        #endif
         if let browserSignIn = auth?.browserSignIn {
             for url in authCallbacks {
                 Task { @MainActor in
@@ -1209,6 +1218,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
     }
+
+    #if DEBUG
+    private static func authURLDebugSummary(_ url: URL) -> String {
+        let scheme = url.scheme ?? "nil"
+        let target = url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.map(\.name).joined(separator: ",") ?? ""
+        return "\(scheme):\(target.isEmpty ? "nil" : target):\(queryItems.isEmpty ? "none" : queryItems)"
+    }
+    #endif
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if hasVisibleMainTerminalWindow() {

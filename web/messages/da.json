@@ -1429,5 +1429,10 @@
     "downloadLight": "Download lyst ikon",
     "downloadDark": "Download mørkt ikon",
     "brandPage": "Brandassets"
+  },
+  "afterSignIn": {
+    "title": "Logget ind på cmux",
+    "body": "Hvis cmux ikke åbnede automatisk, skal du bruge knappen nedenfor.",
+    "button": "Tilbage til cmux"
   }
 }

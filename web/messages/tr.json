@@ -1429,5 +1429,10 @@
     "downloadLight": "Açık simgeyi indir",
     "downloadDark": "Koyu simgeyi indir",
     "brandPage": "Marka varlıkları"
+  },
+  "afterSignIn": {
+    "title": "cmux oturumu açıldı",
+    "body": "cmux otomatik olarak açılmadıysa aşağıdaki düğmeyi kullanın.",
+    "button": "cmux’a dön"
   }
 }
