@@ -661,6 +661,10 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
             mechanism: .agentResume,
             isLive: true,
             isProtected: isProtected,
+            // A running agent TUI keeps the surface away from the shell prompt,
+            // so real agent panels always report busy. Busy only exempts the
+            // shellRestart mechanism; the agent mechanism is gated on the
+            // hook-reported lifecycle instead, which these tests exercise.
             isBusy: true,
             lifecycle: lifecycle,
             hasUnconfirmedTerminalInput: hasUnconfirmedTerminalInput,
