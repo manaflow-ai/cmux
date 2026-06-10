@@ -1350,6 +1350,7 @@ final class TerminalNotificationStore: ObservableObject {
     /// the caller-supplied tab when the surface cannot be located (for example
     /// when delivery races a pane close, or for workspace-level notifications
     /// with no surface).
+    @MainActor
     private static func owningTabId(forSurfaceId surfaceId: UUID?, fallbackTabId: UUID) -> UUID {
         guard let surfaceId,
               let resolved = AppDelegate.shared?.workspaceContainingPanel(
