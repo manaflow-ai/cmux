@@ -122,13 +122,15 @@ func (p *claudeParser) consumeAssistant(line claudeLine) []change {
 			if trimmed == "" {
 				continue
 			}
-			// isApiErrorMessage marks synthetic non-API assistant lines: the
-			// "No response requested." placeholder is pure noise; anything
-			// else (e.g. "API Error: 401 ...") is a real error to surface.
+			// Claude Code's synthetic "No response requested." placeholder
+			// (emitted for non-final user turns) is pure noise regardless of
+			// the isApiErrorMessage flag.
+			if trimmed == "No response requested." {
+				continue
+			}
+			// isApiErrorMessage otherwise marks a real surfaced error
+			// (e.g. "API Error: 401 ...").
 			if line.IsAPIError {
-				if trimmed == "No response requested." {
-					continue
-				}
 				changes = append(changes, p.conversation.appendItem(Item{
 					ID:        claudeBlockID(line.UUID, index),
 					Type:      ItemError,
