@@ -673,7 +673,57 @@
       "automatic": "Automático",
       "paneIdSocket": "ID de panel (API de socket)",
       "panelIdInternal": "ID de panel (interno)",
-      "metaTitle": "Conceptos"
+      "metaTitle": "Conceptos",
+      "workspaceGroups": "Grupos de workspaces",
+      "workspaceGroupsDesc": "Agrupa workspaces relacionados en secciones nombradas y plegables en la barra lateral. Cada grupo pertenece a un workspace de anclaje y se puede fijar, renombrar y darle su propio icono y color. Se pueden crear nuevos workspaces directamente dentro de un grupo desde su encabezado.",
+      "workspaceGroupsLink": "Lee la guía completa de Grupos de workspaces"
+    },
+    "workspaceGroups": {
+      "metaTitle": "Grupos de workspaces",
+      "metaDescription": "Anida espacios de trabajo en secciones con nombre y plegables en la barra lateral de cmux. El modelo de ancla, cómo crear y administrar un grupo, y la CLI workspace-group.",
+      "title": "Grupos de workspaces",
+      "intro": "Los grupos de workspaces te permiten anidar workspaces en secciones nombradas y plegables en la barra lateral. Cada grupo tiene un workspace de anclaje implícito, un botón + personalizable para crear nuevos workspaces dentro de él, y acciones de clic derecho para renombrar, fijar, desagrupar y editar su configuración.",
+      "concepts": "Conceptos",
+      "anchorTitle": "Workspace de anclaje",
+      "anchorDesc": "Cada grupo pertenece a exactamente un workspace llamado el anclaje. El encabezado del grupo en la barra lateral es la representación del anclaje: no hay una fila separada para él. Al hacer clic en el área del nombre del encabezado se enfocan los paneles del anclaje; al hacer clic en el chevrón se alterna el plegado.",
+      "anchorNew": "Los anclajes siempre son completamente nuevos cuando se crea un grupo. Nunca se promueven a partir de un workspace existente. El directorio de trabajo del anclaje se hereda del primer workspace seleccionado al agrupar una selección, o del workspace activo al crearlo mediante la CLI sin --cwd.",
+      "anchorClose": "Cerrar el workspace de anclaje disuelve el grupo: cada uno de los demás miembros se convierte en un workspace sin agrupar y permanece en la lista de pestañas. No se cierra nada más que el propio anclaje. La aplicación muestra un cuadro de diálogo de confirmación con una opción \"No volver a preguntar\" antes de que esto ocurra.",
+      "identityTitle": "Identidad del grupo",
+      "identityDesc": "Un grupo tiene un nombre, un icono (un SF Symbol, por defecto folder.fill) y un color personalizado opcional. Estos son independientes de las personalizaciones propias del workspace de anclaje. El color y el icono del anclaje se inicializan a partir del grupo al crearlo, pero pueden divergir posteriormente.",
+      "pinningTitle": "Fijado",
+      "pinningDesc": "Los grupos se pueden fijar de forma independiente de los fijados de workspaces individuales. Las filas de nivel superior fijadas, ya sean workspaces individuales o grupos, permanecen por encima de las filas no fijadas. Dentro de cada nivel, los grupos y workspaces conservan el orden en que los arrastras.",
+      "layoutIntro": "La barra lateral organiza las filas de nivel superior de arriba a abajo:",
+      "layoutItem1": "Filas de nivel superior fijadas (workspaces y grupos).",
+      "layoutItem2": "Filas de nivel superior no fijadas (workspaces y grupos).",
+      "creatingTitle": "Crear un grupo",
+      "creatingIntro": "Un grupo se crea de una de dos maneras: mediante un atajo de teclado o el menú contextual de un workspace. Ambas opciones insertan un nuevo workspace ancla por encima de la selección y mueven los workspaces seleccionados al grupo. Una vez que existe un grupo, lo gestionas y le agregas workspaces desde el encabezado del grupo (consulta Gestionar un grupo más abajo).",
+      "keyboardTitle": "Desde el teclado ({shortcut})",
+      "keyboardDesc": "Selecciona dos o más workspaces en la barra lateral y luego presiona {shortcut}. Se inserta un nuevo workspace de anclaje encima de la selección y todos los workspaces seleccionados se convierten en hijos. El grupo se nombra automáticamente como Group 1, Group 2, y así sucesivamente; renómbralo en cualquier momento mediante el menú contextual del encabezado.",
+      "keyboardNote": "{shortcut} entra en conflicto con el predeterminado de React Grab. El gestor de grupos solo consume la combinación cuando hay una multiselección explícita en la barra lateral de al menos dos workspaces, por lo que React Grab sigue activándose en selecciones individuales y en contextos de navegador o terminal. Reasígnalo en Configuración → Teclado si prefieres que ambos no compartan una tecla.",
+      "keyboardSingle": "Los grupos de una sola pestaña no se crean desde el atajo. Para ello, usa la entrada Nuevo grupo desde el espacio de trabajo del menú contextual del espacio de trabajo.",
+      "contextMenuTitle": "Desde el menú contextual de un workspace",
+      "contextMenuDesc": "Haz clic derecho en cualquier espacio de trabajo de la barra lateral y elige Nuevo grupo desde el espacio de trabajo, o Nuevo grupo desde la selección cuando haya varios espacios de trabajo seleccionados. Esto usa el mismo comportamiento de nombrado automático que el atajo.",
+      "managingTitle": "Gestionar un grupo",
+      "managingIntro": "Una vez que existe un grupo, el menú contextual de su encabezado y el botón + del encabezado te permiten gestionar el grupo y agregarle workspaces. Ninguno de los dos crea un grupo nuevo.",
+      "headerMenuTitle": "Desde el menú contextual del encabezado del grupo",
+      "headerMenuDesc": "Haz clic derecho en el encabezado de un grupo existente para Renombrar grupo…, Fijar grupo / Quitar fijación del grupo, Editar configuración del grupo… (que abre ~/.config/cmux/cmux.json), Abrir documentación de grupos de espacios de trabajo, Desagrupar (conservar espacios de trabajo) y Eliminar grupo (cerrar espacios de trabajo). Eliminar es destructivo y pide confirmación; desagrupar conserva los espacios de trabajo y solo elimina el contenedor.",
+      "plusButtonTitle": "Desde el botón + en el encabezado de un grupo",
+      "plusButtonDesc": "Pasa el cursor sobre el encabezado de un grupo para mostrar un botón + al final. Haz clic en él para crear un nuevo espacio de trabajo en el grupo en el directorio de trabajo del ancla. Haz clic derecho en él para Nuevo espacio de trabajo en el grupo, Editar configuración del grupo… y Abrir documentación de grupos de espacios de trabajo.",
+      "plusButtonNote": "Presionar {shortcut} mientras el workspace activo es un anclaje o miembro de un grupo también crea el nuevo workspace dentro de ese grupo. La ubicación predeterminada es After current: desde un miembro normal del grupo, el nuevo workspace queda justo después del miembro activo, y desde el anclaje o el encabezado queda en la parte superior del grupo.",
+      "cliTitle": "CLI",
+      "cliDesc": "Todas las operaciones de grupo se pueden automatizar con los subcomandos cmux workspace-group. La forma con guion se publica primero; una vez que llegue el espacio de nombres de comandos más amplio cmux workspace, cmux workspace group pasará a ser la forma canónica, manteniéndose la forma con guion como alias para siempre.",
+      "cliSubcommandsTitle": "Subcomandos",
+      "cliCreateNote": "create devuelve un identificador de grupo (workspace_group:N por defecto). Pasa --json para obtener el payload estructurado completo.",
+      "cliFlagsNote": "Pasa a set-color o set-icon un valor vacío para borrar el color o el icono del grupo. delete es irreversible: cierra todos los espacios de trabajo miembros.",
+      "cliExamplesTitle": "Ejemplos",
+      "cliExampleGroup": "Agrupa los workspaces seleccionados actualmente bajo un nombre:",
+      "cliExampleNew": "Crea un nuevo workspace dentro de un grupo existente, por ejemplo conectado a un script de worktree:",
+      "cliExampleList": "Lista los grupos en la ventana enfocada:",
+      "configTitle": "Configuración",
+      "configNote": "La configuración por grupo se encuentra bajo la clave workspaceGroups en ~/.config/cmux/cmux.json, indexada por el directorio de trabajo del workspace ancla. Consulta la referencia de configuración para conocer las claves admitidas, incluida la ubicación global de nuevos workspaces y el color, el icono, la ubicación y las acciones del menú contextual por directorio.",
+      "configLinkText": "referencia de configuración de workspaceGroups",
+      "persistenceTitle": "Persistencia",
+      "persistenceDesc": "El nombre del grupo, el anclaje, el estado de fijado, el estado de plegado, el color y el icono se guardan junto con tus workspaces y se restauran entre lanzamientos. La pertenencia al grupo se almacena en cada workspace."
     },
     "configuration": {
       "title": "Configuración",
@@ -742,12 +792,20 @@
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "shortcutsWhenIntro": "Predicados de contexto opcionales por acción (cláusulas when al estilo de VS Code), indexados por el id de acción de cmux. Una asignación solo se activa —y solo entra en conflicto con otra asignación de la misma pulsación— cuando su cláusula se cumple. Omite la cláusula para conservar el contexto integrado de la acción. El vocabulario de las cláusulas:",
+      "shortcutsWhenBooleanKeys": "claves booleanas. Una clave desconocida o ausente se evalúa como false; también se aceptan los literales true y false.",
+      "shortcutsWhenTypedKeys": "claves tipadas para comparaciones: el modo activo de la barra lateral derecha (cadena) y los recuentos de paneles y espacios de trabajo (enteros).",
+      "shortcutsWhenOperators": "operadores booleanos, comparaciones tipadas, coincidencia por expresión regular y pertenencia a listas. Las comparaciones ligan más fuerte que && y ||.",
+      "shortcutsWhenExample": "Por ejemplo, esto hace que Ctrl+1–9 seleccione espacios de trabajo en todas partes salvo cuando la barra lateral derecha tiene el foco (dejando Ctrl+1–5 libre para el selector de modo de la barra lateral), y limita la selección de superficie a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles:"
     },
     "customCommands": {
       "title": "Comandos personalizados",
@@ -1148,6 +1206,7 @@
     "navItems": {
       "gettingStarted": "Primeros pasos",
       "concepts": "Conceptos",
+      "workspaceGroups": "Grupos de workspaces",
       "configuration": "Configuración",
       "sessionRestore": "Restauración de sesión",
       "customCommands": "Comandos personalizados",
@@ -1429,5 +1488,10 @@
     "downloadLight": "Descargar icono claro",
     "downloadDark": "Descargar icono oscuro",
     "brandPage": "Recursos de marca"
+  },
+  "afterSignIn": {
+    "title": "Sesión iniciada en cmux",
+    "body": "Si cmux no se abrió automáticamente, usa el botón de abajo.",
+    "button": "Volver a cmux"
   }
 }

@@ -770,7 +770,57 @@
       "terminalOrBrowser": "Terminal or browser",
       "automatic": "Automatic",
       "paneIdSocket": "Pane ID (socket API)",
-      "panelIdInternal": "Panel ID (internal)"
+      "panelIdInternal": "Panel ID (internal)",
+      "workspaceGroups": "Workspace Groups",
+      "workspaceGroupsDesc": "Group related workspaces into collapsible named sections in the sidebar. Each group is owned by an anchor workspace and can be pinned, renamed, and given its own icon and color. New workspaces can be spawned directly inside a group from its header.",
+      "workspaceGroupsLink": "Read the full Workspace Groups guide"
+    },
+    "workspaceGroups": {
+      "metaTitle": "Workspace Groups",
+      "metaDescription": "Nest workspaces into collapsible named sections in the cmux sidebar. The anchor model, how to create and manage a group, and the workspace-group CLI.",
+      "title": "Workspace Groups",
+      "intro": "Workspace groups let you nest workspaces into collapsible named sections in the sidebar. Each group has an implicit anchor workspace, a customizable + button for spawning new workspaces inside it, and right-click actions for renaming, pinning, ungrouping, and editing its configuration.",
+      "concepts": "Concepts",
+      "anchorTitle": "Anchor workspace",
+      "anchorDesc": "Every group is owned by exactly one workspace called the anchor. The group header in the sidebar is the anchor's representation — there is no separate row for it. Clicking the header name area focuses the anchor's panels; clicking the chevron toggles collapse.",
+      "anchorNew": "Anchors are always brand new when a group is created. They are never promoted from an existing workspace. The anchor's working directory is inherited from the first selected workspace when grouping a selection, or from the active workspace when creating via the CLI without --cwd.",
+      "anchorClose": "Closing the anchor workspace dissolves the group: every other member becomes an ungrouped workspace and stays in the tabs list. Nothing is closed besides the anchor itself. The app shows a confirm dialog with a \"Don't ask again\" toggle before this happens.",
+      "identityTitle": "Group identity",
+      "identityDesc": "A group has a name, an icon (an SF Symbol, default folder.fill), and an optional custom color. These are independent of the anchor workspace's own customizations. The anchor's color and icon are seeded from the group on creation, but they can diverge afterwards.",
+      "pinningTitle": "Pinning",
+      "pinningDesc": "Groups can be pinned independently of individual workspace pins. Pinned top-level rows, whether individual workspaces or groups, stay above unpinned rows. Within each tier, groups and workspaces keep the order you drag them into.",
+      "layoutIntro": "The sidebar lays out top-level rows top to bottom:",
+      "layoutItem1": "Pinned top-level rows (workspaces and groups).",
+      "layoutItem2": "Unpinned top-level rows (workspaces and groups).",
+      "creatingTitle": "Creating a group",
+      "creatingIntro": "A group is created in one of two ways: a keyboard shortcut or a workspace context menu. Both insert a fresh anchor workspace above the selection and move the selected workspaces into the group. Once a group exists, you manage it and add workspaces to it from the group header (see Managing a group below).",
+      "keyboardTitle": "From the keyboard ({shortcut})",
+      "keyboardDesc": "Select two or more workspaces in the sidebar, then press {shortcut}. A fresh anchor workspace is inserted above the selection and all selected workspaces become children. The group is auto-named Group 1, Group 2, and so on — rename it anytime via the header context menu.",
+      "keyboardNote": "{shortcut} collides with React Grab's default. The group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and in browser or terminal contexts. Rebind it in Settings → Keyboard if you would rather the two not share a key.",
+      "keyboardSingle": "Single-tab groups are not created from the shortcut. Use the workspace context menu New Group from Workspace entry for that.",
+      "contextMenuTitle": "From a workspace context menu",
+      "contextMenuDesc": "Right-click any workspace in the sidebar and choose New Group from Workspace, or New Group from Selection when multiple workspaces are selected. This uses the same auto-naming behavior as the shortcut.",
+      "managingTitle": "Managing a group",
+      "managingIntro": "Once a group exists, its header context menu and the + button on the header let you manage the group and add workspaces to it. Neither creates a new group.",
+      "headerMenuTitle": "From the group header context menu",
+      "headerMenuDesc": "Right-click an existing group header for Rename Group…, Pin Group / Unpin Group, Edit Group Config… (which opens ~/.config/cmux/cmux.json), Open Workspace Groups Docs, Ungroup (Keep Workspaces), and Delete Group (Close Workspaces). Delete is destructive and prompts for confirmation; ungroup keeps the workspaces and just removes the container.",
+      "plusButtonTitle": "From the + button on a group header",
+      "plusButtonDesc": "Hover over a group header to reveal a trailing + button. Click it to create a new workspace in the group at the anchor working directory. Right-click it for New Workspace in Group, Edit Group Config…, and Open Workspace Groups Docs.",
+      "plusButtonNote": "Pressing {shortcut} while the active workspace is a group anchor or member also creates the new workspace inside that group. The default placement is After current: from a regular group member the new workspace lands right after the active member, and from the anchor or header it lands at the top of the group.",
+      "cliTitle": "CLI",
+      "cliDesc": "All group operations are scriptable with the cmux workspace-group subcommands. The hyphenated form ships first; once the broader cmux workspace command namespace lands, cmux workspace group becomes the canonical form, with the hyphenated form kept as an alias forever.",
+      "cliSubcommandsTitle": "Subcommands",
+      "cliCreateNote": "create returns a group handle (workspace_group:N by default). Pass --json for the full structured payload.",
+      "cliFlagsNote": "Pass set-color or set-icon an empty value to clear the group's color or icon. delete is irreversible: it closes every member workspace.",
+      "cliExamplesTitle": "Examples",
+      "cliExampleGroup": "Group the currently selected workspaces under a name:",
+      "cliExampleNew": "Spin up a new workspace inside an existing group, for example wired to a worktree script:",
+      "cliExampleList": "List groups in the focused window:",
+      "configTitle": "Configuration",
+      "configNote": "Per-group configuration lives under the workspaceGroups key in ~/.config/cmux/cmux.json, keyed by the anchor workspace's working directory. See the configuration reference for the supported keys, including the global new-workspace placement and per-directory color, icon, placement, and context-menu actions.",
+      "configLinkText": "workspaceGroups configuration reference",
+      "persistenceTitle": "Persistence",
+      "persistenceDesc": "Group name, anchor, pin state, collapse state, color, and icon are saved alongside your workspaces and restored across launches. Group membership is stored on each workspace."
     },
     "configuration": {
       "title": "Configuration",
@@ -846,13 +896,21 @@
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
-      "exampleFileEditorWordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
+      "exampleFileEditorWordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
+      "shortcutsWhenIntro": "Optional per-action context predicates (VS Code-style when clauses), keyed by cmux action id. A binding only fires — and only conflicts with another binding on the same keystroke — when its clause holds. Omit a clause to keep the action's built-in context. The clause vocabulary:",
+      "shortcutsWhenBooleanKeys": "boolean keys. An unknown or absent key reads as false; the literals true and false are also accepted.",
+      "shortcutsWhenTypedKeys": "typed keys for comparisons: the right sidebar's active mode (a string) plus pane and workspace counts (integers).",
+      "shortcutsWhenOperators": "boolean operators, typed comparisons, regex match, and list membership. Comparisons bind tighter than && and ||.",
+      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving Ctrl+1–5 free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
     },
     "customCommands": {
       "title": "Custom Commands",
@@ -1540,6 +1598,7 @@
     "navItems": {
       "gettingStarted": "Getting Started",
       "concepts": "Concepts",
+      "workspaceGroups": "Workspace Groups",
       "configuration": "Configuration",
       "sessionRestore": "Session Restore",
       "customCommands": "Custom Commands",
@@ -1723,5 +1782,10 @@
     "downloadLight": "Download light icon",
     "downloadDark": "Download dark icon",
     "brandPage": "Brand assets"
+  },
+  "afterSignIn": {
+    "title": "Signed in to cmux",
+    "body": "If cmux did not open automatically, use the button below.",
+    "button": "Return to cmux"
   }
 }
