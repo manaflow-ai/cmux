@@ -19,7 +19,9 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
   // Changed-token (intraline) emphasis must be stronger than the line tint so
   // edited tokens stand out, not weaker (the library default is inverted).
   expect(css).toContain("--diffs-bg-addition-emphasis-override: light-dark(");
+  expect(css).toContain("--diffs-bg-deletion-emphasis-override: light-dark(");
   expect(css).toContain("color-mix(in srgb, var(--diffs-addition-base) 42%, transparent)");
+  expect(css).toContain("color-mix(in srgb, var(--diffs-deletion-base) 42%, transparent)");
   // Muted, low-contrast line-number gutter.
   expect(css).toContain("--diffs-fg-number-override: light-dark(");
   expect(css).toContain("[data-diffs-header] {");
