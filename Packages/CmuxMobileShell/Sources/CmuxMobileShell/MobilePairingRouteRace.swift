@@ -182,15 +182,33 @@ struct MobilePairingRouteRaceFailure: Error {
     /// most user-actionable signal wins, with the route priority breaking ties,
     /// so "cmux isn't running on your Mac" beats a sibling route's generic
     /// timeout instead of being buried by it.
+    ///
+    /// Auth-style answers are the one exception: they win representation only
+    /// when every route failed with one (cancellation noise aside). The
+    /// answering endpoint is an unverified candidate, so a stale or reassigned
+    /// address can host a different Mac that rejects a ticket it never minted
+    /// while the route to the right Mac merely times out; surfacing the
+    /// rejection there would route the user into re-auth (the caller treats
+    /// definitive auth failures as session evidence) when the actionable
+    /// problem is reaching the right Mac. A genuine rejection still surfaces:
+    /// with one route, or with every route answering the same way, the auth
+    /// failure is unanimous.
     var representative: RouteFailure? {
         if let raceEndingFailure { return raceEndingFailure }
-        return failures.min { lhs, rhs in
-            let lhsRank = Self.actionabilityRank(of: lhs)
-            let rhsRank = Self.actionabilityRank(of: rhs)
-            if lhsRank != rhsRank { return lhsRank < rhsRank }
-            return lhs.routeIndex < rhs.routeIndex
-        }
+        let ranked = failures.map { (failure: $0, rank: Self.actionabilityRank(of: $0)) }
+        let nonAuth = ranked.filter { $0.rank != Self.authAnswerRank && $0.rank != Self.cancelledRank }
+        let candidates = nonAuth.isEmpty ? ranked : nonAuth
+        return candidates.min { lhs, rhs in
+            if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
+            return lhs.failure.routeIndex < rhs.failure.routeIndex
+        }?.failure
     }
+
+    /// Rank of a definitive host auth answer (see ``representative`` for why
+    /// these win only when unanimous).
+    private static let authAnswerRank = 0
+    /// Rank of cancellation noise (a reaped loser must never represent).
+    private static let cancelledRank = 10
 
     /// Lower ranks are more specific/actionable for the user. Definitive host
     /// answers rank first, reachability diagnoses next, bare timeouts and
@@ -199,7 +217,7 @@ struct MobilePairingRouteRaceFailure: Error {
     private static func actionabilityRank(of failure: RouteFailure) -> Int {
         switch MobilePairingFailureCategory.classify(error: failure.error, route: failure.route) {
         case .ticketExpired, .accountMismatch, .authFailed:
-            return 0
+            return Self.authAnswerRank
         case .invalidCode, .unsupportedRoute, .noSupportedRoute:
             return 1
         case .localNetworkBlocked:
@@ -219,7 +237,7 @@ struct MobilePairingRouteRaceFailure: Error {
         case .unknown:
             return 9
         case .cancelled:
-            return 10
+            return Self.cancelledRank
         }
     }
 }

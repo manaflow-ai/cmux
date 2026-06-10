@@ -31,6 +31,11 @@ actor FakeAuthClient: AuthClient {
     /// When `true`, ``currentUser(throwOnMissing:)`` parks until cancelled (a
     /// network probe that never answers), then throws `CancellationError`.
     var hangOnCurrentUser = false
+    /// When `true`, ``currentUser(throwOnMissing:)`` parks IGNORING
+    /// cancellation until ``releaseHungCurrentUser()`` is called, then runs
+    /// the normal scripted result (an SDK call that outlives its abandonment).
+    var hangOnCurrentUserIgnoringCancellation = false
+    private var hangReleases: [CheckedContinuation<Void, Never>] = []
     var nonce = "nonce-123"
     private(set) var signedInWithMagicLink = false
     private(set) var signedInWithCredential: (email: String, password: String)?
@@ -51,6 +56,15 @@ actor FakeAuthClient: AuthClient {
     func setForceRefreshResult(_ result: String?) { forceRefreshResult = .some(result) }
     func setThrowOnCurrentUser(_ error: (any Error)?) { throwOnCurrentUser = error }
     func setHangOnCurrentUser(_ hang: Bool) { hangOnCurrentUser = hang }
+    func setHangOnCurrentUserIgnoringCancellation(_ hang: Bool) {
+        hangOnCurrentUserIgnoringCancellation = hang
+    }
+    /// Releases every probe parked by ``hangOnCurrentUserIgnoringCancellation``.
+    func releaseHungCurrentUser() {
+        let releases = hangReleases
+        hangReleases = []
+        for release in releases { release.resume() }
+    }
     func setTeams(_ teams: [CMUXAuthTeam]) { self.teams = teams }
     func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
 
@@ -64,7 +78,12 @@ actor FakeAuthClient: AuthClient {
     }
 
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
-        if hangOnCurrentUser {
+        if hangOnCurrentUserIgnoringCancellation {
+            // Park with no cancellation handler: the abandoned probe keeps
+            // running and later produces its real result, like an SDK call
+            // that ignores cooperative cancellation.
+            await withCheckedContinuation { hangReleases.append($0) }
+        } else if hangOnCurrentUser {
             // Park until cancelled (a probe that never answers but is
             // cancellation-responsive when abandoned).
             let (stream, continuation) = AsyncStream<Never>.makeStream()

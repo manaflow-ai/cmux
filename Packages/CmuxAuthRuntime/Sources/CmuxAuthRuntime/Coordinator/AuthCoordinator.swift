@@ -94,6 +94,9 @@ public final class AuthCoordinator {
     private var debugCredentials: CMUXAuthAutoLoginCredentials?
     private var bootstrapTask: Task<Void, Never>?
     private var isRevalidatingSession = false
+    /// Reconciles an abandoned restore probe's late result (see
+    /// ``reconcileLateRestoreValidation(_:)``); replaced per deadline expiry.
+    private var lateRestoreReconciliationTask: Task<Void, Never>?
 
     /// Creates an auth coordinator.
     ///
@@ -316,8 +319,12 @@ public final class AuthCoordinator {
     /// group: a task group joins every child before returning, so a probe whose
     /// underlying SDK call ignores cancellation would still hold the restoring
     /// gate for the full OS timeout. Here the deadline's yield wins immediately
-    /// and the probe is abandoned (cancelled best-effort, its late result
-    /// discarded into the finished stream).
+    /// and the probe is abandoned (cancelled best-effort). The abandoned
+    /// probe's late result is not discarded: it is handed to
+    /// ``reconcileLateRestoreValidation(_:)``, because a slow DEFINITIVE
+    /// rejection deletes the refresh token from the live store after the
+    /// deadline already preserved the cached session, and without
+    /// reconciliation the app would stay "signed in" over a destroyed session.
     ///
     /// - Returns: The probe's user on success.
     /// - Throws: The probe's error, or ``AuthError/networkError`` when the
@@ -327,7 +334,7 @@ public final class AuthCoordinator {
     ///   session is gone.
     private func currentUserBoundedByRestoreDeadline() async throws -> CMUXAuthUser? {
         let (stream, continuation) = AsyncStream<RestoreValidationOutcome>.makeStream()
-        let probe = Task { [client] in
+        let probe = Task { [client] () -> Result<CMUXAuthUser?, any Error> in
             let result: Result<CMUXAuthUser?, any Error>
             do {
                 result = .success(try await client.currentUser(throwOnMissing: true))
@@ -335,6 +342,7 @@ public final class AuthCoordinator {
                 result = .failure(error)
             }
             continuation.yield(.finished(result))
+            return result
         }
         // justification: bounded, cancellable deadline on the injected clock
         // (virtual in tests); caps how long the launch "Restoring session" gate
@@ -354,8 +362,50 @@ public final class AuthCoordinator {
             return try result.get()
         case .deadlineExpired:
             authLog.error("Session restore validation hit its deadline; treating as transient")
+            scheduleLateRestoreReconciliation(for: probe)
             throw AuthError.networkError
         }
+    }
+
+    /// Awaits the abandoned probe and reconciles its late result.
+    /// See ``reconcileLateRestoreValidation(_:)``.
+    private func scheduleLateRestoreReconciliation(
+        for probe: Task<Result<CMUXAuthUser?, any Error>, Never>
+    ) {
+        lateRestoreReconciliationTask?.cancel()
+        lateRestoreReconciliationTask = Task { [weak self] in
+            let result = await probe.value
+            await self?.reconcileLateRestoreValidation(result)
+        }
+    }
+
+    /// Applies the only safe consequence of an abandoned restore probe's late
+    /// result: a definitive sign-out.
+    ///
+    /// When the deadline expired, ``validateCachedSession()`` already checked
+    /// the live token store and preserved the cached session. A probe whose
+    /// SDK call ignored cancellation can then finish with a definitive
+    /// rejection (`/users/me` 400/401) that deletes the refresh token from the
+    /// store moments later, and before this reconciliation the app stayed
+    /// "signed in" over a destroyed session until the next foreground
+    /// revalidation. The live token store remains the sole ground truth, which
+    /// also makes the late path safe against newer state: a sign-in that
+    /// happened meanwhile wrote fresh tokens (no-op here), a manual sign-out
+    /// already cleared (`isAuthenticated` gate), and a cancellation-responsive
+    /// probe ends in `CancellationError` with tokens intact (no-op). A late
+    /// success is also a no-op: the session was already preserved.
+    private func reconcileLateRestoreValidation(_ result: Result<CMUXAuthUser?, any Error>) async {
+        if case .success(.some) = result { return }
+        guard isAuthenticated || sessionCache.hasTokens else { return }
+        guard await client.refreshToken() == nil else { return }
+        authLog.error("Abandoned restore probe finished definitively with no surviving refresh token; routing to login")
+        await clearPersistedStackSession()
+        clearAuthState()
+    }
+
+    /// Awaits the in-flight late-probe reconciliation, if any (test hook).
+    func awaitLateRestoreReconciliation() async {
+        await lateRestoreReconciliationTask?.value
     }
 
     private func validateCachedSession() async {

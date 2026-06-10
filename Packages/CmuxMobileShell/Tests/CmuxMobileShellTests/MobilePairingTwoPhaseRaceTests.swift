@@ -236,8 +236,10 @@ import Testing
         } catch let failure as MobilePairingRouteRaceFailure {
             #expect(failure.failures.map(\.route.id) == ["a", "b"])
             #expect(failure.failures.map(\.routeIndex) == [0, 1])
-            // The auth rejection out-ranks the sibling's transport timeout.
-            #expect(failure.representative?.route.id == "a")
+            // Mixed evidence: route a's auth rejection came from an unverified
+            // endpoint while route b never answered, so the reachability
+            // diagnosis represents (see `representative`'s unanimity rule).
+            #expect(failure.representative?.route.id == "b")
         }
         #expect(await recorder.discardedProbes == ["conn-a"])
     }

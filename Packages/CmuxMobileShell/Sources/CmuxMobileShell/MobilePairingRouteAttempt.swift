@@ -241,8 +241,8 @@ struct MobilePairingRouteAttempt: Sendable {
     /// deterministically. When the rejection is genuine, every route fails
     /// with it inside the bounded per-attempt deadlines and
     /// ``MobilePairingRouteRaceFailure/representative`` still surfaces it
-    /// first (auth rejections rank highest), so the user reads the same error
-    /// a moment later. Transport failures and
+    /// (auth answers win representation when they are unanimous across
+    /// routes), so the user reads the same error a moment later. Transport failures and
     /// ``MobileShellConnectionError/insecureManualRoute`` also stay
     /// route-local: a sibling route may still reach the host or be trusted to
     /// carry the credential.

@@ -127,6 +127,72 @@ import Testing
         #expect(coordinator.isRestoringSession == false)
     }
 
+    // The deadline preserved the cached session, but the abandoned probe (an
+    // SDK call that ignores cancellation) later finishes with a definitive
+    // rejection that deletes the refresh token from the live store. The late
+    // result must be reconciled into a sign-out; before reconciliation the app
+    // stayed "signed in" over a destroyed session until the next foreground
+    // revalidation.
+    @Test func lateDefinitiveRejectionAfterDeadlineRoutesToLogin() async throws {
+        let clock = ManualTestClock()
+        let client = FakeAuthClient(access: "stale", refresh: "r", user: Self.user)
+        await client.setHangOnCurrentUserIgnoringCancellation(true)
+        let (coordinator, store) = makeCoordinator(
+            client: client,
+            clock: clock,
+            store: try storeWithCachedSession()
+        )
+
+        coordinator.start()
+        await clock.waitUntilSleepers(count: 1)
+        clock.advance(by: AuthCoordinator.defaultRestoreValidationDeadline)
+        await coordinator.awaitBootstrapped()
+
+        // Deadline path: cached session preserved, refresh token still alive.
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == Self.user)
+
+        // The abandoned probe now finishes definitively: the SDK 400/401'd the
+        // refresh token, deleted it from the store, and throws "not signed in".
+        await client.setTokens(access: nil, refresh: nil)
+        await client.setThrowOnCurrentUser(AuthError.unauthorized)
+        await client.releaseHungCurrentUser()
+        await coordinator.awaitLateRestoreReconciliation()
+
+        #expect(coordinator.isAuthenticated == false)
+        #expect(coordinator.currentUser == nil)
+        #expect(store.bool(forKey: "has_tokens") == false)
+    }
+
+    // A late TRANSIENT result (the abandoned probe ends in cancellation or a
+    // network error with the refresh token intact) must not unwind the
+    // preserved session: only the live token store decides sign-outs.
+    @Test func lateTransientFailureAfterDeadlineKeepsSession() async throws {
+        let clock = ManualTestClock()
+        let client = FakeAuthClient(access: "stale", refresh: "r", user: Self.user)
+        await client.setHangOnCurrentUserIgnoringCancellation(true)
+        let (coordinator, store) = makeCoordinator(
+            client: client,
+            clock: clock,
+            store: try storeWithCachedSession()
+        )
+
+        coordinator.start()
+        await clock.waitUntilSleepers(count: 1)
+        clock.advance(by: AuthCoordinator.defaultRestoreValidationDeadline)
+        await coordinator.awaitBootstrapped()
+        #expect(coordinator.isAuthenticated)
+
+        // The probe finally fails transiently; the refresh token survives.
+        await client.setThrowOnCurrentUser(AuthError.networkError)
+        await client.releaseHungCurrentUser()
+        await coordinator.awaitLateRestoreReconciliation()
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == Self.user)
+        #expect(store.bool(forKey: "has_tokens"))
+    }
+
     // Foreground revalidation reuses the same bounded probe: a hung probe on
     // resume resolves at the deadline without touching the live session.
     @Test func foregroundRevalidationIsBoundedByDeadline() async throws {

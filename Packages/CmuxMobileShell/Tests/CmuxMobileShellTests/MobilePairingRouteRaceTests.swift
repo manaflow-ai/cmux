@@ -393,6 +393,91 @@ import Testing
         #expect(category == .listenerNotRunning(host: "100.64.0.2", port: 17_345))
     }
 
+    // A stale or reassigned address can host a different Mac that answers a
+    // fast, protocol-valid auth rejection for a ticket it never minted, while
+    // the route to the right Mac times out. Mixed evidence must surface the
+    // reachability diagnosis (retry-able), not route the user into re-auth on
+    // an unverified endpoint's rejection.
+    @Test func mixedAuthRejectionAndTimeoutRepresentsReachabilityNotReauth() async throws {
+        let clock = ManualTestClock()
+        let probe = RaceProbe()
+        let routes = [try route("a", host: "100.64.0.1"), try route("b", host: "100.64.0.2")]
+        let race = MobilePairingRouteRace(clock: clock)
+
+        let raceTask = Task {
+            try await race.run(
+                routes: routes,
+                endsRace: { MobilePairingRouteAttempt.failureEndsRouteRace($0) },
+                onDiscardedSuccess: { (value: String) in await probe.recordDiscarded(value) },
+                attempt: { route in
+                    await probe.recordStart(route.id, at: clock.now.offset)
+                    if route.id == "a" {
+                        // The wrong Mac at a stale address answers instantly.
+                        throw MobileShellConnectionError.authorizationFailed("not your mac")
+                    }
+                    // The right Mac's address never answers.
+                    throw CmxNetworkByteTransportError.connectionTimedOut
+                }
+            )
+        }
+
+        await probe.waitForStarts(1)
+        await clock.waitUntilSleepers(count: 1)
+        clock.advance(by: .milliseconds(250))
+
+        let result = await raceTask.result
+        guard case let .failure(error) = result,
+              let failure = error as? MobilePairingRouteRaceFailure else {
+            Issue.record("race should throw MobilePairingRouteRaceFailure when every route fails")
+            return
+        }
+        #expect(failure.failures.count == 2)
+        #expect(failure.representative?.route.id == "b")
+    }
+
+    // When every route answers with an auth-style rejection, the rejection is
+    // unanimous and definitive, and it must represent (single-route manual
+    // pairing is the trivially unanimous case).
+    @Test func unanimousAuthRejectionsStillRepresent() async throws {
+        let clock = ManualTestClock()
+        let probe = RaceProbe()
+        let routes = [try route("a", host: "100.64.0.1"), try route("b", host: "100.64.0.2")]
+        let race = MobilePairingRouteRace(clock: clock)
+
+        let raceTask = Task {
+            try await race.run(
+                routes: routes,
+                endsRace: { MobilePairingRouteAttempt.failureEndsRouteRace($0) },
+                onDiscardedSuccess: { (value: String) in await probe.recordDiscarded(value) },
+                attempt: { route in
+                    await probe.recordStart(route.id, at: clock.now.offset)
+                    throw MobileShellConnectionError.authorizationFailed("rejected by \(route.id)")
+                }
+            )
+        }
+
+        await probe.waitForStarts(1)
+        await clock.waitUntilSleepers(count: 1)
+        clock.advance(by: .milliseconds(250))
+
+        let result = await raceTask.result
+        guard case let .failure(error) = result,
+              let failure = error as? MobilePairingRouteRaceFailure else {
+            Issue.record("race should throw MobilePairingRouteRaceFailure when every route fails")
+            return
+        }
+        #expect(failure.failures.count == 2)
+        #expect(failure.representative?.route.id == "a")
+        let category = MobilePairingFailureCategory.classify(
+            error: failure.representative!.error,
+            route: failure.representative!.route
+        )
+        guard case .authFailed = category else {
+            Issue.record("unanimous auth rejections should classify as authFailed")
+            return
+        }
+    }
+
     @Test func emptyRouteListFailsImmediately() async {
         let race = MobilePairingRouteRace(clock: ManualTestClock())
         do {
