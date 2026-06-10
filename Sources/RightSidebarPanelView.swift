@@ -10,10 +10,12 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
 
 /// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
 nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
+    // Declaration order is the mode-switcher tab order: Notes (beta) sits
+    // immediately to the right of Vault.
     case files
-    case notes
     case find
     case sessions
+    case notes
     case feed
     case dock
 
@@ -201,6 +203,8 @@ struct RightSidebarPanelView: View {
     private let closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
     private let focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
     private let focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
+    @AppStorage(RightSidebarBetaFeatureSettings.notesEnabledKey)
+    private var notesEnabled = RightSidebarBetaFeatureSettings.defaultNotesEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
@@ -214,7 +218,9 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+        RightSidebarMode.availableModes(
+            notesEnabled: notesEnabled, feedEnabled: feedEnabled, dockEnabled: dockEnabled
+        )
     }
 
     var body: some View {
@@ -264,6 +270,7 @@ struct RightSidebarPanelView: View {
         .onChange(of: workspaceId) { _, newValue in
             synchronizeDockLifecycle(rootDirectory: dockRootDirectory, workspaceId: newValue)
         }
+        .onChange(of: notesEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
