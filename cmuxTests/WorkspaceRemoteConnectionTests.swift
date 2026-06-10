@@ -67,6 +67,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             .write(to: url, atomically: true, encoding: .utf8)
     }
 
+    private func writeExecutableShellFile(at url: URL, body: String) throws {
+        try body.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
     private func runRelayZshHistfile(
         configureUserHome: (URL) throws -> URL
     ) throws -> String {
@@ -112,6 +117,146 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         return histfile ?? ""
     }
 
+    private func runGeneratedBashBootstrapMarkers(startupFiles: [String: String]) throws -> [String] {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-bash-\(UUID().uuidString)")
+        let bin = home.appendingPathComponent("bin")
+        let markerFile = home.appendingPathComponent("markers.txt")
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+
+        for (fileName, marker) in startupFiles {
+            let startupScript = """
+            printf '%s\\n' '\(marker)' >> "$CMUX_BASH_MARKERS"
+            """
+            try startupScript.write(to: home.appendingPathComponent(fileName), atomically: true, encoding: .utf8)
+        }
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("bash"),
+            body: """
+            #!/bin/sh
+            rcfile=
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                --rcfile)
+                  shift
+                  rcfile="${1:-}"
+                  ;;
+              esac
+              shift || true
+            done
+            if [ -n "$rcfile" ]; then
+              . "$rcfile"
+            fi
+            """
+        )
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 0,
+            shellFeatures: ""
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "SHELL=\(bin.appendingPathComponent("bash").path)",
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "TERM=xterm-256color",
+                "USER=\(NSUserName())",
+                "CMUX_BASH_MARKERS=\(markerFile.path)",
+                "/bin/sh",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let contents = (try? String(contentsOf: markerFile, encoding: .utf8)) ?? ""
+        return contents
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    func testGeneratedBashBootstrapSourcesLoginFilesInBashPrecedenceOrder() throws {
+        XCTAssertEqual(
+            try runGeneratedBashBootstrapMarkers(startupFiles: [
+                ".bash_profile": "bash_profile",
+                ".bash_login": "bash_login",
+                ".profile": "profile",
+                ".bashrc": "bashrc",
+            ]),
+            ["bash_profile", "bashrc"]
+        )
+        XCTAssertEqual(
+            try runGeneratedBashBootstrapMarkers(startupFiles: [
+                ".bash_login": "bash_login",
+                ".profile": "profile",
+                ".bashrc": "bashrc",
+            ]),
+            ["bash_login", "bashrc"]
+        )
+        XCTAssertEqual(
+            try runGeneratedBashBootstrapMarkers(startupFiles: [
+                ".profile": "profile",
+                ".bashrc": "bashrc",
+            ]),
+            ["profile", "bashrc"]
+        )
+    }
+
+    func testGeneratedFallbackShellBootstrapPrependsCmuxBinOnce() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-fallback-shell-bootstrap-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let bin = root.appendingPathComponent("bin")
+        let capturedPath = root.appendingPathComponent("path.txt")
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("fish"),
+            body: """
+            #!/bin/sh
+            printf '%s\\n' "$PATH" > "$CMUX_CAPTURE_PATH"
+            """
+        )
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 0,
+            shellFeatures: ""
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "SHELL=\(bin.appendingPathComponent("fish").path)",
+                "PATH=/usr/bin:/bin",
+                "TERM=xterm-256color",
+                "USER=\(NSUserName())",
+                "CMUX_CAPTURE_PATH=\(capturedPath.path)",
+                "/bin/sh",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let path = try String(contentsOf: capturedPath, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cmuxBinEntries = path.split(separator: ":")
+            .filter { $0 == "\(home.path)/.cmux/bin" }
+        XCTAssertEqual(cmuxBinEntries.count, 1, path)
+    }
+
     func testRemoteRelayMetadataCleanupScriptRemovesMatchingSocketAddr() {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-cleanup-\(UUID().uuidString)")
@@ -119,12 +264,14 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let socketAddrURL = home.appendingPathComponent(".cmux/socket_addr")
         let authURL = relayDir.appendingPathComponent("64008.auth")
         let daemonPathURL = relayDir.appendingPathComponent("64008.daemon_path")
+        let slotURL = relayDir.appendingPathComponent("64008.slot")
         let ttyURL = relayDir.appendingPathComponent("64008.tty")
 
         XCTAssertNoThrow(try fileManager.createDirectory(at: relayDir, withIntermediateDirectories: true))
         XCTAssertNoThrow(try "127.0.0.1:64008".write(to: socketAddrURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "auth".write(to: authURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "daemon".write(to: daemonPathURL, atomically: true, encoding: .utf8))
+        XCTAssertNoThrow(try "slot".write(to: slotURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "ttys001".write(to: ttyURL, atomically: true, encoding: .utf8))
         defer { try? fileManager.removeItem(at: home) }
 
@@ -144,6 +291,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: socketAddrURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: authURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: daemonPathURL.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: slotURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: ttyURL.path))
     }
 
@@ -154,12 +302,14 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let socketAddrURL = home.appendingPathComponent(".cmux/socket_addr")
         let authURL = relayDir.appendingPathComponent("64009.auth")
         let daemonPathURL = relayDir.appendingPathComponent("64009.daemon_path")
+        let slotURL = relayDir.appendingPathComponent("64009.slot")
         let ttyURL = relayDir.appendingPathComponent("64009.tty")
 
         XCTAssertNoThrow(try fileManager.createDirectory(at: relayDir, withIntermediateDirectories: true))
         XCTAssertNoThrow(try "127.0.0.1:64010".write(to: socketAddrURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "auth".write(to: authURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "daemon".write(to: daemonPathURL, atomically: true, encoding: .utf8))
+        XCTAssertNoThrow(try "slot".write(to: slotURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "ttys002".write(to: ttyURL, atomically: true, encoding: .utf8))
         defer { try? fileManager.removeItem(at: home) }
 
@@ -179,7 +329,333 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: socketAddrURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: authURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: daemonPathURL.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: slotURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: ttyURL.path))
+    }
+
+    func testRemoteStaleRelayListenerCleanupScriptKillsMatchingPersistentRelayListener() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-cleanup-\(UUID().uuidString)")
+        let bin = root.appendingPathComponent("bin")
+        let killLog = root.appendingPathComponent("kill.log")
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        try "".write(to: killLog, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("lsof"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            p33681
+            f12
+            n127.0.0.1:50446
+            EOF
+            """
+        )
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("ps"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            33681 1 /usr/sbin/sshd-session
+            34057 33681 /Users/cmux/.cmux/bin/cmuxd-remote/current/darwin-arm64/cmuxd-remote serve --stdio --persistent --slot ssh-c4ba8ab1
+            34058 33681 /bin/zsh
+            EOF
+            """
+        )
+
+        let script = try XCTUnwrap(
+            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+                relayPort: 50446,
+                persistentDaemonSlot: "ssh-c4ba8ab1"
+            )
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "CMUX_KILL_LOG=\(killLog.path)",
+                "/bin/sh",
+                "-c",
+                """
+                kill() { printf '%s\\n' "$*" >> "$CMUX_KILL_LOG"; return 0; }
+                \(script)
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("cmux_stale_relay_killed pid=33681 children=34057 port=50446"), result.stdout)
+
+        let killOutput = try String(contentsOf: killLog, encoding: .utf8)
+        XCTAssertTrue(killOutput.contains("-TERM 33681 34057"), killOutput)
+        XCTAssertTrue(killOutput.contains("-KILL 33681"), killOutput)
+        XCTAssertTrue(killOutput.contains("-KILL 34057"), killOutput)
+    }
+
+    func testRemoteStaleRelayListenerCleanupScriptPreservesDifferentPersistentSlot() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-preserve-\(UUID().uuidString)")
+        let bin = root.appendingPathComponent("bin")
+        let killLog = root.appendingPathComponent("kill.log")
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        try "".write(to: killLog, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("lsof"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            p33681
+            f12
+            n127.0.0.1:50446
+            EOF
+            """
+        )
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("ps"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            33681 1 /usr/sbin/sshd-session
+            34057 33681 /Users/cmux/.cmux/bin/cmuxd-remote/current/darwin-arm64/cmuxd-remote serve --stdio --persistent --slot ssh-other
+            EOF
+            """
+        )
+
+        let script = try XCTUnwrap(
+            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+                relayPort: 50446,
+                persistentDaemonSlot: "ssh-c4ba8ab1"
+            )
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "CMUX_KILL_LOG=\(killLog.path)",
+                "/bin/sh",
+                "-c",
+                """
+                kill() { printf '%s\\n' "$*" >> "$CMUX_KILL_LOG"; return 0; }
+                \(script)
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertEqual(try String(contentsOf: killLog, encoding: .utf8), "")
+    }
+
+    func testRemoteStaleRelayListenerCleanupScriptMatchesPersistentSlotExactly() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-slot-prefix-\(UUID().uuidString)")
+        let bin = root.appendingPathComponent("bin")
+        let killLog = root.appendingPathComponent("kill.log")
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        try "".write(to: killLog, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("lsof"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            p33681
+            f12
+            n127.0.0.1:50446
+            EOF
+            """
+        )
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("ps"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            33681 1 /usr/sbin/sshd-session
+            34057 33681 /Users/cmux/.cmux/bin/cmuxd-remote/current/darwin-arm64/cmuxd-remote serve --stdio --persistent --slot ssh-ab
+            EOF
+            """
+        )
+
+        let script = try XCTUnwrap(
+            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+                relayPort: 50446,
+                persistentDaemonSlot: "ssh-a"
+            )
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "CMUX_KILL_LOG=\(killLog.path)",
+                "/bin/sh",
+                "-c",
+                """
+                kill() { printf '%s\\n' "$*" >> "$CMUX_KILL_LOG"; return 0; }
+                \(script)
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertEqual(try String(contentsOf: killLog, encoding: .utf8), "")
+    }
+
+    func testRemoteStaleRelayListenerCleanupScriptKillsMetadataMatchedListenerWithoutChild() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-metadata-\(UUID().uuidString)")
+        let bin = root.appendingPathComponent("bin")
+        let relayDir = root.appendingPathComponent(".cmux/relay")
+        let killLog = root.appendingPathComponent("kill.log")
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: relayDir, withIntermediateDirectories: true)
+        try "/Users/cmux/.cmux/bin/cmuxd-remote/current/darwin-arm64/cmuxd-remote".write(
+            to: relayDir.appendingPathComponent("50446.daemon_path"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "ssh-c4ba8ab1".write(
+            to: relayDir.appendingPathComponent("50446.slot"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "".write(to: killLog, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("lsof"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            p33681
+            f12
+            n127.0.0.1:50446
+            EOF
+            """
+        )
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("ps"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            33681 1 /usr/sbin/sshd-session
+            EOF
+            """
+        )
+
+        let script = try XCTUnwrap(
+            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+                relayPort: 50446,
+                persistentDaemonSlot: "ssh-c4ba8ab1"
+            )
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(root.path)",
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "CMUX_KILL_LOG=\(killLog.path)",
+                "/bin/sh",
+                "-c",
+                """
+                kill() { printf '%s\\n' "$*" >> "$CMUX_KILL_LOG"; return 0; }
+                \(script)
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            result.stdout.contains("cmux_stale_relay_killed pid=33681 children= port=50446 reason=metadata"),
+            result.stdout
+        )
+
+        let killOutput = try String(contentsOf: killLog, encoding: .utf8)
+        XCTAssertTrue(killOutput.contains("-TERM 33681"), killOutput)
+        XCTAssertTrue(killOutput.contains("-KILL 33681"), killOutput)
+    }
+
+    func testRemoteStaleRelayListenerCleanupScriptPreservesMetadataMatchedDifferentPersistentSlot() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-metadata-preserve-\(UUID().uuidString)")
+        let bin = root.appendingPathComponent("bin")
+        let relayDir = root.appendingPathComponent(".cmux/relay")
+        let killLog = root.appendingPathComponent("kill.log")
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: relayDir, withIntermediateDirectories: true)
+        try "/Users/cmux/.cmux/bin/cmuxd-remote/current/darwin-arm64/cmuxd-remote".write(
+            to: relayDir.appendingPathComponent("50446.daemon_path"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "ssh-other-slot".write(
+            to: relayDir.appendingPathComponent("50446.slot"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "".write(to: killLog, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("lsof"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            p33681
+            f12
+            n127.0.0.1:50446
+            EOF
+            """
+        )
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("ps"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            33681 1 /usr/sbin/sshd-session
+            EOF
+            """
+        )
+
+        let script = try XCTUnwrap(
+            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+                relayPort: 50446,
+                persistentDaemonSlot: "ssh-c4ba8ab1"
+            )
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(root.path)",
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "CMUX_KILL_LOG=\(killLog.path)",
+                "/bin/sh",
+                "-c",
+                """
+                kill() { printf '%s\\n' "$*" >> "$CMUX_KILL_LOG"; return 0; }
+                \(script)
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertEqual(try String(contentsOf: killLog, encoding: .utf8), "")
     }
 
     func testRelayZshBootstrapUsesRealHomeHistoryByDefault() throws {
@@ -315,6 +791,19 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             skipDaemonBootstrap: true
         )
+        let persistentPTYSSH = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 2222,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            sshOptions: ["ControlPath /tmp/cmux-ssh-%C"],
+            localProxyPort: nil,
+            relayPort: 64099,
+            relayID: "relay-a",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true
+        )
         let vmWebSocket = WorkspaceRemoteConfiguration(
             transport: .websocket,
             destination: "vm:abcd1234",
@@ -359,6 +848,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         XCTAssertNotEqual(standard.proxyBrokerTransportKey, vmSSH.proxyBrokerTransportKey)
+        XCTAssertNotEqual(standard.proxyBrokerTransportKey, persistentPTYSSH.proxyBrokerTransportKey)
         XCTAssertNotEqual(vmSSH.proxyBrokerTransportKey, vmWebSocket.proxyBrokerTransportKey)
         XCTAssertNotEqual(vmWebSocket.proxyBrokerTransportKey, vmWebSocketRefreshed.proxyBrokerTransportKey)
     }
@@ -385,6 +875,64 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         XCTAssertEqual(workspace.remoteConnectionState, .connected)
         XCTAssertNil(workspace.remoteProxyEndpoint)
+    }
+
+    @MainActor
+    func testSkipBootstrapPersistentPTYDoesNotFailBakedCapabilityPreflight() {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:test-persistent-no-daemon",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true,
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+        let deadline = Date().addingTimeInterval(0.5)
+        while workspace.remoteConnectionState == .connecting && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertNil(workspace.remoteProxyEndpoint)
+        let daemon = workspace.remoteStatusPayload()["daemon"] as? [String: Any]
+        XCTAssertFalse((daemon?["detail"] as? String)?.contains("pty.session") == true)
+    }
+
+    func testRemoteDaemonCapabilityErrorsUseUserFacingMessage() {
+        let message = remoteDaemonMissingRequiredCapabilitiesMessage([
+            "pty.session",
+            "pty.session.token",
+        ])
+
+        XCTAssertEqual(
+            message,
+            "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
+        )
+        XCTAssertFalse(message.contains("pty.session"))
+
+        let notificationMessage = remoteDaemonMissingRequiredCapabilitiesMessage([
+            "pty.write.notification",
+        ])
+        XCTAssertEqual(notificationMessage, message)
+        XCTAssertFalse(notificationMessage.contains("pty.write.notification"))
+
+        let rawError = NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
+            NSLocalizedDescriptionKey: "remote daemon missing required capability pty.write.notification",
+        ])
+        let bootstrapMessage = WorkspaceRemoteSessionController.userFacingRemoteDaemonBootstrapErrorMessage(rawError)
+        XCTAssertEqual(bootstrapMessage, message)
+        XCTAssertFalse(bootstrapMessage.contains("pty.session"))
+        XCTAssertFalse(bootstrapMessage.contains("pty.write.notification"))
     }
 
     @MainActor
@@ -693,6 +1241,60 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "cmux-macmini",
             ]
         )
+    }
+
+    @MainActor
+    func testRemoteTerminalSessionEndPreservesPersistentPTYWorkspace() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 2222,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-%C",
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64012,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-persist-end"
+        )
+        let cleanupRequested = expectation(description: "control master cleanup requested")
+        cleanupRequested.isInverted = true
+
+        Workspace.runSSHControlMasterCommandOverrideForTesting = { _ in
+            cleanupRequested.fulfill()
+        }
+        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        let expectedSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panelID)
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64012)
+
+        wait(for: [cleanupRequested], timeout: 0.2)
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.remoteConfiguration?.preserveAfterTerminalExit, true)
+        XCTAssertEqual(workspace.remoteConfiguration?.persistentDaemonSlot, "ssh-persist-end")
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panelID }?.terminal?.remotePTYSessionID,
+            expectedSessionID
+        )
+
+        workspace.teardownAllPanels()
+        XCTAssertTrue(workspace.panels.isEmpty)
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.remoteConfiguration?.preserveAfterTerminalExit, true)
     }
 
     @MainActor
@@ -1259,6 +1861,320 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testPersistentPTYBootstrapReinstallsOldDaemonMissingPTYCapability() throws {
+        let previousAllowLocalBuild = getenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD").map { String(cString: $0) }
+        let previousDaemonBinary = getenv("CMUX_REMOTE_DAEMON_BINARY").map { String(cString: $0) }
+        setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", "1", 1)
+        unsetenv("CMUX_REMOTE_DAEMON_BINARY")
+        defer {
+            if let previousAllowLocalBuild {
+                setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", previousAllowLocalBuild, 1)
+            } else {
+                unsetenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD")
+            }
+            if let previousDaemonBinary {
+                setenv("CMUX_REMOTE_DAEMON_BINARY", previousDaemonBinary, 1)
+            } else {
+                unsetenv("CMUX_REMOTE_DAEMON_BINARY")
+            }
+        }
+
+        let scpInvoked = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var scpDestination: String?
+        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+            let executableName = URL(fileURLWithPath: executable).lastPathComponent
+            if executable == "/usr/bin/ssh" {
+                let command = arguments.last ?? ""
+                if command.contains("uname -s") {
+                    return (
+                        status: 0,
+                        stdout: """
+                        __CMUX_REMOTE_HOME__=/home/test
+                        __CMUX_REMOTE_OS__=Linux
+                        __CMUX_REMOTE_ARCH__=x86_64
+                        __CMUX_REMOTE_EXISTS__=yes
+                        """,
+                        stderr: ""
+                    )
+                }
+                if command.contains("serve --stdio") {
+                    return (
+                        status: 0,
+                        stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"old","capabilities":["proxy.stream.push"]}}"# + "\n",
+                        stderr: ""
+                    )
+                }
+                if command.contains("mkdir -p") {
+                    return (status: 0, stdout: "", stderr: "")
+                }
+                return (status: 0, stdout: "", stderr: "")
+            }
+            if executable == "/usr/bin/scp" {
+                lock.lock()
+                scpDestination = arguments.last
+                lock.unlock()
+                scpInvoked.signal()
+                return (status: 1, stdout: "", stderr: "intentional stop after capability reinstall")
+            }
+            if executableName == "go" {
+                if let outputFlagIndex = arguments.firstIndex(of: "-o"),
+                   outputFlagIndex + 1 < arguments.count {
+                    let outputURL = URL(fileURLWithPath: arguments[outputFlagIndex + 1], isDirectory: false)
+                    try? FileManager.default.createDirectory(
+                        at: outputURL.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
+                    try Data("fake daemon".utf8).write(to: outputURL)
+                    try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: outputURL.path)
+                }
+                return (status: 0, stdout: "", stderr: "")
+            }
+            XCTFail("unexpected executable \(executable)")
+            return (status: 1, stdout: "", stderr: "unexpected executable")
+        }
+        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
+
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "test@hpc.example",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true
+        )
+        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        XCTAssertEqual(scpInvoked.wait(timeout: .now() + 2), .success)
+        lock.lock()
+        let capturedDestination = scpDestination
+        lock.unlock()
+        let destination = try XCTUnwrap(capturedDestination)
+        XCTAssertTrue(
+            destination.hasPrefix("test@hpc.example:/home/test/.cmux/bin/cmuxd-remote/"),
+            "expected missing pty.session to reinstall the old daemon, got \(destination)"
+        )
+    }
+
+    @MainActor
+    func testPersistentReverseRelayCancelsStaleControlMasterForwardBeforeReusingRelayPort() throws {
+        let forwardInvoked = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var controlOperations: [(command: String, spec: String)] = []
+
+        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+            guard executable == "/usr/bin/ssh" else {
+                XCTFail("unexpected executable \(executable)")
+                return (status: 1, stdout: "", stderr: "unexpected executable")
+            }
+
+            if let operationIndex = arguments.firstIndex(of: "-O"),
+               operationIndex + 3 < arguments.count,
+               arguments[operationIndex + 2] == "-R" {
+                let operation = arguments[operationIndex + 1]
+                let spec = arguments[operationIndex + 3]
+                lock.lock()
+                controlOperations.append((command: operation, spec: spec))
+                lock.unlock()
+                if operation == "forward" {
+                    forwardInvoked.signal()
+                }
+                return (status: 0, stdout: "", stderr: "")
+            }
+
+            let command = arguments.last ?? ""
+            if command.contains("uname -s") {
+                return (
+                    status: 0,
+                    stdout: """
+                    __CMUX_REMOTE_HOME__=/home/test
+                    __CMUX_REMOTE_OS__=Linux
+                    __CMUX_REMOTE_ARCH__=x86_64
+                    __CMUX_REMOTE_EXISTS__=yes
+                    """,
+                    stderr: ""
+                )
+            }
+            if command.contains("serve --stdio") {
+                return (
+                    status: 0,
+                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.session.persistent_daemon"]}}"# + "\n",
+                    stderr: ""
+                )
+            }
+            return (status: 0, stdout: "", stderr: "")
+        }
+        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
+
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "test@hpc.example",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-\(getuid())-64044-%C",
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64044,
+            relayID: "relay-stale-forward",
+            relayToken: String(repeating: "c", count: 64),
+            localSocketPath: "/tmp/cmux-stale-forward-test.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-stale-forward-test"
+        )
+        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        XCTAssertEqual(forwardInvoked.wait(timeout: .now() + 2), .success)
+        lock.lock()
+        let operations = controlOperations
+        lock.unlock()
+
+        XCTAssertGreaterThanOrEqual(operations.count, 2)
+        XCTAssertEqual(operations[0].command, "cancel")
+        XCTAssertEqual(operations[0].spec, "127.0.0.1:64044")
+        XCTAssertEqual(operations[1].command, "forward")
+        XCTAssertTrue(
+            operations[1].spec.hasPrefix("127.0.0.1:64044:127.0.0.1:"),
+            "expected forward to reuse relay port after stale cancel, got \(operations[1].spec)"
+        )
+    }
+
+    @MainActor
+    func testPersistentReverseRelayCleansStaleRemoteListenerAndRetriesControlMasterForward() throws {
+        let retryForwardInvoked = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var controlOperations: [(command: String, spec: String)] = []
+        var forwardAttempts = 0
+        var cleanupInvoked = false
+        var cleanupArguments: [String] = []
+
+        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+            guard executable == "/usr/bin/ssh" else {
+                XCTFail("unexpected executable \(executable)")
+                return (status: 1, stdout: "", stderr: "unexpected executable")
+            }
+
+            if let operationIndex = arguments.firstIndex(of: "-O"),
+               operationIndex + 3 < arguments.count,
+               arguments[operationIndex + 2] == "-R" {
+                let operation = arguments[operationIndex + 1]
+                let spec = arguments[operationIndex + 3]
+                lock.lock()
+                controlOperations.append((command: operation, spec: spec))
+                if operation == "forward" {
+                    forwardAttempts += 1
+                    let attempt = forwardAttempts
+                    lock.unlock()
+                    if attempt == 1 {
+                        return (
+                            status: 255,
+                            stdout: "",
+                            stderr: "remote port forwarding failed for listen port 64045"
+                        )
+                    }
+                    retryForwardInvoked.signal()
+                    return (status: 0, stdout: "", stderr: "")
+                }
+                lock.unlock()
+                return (status: 0, stdout: "", stderr: "")
+            }
+
+            let command = arguments.last ?? ""
+            if command.contains("cmux_stale_relay_listener_cleanup=1") {
+                lock.lock()
+                cleanupInvoked = true
+                cleanupArguments = arguments
+                lock.unlock()
+                return (
+                    status: 0,
+                    stdout: "cmux_stale_relay_killed pid=33681 children=34057 port=64045\n",
+                    stderr: ""
+                )
+            }
+            if command.contains("uname -s") {
+                return (
+                    status: 0,
+                    stdout: """
+                    __CMUX_REMOTE_HOME__=/home/test
+                    __CMUX_REMOTE_OS__=Linux
+                    __CMUX_REMOTE_ARCH__=x86_64
+                    __CMUX_REMOTE_EXISTS__=yes
+                    """,
+                    stderr: ""
+                )
+            }
+            if command.contains("serve --stdio") {
+                return (
+                    status: 0,
+                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.session.persistent_daemon"]}}"# + "\n",
+                    stderr: ""
+                )
+            }
+            return (status: 0, stdout: "", stderr: "")
+        }
+        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
+
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "test@hpc.example",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-\(getuid())-64045-%C",
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64045,
+            relayID: "relay-stale-forward-retry",
+            relayToken: String(repeating: "d", count: 64),
+            localSocketPath: "/tmp/cmux-stale-forward-retry.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-stale-forward-retry"
+        )
+        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        XCTAssertEqual(retryForwardInvoked.wait(timeout: .now() + 2), .success)
+        lock.lock()
+        let operations = controlOperations
+        let cleanupWasInvoked = cleanupInvoked
+        let capturedCleanupArguments = cleanupArguments
+        let attempts = forwardAttempts
+        lock.unlock()
+
+        XCTAssertEqual(attempts, 2)
+        XCTAssertTrue(cleanupWasInvoked)
+        XCTAssertTrue(capturedCleanupArguments.contains("-S"))
+        XCTAssertTrue(capturedCleanupArguments.contains("none"))
+        XCTAssertFalse(capturedCleanupArguments.contains(where: { $0.hasPrefix("ControlPath=") }))
+        XCTAssertGreaterThanOrEqual(operations.count, 3)
+        XCTAssertEqual(operations[0].command, "cancel")
+        XCTAssertEqual(operations[0].spec, "127.0.0.1:64045")
+        XCTAssertEqual(operations[1].command, "forward")
+        XCTAssertEqual(operations[2].command, "forward")
+        XCTAssertEqual(operations[1].spec, operations[2].spec)
+        XCTAssertTrue(operations[2].spec.hasPrefix("127.0.0.1:64045:127.0.0.1:"))
+    }
+
+    @MainActor
     func testDetachAttachPreservesRemoteTerminalSurfaceTracking() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1297,6 +2213,340 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         XCTAssertEqual(restoredPanelID, movedPanel.id)
         XCTAssertTrue(workspace.isRemoteTerminalSurface(movedPanel.id))
+    }
+
+    @MainActor
+    func testDetachAttachPreservesPersistentPTYSessionIDAcrossWorkspaces() throws {
+        let source = Workspace()
+        let destination = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64008,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true
+        )
+        source.configureRemoteConnection(config, autoConnect: false)
+        destination.configureRemoteConnection(config, autoConnect: false)
+
+        let sourcePanelID = try XCTUnwrap(source.focusedTerminalPanel?.id)
+        let destinationPaneID = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
+        let sessionID = "ssh-source-session"
+        let movedPanel = try XCTUnwrap(
+            source.newTerminalSplit(
+                from: sourcePanelID,
+                orientation: .horizontal,
+                remotePTYSessionID: sessionID
+            )
+        )
+
+        let detached = try XCTUnwrap(source.detachSurface(panelId: movedPanel.id))
+        XCTAssertEqual(detached.remotePTYSessionID, sessionID)
+
+        let restoredPanelID = destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPaneID,
+            focus: false
+        )
+
+        XCTAssertEqual(restoredPanelID, movedPanel.id)
+        XCTAssertTrue(destination.isRemoteTerminalSurface(movedPanel.id))
+        let snapshot = destination.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(
+            snapshot.panels.first { $0.id == movedPanel.id }?.terminal?.remotePTYSessionID,
+            sessionID
+        )
+    }
+
+    @MainActor
+    func testDetachAttachDoesNotAdoptPersistentPTYSessionIDAcrossNilRelayWorkspaces() throws {
+        let source = Workspace()
+        let destination = Workspace()
+        let sourceConfig = WorkspaceRemoteConfiguration(
+            destination: "source-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true
+        )
+        let destinationConfig = WorkspaceRemoteConfiguration(
+            destination: "destination-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true
+        )
+        source.configureRemoteConnection(sourceConfig, autoConnect: false)
+        destination.configureRemoteConnection(destinationConfig, autoConnect: false)
+
+        let initialSourcePanelID = try XCTUnwrap(source.focusedTerminalPanel?.id)
+        let sourcePaneID = try XCTUnwrap(source.bonsplitController.allPaneIds.first)
+        let destinationPaneID = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
+        let sessionID = "source-only-pty-session"
+        let movedPanel = try XCTUnwrap(
+            source.newTerminalSurface(
+                inPane: sourcePaneID,
+                focus: true,
+                initialCommand: "cmux ssh-pty-attach",
+                remotePTYSessionID: sessionID
+            )
+        )
+        XCTAssertTrue(source.closePanel(initialSourcePanelID, force: true))
+        XCTAssertTrue(source.isRemoteTerminalSurface(movedPanel.id))
+
+        let detached = try XCTUnwrap(source.detachSurface(panelId: movedPanel.id))
+        XCTAssertNil(detached.remoteRelayPort)
+        XCTAssertEqual(detached.remotePTYSessionID, sessionID)
+        XCTAssertEqual(detached.remoteCleanupConfiguration?.destination, "source-host")
+
+        let restoredPanelID = destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPaneID,
+            focus: false
+        )
+
+        XCTAssertEqual(restoredPanelID, movedPanel.id)
+        XCTAssertFalse(destination.isRemoteTerminalSurface(movedPanel.id))
+        XCTAssertEqual(
+            destination.transferredRemoteCleanupConfigurationsByPanelId[movedPanel.id]?.destination,
+            "source-host"
+        )
+        let snapshot = destination.sessionSnapshot(includeScrollback: false)
+        XCTAssertNil(snapshot.panels.first { $0.id == movedPanel.id }?.terminal?.remotePTYSessionID)
+    }
+
+    @MainActor
+    func testExplicitRemotePTYSessionSurfaceTracksRemoteTerminalWithoutDefaultStartup() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64009,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true
+        )
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let sessionID = "explicit-surface-session"
+        let panel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: paneID,
+                focus: false,
+                initialCommand: "cmux ssh-pty-attach",
+                remotePTYSessionID: sessionID
+            )
+        )
+
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(panel.id))
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(
+            snapshot.panels.first { $0.id == panel.id }?.terminal?.remotePTYSessionID,
+            sessionID
+        )
+
+        let outcome = workspace.markRemotePTYAttachEnded(surfaceId: panel.id, sessionID: sessionID)
+        XCTAssertTrue(outcome.clearedRemotePTYSession)
+        XCTAssertTrue(outcome.untrackedRemoteTerminal)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(panel.id))
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+    }
+
+    @MainActor
+    func testRemoteDisconnectClearsExplicitRemotePTYSessionIDBeforeReseed() throws {
+        let workspace = Workspace()
+        let explicitSessionConfig = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64011,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true
+        )
+        workspace.configureRemoteConnection(explicitSessionConfig, autoConnect: false)
+
+        let initialPanelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: paneID,
+                focus: true,
+                initialCommand: "cmux ssh-pty-attach",
+                remotePTYSessionID: "old-explicit-session"
+            )
+        )
+        XCTAssertTrue(workspace.closePanel(initialPanelID, force: true))
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panel.id, sessionID: "old-explicit-session"))
+
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+
+        let reseededConfig = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64012,
+            relayID: String(repeating: "c", count: 16),
+            relayToken: String(repeating: "d", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true
+        )
+        workspace.configureRemoteConnection(reseededConfig, autoConnect: false)
+
+        let defaultSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panel.id)
+        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panel.id, sessionID: defaultSessionID))
+        let outcome = workspace.markRemotePTYAttachEnded(surfaceId: panel.id, sessionID: defaultSessionID)
+        XCTAssertTrue(outcome.clearedRemotePTYSession)
+        XCTAssertTrue(outcome.untrackedRemoteTerminal)
+    }
+
+    @MainActor
+    func testRemoteReconfigureClearsExplicitRemotePTYSessionIDForTrackedSurface() throws {
+        let workspace = Workspace()
+        let originalConfig = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64013,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true
+        )
+        workspace.configureRemoteConnection(originalConfig, autoConnect: false)
+
+        let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: paneID,
+                focus: true,
+                initialCommand: "cmux ssh-pty-attach",
+                remotePTYSessionID: "old-explicit-session"
+            )
+        )
+        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panel.id, sessionID: "old-explicit-session"))
+
+        let replacementConfig = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64014,
+            relayID: String(repeating: "c", count: 16),
+            relayToken: String(repeating: "d", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true
+        )
+        workspace.configureRemoteConnection(replacementConfig, autoConnect: false)
+
+        let defaultSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panel.id)
+        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panel.id, sessionID: defaultSessionID))
+    }
+
+    @MainActor
+    func testExplicitRemotePTYSessionSplitTracksRemoteTerminalWithoutDefaultStartup() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64010,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true
+        )
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        let sourcePanelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        let sessionID = "explicit-split-session"
+        let panel = try XCTUnwrap(
+            workspace.newTerminalSplit(
+                from: sourcePanelID,
+                orientation: .horizontal,
+                initialCommand: "cmux ssh-pty-attach",
+                remotePTYSessionID: sessionID
+            )
+        )
+
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(panel.id))
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(
+            snapshot.panels.first { $0.id == panel.id }?.terminal?.remotePTYSessionID,
+            sessionID
+        )
+    }
+
+    @MainActor
+    func testPersistentRemoteTerminalSeedsDefaultPTYSessionIDForSnapshot() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64015,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-seeded-default"
+        )
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        let expectedSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panelID)
+
+        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panelID, sessionID: expectedSessionID))
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panelID }?.terminal?.remotePTYSessionID,
+            expectedSessionID
+        )
     }
 
     @MainActor
@@ -1453,6 +2703,240 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(scpArgs.contains("-S"))
     }
 
+    func testDetectsForegroundEternalTerminalSessionForTTY() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "/opt/homebrew/bin/et",
+                    "lawrence@example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(
+            session,
+            DetectedSSHSession(
+                destination: "lawrence@example.com",
+                port: nil,
+                identityFile: nil,
+                configFile: nil,
+                jumpHost: nil,
+                controlPath: nil,
+                useIPv4: false,
+                useIPv6: false,
+                forwardAgent: false,
+                compressionEnabled: false,
+                sshOptions: []
+            )
+        )
+    }
+
+    func testDetectsEternalTerminalSessionWithoutTreatingETPortAsSSHPort() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "-u", "lawrence",
+                    "-p", "2022",
+                    "--jport", "2023",
+                    "example.com:2024",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.destination, "lawrence@example.com")
+        XCTAssertNil(session?.port)
+
+        let scpArgs = session?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        ) ?? []
+        XCTAssertFalse(scpArgs.contains("-P"))
+        XCTAssertEqual(scpArgs.last, "lawrence@example.com:/tmp/cmux-drop-123.png")
+    }
+
+    func testDetectsEternalTerminalSessionWithBracketedIPv6ServerPortForSCP() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "-u", "lawrence",
+                    "[2001:db8::1]:2022",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.destination, "lawrence@[2001:db8::1]")
+
+        let scpArgs = session?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        ) ?? []
+        XCTAssertNil(session?.port)
+        XCTAssertFalse(scpArgs.contains("-P"))
+        XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8::1]:/tmp/cmux-drop-123.png")
+    }
+
+    func testDetectsEternalTerminalSessionWithFullIPv6ServerPortForSCP() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "-u", "lawrence",
+                    "2001:db8:0:0:0:0:0:1:2022",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.destination, "lawrence@[2001:db8:0:0:0:0:0:1]")
+
+        let scpArgs = session?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        ) ?? []
+        XCTAssertNil(session?.port)
+        XCTAssertFalse(scpArgs.contains("-P"))
+        XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8:0:0:0:0:0:1]:/tmp/cmux-drop-123.png")
+    }
+
+    func testDetectsEternalTerminalSessionPreservesAmbiguousCompressedIPv6LiteralForSCP() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "-u", "lawrence",
+                    "2001:db8::1:2022",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.destination, "lawrence@2001:db8::1:2022")
+
+        let scpArgs = session?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        ) ?? []
+        XCTAssertNil(session?.port)
+        XCTAssertFalse(scpArgs.contains("-P"))
+        XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8::1:2022]:/tmp/cmux-drop-123.png")
+    }
+
+    func testDetectsEternalTerminalSessionIgnoresOptionsAfterDestination() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "lawrence@example.com",
+                    "--ssh-option", "Port=2200",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.destination, "lawrence@example.com")
+        XCTAssertNil(session?.port)
+
+        let scpArgs = session?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        ) ?? []
+        XCTAssertFalse(scpArgs.contains("-P"))
+        XCTAssertEqual(scpArgs.last, "lawrence@example.com:/tmp/cmux-drop-123.png")
+    }
+
+    func testDetectsEternalTerminalSessionStripsNativeJumpHostServerPortForSCP() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "--jumphost", "relay@bastion.example.com:2022",
+                    "lawrence@example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.jumpHost, "relay@bastion.example.com")
+
+        let scpArgs = session?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        ) ?? []
+        XCTAssertNil(session?.port)
+        XCTAssertFalse(scpArgs.contains("-P"))
+        XCTAssertTrue(scpArgs.contains("-J"))
+        XCTAssertTrue(scpArgs.contains("relay@bastion.example.com"))
+        XCTAssertFalse(scpArgs.contains("relay@bastion.example.com:2022"))
+        XCTAssertEqual(scpArgs.last, "lawrence@example.com:/tmp/cmux-drop-123.png")
+    }
+
+    func testDetectsEternalTerminalSessionSSHOptionsForSCP() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "--ssh-option", "Port=2200",
+                    "--ssh-option=IdentityFile=/Users/test/.ssh/id_ed25519",
+                    "--ssh-option", "ControlPath=/tmp/cmux-ssh-%C",
+                    "--ssh-option", "StrictHostKeyChecking=accept-new",
+                    "--jumphost", "bastion.example.com",
+                    "--command", "uptime",
+                    "-x",
+                    "lawrence@example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(
+            session,
+            DetectedSSHSession(
+                destination: "lawrence@example.com",
+                port: 2200,
+                identityFile: "/Users/test/.ssh/id_ed25519",
+                configFile: nil,
+                jumpHost: "bastion.example.com",
+                controlPath: "/tmp/cmux-ssh-%C",
+                useIPv4: false,
+                useIPv6: false,
+                forwardAgent: false,
+                compressionEnabled: false,
+                sshOptions: [
+                    "StrictHostKeyChecking=accept-new",
+                ]
+            )
+        )
+    }
+
     func testDaemonTransportArgumentsReuseConfiguredControlPath() {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -1547,6 +3031,43 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(arguments.contains("forward"))
         XCTAssertTrue(arguments.contains("-R"))
         XCTAssertTrue(arguments.contains("127.0.0.1:64007:127.0.0.1:54321"))
+        XCTAssertTrue(arguments.contains("cmux-macmini"))
+    }
+
+    func testReverseRelayControlMasterCancelArgumentsUseRemoteListenPortOnly() throws {
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 2222,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-%C",
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        let arguments = try XCTUnwrap(
+            WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterCancelArguments(
+                configuration: configuration,
+                relayPort: 64007
+            )
+        )
+
+        XCTAssertFalse(arguments.contains("-S"))
+        XCTAssertTrue(arguments.contains("ControlMaster=no"))
+        XCTAssertTrue(arguments.contains("ControlPath=/tmp/cmux-ssh-%C"))
+        XCTAssertTrue(arguments.contains("-O"))
+        XCTAssertTrue(arguments.contains("cancel"))
+        XCTAssertTrue(arguments.contains("-R"))
+        XCTAssertTrue(arguments.contains("127.0.0.1:64007"))
+        XCTAssertFalse(arguments.contains(where: { $0.hasPrefix("127.0.0.1:64007:127.0.0.1:") }))
         XCTAssertTrue(arguments.contains("cmux-macmini"))
     }
 
@@ -1724,6 +3245,254 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let timedOut: Bool
     }
 
+    private struct PTYAttachCall {
+        let sessionID: String
+        let attachmentID: String
+        let command: String?
+        let requireExisting: Bool
+    }
+
+    private final class ImmediateExitPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+        private let lock = NSLock()
+        private var recordedAttachCalls: [PTYAttachCall] = []
+
+        var attachCalls: [PTYAttachCall] {
+            lock.lock()
+            defer { lock.unlock() }
+            return recordedAttachCalls
+        }
+
+        func attachBridgePTY(
+            sessionID: String,
+            attachmentID: String,
+            cols: Int,
+            rows: Int,
+            command: String?,
+            requireExisting: Bool,
+            queue: DispatchQueue,
+            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
+        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            lock.lock()
+            recordedAttachCalls.append(PTYAttachCall(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command,
+                requireExisting: requireExisting
+            ))
+            lock.unlock()
+            queue.async {
+                onEvent(.exit)
+            }
+            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "immediate-token")
+        }
+
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
+            completion(nil)
+        }
+        func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
+    }
+
+    private final class ImmediateOutputThenExitPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+        func attachBridgePTY(
+            sessionID: String,
+            attachmentID: String,
+            cols: Int,
+            rows: Int,
+            command: String?,
+            requireExisting: Bool,
+            queue: DispatchQueue,
+            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
+        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            queue.async {
+                onEvent(.data(Data("early-output".utf8)))
+                onEvent(.exit)
+            }
+            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "immediate-output-token")
+        }
+
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
+            completion(nil)
+        }
+        func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
+    }
+
+    private final class FloodPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+        let detachSemaphore = DispatchSemaphore(value: 0)
+
+        func attachBridgePTY(
+            sessionID: String,
+            attachmentID: String,
+            cols: Int,
+            rows: Int,
+            command: String?,
+            requireExisting: Bool,
+            queue: DispatchQueue,
+            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
+        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            queue.async {
+                let chunk = Data(repeating: 0x78, count: 64 * 1024)
+                for _ in 0..<512 {
+                    onEvent(.data(chunk))
+                }
+            }
+            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "flood-token")
+        }
+
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
+            completion(nil)
+        }
+
+        func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {
+            detachSemaphore.signal()
+        }
+    }
+
+    private final class DelayedOutputPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+        let detachSemaphore = DispatchSemaphore(value: 0)
+
+        private let attachStarted: DispatchSemaphore?
+        private let attachGate: DispatchSemaphore?
+        private let lock = NSLock()
+        private var queue: DispatchQueue?
+        private var onEvent: ((WorkspaceRemotePTYBridgeEvent) -> Void)?
+        private var didEmit = false
+
+        init(attachStarted: DispatchSemaphore? = nil, attachGate: DispatchSemaphore? = nil) {
+            self.attachStarted = attachStarted
+            self.attachGate = attachGate
+        }
+
+        func attachBridgePTY(
+            sessionID: String,
+            attachmentID: String,
+            cols: Int,
+            rows: Int,
+            command: String?,
+            requireExisting: Bool,
+            queue: DispatchQueue,
+            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
+        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            attachStarted?.signal()
+            if let attachGate {
+                _ = attachGate.wait(timeout: .now() + 2)
+            }
+            lock.lock()
+            self.queue = queue
+            self.onEvent = onEvent
+            lock.unlock()
+            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "delayed-token")
+        }
+
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
+            guard String(data: data, encoding: .utf8)?.contains("after-half-close-input") == true else {
+                completion(nil)
+                return
+            }
+
+            let emitQueue: DispatchQueue?
+            let emitEvent: ((WorkspaceRemotePTYBridgeEvent) -> Void)?
+            lock.lock()
+            if didEmit {
+                emitQueue = nil
+                emitEvent = nil
+            } else {
+                didEmit = true
+                emitQueue = queue
+                emitEvent = onEvent
+            }
+            lock.unlock()
+
+            emitQueue?.async {
+                emitEvent?(.data(Data("after-half-close-output\n".utf8)))
+                emitEvent?(.exit)
+            }
+            completion(nil)
+        }
+
+        func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {
+            detachSemaphore.signal()
+        }
+    }
+
+    private final class DeferredWriteCompletionPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+        private let lock = NSLock()
+        private var completions: [(Error?) -> Void] = []
+
+        let firstWrite = DispatchSemaphore(value: 0)
+        let secondWrite = DispatchSemaphore(value: 0)
+
+        func attachBridgePTY(
+            sessionID: String,
+            attachmentID: String,
+            cols: Int,
+            rows: Int,
+            command: String?,
+            requireExisting: Bool,
+            queue: DispatchQueue,
+            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
+        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "deferred-token")
+        }
+
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
+            let writeCount: Int
+            lock.lock()
+            completions.append(completion)
+            writeCount = completions.count
+            lock.unlock()
+
+            if writeCount == 1 {
+                firstWrite.signal()
+            } else if writeCount == 2 {
+                secondWrite.signal()
+            }
+        }
+
+        func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
+
+        func completeWrites() {
+            let pending: [(Error?) -> Void]
+            lock.lock()
+            pending = completions
+            completions.removeAll()
+            lock.unlock()
+
+            for completion in pending {
+                completion(nil)
+            }
+        }
+    }
+
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private let commandSemaphore = DispatchSemaphore(value: 0)
@@ -1803,27 +3572,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     private func bundledCLIPath() throws -> String {
-        let fileManager = FileManager.default
-        let appBundleURL = Bundle(for: Self.self)
-            .bundleURL
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let enumerator = fileManager.enumerator(
-            at: appBundleURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-
-        while let item = enumerator?.nextObject() as? URL {
-            guard item.lastPathComponent == "cmux",
-                  item.path.contains(".app/Contents/Resources/bin/cmux") else {
-                continue
-            }
-            return item.path
-        }
-
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        try BundledCLITestSupport.bundledCLIPath(for: Self.self)
     }
 
     private func runProcess(
@@ -1879,6 +3628,47 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             stderr: stderr,
             timedOut: timedOut
         )
+    }
+
+    @MainActor
+    func testARunProcessCaptureSurvivesPipeReadHandleTeardown() throws {
+        let controller = WorkspaceRemoteSessionController(
+            workspace: Workspace(),
+            configuration: WorkspaceRemoteConfiguration(
+                destination: "test@example.invalid",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: nil,
+                terminalStartupCommand: nil
+            ),
+            controllerID: UUID()
+        )
+
+        let didCloseReadHandles = DispatchSemaphore(value: 0)
+        WorkspaceRemoteSessionController.runProcessReadHandlesDidInstallForTesting = { stdoutHandle, stderrHandle in
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
+            didCloseReadHandles.signal()
+        }
+        defer {
+            WorkspaceRemoteSessionController.runProcessReadHandlesDidInstallForTesting = nil
+        }
+
+        let result = try controller.runProcessForTesting(
+            executable: "/usr/bin/true",
+            arguments: [],
+            timeout: 2
+        )
+
+        XCTAssertEqual(didCloseReadHandles.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(result.status, 0)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertEqual(result.stderr, "")
     }
 
     func testAgentHookLaunchEnvironmentDoesNotPersistPathOrShell() throws {
@@ -3504,6 +5294,347 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    func testPTYBridgeFlushesReadyBeforeImmediateExit() throws {
+        let rpcClient = ImmediateExitPTYBridgeRPC()
+        let stopped = DispatchSemaphore(value: 0)
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-short-lived",
+            attachmentID: "attachment-short-lived",
+            command: "printf done",
+            requireExisting: true
+        ) {
+            stopped.signal()
+        }
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            Darwin.close(fd)
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+            "client_pid": Int(getpid()),
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\n", to: fd))
+
+        let responseData = try readUntilEOF(from: fd, timeout: 2)
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
+        let responseText = String(data: responseData, encoding: .utf8) ?? ""
+        let responseLines = responseText.split(separator: "\n").map(String.init)
+        let firstPayload = try XCTUnwrap(responseLines.first?.data(using: .utf8))
+        let firstJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: firstPayload, options: []) as? [String: Any]
+        )
+        XCTAssertEqual(firstJSON["type"] as? String, "ready", "Expected ready frame first, saw \(responseText)")
+        XCTAssertEqual(rpcClient.attachCalls.count, 1)
+        XCTAssertEqual(rpcClient.attachCalls.first?.sessionID, "session-short-lived")
+        XCTAssertEqual(rpcClient.attachCalls.first?.attachmentID, "attachment-short-lived")
+        XCTAssertEqual(rpcClient.attachCalls.first?.command, "printf done")
+        XCTAssertEqual(rpcClient.attachCalls.first?.requireExisting, true)
+    }
+
+    func testPTYBridgeBuffersOutputUntilReadyFrame() throws {
+        let rpcClient = ImmediateOutputThenExitPTYBridgeRPC()
+        let stopped = DispatchSemaphore(value: 0)
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-early-output",
+            attachmentID: "attachment-early-output",
+            command: nil,
+            requireExisting: true
+        ) {
+            stopped.signal()
+        }
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            Darwin.close(fd)
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\n", to: fd))
+
+        let responseData = try readUntilEOF(from: fd, timeout: 2)
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
+        let responseText = String(data: responseData, encoding: .utf8) ?? ""
+        let responseLines = responseText.split(separator: "\n", maxSplits: 1).map(String.init)
+        let firstPayload = try XCTUnwrap(responseLines.first?.data(using: .utf8))
+        let firstJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: firstPayload, options: []) as? [String: Any]
+        )
+        XCTAssertEqual(firstJSON["type"] as? String, "ready", responseText)
+        XCTAssertTrue(responseText.contains("early-output"), responseText)
+    }
+
+    func testPTYBridgeForwardsInputWithoutWaitingForWriteCompletion() throws {
+        let rpcClient = DeferredWriteCompletionPTYBridgeRPC()
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-input-completion",
+            attachmentID: "attachment-input-completion",
+            command: nil,
+            requireExisting: false
+        ) {}
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            rpcClient.completeWrites()
+            Darwin.close(fd)
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\n", to: fd))
+
+        let readyLine = try readLine(from: fd, timeout: 2)
+        XCTAssertTrue(readyLine.contains("\"ready\""), readyLine)
+
+        XCTAssertTrue(writeAll("a", to: fd))
+        XCTAssertEqual(rpcClient.firstWrite.wait(timeout: .now() + 2), .success)
+        XCTAssertTrue(writeAll("b", to: fd))
+        XCTAssertEqual(
+            rpcClient.secondWrite.wait(timeout: .now() + 1.0),
+            .success,
+            "Bridge input forwarding should not wait for the prior pty.write response"
+        )
+        rpcClient.completeWrites()
+    }
+
+    func testPTYBridgeStopRetainsServerUntilCleanupRuns() throws {
+        let rpcClient = ImmediateExitPTYBridgeRPC()
+        let stopped = DispatchSemaphore(value: 0)
+        var server: WorkspaceRemotePTYBridgeServer? = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-stop-retain",
+            attachmentID: "attachment-stop-retain",
+            command: nil,
+            requireExisting: false
+        ) {
+            stopped.signal()
+        }
+        guard let endpoint = try server?.start() else {
+            return XCTFail("Failed to start PTY bridge server")
+        }
+        XCTAssertGreaterThan(endpoint.port, 0)
+
+        server?.stop()
+        server = nil
+
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
+    }
+
+    func testPTYBridgeKeepsOutputOpenAfterClientHalfClose() throws {
+        let rpcClient = DelayedOutputPTYBridgeRPC()
+        let stopped = DispatchSemaphore(value: 0)
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-half-close",
+            attachmentID: "attachment-half-close",
+            command: nil,
+            requireExisting: false
+        ) {
+            stopped.signal()
+        }
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            Darwin.close(fd)
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\nafter-half-close-input", to: fd))
+        XCTAssertEqual(Darwin.shutdown(fd, SHUT_WR), 0)
+
+        let responseData = try readUntilEOF(from: fd, timeout: 2)
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
+        let responseText = String(data: responseData, encoding: .utf8) ?? ""
+        XCTAssertTrue(responseText.contains("\"ready\""), responseText)
+        XCTAssertTrue(responseText.contains("after-half-close-output"), responseText)
+        XCTAssertEqual(rpcClient.detachSemaphore.wait(timeout: .now() + 0.1), .timedOut)
+    }
+
+    func testPTYBridgeKeepsOutputOpenAfterClientHalfCloseWithoutPID() throws {
+        let rpcClient = DelayedOutputPTYBridgeRPC()
+        let stopped = DispatchSemaphore(value: 0)
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-half-close-no-pid",
+            attachmentID: "attachment-half-close-no-pid",
+            command: nil,
+            requireExisting: false
+        ) {
+            stopped.signal()
+        }
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            Darwin.close(fd)
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\nafter-half-close-input", to: fd))
+        XCTAssertEqual(Darwin.shutdown(fd, SHUT_WR), 0)
+
+        let responseData = try readUntilEOF(from: fd, timeout: 2)
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
+        let responseText = String(data: responseData, encoding: .utf8) ?? ""
+        XCTAssertTrue(responseText.contains("\"ready\""), responseText)
+        XCTAssertTrue(responseText.contains("after-half-close-output"), responseText)
+        XCTAssertEqual(rpcClient.detachSemaphore.wait(timeout: .now() + 0.1), .timedOut)
+    }
+
+    func testPTYBridgeDefersHalfCloseUntilAttachCompletes() throws {
+        let attachStarted = DispatchSemaphore(value: 0)
+        let attachGate = DispatchSemaphore(value: 0)
+        let rpcClient = DelayedOutputPTYBridgeRPC(attachStarted: attachStarted, attachGate: attachGate)
+        let stopped = DispatchSemaphore(value: 0)
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-half-close-before-attach",
+            attachmentID: "attachment-half-close-before-attach",
+            command: nil,
+            requireExisting: false
+        ) {
+            stopped.signal()
+        }
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            Darwin.close(fd)
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+            "client_pid": Int(getpid()),
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\nafter-half-close-input", to: fd))
+        XCTAssertEqual(attachStarted.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(Darwin.shutdown(fd, SHUT_WR), 0)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+        attachGate.signal()
+
+        let responseData = try readUntilEOF(from: fd, timeout: 2)
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
+        let responseText = String(data: responseData, encoding: .utf8) ?? ""
+        XCTAssertTrue(responseText.contains("\"ready\""), responseText)
+        XCTAssertTrue(responseText.contains("after-half-close-output"), responseText)
+        XCTAssertEqual(rpcClient.detachSemaphore.wait(timeout: .now() + 0.1), .timedOut)
+    }
+
+    func testPTYBridgeDetachesWhenClientSocketClosesAfterAttach() throws {
+        let rpcClient = DelayedOutputPTYBridgeRPC()
+        let stopped = DispatchSemaphore(value: 0)
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-client-close",
+            attachmentID: "attachment-client-close",
+            command: nil,
+            requireExisting: false
+        ) {
+            stopped.signal()
+        }
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+            "client_pid": Int(Int32.max),
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            Darwin.close(fd)
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\n", to: fd))
+        let readyLine = try readLine(from: fd, timeout: 2)
+        XCTAssertTrue(readyLine.contains("\"ready\""), readyLine)
+
+        Darwin.close(fd)
+        XCTAssertEqual(rpcClient.detachSemaphore.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
+    }
+
+    func testPTYBridgeClosesBackpressuredOutput() throws {
+        let rpcClient = FloodPTYBridgeRPC()
+        let stopped = DispatchSemaphore(value: 0)
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-output-flood",
+            attachmentID: "attachment-output-flood",
+            command: nil,
+            requireExisting: false
+        ) {
+            stopped.signal()
+        }
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            Darwin.close(fd)
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\n", to: fd))
+
+        XCTAssertEqual(rpcClient.detachSemaphore.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
+    }
+
     private func codexSessionDirectory(in codexHome: URL, date: Date = Date()) throws -> URL {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
@@ -3577,6 +5708,106 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         return fd
+    }
+
+    private func connectLoopbackTCP(port: Int) throws -> Int32 {
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw posixError("socket(AF_INET)")
+        }
+        do {
+            try configureSocketTimeout(fd, option: SO_RCVTIMEO, timeout: 2)
+            try configureSocketTimeout(fd, option: SO_SNDTIMEO, timeout: 2)
+
+            var addr = sockaddr_in()
+            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = in_port_t(UInt16(port).bigEndian)
+            addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+            let connectResult = withUnsafePointer(to: &addr) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            guard connectResult == 0 else {
+                throw posixError("connect(127.0.0.1:\(port))")
+            }
+            return fd
+        } catch {
+            Darwin.close(fd)
+            throw error
+        }
+    }
+
+    private func readUntilEOF(from fd: Int32, timeout: TimeInterval) throws -> Data {
+        try configureSocketTimeout(fd, option: SO_RCVTIMEO, timeout: timeout)
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count > 0 {
+                data.append(buffer, count: count)
+                continue
+            }
+            if count == 0 {
+                return data
+            }
+            if errno == EINTR {
+                continue
+            }
+            throw posixError("read bridge response")
+        }
+    }
+
+    private func readLine(from fd: Int32, timeout: TimeInterval) throws -> String {
+        try configureSocketTimeout(fd, option: SO_RCVTIMEO, timeout: timeout)
+        var data = Data()
+        var byte = [UInt8](repeating: 0, count: 1)
+        while true {
+            let count = Darwin.read(fd, &byte, 1)
+            if count > 0 {
+                if byte[0] == 0x0A {
+                    return String(data: data, encoding: .utf8) ?? ""
+                }
+                data.append(byte[0])
+                continue
+            }
+            if count == 0 {
+                return String(data: data, encoding: .utf8) ?? ""
+            }
+            if errno == EINTR {
+                continue
+            }
+            throw posixError("read bridge line")
+        }
+    }
+
+    private func configureSocketTimeout(_ fd: Int32, option: Int32, timeout: TimeInterval) throws {
+        let normalizedTimeout = max(timeout, 0)
+        let seconds = floor(normalizedTimeout)
+        let microseconds = (normalizedTimeout - seconds) * 1_000_000
+        var socketTimeout = timeval(tv_sec: Int(seconds), tv_usec: Int32(microseconds.rounded()))
+        let result = withUnsafePointer(to: &socketTimeout) { ptr in
+            Darwin.setsockopt(
+                fd,
+                SOL_SOCKET,
+                option,
+                ptr,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+        }
+        guard result == 0 else {
+            throw posixError("setsockopt")
+        }
+    }
+
+    private func posixError(_ operation: String) -> NSError {
+        NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(errno),
+            userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(String(cString: strerror(errno)))"]
+        )
     }
 
     private func startMockServer(

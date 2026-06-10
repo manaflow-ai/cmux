@@ -9,9 +9,57 @@ import XCTest
 #endif
 
 final class SidebarWidthPolicyTests: XCTestCase {
-    func testContentViewClampAllowsNarrowSidebarBelowLegacyMinimum() {
+    func testDefaultMinimumSidebarWidthIsPersistedProductDefault() {
+        let suiteName = "SidebarWidthPolicyTests.defaultMinimum.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(
+            SessionPersistencePolicy.defaultMinimumSidebarWidth,
+            216,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults),
+            216,
+            accuracy: 0.001
+        )
+    }
+
+    func testContentViewClampKeepsMinimumSidebarWidth() {
         XCTAssertEqual(
             ContentView.clampedSidebarWidth(184, maximumWidth: 600),
+            CGFloat(SessionPersistencePolicy.minimumSidebarWidth),
+            accuracy: 0.001
+        )
+    }
+
+    func testContentViewClampCanUseSmallerConfiguredMinimumSidebarWidth() {
+        XCTAssertEqual(
+            ContentView.clampedSidebarWidth(184, maximumWidth: 600, minimumWidth: 160),
+            184,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ContentView.clampedSidebarWidth(140, maximumWidth: 600, minimumWidth: 160),
+            160,
+            accuracy: 0.001
+        )
+    }
+
+    func testSessionPersistenceReadsConfiguredMinimumSidebarWidth() {
+        let suiteName = "SidebarWidthPolicyTests.minimumSidebarWidth.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(160.0, forKey: SessionPersistencePolicy.sidebarMinimumWidthKey)
+        XCTAssertEqual(
+            SessionPersistencePolicy.sanitizedSidebarWidth(140, defaults: defaults),
+            160,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            SessionPersistencePolicy.sanitizedSidebarWidth(184, defaults: defaults),
             184,
             accuracy: 0.001
         )

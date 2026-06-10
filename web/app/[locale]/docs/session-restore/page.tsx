@@ -42,6 +42,9 @@ export default function SessionRestorePage() {
       <p>{t("agentResumeDesc")}</p>
       <CodeBlock lang="bash">{`cmux hooks setup
 cmux hooks setup codex
+cmux hooks setup grok
+cmux hooks setup antigravity
+cmux hooks setup omp
 cmux hooks setup --agent opencode`}</CodeBlock>
       <p>{t("setupBehavior")}</p>
 
@@ -76,6 +79,12 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
             <td>{t("feedPreToolUsePermissionRequest")}</td>
           </tr>
           <tr>
+            <td>Grok / Grok Build CLI</td>
+            <td><code>grok</code></td>
+            <td><code>grok -r &lt;id&gt;</code></td>
+            <td>{t("feedPreToolUse")}</td>
+          </tr>
+          <tr>
             <td>OpenCode</td>
             <td><code>opencode</code></td>
             <td><code>opencode --session &lt;id&gt;</code></td>
@@ -85,6 +94,12 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
             <td>Pi</td>
             <td><code>pi</code></td>
             <td><code>pi --session &lt;id&gt;</code></td>
+            <td>{t("none")}</td>
+          </tr>
+          <tr>
+            <td>OMP</td>
+            <td><code>omp</code></td>
+            <td><code>omp --session &lt;id&gt;</code></td>
             <td>{t("none")}</td>
           </tr>
           <tr>
@@ -106,10 +121,22 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
             <td>{t("feedPreToolUse")}</td>
           </tr>
           <tr>
+            <td>Antigravity CLI</td>
+            <td><code>agy</code></td>
+            <td><code>agy --conversation &lt;id&gt;</code></td>
+            <td>{t("feedPrePostToolUse")}</td>
+          </tr>
+          <tr>
             <td>Rovo Dev</td>
             <td><code>acli</code></td>
             <td><code>acli rovodev run --restore &lt;id&gt;</code></td>
             <td>{t("none")}</td>
+          </tr>
+          <tr>
+            <td>Hermes Agent</td>
+            <td><code>hermes</code></td>
+            <td><code>hermes --resume &lt;id&gt;</code></td>
+            <td>{t("feedHermes")}</td>
           </tr>
           <tr>
             <td>Copilot</td>

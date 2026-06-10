@@ -15,6 +15,8 @@ extension ContentView {
             return .openFolder
         case "palette.reopenPreviousSession":
             return .reopenPreviousSession
+        case "palette.reopenClosedBrowserTab":
+            return .reopenClosedBrowserPanel
         case "palette.newTerminalTab":
             return .newSurface
         case "palette.newBrowserTab":
@@ -71,6 +73,12 @@ extension ContentView {
             return .hideFind
         case "palette.terminalUseSelectionForFind":
             return .useSelectionForFind
+        case "palette.terminalFocusTextBoxInput":
+            return .focusTextBoxInput
+        case "palette.terminalAttachTextBoxFile":
+            return .attachTextBoxFile
+        case "palette.terminalSendCtrlF":
+            return .sendCtrlFToTerminal
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
         case "palette.equalizeSplits":
@@ -88,9 +96,10 @@ extension ContentView {
         }
 
         return RightSidebarMode.availableModes().map { mode in
-            CommandPaletteCommandContribution(
+            let title = mode.shortcutAction?.label ?? mode.label
+            return CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
-                title: constant(mode.shortcutAction.label),
+                title: constant(title),
                 subtitle: constant(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
                 keywords: ["right", "sidebar", "show", "switch", "focus", mode.rawValue]
             )
@@ -187,8 +196,11 @@ extension ContentView {
     private static func commandPaletteRightSidebarModeShortcutAction(
         forCommandID commandID: String
     ) -> KeyboardShortcutSettings.Action? {
-        RightSidebarMode.availableModes().first { mode in
+        guard let mode = RightSidebarMode.availableModes().first(where: { mode in
             Self.commandPaletteRightSidebarModeCommandID(mode) == commandID
-        }?.shortcutAction
+        }) else {
+            return nil
+        }
+        return mode.shortcutAction
     }
 }

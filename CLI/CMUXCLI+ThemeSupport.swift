@@ -30,7 +30,7 @@ extension CMUXCLI {
         return themes.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
-    private func themeDirectoryURLs() -> [URL] {
+    func themeDirectoryURLs() -> [URL] {
         let fileManager = FileManager.default
         let processEnv = ProcessInfo.processInfo.environment
         var urls: [URL] = []
@@ -91,14 +91,14 @@ extension CMUXCLI {
         if let xdgDataDirs = processEnv["XDG_DATA_DIRS"] {
             for dataDir in xdgDataDirs.split(separator: ":").map(String.init).filter({ !$0.isEmpty }) {
                 appendIfExisting(
-                    URL(fileURLWithPath: NSString(string: dataDir).expandingTildeInPath, isDirectory: true)
+                    homeExpandedURL(dataDir, isDirectory: true)
                         .appendingPathComponent("ghostty/themes", isDirectory: true)
                 )
             }
         }
 
         appendIfExisting(URL(fileURLWithPath: "/Applications/Ghostty.app/Contents/Resources/ghostty/themes", isDirectory: true))
-        appendIfExisting(URL(fileURLWithPath: NSString(string: "~/.config/ghostty/themes").expandingTildeInPath, isDirectory: true))
+        appendIfExisting(homeExpandedURL("~/.config/ghostty/themes", isDirectory: true))
         for appSupportDirectory in CmuxApplicationSupportDirectories.userDirectories(environment: processEnv) {
             appendIfExisting(
                 appSupportDirectory
@@ -107,12 +107,7 @@ extension CMUXCLI {
             )
         }
         appendIfExisting(
-            URL(
-                fileURLWithPath: NSString(
-                    string: "~/Library/Application Support/com.mitchellh.ghostty/themes"
-                ).expandingTildeInPath,
-                isDirectory: true
-            )
+            homeExpandedURL("~/Library/Application Support/com.mitchellh.ghostty/themes", isDirectory: true)
         )
 
         return urls
@@ -179,7 +174,18 @@ extension CMUXCLI {
     }
 
     private func configURL(_ rawPath: String) -> URL {
-        URL(fileURLWithPath: NSString(string: rawPath).expandingTildeInPath, isDirectory: false)
+        homeExpandedURL(rawPath, isDirectory: false)
+    }
+
+    private func homeExpandedURL(_ rawPath: String, isDirectory: Bool) -> URL {
+        if rawPath.hasPrefix("~/"),
+           let home = ProcessInfo.processInfo.environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !home.isEmpty {
+            let relativePath = String(rawPath.dropFirst(2))
+            return URL(fileURLWithPath: home, isDirectory: true)
+                .appendingPathComponent(relativePath, isDirectory: isDirectory)
+        }
+        return URL(fileURLWithPath: NSString(string: rawPath).expandingTildeInPath, isDirectory: isDirectory)
     }
 
     private func shouldLoadLegacyGhosttyConfig(

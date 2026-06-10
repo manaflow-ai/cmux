@@ -113,7 +113,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             latestLog: nil,
             progress: nil,
             compactGitBranchSummaryText: nil,
-            compactBranchDirectoryRow: nil,
+            compactDirectoryCandidates: [],
+            compactBranchDirectoryCandidates: [],
             branchDirectoryLines: [],
             branchLinesContainBranch: false,
             pullRequestRows: [],
@@ -125,6 +126,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         showsWorkspaceDescription: Bool = true,
         usesVerticalBranchLayout: Bool = true,
         showsGitBranch: Bool = true,
+        usesViewportAwarePath: Bool = false,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
             showsMetadata: true,
             showsLog: true,
@@ -138,6 +140,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             showsWorkspaceDescription: showsWorkspaceDescription,
             usesVerticalBranchLayout: usesVerticalBranchLayout,
             showsGitBranch: showsGitBranch,
+            usesViewportAwarePath: usesViewportAwarePath,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
@@ -203,72 +206,50 @@ final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
             )
         )
     }
-}
 
-final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
-    func testFrozenContextMenuPresentationDoesNotSuppressLiveNotificationState() {
-        let tabId = UUID()
-        let frozen = SidebarTabItemPresentationSnapshot(
-            tabId: tabId,
-            unreadCount: 0,
-            latestNotificationText: nil,
-            showsModifierShortcutHints: true
+    func testScrollTargetIsSelfWithoutGroup() {
+        let workspaceId = UUID()
+        XCTAssertEqual(
+            SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+                selectedWorkspaceId: workspaceId,
+                group: nil
+            ),
+            workspaceId
         )
-        let live = SidebarTabItemPresentationSnapshot(
-            tabId: tabId,
-            unreadCount: 1,
-            latestNotificationText: "done",
-            showsModifierShortcutHints: false
-        )
-
-        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
-            live: live,
-            frozen: frozen
-        )
-
-        XCTAssertEqual(resolved.unreadCount, 1)
-        XCTAssertEqual(resolved.latestNotificationText, "done")
-        XCTAssertTrue(resolved.showsModifierShortcutHints)
     }
 
-    func testNoFrozenPresentationUsesLiveSnapshot() {
-        let live = SidebarTabItemPresentationSnapshot(
-            tabId: UUID(),
-            unreadCount: 2,
-            latestNotificationText: "live",
-            showsModifierShortcutHints: true
+    func testScrollTargetIsSelfInExpandedGroup() {
+        let workspaceId = UUID()
+        XCTAssertEqual(
+            SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+                selectedWorkspaceId: workspaceId,
+                group: makeGroup(isCollapsed: false, anchorWorkspaceId: UUID())
+            ),
+            workspaceId
         )
-
-        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
-            live: live,
-            frozen: nil
-        )
-
-        XCTAssertEqual(resolved, live)
     }
 
-    func testNonMatchingTabIdUsesLiveShortcutHints() {
-        let frozen = SidebarTabItemPresentationSnapshot(
-            tabId: UUID(),
-            unreadCount: 0,
-            latestNotificationText: nil,
-            showsModifierShortcutHints: true
+    func testScrollTargetIsGroupAnchorWhenGroupIsCollapsed() {
+        let anchorId = UUID()
+        XCTAssertEqual(
+            SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+                selectedWorkspaceId: UUID(),
+                group: makeGroup(isCollapsed: true, anchorWorkspaceId: anchorId)
+            ),
+            anchorId
         )
-        let live = SidebarTabItemPresentationSnapshot(
-            tabId: UUID(),
-            unreadCount: 1,
-            latestNotificationText: "done",
-            showsModifierShortcutHints: false
-        )
+    }
 
-        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
-            live: live,
-            frozen: frozen
+    private func makeGroup(isCollapsed: Bool, anchorWorkspaceId: UUID) -> WorkspaceGroup {
+        WorkspaceGroup(
+            id: UUID(),
+            name: "group",
+            isCollapsed: isCollapsed,
+            isPinned: false,
+            anchorWorkspaceId: anchorWorkspaceId,
+            customColor: nil,
+            iconSymbol: nil
         )
-
-        XCTAssertEqual(resolved.unreadCount, 1)
-        XCTAssertEqual(resolved.latestNotificationText, "done")
-        XCTAssertFalse(resolved.showsModifierShortcutHints)
     }
 }
 

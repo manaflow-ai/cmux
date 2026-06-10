@@ -151,4 +151,61 @@ struct OAuthTests {
         
         #expect(result.redirectUrl == customUrl)
     }
+
+    @Test("Should reject non-HTTPS provider authorization locations")
+    func rejectsNonHttpsProviderAuthorizationLocations() throws {
+        let providerUrl = try StackClientApp.validatedOAuthProviderAuthorizationUrl(
+            from: "https://accounts.google.com/o/oauth2/v2/auth"
+        )
+        #expect(providerUrl.scheme == "https")
+
+        do {
+            _ = try StackClientApp.validatedOAuthProviderAuthorizationUrl(from: "http://accounts.google.com/oauth")
+            Issue.record("Expected HTTP provider authorization URL to be rejected")
+        } catch let error as OAuthError {
+            #expect(error.code == "invalid_url")
+        }
+
+        do {
+            _ = try StackClientApp.validatedOAuthProviderAuthorizationUrl(from: "not-a-url")
+            Issue.record("Expected relative provider authorization URL to be rejected")
+        } catch let error as OAuthError {
+            #expect(error.code == "invalid_url")
+        }
+
+        do {
+            _ = try StackClientApp.validatedOAuthProviderAuthorizationUrl(from: "https://accounts.google.com%0d%0aevil.com/")
+            Issue.record("Expected control-character provider authorization host to be rejected")
+        } catch let error as OAuthError {
+            #expect(error.code == "invalid_url")
+        }
+
+        do {
+            _ = try StackClientApp.validatedOAuthProviderAuthorizationUrl(from: "https://user@example.com/oauth")
+            Issue.record("Expected user-info provider authorization URL to be rejected")
+        } catch let error as OAuthError {
+            #expect(error.code == "invalid_url")
+        }
+
+        do {
+            _ = try StackClientApp.validatedOAuthProviderAuthorizationUrl(from: "https://accounts.google.com%2fevil.com/oauth")
+            Issue.record("Expected encoded host separator in provider authorization URL to be rejected")
+        } catch let error as OAuthError {
+            #expect(error.code == "invalid_url")
+        }
+
+        do {
+            _ = try StackClientApp.validatedOAuthProviderAuthorizationUrl(from: "https://accounts.google.com%252fevil.com/oauth")
+            Issue.record("Expected double-encoded host separator in provider authorization URL to be rejected")
+        } catch let error as OAuthError {
+            #expect(error.code == "invalid_url")
+        }
+
+        do {
+            _ = try StackClientApp.validatedOAuthProviderAuthorizationUrl(from: "https://accounts.google.com%2540evil.com/oauth")
+            Issue.record("Expected double-encoded user-info separator in provider authorization URL to be rejected")
+        } catch let error as OAuthError {
+            #expect(error.code == "invalid_url")
+        }
+    }
 }

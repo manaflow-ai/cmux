@@ -26,6 +26,186 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.14": {
+    title:
+      "iPhone Companion App (Beta), Cross-Window Workspace Drag, Out-of-Process Custom Sidebars",
+    features: [
+      {
+        title: "iPhone Companion App (Beta)",
+        description:
+          "Pair an iPhone with your Mac from the new Mobile Connect window and attach to your terminals from your phone, with opt-in forwarding of terminal notifications. The iOS beta ships on TestFlight as cmux BETA.",
+      },
+      {
+        title: "Cross-Window Workspace Drag",
+        description:
+          "Drag a workspace out of one window's sidebar and drop it into another window's sidebar to move it, including grouped workspaces.",
+      },
+      {
+        title: "Out-of-Process Custom Sidebars",
+        description:
+          "Custom sidebar extensions now run in their own process with an isolated interpreter, so a broken sidebar can't hang or crash cmux, and the interpreter covers a broader set of SwiftUI primitives.",
+      },
+      {
+        title: "Browser Polish",
+        description:
+          "The omnibar selects the whole URL on the first focusing click (Chrome parity), browser chrome scales with the tab bar font size, a typing beachball with large histories is fixed, and hidden panes no longer stop actively-playing audio or video.",
+      },
+      {
+        title: "Agent Session Fixes",
+        description:
+          "Claude resume keeps cmux hooks attached so notifications and status tracking survive resumes, Agent Hibernation works for node-backed Claude sessions, and Codex resume preserves CODEX_HOME and pane order.",
+      },
+    ],
+  },
+  "0.64.13": {
+    title:
+      "Browser Focus Mode, SSH Agent Forwarding, Custom Sidebars (Beta), Major Stability Fixes",
+    features: [
+      {
+        title: "Browser Focus Mode",
+        description:
+          "Browser panes get a focus mode that strips away the surrounding chrome so a single page can take over the pane while you read or work in it.",
+      },
+      {
+        title: "SSH Agent Forwarding",
+        description:
+          "`cmux ssh` now forwards your local SSH agent, so remote sessions can use your local keys for git pushes and further hops without copying private keys onto the remote.",
+      },
+      {
+        title: "Vibe-Codable Custom Sidebars (Beta)",
+        description:
+          "Build your own sidebar with a runtime Swift interpreter, behind the Beta Features flag. Edit the sidebar source, validate it from the CLI, and reload it live without rebuilding the app.",
+      },
+      {
+        title: "Browser Mouse Back & Forward",
+        description:
+          "The browser now responds to the dedicated back and forward buttons on a mouse, so side-button navigation works the way it does in a normal browser.",
+      },
+      {
+        title: "Major Stability & Performance Fixes",
+        description:
+          "Fixed a settings-observation leak that grew the app to 4.4 GB over a day, a browser render loop burning ~39% of the main thread on every CoreAnimation commit, a WebKit crash after sleep/wake, a 100% CPU hang in the Markdown and file-preview editor, and child processes launching under Rosetta on Apple Silicon.",
+      },
+    ],
+  },
+  "0.64.12": {
+    title:
+      "Diff Viewer Shortcut, Markdown Zoom, Prompt & Remote SSH Fixes",
+    features: [
+      {
+        title: "Diff Viewer Shortcut",
+        description:
+          "Open the diff viewer with a keyboard shortcut, configurable and editable in Settings alongside every other cmux shortcut.",
+      },
+      {
+        title: "Markdown Viewer Zoom",
+        description:
+          "The Markdown viewer gains font size and zoom controls, so you can scale rendered docs up or down without leaving the pane.",
+      },
+      {
+        title: "Feed Behind Beta Features",
+        description:
+          "The Feed is now gated behind Beta Features and off by default, mirroring how the Dock is gated, so it only appears when you opt in.",
+      },
+      {
+        title: "Prompt & Remote SSH Fixes",
+        description:
+          "Starship and other custom bash prompts no longer go static: the prompt bootstrap composes with your existing PROMPT_COMMAND instead of overwriting it. And `cmux ssh` now reports remote PTY allocation failures loudly instead of failing silently when a plain ssh would have worked.",
+      },
+      {
+        title: "Restored Sidebar Views & Scrollback Colors",
+        description:
+          "The right-click sidebar view switcher and built-in views (Default Workspaces, Project Worktrees, and others) are back after a 0.64.11 regression. Restored session scrollback no longer keeps a previous theme's colors, fixing white-on-white history after a theme change.",
+      },
+    ],
+  },
+  "0.64.11": {
+    title:
+      "Workspace Groups, Focus & Recently Closed History, Agent Hibernation, Detachable SSH",
+    features: [
+      {
+        title: "Workspace Groups",
+        description:
+          "Select sidebar workspaces and press ⌘⇧G to gather them under a collapsible header. Each group has an anchor workspace, its own color and icon, and an unread badge on the header. Drag workspaces in and out, reorder inside a group, and control where new workspaces land per group or via cmux.json. A full `cmux workspace-group` CLI namespace creates, colors, moves, focuses, and deletes groups from scripts.",
+      },
+      {
+        title: "Focus & Recently Closed History",
+        description:
+          "Navigate back and forward through recently focused workspaces and windows straight from the titlebar, with shortcut hints inline. A searchable Recently Closed history pane reopens surfaces you closed, restoring them to their original anchor.",
+      },
+      {
+        title: "Agent Hibernation",
+        description:
+          "Idle agent sessions hibernate to cut background CPU and memory, then restore on demand with their state intact, so a sidebar full of agents stops competing for resources while you work in one.",
+      },
+      {
+        title: "Detachable SSH PTY Daemon",
+        description:
+          "Remote SSH sessions now run behind a detachable PTY daemon that keeps the session alive across reconnects, so a dropped network connection no longer kills your remote workspace.",
+      },
+      {
+        title: "Font Size Controls & Notifications Redesign",
+        description:
+          "The sidebar workspace font size and the workspace tab bar font size (capped at 14pt) are both configurable. The notifications popover was redesigned bigger and more minimal with swipe-to-dismiss, and now uses Hermes hook payloads for richer agent notifications.",
+      },
+      {
+        title: "Fork Conversation, Browser Mute, Diff Viewer",
+        description:
+          "Fork Conversation moves into the tab right-click menu with configurable destinations, browser tabs gain an audio mute toggle, and `cmux diff` opens a CodeView diff viewer that streams large git diffs before full render.",
+      },
+    ],
+  },
+  "0.64.10": {
+    title:
+      "Copy on Select, Extension Sidebar Prototypes, Browser & Terminal Polish",
+    features: [
+      {
+        title: "Copy on Select",
+        description:
+          "Highlighting text in the terminal now copies it to the clipboard the instant the mouse is released. The setting is off by default and toggles from Settings so existing selection behavior stays untouched for anyone who relies on it.",
+      },
+      {
+        title: "CmuxExtensionKit Sidebar Prototypes",
+        description:
+          "An in-tree preview of the upcoming extension API for custom workspace sidebars. Sample sidebars cover an attention queue, browser stack, dev server status, last prompt, and project worktree views, each rendered through the same provider/reducer surface a third-party extension will use.",
+      },
+      {
+        title: "TaskManager 0.64.8 Memory Leak Fix",
+        description:
+          "The TaskManager panel had a snapshot-boundary violation that retained pane store references inside a lazy list subtree, keeping every entry's `@Published` updates wired to every row. 0.64.10 lifts that state above the list and passes immutable snapshots, so reopening the manager no longer accumulates retained state across sessions.",
+      },
+      {
+        title: "Browser Polish",
+        description:
+          "The browser loading spinner now runs on Core Animation so it stays smooth during heavy rendering, Cmd+Up and Cmd+Down forward into the browser pane (Google Docs jump-to-top/bottom works), the URL bar no longer steals focus on tab switch, and the markdown viewer renders remote SVG images correctly.",
+      },
+      {
+        title: "Workspace Reorder CLI",
+        description:
+          "`cmux reorder-workspaces` accepts batch input, supports `--dry-run`, and emits reorder events so scripted layouts can plan a full sidebar reshuffle in one call and react to the changes via the socket.",
+      },
+      {
+        title: "Tab Close Guards",
+        description:
+          "Tab close buttons can now warn before closing or be hidden entirely from Settings, so a stray click on the X stops dropping the surface without confirmation.",
+      },
+    ],
+  },
+  "0.64.9": {
+    title: "0.64.8 Memory Leak Hotfix",
+    features: [
+      {
+        title: "Fix 8GB RSS Growth on Non-Git Workspaces",
+        description:
+          "Git repository search now stops at filesystem root instead of walking forever into `/..`. On older Foundation builds, `deletingLastPathComponent()` could yield `/..` and keep climbing, allocating ever-longer parent paths until the OS OOM killer fired. Non-Git workspaces no longer grow RSS from ~450MB to 8GB within minutes on 0.64.8.",
+      },
+      {
+        title: "Restore Browser Memory Saver Default",
+        description:
+          "Hidden browser webview renderers discard by default again, reverting the 0.64.8 keep-alive default that exposed the memory regression. The keep-alive behavior remains available as an opt-in setting for workflows that need to preserve DOM state across workspace switches.",
+      },
+    ],
+  },
   "0.64.8": {
     title:
       "Antigravity CLI, Grok Vault Resume, CLI Window Targeting, Browser Screenshots",

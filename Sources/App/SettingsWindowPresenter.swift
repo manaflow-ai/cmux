@@ -10,12 +10,12 @@ enum SettingsWindowPresenter {
     private static var openWindow: (@MainActor () -> Void)?
     private static var parentWindowProvider: (@MainActor () -> NSWindow?)?
     private static weak var settingsWindow: NSWindow?
-    private static weak var observedParentWindow: NSWindow?
-    private static weak var observedSettingsWindow: NSWindow?
-    private static var parentCloseObserver: NSObjectProtocol?
     private static var pendingNavigationTarget: SettingsNavigationTarget?
     private static var pendingContentNavigationTarget: SettingsNavigationTarget?
     private static var shouldOpenWhenConfigured = false
+#if DEBUG
+    private static var focusHandlerForTests: (@MainActor (NSWindow) -> Void)?
+#endif
 
     static func configure(
         openWindow: @escaping @MainActor () -> Void,
@@ -23,9 +23,6 @@ enum SettingsWindowPresenter {
     ) {
         self.openWindow = openWindow
         self.parentWindowProvider = parentWindowProvider
-        if let settingsWindow {
-            attachToPreferredParent(settingsWindow)
-        }
         if shouldOpenWhenConfigured {
             shouldOpenWhenConfigured = false
             openWindow()
@@ -33,16 +30,19 @@ enum SettingsWindowPresenter {
     }
 
     static func configure(window: NSWindow) {
+        let shouldFocusAfterConfiguration = settingsWindow !== window
         settingsWindow = window
         window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
         window.isRestorable = false
         window.minSize = minimumSize
         window.contentMinSize = minimumSize
+        window.adoptCmuxPeerWindowLevel()
         clampToVisibleAreaIfNeeded(window)
-        attachToPreferredParent(window)
-        Task { @MainActor in
-            guard settingsWindow === window else { return }
-            focus(window)
+        if shouldFocusAfterConfiguration {
+            Task { @MainActor in
+                guard settingsWindow === window else { return }
+                focus(window)
+            }
         }
     }
 
@@ -64,10 +64,13 @@ enum SettingsWindowPresenter {
         pendingContentNavigationTarget = navigationTarget
 
         if let window = existingWindow() {
-            pendingNavigationTarget = nil
-            pendingContentNavigationTarget = nil
+            let shouldDeferNavigation = window.isMiniaturized
+            if !shouldDeferNavigation {
+                pendingNavigationTarget = nil
+                pendingContentNavigationTarget = nil
+            }
             focus(window)
-            if let navigationTarget {
+            if let navigationTarget, !shouldDeferNavigation {
                 SettingsNavigationRequest.post(navigationTarget)
             }
             return
@@ -104,111 +107,71 @@ enum SettingsWindowPresenter {
 
 #if DEBUG
     static func resetForTests() {
-        if let settingsWindow {
-            detachFromCurrentParent(settingsWindow)
-        } else {
-            removeParentCloseObserver()
-        }
         openWindow = nil
         parentWindowProvider = nil
         settingsWindow = nil
         pendingNavigationTarget = nil
         pendingContentNavigationTarget = nil
         shouldOpenWhenConfigured = false
+        focusHandlerForTests = nil
+    }
+
+    static func setFocusHandlerForTests(_ handler: @escaping @MainActor (NSWindow) -> Void) {
+        focusHandlerForTests = handler
     }
 #endif
 
     private static func existingWindow() -> NSWindow? {
-        if let settingsWindow, settingsWindow.isVisible || settingsWindow.isMiniaturized {
+        // Return the settings window whenever it still exists, even if it
+        // is currently ordered out (closed). SwiftUI's single `Window`
+        // scene does not destroy the window on close — it just hides it
+        // (isVisible == false) — and `openWindow(id:)` then no-ops because
+        // the scene still owns that window. So filtering by visibility here
+        // made every reopen-after-close fall through to a dead `openWindow`
+        // call and the window never came back. Reusing the hidden window
+        // lets `show()` re-front it via `makeKeyAndOrderFront`.
+        if let settingsWindow {
             return settingsWindow
         }
         return NSApp.windows.first {
-            $0.identifier?.rawValue == windowIdentifier && ($0.isVisible || $0.isMiniaturized)
+            $0.identifier?.rawValue == windowIdentifier
         }
     }
 
     private static func focus(_ window: NSWindow) {
+#if DEBUG
+        if let focusHandlerForTests {
+            focusHandlerForTests(window)
+            return
+        }
+#endif
+        performFocus(window)
+    }
+
+    private static func performFocus(_ window: NSWindow) {
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }
+        window.adoptCmuxPeerWindowLevel()
         clampToVisibleAreaIfNeeded(window)
-        if let parentWindow = attachToPreferredParent(window) {
-            orderParentBehindSettings(parentWindow)
+        // Surface the preferred main window first so Settings opens layered
+        // above it — the standard "Settings in front of its app" presentation
+        // a global hotkey or app activation expects. We do this by ordering
+        // both windows front *as peers*, never via `addChildWindow`: a child
+        // window is pinned above its parent forever and can never recede when
+        // the user clicks the main window (the bug in
+        // https://github.com/manaflow-ai/cmux/issues/5081). One-time front
+        // ordering gives the same initial layering while leaving normal
+        // click-to-raise window ordering fully intact afterwards.
+        if let parentWindow = parentWindowProvider?(), parentWindow !== window {
+            if parentWindow.isMiniaturized {
+                parentWindow.deminiaturize(nil)
+            }
+            parentWindow.orderFront(nil)
         }
         NSRunningApplication.current.activate(options: [.activateAllWindows])
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
-    }
-
-    @discardableResult
-    private static func attachToPreferredParent(_ window: NSWindow) -> NSWindow? {
-        guard let parentWindow = parentWindowProvider?(),
-              parentWindow !== window else {
-            detachFromCurrentParent(window)
-            return nil
-        }
-
-        if window.parent !== parentWindow {
-            detachFromCurrentParent(window)
-            parentWindow.addChildWindow(window, ordered: .above)
-        }
-        observeParentWillClose(parentWindow, settingsWindow: window)
-        return parentWindow
-    }
-
-    private static func detachFromCurrentParent(_ window: NSWindow) {
-        removeParentCloseObserver()
-        guard let parentWindow = window.parent else { return }
-        parentWindow.removeChildWindow(window)
-    }
-
-    private static func observeParentWillClose(_ parentWindow: NSWindow, settingsWindow: NSWindow) {
-        guard observedParentWindow !== parentWindow || observedSettingsWindow !== settingsWindow else {
-            return
-        }
-
-        removeParentCloseObserver()
-        observedParentWindow = parentWindow
-        observedSettingsWindow = settingsWindow
-        // Run synchronously for normal AppKit window-close notifications so
-        // Settings detaches before AppKit orders out child windows.
-        parentCloseObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: parentWindow,
-            queue: nil
-        ) { [weak parentWindow, weak settingsWindow] _ in
-            guard Thread.isMainThread else {
-                assertionFailure("NSWindow.willCloseNotification should be delivered on the main thread")
-                return
-            }
-            MainActor.assumeIsolated {
-                detachFromClosingParent(parentWindow: parentWindow, settingsWindow: settingsWindow)
-            }
-        }
-    }
-
-    private static func detachFromClosingParent(parentWindow: NSWindow?, settingsWindow: NSWindow?) {
-        guard let settingsWindow, settingsWindow.parent === parentWindow else {
-            removeParentCloseObserver()
-            return
-        }
-        detachFromCurrentParent(settingsWindow)
-    }
-
-    private static func removeParentCloseObserver() {
-        if let parentCloseObserver {
-            NotificationCenter.default.removeObserver(parentCloseObserver)
-        }
-        parentCloseObserver = nil
-        observedParentWindow = nil
-        observedSettingsWindow = nil
-    }
-
-    private static func orderParentBehindSettings(_ window: NSWindow) {
-        if window.isMiniaturized {
-            window.deminiaturize(nil)
-        }
-        window.orderFront(nil)
     }
 
     private static func clampToVisibleAreaIfNeeded(_ window: NSWindow) {

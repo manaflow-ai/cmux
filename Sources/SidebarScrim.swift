@@ -1,49 +1,43 @@
-import AppKit
 import SwiftUI
 
-struct SidebarTopScrim: View {
-    let height: CGFloat
+struct SidebarWorkspaceScrollEdgeFadeMask: View {
+    let topHeight: CGFloat
+    let bottomHeight: CGFloat
 
     var body: some View {
-        SidebarEdgeScrim(height: height, edge: .top)
+        VStack(spacing: 0) {
+            SidebarEdgeFadeGradient(edge: .top)
+                .frame(height: topHeight)
+            Rectangle()
+                .fill(Color.black)
+            SidebarEdgeFadeGradient(edge: .bottom)
+                .frame(height: bottomHeight)
+        }
     }
 }
 
-struct SidebarBottomScrim: View {
-    let height: CGFloat
-
-    var body: some View {
-        SidebarEdgeScrim(height: height, edge: .bottom)
-    }
-}
-
-struct SidebarEdgeScrim: View {
+private struct SidebarEdgeFadeGradient: View {
     enum Edge {
         case top
         case bottom
     }
 
-    let height: CGFloat
     let edge: Edge
 
     var body: some View {
-        SidebarEdgeBlurEffect()
-            .frame(height: height)
-            .mask(
-                LinearGradient(
-                    colors: gradientColors,
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
+        LinearGradient(
+            colors: maskColors,
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
-    private var gradientColors: [Color] {
+    private var maskColors: [Color] {
         let colors = [
-            Color.black.opacity(0.95),
-            Color.black.opacity(0.75),
-            Color.black.opacity(0.35),
-            Color.clear,
+            Color.black.opacity(0.05),
+            Color.black.opacity(0.25),
+            Color.black.opacity(0.65),
+            Color.black,
         ]
         switch edge {
         case .top:
@@ -52,17 +46,4 @@ struct SidebarEdgeScrim: View {
             return Array(colors.reversed())
         }
     }
-}
-
-struct SidebarEdgeBlurEffect: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.blendingMode = .withinWindow
-        view.material = .underWindowBackground
-        view.state = .active
-        view.isEmphasized = false
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
