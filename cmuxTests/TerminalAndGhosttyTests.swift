@@ -3800,6 +3800,67 @@ final class WindowTerminalHostViewTests: XCTestCase {
         )
     }
 
+    func testHostViewKeepsTerminalTopRowClickableInsideTitlebarInteractionBand() {
+        // Compact (minimal) mode removes the unifiedCompact toolbar, so the
+        // bonsplit tab strip sits flush at the top of content and hosted
+        // terminal pixels (plus the SurfaceSearchOverlay close button parked
+        // at .topRight) end up inside the 28-72pt titlebar interaction band
+        // computed by BonsplitTabBarPassThrough.titlebarInteractionBandMinY.
+        // Without a hosted-terminal guard in shouldPassThroughToTitlebar, the
+        // host swallows those clicks the same way it did before #3720 for the
+        // tab-strip pass-through.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowTerminalHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+
+        // Mount the hosted terminal flush to the top of the host, modeling
+        // compact mode where there is no chrome between the system titlebar
+        // and the terminal pixels.
+        let hostedView = makeHostedTerminalView(frame: host.bounds)
+        host.addSubview(hostedView)
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        // Pick a point a few points below the top of content — well inside
+        // the titlebar interaction band (>= 28pt deep) but still over the
+        // hosted terminal view.
+        let titlebarBandHeight = max(
+            28,
+            min(72, window.frame.height - window.contentLayoutRect.height)
+        )
+        let depthInsideBand: CGFloat = 4
+        XCTAssertLessThan(
+            depthInsideBand,
+            titlebarBandHeight,
+            "Test point must be inside the titlebar interaction band"
+        )
+        let pointInContent = NSPoint(
+            x: contentView.bounds.midX,
+            y: contentView.bounds.maxY - depthInsideBand
+        )
+        let pointInWindow = contentView.convert(pointInContent, to: nil)
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        let event = makeMouseDownEvent(at: pointInWindow, window: window)
+
+        assertHitFallsInsideHostedTerminal(
+            host.performHitTest(at: pointInHost, currentEvent: event),
+            hostedView: hostedView,
+            message: "Terminal top-row clicks (and the find overlay close button in compact mode) must reach the hosted terminal even when the titlebar interaction band overlaps it"
+        )
+    }
+
     func testHostViewPassesThroughWhenNoTerminalSubviewIsHit() {
         let host = WindowTerminalHostView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
 
