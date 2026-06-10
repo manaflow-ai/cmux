@@ -4618,7 +4618,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             process.waitUntilExit()
             exited.signal()
         }
-        XCTAssertEqual(exited.wait(timeout: .now() + 5), .success, "ssh-pty-attach did not exit after bridge close")
+        // Guard-and-return rather than assert-and-continue: reading
+        // terminationStatus on a still-running Process raises an ObjC
+        // exception, which would crash the test run instead of failing it.
+        guard exited.wait(timeout: .now() + 5) == .success else {
+            XCTFail("ssh-pty-attach did not exit after bridge close")
+            return
+        }
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         XCTAssertEqual(process.terminationStatus, 0, stderr)
