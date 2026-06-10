@@ -59,6 +59,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
+    private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
 
     /// How long the render-grid stream may stay silent (no event of any topic)
@@ -182,6 +183,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// for older Macs that lack the handler, so the UI can hide rename/pin rather
     /// than offer actions that would fail with `method_not_found`.
     public private(set) var supportsWorkspaceActions: Bool = false
+    /// Whether the connected Mac advertises the `dogfood.v1` capability (the
+    /// `dogfood.feedback.submit` agent sink). `false` until host status is read,
+    /// and for older Macs that lack the handler, so the privileged Send Feedback
+    /// route falls back to email rather than failing with `method_not_found`
+    /// under client/server version skew.
+    public private(set) var supportsDogfoodFeedback: Bool = false
     public var terminalInputText: String
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
@@ -213,6 +220,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let reachability: any ReachabilityProviding
     private let pairingHintDefaults: UserDefaults
     private let clientID: String
+    /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
+    /// web API base URL is unavailable; the email path then fails closed and the
+    /// UI surfaces an error rather than silently dropping the report.
+    private let feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)?
+    /// Resolves the current build + device stamp. Injected from the app layer
+    /// (which can read `Bundle.main`/`UIDevice`); defaults to an empty stamp so
+    /// previews/tests need not provide one.
+    private let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp
     /// The injected, fire-and-forget product-analytics emitter. Defaults to
     /// ``NoopAnalytics`` so previews/tests inject nothing.
     private let analytics: any AnalyticsEmitting
@@ -342,7 +357,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         reachability: any ReachabilityProviding = ReachabilityService(),
         pairingHintDefaults: UserDefaults = .standard,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
+        feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp }
     ) {
         self.runtime = runtime
         self.pairedMacStore = pairedMacStore
@@ -352,6 +369,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingHintDefaults = pairingHintDefaults
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
+        self.feedbackEmailSubmitter = feedbackEmailSubmitter
+        self.feedbackStampProvider = feedbackStampProvider
         // Distinguish "key absent" (an install that predates the hint and may
         // already have a paired Mac in SQLite) from "key present and false" (we
         // determined there is no paired Mac). didSet is not called for these
@@ -592,11 +611,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    #if DEBUG
-    /// DEV dogfood feedback round-trip (P1): export the structured diagnostic
-    /// log, package it with the supplied debug-log text, visible terminal text,
-    /// and an optional freeform note, and submit it to the paired Mac's
-    /// `dogfood.feedback.submit` sink.
+    /// Privileged direct-to-agent feedback round-trip: export the structured
+    /// diagnostic log, package it with the supplied debug-log text, visible
+    /// terminal text, and an optional freeform note, and submit it to the paired
+    /// Mac's `dogfood.feedback.submit` sink so the existing watcher under
+    /// `~/.cache/cmux-dogfood-feedback/` catches it.
+    ///
+    /// This is the privileged path of the Send Feedback feature: it is offered
+    /// only to `@manaflow.ai` users on an active mobile-host connection (see
+    /// ``MobileFeedbackRoute/resolve(email:hasActiveMacConnection:hostSupportsAgentSink:)``), and is NOT
+    /// `#if DEBUG`-gated, so it works on Release (beta/prod) builds for the team.
     ///
     /// The structured log is exported here (the store owns ``diagnosticLog``);
     /// the string snapshots are gathered by the caller on the UI layer, where the
@@ -604,19 +628,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// transport failure is logged and surfaced via the returned `Bool`.
     ///
     /// - Parameters:
-    ///   - text: An optional freeform note from the dogfooder.
+    ///   - text: An optional freeform note from the user.
     ///   - debugLogText: The string debug-log snapshot (from `MobileDebugLog`).
     ///   - terminalText: The visible terminal text (from `GhosttySurfaceView`).
+    ///   - buildStamp: The build-identity stamp (build type + version + OS +
+    ///     device) written into the bundle. Defaults to the diagnostic log's
+    ///     stamp when not supplied.
     /// - Returns: `true` when the Mac acknowledged the bundle.
     @discardableResult
-    public func submitDogfoodFeedback(
+    public func submitPrivilegedAgentFeedback(
         text: String,
         debugLogText: String,
-        terminalText: String
+        terminalText: String,
+        buildStamp: String? = nil
     ) async -> Bool {
         guard let client = remoteClient else { return false }
         let diagnosticBlob = await diagnosticLog?.export() ?? Data()
-        let buildStamp = diagnosticLog?.buildStamp ?? ""
+        let buildStamp = buildStamp ?? diagnosticLog?.buildStamp ?? ""
         let clientID = clientID
         // Cap inputs and build the (potentially multi-MiB) combined blob +
         // base64 + JSON request OFF the main actor: the store is `@MainActor`, so
@@ -689,7 +717,133 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ]
         )
     }
-    #endif
+
+    // MARK: - Feedback routing
+
+    /// An all-empty stamp used when no app-layer provider is injected (previews /
+    /// tests). A real build always injects a populated provider at the
+    /// composition root.
+    public static let emptyFeedbackStamp = MobileFeedbackStamp(
+        buildType: .prod,
+        appVersion: "",
+        appBuild: "",
+        bundleIdentifier: "",
+        osVersion: "",
+        deviceModel: ""
+    )
+
+    /// The signed-in user's primary email, read through the identity seam.
+    ///
+    /// Used by the Send Feedback affordance to decide the route (privileged vs
+    /// email) and to prefill the reply-to address on the email path.
+    public var signedInUserEmail: String? {
+        identityProvider?.currentUserEmail
+    }
+
+    /// Whether the device currently has an active mobile-host connection to a
+    /// paired Mac — the implementable "on the tailnet" proxy used by feedback
+    /// routing, since that transport runs over Tailscale.
+    public var hasActiveMacConnection: Bool {
+        connectionState == .connected && remoteClient != nil
+    }
+
+    /// Where a Send Feedback submission should be delivered right now.
+    ///
+    /// Pure decision over the current email + connection state; the privileged
+    /// direct-to-agent route is offered only to `@manaflow.ai` users on an
+    /// active connection, everyone else routes to the email inbox.
+    public var currentFeedbackRoute: MobileFeedbackRoute {
+        MobileFeedbackRoute.resolve(
+            email: signedInUserEmail,
+            hasActiveMacConnection: hasActiveMacConnection,
+            hostSupportsAgentSink: supportsDogfoodFeedback
+        )
+    }
+
+    /// The current build + device stamp, resolved through the injected provider.
+    public var currentFeedbackStamp: MobileFeedbackStamp {
+        feedbackStampProvider()
+    }
+
+    /// Outcome of a Send Feedback submission, including which route was taken so
+    /// the UI can word its confirmation ("sent to the agent" vs "emailed").
+    public enum FeedbackSubmissionOutcome: Equatable, Sendable {
+        /// The rich diagnostic bundle was delivered to the paired Mac.
+        case sentToAgent
+        /// The message was emailed to the feedback inbox.
+        case emailed
+        /// Delivery failed; the UI should surface an error and let the user retry.
+        case failed
+    }
+
+    /// The single Send Feedback entrypoint. Routes the submission to the
+    /// privileged direct-to-agent bundle or the email inbox per
+    /// ``currentFeedbackRoute``, stamping the build + device on both paths.
+    ///
+    /// One mutation path so every surface (the menu affordance, and any future
+    /// entrypoint) shares the same routing, stamping, and delivery rather than
+    /// duplicating it.
+    ///
+    /// - Parameters:
+    ///   - message: The freeform feedback body.
+    ///   - emailOverride: The reply-to email when the user edited it on the email
+    ///     path; defaults to the signed-in email.
+    ///   - debugLogText: The string debug-log snapshot, used only on the agent
+    ///     path.
+    ///   - terminalText: The visible terminal text, used only on the agent path.
+    /// - Returns: The outcome (which route succeeded, or `.failed`).
+    @discardableResult
+    public func submitFeedback(
+        message: String,
+        emailOverride: String? = nil,
+        debugLogText: String,
+        terminalText: String
+    ) async -> FeedbackSubmissionOutcome {
+        let stamp = currentFeedbackStamp
+        switch currentFeedbackRoute {
+        case .privilegedAgent:
+            let ok = await submitPrivilegedAgentFeedback(
+                text: message,
+                debugLogText: debugLogText,
+                terminalText: terminalText,
+                buildStamp: stamp.agentBuildStamp
+            )
+            if ok {
+                return .sentToAgent
+            }
+            // The agent sink failed (e.g. the Mac rejected the privileged sink,
+            // or the RPC could not be delivered). Fall back to the email inbox
+            // rather than dead-ending, so the report is still delivered. Any
+            // valid reply-to works; we have the signed-in email here.
+            mobileShellLog.error("privileged agent feedback failed; falling back to email")
+            return await submitFeedbackEmail(message: message, emailOverride: emailOverride, stamp: stamp)
+        case .email:
+            return await submitFeedbackEmail(message: message, emailOverride: emailOverride, stamp: stamp)
+        }
+    }
+
+    /// Email the feedback inbox, returning `.emailed` on success and `.failed`
+    /// when the submitter is unavailable or the POST fails. Shared by the email
+    /// route and the privileged-agent fallback so both deliver identically.
+    private func submitFeedbackEmail(
+        message: String,
+        emailOverride: String?,
+        stamp: MobileFeedbackStamp
+    ) async -> FeedbackSubmissionOutcome {
+        guard let submitter = feedbackEmailSubmitter else {
+            mobileShellLog.error("feedback email submitter unavailable")
+            return .failed
+        }
+        let email = (emailOverride ?? signedInUserEmail ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            try await submitter.submit(email: email, message: message, stamp: stamp)
+            return .emailed
+        } catch {
+            mobileShellLog.error("feedback email submit failed error=\(String(describing: error), privacy: .public)")
+            return .failed
+        }
+    }
 
     // MARK: - Network recovery
 
@@ -2188,6 +2342,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplaySurfaceIDsInFlight = []
         terminalOutputTransport = .rawBytes
         supportsWorkspaceActions = false
+        supportsDogfoodFeedback = false
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
@@ -2685,9 +2840,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
                 terminalOutputTransport = fallback
                 supportsWorkspaceActions = false
+                supportsDogfoodFeedback = false
                 return fallback
             }
             supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
+            supportsDogfoodFeedback = payload.capabilities.contains(Self.dogfoodFeedbackCapability)
             let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
                 payload.terminalFidelity == "render_grid" ? .renderGrid : .rawBytes
             terminalOutputTransport = transport
@@ -2696,6 +2853,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             terminalOutputTransport = fallback
             supportsWorkspaceActions = false
+            supportsDogfoodFeedback = false
             MobileDebugLog.anchormux("sync.transport=raw_bytes reason=status_failed")
             return fallback
         }

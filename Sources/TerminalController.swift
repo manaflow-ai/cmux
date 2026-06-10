@@ -21031,10 +21031,8 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
-#if DEBUG
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
-#endif
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method
@@ -21043,13 +21041,12 @@ class TerminalController {
         return mobileHostResult(result)
     }
 
-#if DEBUG
-    /// Hard caps for the DEV dogfood feedback sink. A debug client is the only
-    /// caller, but a malformed or hostile request must not be able to allocate
-    /// huge buffers, block the Mac UI, or grow the cache without bound. Strings
-    /// are capped by character count before any large allocation; the base64
-    /// blob is rejected outright past its cap (so it is never decoded), and a
-    /// decoded blob past the byte cap is dropped.
+    /// Hard caps for the agent feedback sink. The only intended caller is a
+    /// paired phone, but a malformed or hostile request must not be able to
+    /// allocate huge buffers, block the Mac UI, or grow the cache without bound.
+    /// Strings are capped by character count before any large allocation; the
+    /// base64 blob is rejected outright past its cap (so it is never decoded),
+    /// and a decoded blob past the byte cap is dropped.
     nonisolated private static let dogfoodFeedbackMaxTextChars = 16_384
     nonisolated private static let dogfoodFeedbackMaxTerminalChars = 262_144
     nonisolated private static let dogfoodFeedbackMaxBuildStampChars = 512
@@ -21059,21 +21056,50 @@ class TerminalController {
     /// each write so a retrying client can't grow the cache without bound.
     nonisolated private static let dogfoodFeedbackMaxRetainedBundles = 50
 
-    /// DEV-only dogfood feedback sink (P1 of the Mac↔phone feedback loop).
+    /// The privileged feedback domain. Mirrors `isManaflowEmail` in
+    /// `CmuxMobileShellModel` (the phone's routing source of truth) but is
+    /// replicated here so the macOS app target need not link that mobile
+    /// package just for this one suffix check. Trims + lowercases before
+    /// matching so stored casing/padding does not bypass the gate.
+    nonisolated static func isPrivilegedFeedbackEmail(_ email: String?) -> Bool {
+        guard let email else { return false }
+        let normalized = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.hasSuffix("@manaflow.ai")
+    }
+
+    /// Privileged agent feedback sink (the Mac↔phone feedback loop).
     ///
     /// Decodes `{ text, terminal_text, build_stamp, diagnostic_blob_base64 }`,
     /// writes a self-contained bundle directory under
     /// `~/.cache/cmux-dogfood-feedback/<ISO8601>_<shortid>/` (a `bundle.json`
     /// manifest plus the decoded `diagnostic.log`), and returns the bundle path.
-    /// Gated behind `#if DEBUG` and the same-account Stack-auth authorization the
-    /// rest of the mobile data plane enforces, so it never exists in a release
-    /// build and never accepts an unauthenticated caller.
+    /// It is protected by the same-account Stack-auth authorization the rest of
+    /// the mobile data plane enforces, so it never accepts an unauthenticated
+    /// caller. The phone only ever routes here for `@manaflow.ai` users on an
+    /// active connection, so this exists in Release builds too (the team can
+    /// dogfood beta/prod), and only a Mac that runs the watcher acts on it.
     ///
     /// Field sizes are capped on the main actor *before* any large allocation,
     /// invalid/oversized base64 is rejected without decoding, and the decode +
     /// filesystem writes run off the main actor so a large payload cannot block
     /// the Mac UI.
     private func v2MobileDogfoodFeedbackSubmit(params: [String: Any]) async -> V2CallResult {
+        // Privilege check at the trust boundary: the mobile data plane only
+        // accepts same-account connections, so the caller is this Mac's own Stack
+        // account. The privileged agent feedback sink is restricted to the
+        // @manaflow.ai domain; a crafted RPC from any other account is rejected
+        // here regardless of which route the phone UI chose. (The phone also
+        // gates the route on `@manaflow.ai` + `dogfood.v1`, but the Mac is the
+        // real boundary.)
+        let localEmail = await MobileHostService.shared.currentAuthenticatedLocalUserEmail()
+        guard Self.isPrivilegedFeedbackEmail(localEmail) else {
+            return .err(
+                code: "unauthorized",
+                message: "Feedback agent sink is restricted to privileged accounts",
+                data: nil
+            )
+        }
+
         // Cheap main-actor validation first: cap each field by character count
         // before allocating anything large, and reject an oversized base64 blob
         // outright so it is never decoded into a giant Data.
@@ -21218,7 +21244,6 @@ class TerminalController {
             try? fileManager.removeItem(at: stale)
         }
     }
-#endif
 
     /// The `workspace.action` sub-actions the mobile data plane may invoke.
     ///
