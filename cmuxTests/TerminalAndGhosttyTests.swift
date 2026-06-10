@@ -5609,6 +5609,13 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
 
 final class TerminalOpenURLTargetResolutionTests: XCTestCase {
+    private func makeTemporaryDirectory() throws -> URL {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("TerminalOpenURLTargetResolutionTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
     func testResolvesHTTPSAsEmbeddedBrowser() throws {
         let target = try XCTUnwrap(resolveTerminalOpenURLTarget("https://example.com/path?q=1"))
         switch target {
@@ -5644,6 +5651,54 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         }
     }
 
+    func testPreservesFileSchemeLineFragmentWhenFileExists() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("main.swift", isDirectory: false)
+        try "print(\"hello\")\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("\(fileURL.absoluteString)#L42:5"))
+        switch target {
+        case let .external(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, fileURL.path)
+            XCTAssertEqual(url.fragment, "L42:5")
+        default:
+            XCTFail("Expected file URL to open externally")
+        }
+    }
+
+    func testDoesNotRouteLineFragmentFileURLIntoCmux() throws {
+        let url = try XCTUnwrap(URL(string: "file:///tmp/cmux-fixture.swift#L42:5"))
+
+        XCTAssertFalse(cmuxShouldRouteTerminalLocalFileURLInCmux(url))
+    }
+
+    func testRoutesPlainFileURLIntoCmuxWhenEligible() throws {
+        let url = URL(fileURLWithPath: "/tmp/cmux-fixture.swift")
+
+        XCTAssertTrue(cmuxShouldRouteTerminalLocalFileURLInCmux(url))
+    }
+
+    func testResolvesRelativeFileSchemeAgainstTerminalCwd() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("main.swift", isDirectory: false)
+        try "print(\"hello\")\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("file:main.swift#L7:3", cwd: root.path))
+        switch target {
+        case let .external(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, fileURL.path)
+            XCTAssertEqual(url.fragment, "L7:3")
+        default:
+            XCTFail("Expected relative file URL to resolve against the terminal cwd")
+        }
+    }
+
     func testResolvesAbsolutePathAsExternalFileURL() throws {
         let target = try XCTUnwrap(resolveTerminalOpenURLTarget("/tmp/cmux-path.txt"))
         switch target {
@@ -5652,6 +5707,113 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
             XCTAssertEqual(url.path, "/tmp/cmux-path.txt")
         default:
             XCTFail("Expected absolute file path to open externally")
+        }
+    }
+
+    func testSkipsUnverifiedAbsolutePathFallbackWhenDisabled() throws {
+        let target = resolveTerminalOpenURLTarget(
+            "/tmp/cmux-remote-path.txt",
+            allowAbsolutePathFallback: false,
+            fileExists: { _ in false }
+        )
+
+        XCTAssertNil(target)
+    }
+
+    func testResolvesRelativeFileLineReferenceAsExternalFileURLInsteadOfBrowser() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sourceDirectory = root.appendingPathComponent("Sources", isDirectory: true)
+        let fileURL = sourceDirectory.appendingPathComponent("App.swift", isDirectory: false)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try "print(\"hello\")\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let target = try XCTUnwrap(
+            resolveTerminalOpenURLTarget("Sources/App.swift:1", cwd: root.path)
+        )
+        switch target {
+        case let .external(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, fileURL.path)
+            XCTAssertEqual(url.fragment, "L1")
+        case let .embeddedBrowser(url):
+            XCTFail("Expected local file reference to open in the editor, not the browser: \(url)")
+        }
+    }
+
+    func testResolvesExtensionlessFileLineReferenceAsExternalFileURLInsteadOfBrowser() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("Makefile", isDirectory: false)
+        try "all:\n\ttrue\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let target = try XCTUnwrap(
+            resolveTerminalOpenURLTarget("Makefile:12", cwd: root.path)
+        )
+        switch target {
+        case let .external(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, fileURL.path)
+            XCTAssertEqual(url.fragment, "L12")
+        case let .embeddedBrowser(url):
+            XCTFail("Expected extensionless local file reference to open in the editor, not the browser: \(url)")
+        }
+    }
+
+    func testKeepsHTTPURLWithPortAsBrowserURLBeforePathLineResolution() throws {
+        let target = try XCTUnwrap(
+            resolveTerminalOpenURLTarget(
+                "http://localhost:3000",
+                fileExists: { _ in true }
+            )
+        )
+        switch target {
+        case let .embeddedBrowser(url):
+            XCTAssertEqual(url.scheme, "http")
+            XCTAssertEqual(url.host, "localhost")
+            XCTAssertEqual(url.port, 3000)
+        case let .external(url):
+            XCTFail("Expected HTTP URL with port to stay browser-routable, not resolve as a file: \(url)")
+        }
+    }
+
+    func testDoesNotTreatUnknownExtensionlessHostPortAsLocalFileReference() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("config", isDirectory: false)
+        try "port = 8080\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let target = try XCTUnwrap(
+            resolveTerminalOpenURLTarget("config:8080", cwd: root.path)
+        )
+        switch target {
+        case let .external(url):
+            XCTAssertFalse(url.isFileURL)
+            XCTAssertEqual(url.scheme, "config")
+            XCTAssertEqual(url.absoluteString, "config:8080")
+        case let .embeddedBrowser(url):
+            XCTFail("Expected non-web scheme to resolve as external, not embedded browser: \(url)")
+        }
+    }
+
+    func testResolvesAbsoluteFileLineColumnReferenceWithoutKeepingSuffixInPath() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("GhosttyTerminalView.swift", isDirectory: false)
+        try "struct Fixture {}\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("\(fileURL.path):6937:12"))
+        switch target {
+        case let .external(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, fileURL.path)
+            XCTAssertEqual(url.fragment, "L6937:12")
+        case let .embeddedBrowser(url):
+            XCTFail("Expected absolute local file reference to open in the editor, not the browser: \(url)")
         }
     }
 

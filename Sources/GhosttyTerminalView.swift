@@ -1070,13 +1070,16 @@ func cmuxResolveTerminalOpenURLFilePathForTesting(
     cwd: String?,
     existingPaths: Set<String>
 ) -> String? {
-    cmuxResolveTerminalOpenURLFilePath(
+    guard case let .external(url)? = resolveTerminalOpenURLTarget(
         rawText,
         cwd: cwd,
         fileExists: { path in
             existingPaths.contains((path as NSString).standardizingPath)
         }
-    )
+    ), cmuxIsLocalFileURL(url) else {
+        return nil
+    }
+    return url.path
 }
 #endif
 
@@ -1373,18 +1376,187 @@ private func cmuxResolveVisibleLinePath(
     return nil
 }
 
-private func cmuxResolveTerminalOpenURLFilePath(
-    _ rawText: String,
-    cwd: String?,
-    fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
-) -> String? {
-    let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return nil }
-    guard URL(string: trimmed)?.scheme == nil else { return nil }
-    return cmuxResolveQuicklookPath(trimmed, cwd: cwd, fileExists: fileExists)
+private struct TerminalLocalFileReference: Equatable {
+    let path: String
+    let line: Int?
+    let column: Int?
 }
 
-enum TerminalOpenURLTarget: Equatable {
+private func cmuxSplitTerminalPathLineSuffix(_ token: String) -> TerminalLocalFileReference? {
+    guard let lastColon = token.lastIndex(of: ":") else { return nil }
+    let lastSuffixStart = token.index(after: lastColon)
+    let lastSuffix = token[lastSuffixStart...]
+    guard !lastSuffix.isEmpty,
+          lastSuffix.allSatisfy(\.isNumber),
+          let lastNumber = Int(String(lastSuffix)),
+          lastNumber > 0 else {
+        return nil
+    }
+
+    let beforeLastColon = token[..<lastColon]
+    if let lineColon = beforeLastColon.lastIndex(of: ":") {
+        let lineStart = beforeLastColon.index(after: lineColon)
+        let lineSuffix = beforeLastColon[lineStart...]
+        if !lineSuffix.isEmpty,
+           lineSuffix.allSatisfy(\.isNumber),
+           let lineNumber = Int(String(lineSuffix)),
+           lineNumber > 0 {
+            let path = String(beforeLastColon[..<lineColon])
+            guard !path.isEmpty else { return nil }
+            return TerminalLocalFileReference(path: path, line: lineNumber, column: lastNumber)
+        }
+    }
+
+    let path = String(beforeLastColon)
+    guard !path.isEmpty else { return nil }
+    return TerminalLocalFileReference(path: path, line: lastNumber, column: nil)
+}
+
+private func cmuxTerminalLocalFileReferenceCandidates(from token: String) -> [TerminalLocalFileReference] {
+    var candidates = [
+        TerminalLocalFileReference(path: token, line: nil, column: nil)
+    ]
+    if let lineReference = cmuxSplitTerminalPathLineSuffix(token),
+       !candidates.contains(lineReference) {
+        candidates.append(lineReference)
+    }
+    return candidates
+}
+
+private func cmuxLooksLikeTerminalPath(_ path: String) -> Bool {
+    guard !path.isEmpty else { return false }
+    if NSString(string: path).isAbsolutePath ||
+        path.hasPrefix("~/") ||
+        path.hasPrefix("./") ||
+        path.hasPrefix("../") ||
+        path.contains("/") {
+        return true
+    }
+    return !(path as NSString).pathExtension.isEmpty
+}
+
+private func cmuxContainsTerminalPathLineSuffix(_ rawValue: String) -> Bool {
+    cmuxQuicklookPathCandidates(from: rawValue).contains { token in
+        cmuxSplitTerminalPathLineSuffix(token) != nil
+    }
+}
+
+private let cmuxKnownExtensionlessTerminalFileNames: Set<String> = [
+    "appfile",
+    "berksfile",
+    "brewfile",
+    "capfile",
+    "containerfile",
+    "dangerfile",
+    "deliverfile",
+    "dockerfile",
+    "fastfile",
+    "gemfile",
+    "gnumakefile",
+    "guardfile",
+    "gymfile",
+    "justfile",
+    "makefile",
+    "matchfile",
+    "podfile",
+    "procfile",
+    "rakefile",
+    "scanfile",
+    "snapfile",
+    "vagrantfile"
+]
+
+private func cmuxIsKnownExtensionlessTerminalFileName(_ path: String) -> Bool {
+    let name = (path as NSString).lastPathComponent
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+    return cmuxKnownExtensionlessTerminalFileNames.contains(name)
+}
+
+private func cmuxLooksLikeTerminalPathReference(_ reference: TerminalLocalFileReference) -> Bool {
+    if cmuxLooksLikeTerminalPath(reference.path) {
+        return true
+    }
+    return reference.line != nil && cmuxIsKnownExtensionlessTerminalFileName(reference.path)
+}
+
+private func cmuxStandardizedTerminalPath(_ path: String, cwd: String?) -> String? {
+    let expanded = (path as NSString).expandingTildeInPath
+    let candidatePath: String
+    if NSString(string: expanded).isAbsolutePath {
+        candidatePath = expanded
+    } else {
+        guard let cwd, !cwd.isEmpty else { return nil }
+        candidatePath = (cwd as NSString).appendingPathComponent(expanded)
+    }
+    return (candidatePath as NSString).standardizingPath
+}
+
+private func cmuxTerminalFileURL(path: String, line: Int?, column: Int?) -> URL {
+    let url = URL(fileURLWithPath: path)
+    guard let line else { return url }
+
+    var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    if let column {
+        components?.fragment = "L\(line):\(column)"
+    } else {
+        components?.fragment = "L\(line)"
+    }
+    return components?.url ?? url
+}
+
+private func cmuxFileURL(_ fileURL: URL, preservingFragmentFrom originalURL: URL) -> URL {
+    guard fileURL.fragment == nil,
+          let originalComponents = URLComponents(url: originalURL, resolvingAgainstBaseURL: false),
+          let fragment = originalComponents.percentEncodedFragment,
+          !fragment.isEmpty else {
+        return fileURL
+    }
+
+    var components = URLComponents(url: fileURL, resolvingAgainstBaseURL: false)
+    components?.percentEncodedFragment = fragment
+    return components?.url ?? fileURL
+}
+
+private func cmuxResolveTerminalLocalFileURL(
+    _ rawValue: String,
+    cwd: String?,
+    fileExists: (String) -> Bool
+) -> URL? {
+    var seenPaths = Set<String>()
+    for token in cmuxQuicklookPathCandidates(from: rawValue) {
+        for reference in cmuxTerminalLocalFileReferenceCandidates(from: token) {
+            guard cmuxLooksLikeTerminalPathReference(reference),
+                  let path = cmuxStandardizedTerminalPath(reference.path, cwd: cwd),
+                  seenPaths.insert(path).inserted,
+                  fileExists(path) else {
+                continue
+            }
+            return cmuxTerminalFileURL(path: path, line: reference.line, column: reference.column)
+        }
+    }
+    return nil
+}
+
+private func cmuxIsLocalFileURL(_ url: URL) -> Bool {
+    guard url.isFileURL, !url.path.isEmpty else { return false }
+    let host = url.host
+    return host == nil || host?.isEmpty == true || host == "localhost"
+}
+
+func cmuxShouldRouteTerminalLocalFileURLInCmux(_ url: URL) -> Bool {
+    url.fragment == nil
+}
+
+private struct TerminalOpenURLActionContext: Sendable {
+    let urlString: String
+    let cwd: String?
+    let canResolveLocalFiles: Bool
+    let sourceWorkspaceId: UUID?
+    let sourcePanelId: UUID?
+}
+
+enum TerminalOpenURLTarget: Equatable, Sendable {
     case embeddedBrowser(URL)
     case external(URL)
 
@@ -1396,7 +1568,12 @@ enum TerminalOpenURLTarget: Equatable {
     }
 }
 
-func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
+func resolveTerminalOpenURLTarget(
+    _ rawValue: String,
+    cwd: String? = FileManager.default.currentDirectoryPath,
+    allowAbsolutePathFallback: Bool = true,
+    fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     #if DEBUG
     cmuxDebugLog("link.resolve input=\(trimmed)")
@@ -1408,15 +1585,34 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
         return nil
     }
 
-    if NSString(string: trimmed).isAbsolutePath {
+    let parsedURL = URL(string: trimmed)
+    let parsedScheme = parsedURL?.scheme?.lowercased()
+    let hasBrowserScheme = parsedScheme == "http" || parsedScheme == "https"
+
+    if !hasBrowserScheme,
+       cmuxContainsTerminalPathLineSuffix(trimmed),
+       let fileURL = cmuxResolveTerminalLocalFileURL(trimmed, cwd: cwd, fileExists: fileExists) {
         #if DEBUG
-        cmuxDebugLog("link.resolve result=external(absolutePath) url=\(trimmed)")
+        cmuxDebugLog("link.resolve result=external(localPathLineReference) url=\(fileURL)")
         #endif
-        return .external(URL(fileURLWithPath: trimmed))
+        return .external(fileURL)
     }
 
-    if let parsed = URL(string: trimmed),
-       let scheme = parsed.scheme?.lowercased() {
+    if let parsed = parsedURL,
+       let scheme = parsedScheme {
+        if scheme == "file", cmuxIsLocalFileURL(parsed) {
+            if let fileURL = cmuxResolveTerminalLocalFileURL(parsed.path, cwd: cwd, fileExists: fileExists) {
+                let resolvedURL = cmuxFileURL(fileURL, preservingFragmentFrom: parsed)
+                #if DEBUG
+                cmuxDebugLog("link.resolve result=external(fileURLLocalPath) url=\(resolvedURL)")
+                #endif
+                return .external(resolvedURL)
+            }
+            #if DEBUG
+            cmuxDebugLog("link.resolve result=external(fileURL) url=\(parsed)")
+            #endif
+            return .external(parsed)
+        }
         if scheme == "http" || scheme == "https" {
             guard BrowserInsecureHTTPSettings.normalizeHost(parsed.host ?? "") != nil else {
                 #if DEBUG
@@ -1433,6 +1629,26 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
         cmuxDebugLog("link.resolve result=external(scheme=\(scheme)) url=\(parsed)")
         #endif
         return .external(parsed)
+    }
+
+    if let fileURL = cmuxResolveTerminalLocalFileURL(trimmed, cwd: cwd, fileExists: fileExists) {
+        #if DEBUG
+        cmuxDebugLog("link.resolve result=external(localPath) url=\(fileURL)")
+        #endif
+        return .external(fileURL)
+    }
+
+    if NSString(string: trimmed).isAbsolutePath {
+        guard allowAbsolutePathFallback else {
+            #if DEBUG
+            cmuxDebugLog("link.resolve result=nil (absolutePathFallbackDisabled) url=\(trimmed)")
+            #endif
+            return nil
+        }
+        #if DEBUG
+        cmuxDebugLog("link.resolve result=external(absolutePath) url=\(trimmed)")
+        #endif
+        return .external(URL(fileURLWithPath: trimmed))
     }
 
     if let webURL = resolveBrowserNavigableURL(trimmed) {
@@ -4833,195 +5049,220 @@ class GhosttyApp {
             #if DEBUG
             cmuxDebugLog("link.openURL raw=\(urlString)")
             #endif
-
-            // Try file-path resolution before URL classification.
-            // Ghostty's link detection can match file paths that contain
-            // slashes or dots (e.g. "docs/spec.md." or "/tmp/spec.md.") as URLs.
-            // Attempt to resolve the raw string as a local file first
-            // (with trailing-punctuation trimming via cmuxResolveQuicklookPath).
-            // If the file exists and cmux can handle it, route through the
-            // file viewer instead of the browser.
-            let trimmedUrlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-            var normalizedOpenURLString = urlString
-            if !trimmedUrlString.isEmpty {
-                let filePathResolution: (routed: Bool, fallbackPath: String?) = performOnMain {
-                    guard let termSurface = surfaceView.terminalSurface,
-                          let workspace = termSurface.owningWorkspace(),
-                          !workspace.isRemoteTerminalSurface(termSurface.id) else {
-                        return (false, nil)
-                    }
-                    let cwd = CommandClickFileOpenRouter.resolveWorkingDirectory(
-                        workspace: workspace,
-                        surfaceId: termSurface.id
-                    )
-                    guard let resolvedPath = cmuxResolveTerminalOpenURLFilePath(trimmedUrlString, cwd: cwd) else {
-                        return (false, nil)
-                    }
-                    guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
-                        return (false, resolvedPath)
-                    }
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolvedPath)")
-                    #endif
-                    let fileURL = URL(fileURLWithPath: resolvedPath)
-                    CommandClickFileOpenRouter.deferredOpenFileInCmux(
-                        workspace: workspace,
-                        preferredWorkspaceId: workspace.id,
-                        surfaceId: termSurface.id,
-                        filePath: resolvedPath
-                    ) {
-                        NSWorkspace.shared.open(fileURL)
-                    }
-                    return (true, resolvedPath)
-                }
-                if let fallbackPath = filePathResolution.fallbackPath {
-                    normalizedOpenURLString = fallbackPath
-                }
-                if filePathResolution.routed {
-                    return true
-                }
-            }
-
-            guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
-                #if DEBUG
-                cmuxDebugLog("link.openURL resolve failed, returning false")
-                #endif
-                return false
-            }
-            // Route local file URLs into cmux when the file-routing toggle is on.
-            // URL fragments/queries are stripped (the panel only needs the file
-            // path), so links emitted by tools like Claude Code (`foo.md#L42`)
-            // still route into the viewer. Anything else (toggle off, hosted
-            // file URL, remote workspace, unreadable file, split creation
-            // failure) falls through to the existing NSWorkspace path below so
-            // URL semantics are preserved.
-            let fileURLHost = target.url.host
-            if target.url.isFileURL,
-               fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost" {
-                let fileURL = target.url
-                let routed: Bool = performOnMain {
-                    guard let termSurface = surfaceView.terminalSurface,
-                          let workspace = termSurface.owningWorkspace(),
-                          !workspace.isRemoteTerminalSurface(termSurface.id),
-                          CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
-                        return false
-                    }
-                    CommandClickFileOpenRouter.deferredOpenFileInCmux(
-                        workspace: workspace,
-                        preferredWorkspaceId: workspace.id,
-                        surfaceId: termSurface.id,
-                        filePath: fileURL.path
-                    ) {
-                        NSWorkspace.shared.open(fileURL)
-                    }
-                    return true
-                }
-                if routed {
-                    return true
-                }
-                // Fall through to the existing NSWorkspace path below.
-            }
-
-            if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
-                #if DEBUG
-                cmuxDebugLog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
-                #endif
-                return performOnMain {
-                    NSWorkspace.shared.open(target.url)
-                }
-            }
-            switch target {
-            case let .external(url):
-                #if DEBUG
-                cmuxDebugLog("link.openURL target=external, opening externally url=\(url)")
-                #endif
-                return performOnMain {
-                    NSWorkspace.shared.open(url)
-                }
-            case let .embeddedBrowser(url):
-                if BrowserLinkOpenSettings.shouldOpenExternally(url) {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but shouldOpenExternally=true url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but normalizeHost=nil host=\(url.host ?? "nil") url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-
-                // If a host whitelist is configured and this host isn't in it, open externally.
-                if !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but hostWhitelist miss host=\(host) url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
-                let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
-                guard let sourceWorkspaceId,
-                      let sourcePanelId else {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but tabId/surfaceId=nil")
-                    #endif
-                    return false
-                }
-                #if DEBUG
-                cmuxDebugLog(
-                    "link.openURL target=embedded, opening in browser pane " +
-                    "host=\(host) url=\(url) tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId)"
+            guard !urlString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+            Task { @MainActor [self, surfaceView, urlString, callbackTabId, callbackSurfaceId] in
+                _ = self.handleOpenURLAction(
+                    urlString,
+                    surfaceView: surfaceView,
+                    callbackTabId: callbackTabId,
+                    callbackSurfaceId: callbackSurfaceId
                 )
-                #endif
-                let canAttemptEmbeddedOpen = performOnMain {
-                    BrowserAvailabilitySettings.isEnabled() &&
-                    AppDelegate.shared?.workspaceContainingPanel(
-                        panelId: sourcePanelId,
-                        preferredWorkspaceId: sourceWorkspaceId
-                    ) != nil
-                }
-                guard canAttemptEmbeddedOpen else {
-                    #if DEBUG
-                    cmuxDebugLog(
-                        "link.openURL embedded preflight failed, opening externally " +
-                        "tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId) url=\(url)"
-                    )
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-
-                // Browser split creation changes focus, which unfocuses the source terminal and
-                // calls back into Ghostty. Defer that work until this open_url callback returns.
-                // From here cmux owns the open attempt and the deferred path falls back externally.
-                Task { @MainActor [url, sourceWorkspaceId, sourcePanelId, host] in
-                    let didOpen = Self.openEmbeddedBrowserLink(
-                        url: url,
-                        sourceWorkspaceId: sourceWorkspaceId,
-                        sourcePanelId: sourcePanelId,
-                        host: host
-                    )
-                    guard didOpen else {
-                        #if DEBUG
-                        cmuxDebugLog("link.openURL deferred open failed url=\(url)")
-                        #endif
-                        NSSound.beep()
-                        return
-                    }
-                }
-                return true
             }
+            return true
         default:
             return false
         }
+    }
+
+    @MainActor
+    private func handleOpenURLAction(
+        _ urlString: String,
+        surfaceView: GhosttyNSView,
+        callbackTabId: UUID?,
+        callbackSurfaceId: UUID?
+    ) -> Bool {
+        let context: TerminalOpenURLActionContext = {
+            guard let termSurface = surfaceView.terminalSurface,
+                  let workspace = termSurface.owningWorkspace() else {
+                return TerminalOpenURLActionContext(
+                    urlString: urlString,
+                    cwd: nil,
+                    canResolveLocalFiles: false,
+                    sourceWorkspaceId: callbackTabId ?? surfaceView.tabId,
+                    sourcePanelId: callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                )
+            }
+            let canResolveLocalFiles = !workspace.isRemoteTerminalSurface(termSurface.id)
+            return TerminalOpenURLActionContext(
+                urlString: urlString,
+                cwd: canResolveLocalFiles
+                    ? CommandClickFileOpenRouter.resolveWorkingDirectory(
+                        workspace: workspace,
+                        surfaceId: termSurface.id
+                    )
+                    : nil,
+                canResolveLocalFiles: canResolveLocalFiles,
+                sourceWorkspaceId: callbackTabId ?? surfaceView.tabId ?? workspace.id,
+                sourcePanelId: callbackSurfaceId ?? termSurface.id
+            )
+        }()
+
+        Task.detached(priority: .userInitiated) { [context] in
+            let target = Self.resolveOpenURLActionTarget(context)
+            await MainActor.run {
+                _ = GhosttyApp.shared.handleResolvedOpenURLTarget(target, context: context)
+            }
+        }
+        return true
+    }
+
+    private static func resolveOpenURLActionTarget(_ context: TerminalOpenURLActionContext) -> TerminalOpenURLTarget? {
+        let localFileExists: (String) -> Bool
+        if context.canResolveLocalFiles {
+            localFileExists = { FileManager.default.fileExists(atPath: $0) }
+        } else {
+            localFileExists = { _ in false }
+        }
+        return resolveTerminalOpenURLTarget(
+            context.urlString,
+            cwd: context.cwd,
+            allowAbsolutePathFallback: context.canResolveLocalFiles,
+            fileExists: localFileExists
+        )
+    }
+
+    @MainActor
+    private func handleResolvedOpenURLTarget(
+        _ target: TerminalOpenURLTarget?,
+        context: TerminalOpenURLActionContext
+    ) -> Bool {
+        guard let target else {
+            #if DEBUG
+            cmuxDebugLog("link.openURL resolve failed")
+            #endif
+            return false
+        }
+
+        if cmuxIsLocalFileURL(target.url) {
+            let fileURL = target.url
+            if cmuxShouldRouteTerminalLocalFileURLInCmux(fileURL),
+               let sourcePanelId = context.sourcePanelId,
+               let workspace = Self.sourceWorkspaceForOpenURLAction(
+                    sourceWorkspaceId: context.sourceWorkspaceId,
+                    sourcePanelId: sourcePanelId
+               ),
+               !workspace.isRemoteTerminalSurface(sourcePanelId) {
+                CommandClickFileOpenRouter.deferredOpenFileInCmux(
+                    workspace: workspace,
+                    preferredWorkspaceId: context.sourceWorkspaceId ?? workspace.id,
+                    surfaceId: sourcePanelId,
+                    filePath: fileURL.path
+                ) {
+                    PreferredEditorSettings.open(fileURL)
+                }
+                return true
+            }
+            #if DEBUG
+            cmuxDebugLog("link.openURL target=localFile, opening in preferred editor url=\(target.url)")
+            #endif
+            PreferredEditorSettings.open(fileURL)
+            return true
+        }
+
+        if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
+            #if DEBUG
+            cmuxDebugLog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
+            #endif
+            return NSWorkspace.shared.open(target.url)
+        }
+
+        switch target {
+        case let .external(url):
+            #if DEBUG
+            cmuxDebugLog("link.openURL target=external, opening externally url=\(url)")
+            #endif
+            return NSWorkspace.shared.open(url)
+        case let .embeddedBrowser(url):
+            if BrowserLinkOpenSettings.shouldOpenExternally(url) {
+                #if DEBUG
+                cmuxDebugLog("link.openURL target=embedded but shouldOpenExternally=true url=\(url)")
+                #endif
+                return NSWorkspace.shared.open(url)
+            }
+            guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
+                #if DEBUG
+                cmuxDebugLog("link.openURL target=embedded but normalizeHost=nil host=\(url.host ?? "nil") url=\(url)")
+                #endif
+                return NSWorkspace.shared.open(url)
+            }
+
+            // If a host whitelist is configured and this host isn't in it, open externally.
+            if !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
+                #if DEBUG
+                cmuxDebugLog("link.openURL target=embedded but hostWhitelist miss host=\(host) url=\(url)")
+                #endif
+                return NSWorkspace.shared.open(url)
+            }
+            let sourceWorkspaceId = context.sourceWorkspaceId
+            let sourcePanelId = context.sourcePanelId
+            guard let sourceWorkspaceId,
+                  let sourcePanelId else {
+                #if DEBUG
+                cmuxDebugLog("link.openURL target=embedded but tabId/surfaceId=nil")
+                #endif
+                return false
+            }
+            #if DEBUG
+            cmuxDebugLog(
+                "link.openURL target=embedded, opening in browser pane " +
+                "host=\(host) url=\(url) tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId)"
+            )
+            #endif
+            let canAttemptEmbeddedOpen = BrowserAvailabilitySettings.isEnabled() &&
+                AppDelegate.shared?.workspaceContainingPanel(
+                    panelId: sourcePanelId,
+                    preferredWorkspaceId: sourceWorkspaceId
+                ) != nil
+            guard canAttemptEmbeddedOpen else {
+                #if DEBUG
+                cmuxDebugLog(
+                    "link.openURL embedded preflight failed, opening externally " +
+                    "tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId) url=\(url)"
+                )
+                #endif
+                return NSWorkspace.shared.open(url)
+            }
+
+            // Browser split creation changes focus, which unfocuses the source terminal and
+            // calls back into Ghostty. Defer that work until this open_url callback returns.
+            // From here cmux owns the open attempt and the deferred path falls back externally.
+            Task { @MainActor [url, sourceWorkspaceId, sourcePanelId, host] in
+                let didOpen = Self.openEmbeddedBrowserLink(
+                    url: url,
+                    sourceWorkspaceId: sourceWorkspaceId,
+                    sourcePanelId: sourcePanelId,
+                    host: host
+                )
+                guard didOpen else {
+                    #if DEBUG
+                    cmuxDebugLog("link.openURL deferred open failed url=\(url)")
+                    #endif
+                    NSSound.beep()
+                    return
+                }
+            }
+            return true
+        }
+    }
+
+    @MainActor
+    private static func sourceWorkspaceForOpenURLAction(
+        sourceWorkspaceId: UUID?,
+        sourcePanelId: UUID
+    ) -> Workspace? {
+        if let workspace = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: sourcePanelId,
+            preferredWorkspaceId: sourceWorkspaceId
+        )?.workspace {
+            return workspace
+        }
+
+        guard let sourceWorkspaceId,
+              let appDelegate = AppDelegate.shared,
+              let manager = appDelegate.tabManagerFor(tabId: sourceWorkspaceId) ?? appDelegate.tabManager else {
+            return nil
+        }
+        return manager.tabs.first(where: { $0.id == sourceWorkspaceId })
     }
 
     private func applyBackgroundToKeyWindow() {

@@ -47,4 +47,45 @@ import Testing
         defaults.set("  code -w  \n", forKey: PreferredEditorSettings.key)
         #expect(PreferredEditorSettings.resolvedCommand(defaults: defaults) == "code -w")
     }
+
+    @Test func fallbackURLPreservesLineFragment() throws {
+        let url = try #require(URL(string: "file:///tmp/cmux-fixture.swift#L42:5"))
+        let fallbackURL = PreferredEditorSettings.fallbackURLForTesting(url)
+
+        #expect(fallbackURL.path == "/tmp/cmux-fixture.swift")
+        #expect(fallbackURL.fragment == "L42:5")
+    }
+
+    @Test func editorInvocationAddsLineReferenceForKnownGotoEditor() throws {
+        let url = try #require(URL(string: "file:///tmp/cmux-fixture.swift#L42:5"))
+        let invocation = PreferredEditorSettings.editorInvocationForTesting(url, command: "code")
+
+        #expect(invocation.gotoFlag == " -g")
+        #expect(invocation.argument == "/tmp/cmux-fixture.swift:42:5")
+    }
+
+    @Test func editorInvocationKeepsExistingGotoFlagForKnownEditor() throws {
+        let url = try #require(URL(string: "file:///tmp/cmux-fixture.swift#L42:5"))
+        let invocation = PreferredEditorSettings.editorInvocationForTesting(url, command: "cursor --goto")
+
+        #expect(invocation.gotoFlag == "")
+        #expect(invocation.argument == "/tmp/cmux-fixture.swift:42:5")
+    }
+
+    @Test func editorInvocationDoesNotAppendLineReferenceForUnknownCommand() throws {
+        let url = try #require(URL(string: "file:///tmp/cmux-fixture.swift#L42:5"))
+        let invocation = PreferredEditorSettings.editorInvocationForTesting(url, command: "mate")
+
+        #expect(invocation.gotoFlag == "")
+        #expect(invocation.argument == "/tmp/cmux-fixture.swift")
+    }
+
+    @Test func shellWordsKeepQuotedEditorCommandWithGotoFlag() {
+        let words = CmuxShellWords.split("\"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code\" --goto")
+
+        #expect(words == [
+            "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
+            "--goto",
+        ])
+    }
 }

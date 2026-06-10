@@ -5300,8 +5300,85 @@ enum CmdClickSupportedFileRouteSettings {
     }
 }
 
+enum CmuxShellWords {
+    static func split(_ command: String) -> [String] {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        var words: [String] = []
+        var output = ""
+        var quote: Character?
+        var escaping = false
+        var hasCurrentWord = false
+        for character in trimmed {
+            if escaping {
+                output.append(character)
+                escaping = false
+                hasCurrentWord = true
+                continue
+            }
+            if character == "\\", quote != "'" {
+                escaping = true
+                hasCurrentWord = true
+                continue
+            }
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    output.append(character)
+                }
+                hasCurrentWord = true
+                continue
+            }
+            if character == "'" || character == "\"" {
+                quote = character
+                hasCurrentWord = true
+                continue
+            }
+            if character.isWhitespace {
+                if hasCurrentWord {
+                    words.append(output)
+                    output = ""
+                    hasCurrentWord = false
+                }
+                continue
+            }
+            output.append(character)
+            hasCurrentWord = true
+        }
+        if escaping {
+            output.append("\\")
+        }
+        if hasCurrentWord {
+            words.append(output)
+        }
+        return words
+    }
+}
+
 enum PreferredEditorSettings {
     static let key = "preferredEditorCommand"
+
+    private struct OpenTarget: Sendable {
+        let path: String
+        let line: Int?
+        let column: Int?
+
+        var fileURL: URL {
+            URL(fileURLWithPath: path)
+        }
+
+        var fallbackURL: URL
+
+        func commandArgument(includeLineReference: Bool) -> String {
+            guard includeLineReference, let line else { return path }
+            if let column {
+                return "\(path):\(line):\(column)"
+            }
+            return "\(path):\(line)"
+        }
+    }
 
     /// Returns the configured editor command, or nil to use system default.
     static func resolvedCommand(defaults: UserDefaults = .standard) -> String? {
@@ -5314,21 +5391,22 @@ enum PreferredEditorSettings {
 
     /// Open a file path with the user's preferred editor, falling back to system default.
     static func open(_ url: URL) {
+        let target = openTarget(from: url)
         if CmuxUITestCapture.appendLineIfConfigured(
             envKey: "CMUX_UI_TEST_CAPTURE_OPEN_PATH",
-            line: url.path
+            line: target.path
         ) {
             return
         }
 
         guard let command = resolvedCommand() else {
-            NSWorkspace.shared.open(url)
+            NSWorkspace.shared.open(target.fallbackURL)
             return
         }
-        let path = url.path
+        let invocation = commandInvocationComponents(target: target, command: command)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "\(command) \(shellQuote(path))"]
+        process.arguments = ["-c", "\(command)\(invocation.gotoFlag) \(shellQuote(invocation.argument))"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
@@ -5338,12 +5416,106 @@ enum PreferredEditorSettings {
             DispatchQueue.global(qos: .userInitiated).async {
                 process.waitUntilExit()
                 if process.terminationStatus != 0 {
-                    DispatchQueue.main.async { NSWorkspace.shared.open(url) }
+                    DispatchQueue.main.async { NSWorkspace.shared.open(target.fallbackURL) }
                 }
             }
         } catch {
-            NSWorkspace.shared.open(url)
+            NSWorkspace.shared.open(target.fallbackURL)
         }
+    }
+
+    private static func openTarget(from url: URL) -> OpenTarget {
+        let lineColumn = lineColumn(fromFragment: url.fragment)
+        return OpenTarget(
+            path: url.path,
+            line: lineColumn?.line,
+            column: lineColumn?.column,
+            fallbackURL: url
+        )
+    }
+
+    #if DEBUG
+    static func fallbackURLForTesting(_ url: URL) -> URL {
+        openTarget(from: url).fallbackURL
+    }
+
+    static func editorInvocationForTesting(
+        _ url: URL,
+        command: String
+    ) -> (gotoFlag: String, argument: String) {
+        commandInvocationComponents(target: openTarget(from: url), command: command)
+    }
+    #endif
+
+    private static func commandInvocationComponents(
+        target: OpenTarget,
+        command: String
+    ) -> (gotoFlag: String, argument: String) {
+        let includeLineReference = commandSupportsPathLineReference(command)
+        let gotoFlag = commandNeedsGotoFlag(command) && target.line != nil ? " -g" : ""
+        return (
+            gotoFlag: gotoFlag,
+            argument: target.commandArgument(includeLineReference: includeLineReference)
+        )
+    }
+
+    private static func lineColumn(fromFragment fragment: String?) -> (line: Int, column: Int?)? {
+        guard var raw = fragment?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return nil
+        }
+        if raw.first == "L" || raw.first == "l" {
+            raw.removeFirst()
+        }
+
+        let parts = raw.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let linePart = parts.first,
+              !linePart.isEmpty,
+              let line = Int(String(linePart)),
+              line > 0 else {
+            return nil
+        }
+        if parts.count == 2 {
+            let columnPart = parts[1]
+            guard !columnPart.isEmpty,
+                  let column = Int(String(columnPart)),
+                  column > 0 else {
+                return (line, nil)
+            }
+            return (line, column)
+        }
+        return (line, nil)
+    }
+
+    private static func commandNeedsGotoFlag(_ command: String) -> Bool {
+        guard let commandName = normalizedCommandName(command) else { return false }
+        guard pathLineReferenceCommandNames.contains(commandName) else {
+            return false
+        }
+        let tokens = CmuxShellWords.split(command)
+        return !tokens.contains("-g") && !tokens.contains("--goto")
+    }
+
+    private static let pathLineReferenceCommandNames: Set<String> = [
+        "code",
+        "code-insiders",
+        "cursor",
+        "cursor-insiders",
+        "windsurf",
+    ]
+
+    private static func commandSupportsPathLineReference(_ command: String) -> Bool {
+        guard let commandName = normalizedCommandName(command) else { return false }
+        return pathLineReferenceCommandNames.contains(commandName)
+    }
+
+    private static func normalizedCommandName(_ command: String) -> String? {
+        guard let firstWord = firstShellWord(command) else { return nil }
+        return URL(fileURLWithPath: firstWord).lastPathComponent.lowercased()
+    }
+
+    private static func firstShellWord(_ command: String) -> String? {
+        CmuxShellWords.split(command).first
     }
 
     private static func shellQuote(_ s: String) -> String {

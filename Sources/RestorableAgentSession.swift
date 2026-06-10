@@ -588,50 +588,7 @@ enum AgentResumeCommandBuilder {
     }
 
     private static func splitShellWords(_ command: String) -> [String] {
-        enum Quote {
-            case single
-            case double
-        }
-
-        var words: [String] = []
-        var current = ""
-        var quote: Quote?
-        var escaping = false
-
-        func finishWord() {
-            guard !current.isEmpty else { return }
-            words.append(current)
-            current = ""
-        }
-
-        for character in command {
-            if escaping {
-                current.append(character)
-                escaping = false
-                continue
-            }
-            if character == "\\" {
-                escaping = true
-                continue
-            }
-            switch (quote, character) {
-            case (.single, "'"), (.double, "\""):
-                quote = nil
-            case (nil, "'"):
-                quote = .single
-            case (nil, "\""):
-                quote = .double
-            case (nil, " "), (nil, "\t"), (nil, "\n"):
-                finishWord()
-            default:
-                current.append(character)
-            }
-        }
-        if escaping {
-            current.append("\\")
-        }
-        finishWord()
-        return words
+        CmuxShellWords.split(command)
     }
 
     private static func resumeWithOption(

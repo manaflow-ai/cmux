@@ -3400,6 +3400,28 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertTrue(CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
     }
 
+    func testCmdClickMarkdownRouteFallsBackToExistingFilePreviewWhenMarkdownSplitFails() throws {
+        let fileURL = try temporaryTextFile(contents: "# preview me", encoding: .utf8, pathExtension: "md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let previewPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: pane,
+            filePath: fileURL.path,
+            focus: false
+        ))
+
+        XCTAssertTrue(CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
+            sourcePanelId: UUID(),
+            filePath: fileURL.path
+        ))
+        XCTAssertEqual(workspace.focusedPanelId, previewPanel.id)
+    }
+
     func testCmdClickFilePreviewRoutingReusesRightSidePane() throws {
         let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
         let firstURL = try temporaryTextFile(contents: "first", encoding: .utf8)
