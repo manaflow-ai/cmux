@@ -77,7 +77,13 @@ public actor PresenceClient {
         let task = session.webSocketTask(with: request)
         task.resume()
 
-        return AsyncThrowingStream { continuation in
+        // Bounded buffer: the receive loop yields every frame (including the
+        // team's 15s `seen` ticks), so the default unbounded policy would grow
+        // without limit if the consumer stalls. Dropping oldest frames at
+        // worst leaves the rendered map stale until the next snapshot, which
+        // the protocol already guarantees soon: streams are deadline-bounded
+        // server-side and every resubscribe starts snapshot-first.
+        return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(256)) { continuation in
             let receiveLoop = Task {
                 do {
                     while !Task.isCancelled {

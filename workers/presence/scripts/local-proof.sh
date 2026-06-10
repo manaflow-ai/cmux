@@ -35,6 +35,10 @@ PIDS=()
 cleanup() {
   for pid in "${PIDS[@]:-}"; do kill "$pid" 2>/dev/null || true; done
   wait 2>/dev/null || true
+  # $WORK is kept for the transcript logs, so scrub every token-bearing file
+  # (curl configs carrying live Stack bearer tokens, sign-in bodies) on every
+  # exit path; only non-secret logs survive.
+  rm -f "$WORK"/*.curlrc "$WORK"/signin-body.json 2>/dev/null || true
 }
 trap cleanup EXIT
 
