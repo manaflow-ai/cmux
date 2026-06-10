@@ -12,6 +12,10 @@ import AppKit
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
+    /// Per-workspace unread counts (workspace id raw value → count). Passed in by
+    /// the tab container, which is the snapshot-boundary owner for the
+    /// notifications store, so this list never reads an `@Observable` store.
+    var unreadCountsByWorkspace: [String: Int] = [:]
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
@@ -62,6 +66,7 @@ struct WorkspaceShellView: View {
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .push,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
+                unreadCountsByWorkspace: unreadCountsByWorkspace,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
@@ -100,7 +105,20 @@ struct WorkspaceShellView: View {
         }
         .onChange(of: store.workspaces.map(\.id)) { _, workspaceIDs in
             compactNavigationPath.removeAll { !workspaceIDs.contains($0) }
+            // Replay a pending open whose target only just arrived: an APNs tap
+            // during cold attach sets the request while the list is still empty,
+            // so the token `onChange` below bails. Without this the deep-link is
+            // stranded at the root even after the workspace appears.
+            pushPendingWorkspaceOpenIfPossible()
             autoOpenSelectedWorkspaceForSoakIfNeeded()
+        }
+        // Explicit open requests (notification tap / deep-link) must push the
+        // workspace detail even from the root list, unlike passive selection
+        // changes which the navigation policy intentionally ignores at root.
+        // Observe the monotonic token so a repeat open of the already-selected
+        // workspace still fires.
+        .onChange(of: store.pendingWorkspaceOpenRequest?.token) { _, _ in
+            pushPendingWorkspaceOpenIfPossible()
         }
         .onAppear {
             autoOpenSelectedWorkspaceForSoakIfNeeded()
@@ -116,6 +134,7 @@ struct WorkspaceShellView: View {
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .sidebar,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
+                unreadCountsByWorkspace: unreadCountsByWorkspace,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: store.createWorkspace,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
@@ -140,6 +159,11 @@ struct WorkspaceShellView: View {
 
     private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
+        // Opening a workspace from the list is a read of its activity: clear its
+        // unread notification badge optimistically and propagate the read-state
+        // to the Mac. Same shared mark-read path the Notifications feed uses, so
+        // both entrypoints stay consistent.
+        store.markNotificationsRead(forWorkspace: id.rawValue)
         store.selectedWorkspaceID = id
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
@@ -175,6 +199,20 @@ struct WorkspaceShellView: View {
             pendingCompactCreateNavigationWorkspaceIDs = nil
             compactNavigationPath = createdPath
         }
+    }
+
+    /// Push the workspace detail for the latest explicit open request, but only
+    /// once its target is present in the list. Safe to call repeatedly: it is a
+    /// no-op when there is no pending request, the target is not loaded yet, or
+    /// the detail is already on top, so both the request-token `onChange` and the
+    /// workspaces-arrived replay path can share it.
+    private func pushPendingWorkspaceOpenIfPossible() {
+        guard let request = store.pendingWorkspaceOpenRequest,
+              store.workspaces.contains(where: { $0.id == request.id }),
+              compactNavigationPath.last != request.id else {
+            return
+        }
+        compactNavigationPath = [request.id]
     }
 
     private func autoOpenSelectedWorkspaceForSoakIfNeeded() {

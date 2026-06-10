@@ -8,6 +8,8 @@ struct WorkspaceNavigationRow: View {
     let isSelected: Bool
     let navigationStyle: WorkspaceNavigationStyle
     let wrapWorkspaceTitles: Bool
+    /// Unread-notification count for this workspace (plain value snapshot).
+    var unreadCount: Int = 0
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
@@ -27,7 +29,8 @@ struct WorkspaceNavigationRow: View {
                         workspace: workspace,
                         connectionStatus: connectionStatus,
                         isSelected: false,
-                        wrapWorkspaceTitles: wrapWorkspaceTitles
+                        wrapWorkspaceTitles: wrapWorkspaceTitles,
+                        unreadCount: unreadCount
                     )
                 }
                 .simultaneousGesture(TapGesture().onEnded {
@@ -41,7 +44,8 @@ struct WorkspaceNavigationRow: View {
                         workspace: workspace,
                         connectionStatus: connectionStatus,
                         isSelected: isSelected,
-                        wrapWorkspaceTitles: wrapWorkspaceTitles
+                        wrapWorkspaceTitles: wrapWorkspaceTitles,
+                        unreadCount: unreadCount
                     )
                 }
                 .buttonStyle(.plain)

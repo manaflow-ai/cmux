@@ -38,11 +38,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case rawBytes
 
         var eventTopics: [String] {
+            // `notifications.updated` is appended to BOTH transports: the Mac's
+            // notification observer emits it independent of the terminal output
+            // path, and `MobileHostService.emitEvent` drops any topic with no
+            // subscriber, so the phone must subscribe here or the live feed never
+            // arrives.
             switch self {
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid"]
+                return ["workspace.updated", "terminal.render_grid", "notifications.updated"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes"]
+                return ["workspace.updated", "terminal.bytes", "notifications.updated"]
             }
         }
     }
@@ -173,6 +178,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public var pairingCode: String
     public var workspaces: [MobileWorkspacePreview]
+    /// Phone-side mirror of the Mac's notification feed. Streamed live over the
+    /// `notifications.updated` event topic (snapshot refetched via
+    /// `mobile.notifications.list`), it drives the Notifications tab feed and the
+    /// per-workspace unread badges.
+    public let notificationsStore = MobileNotificationsStore()
     /// Whether the connected Mac advertises the `workspace.actions.v1` capability
     /// (rename/pin over the mobile RPC). `false` until host status is read, and
     /// for older Macs that lack the handler, so the UI can hide rename/pin rather
@@ -185,6 +195,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
     public var selectedTerminalID: MobileTerminalPreview.ID?
+
+    /// An explicit "open this workspace now" request, distinct from a passive
+    /// `selectedWorkspaceID` change.
+    ///
+    /// Passive selection changes (the Mac selecting a different sidebar tab) must
+    /// NOT yank the compact iPhone UI from its root list into a workspace, so
+    /// `WorkspaceShellView`'s navigation policy deliberately stays put at root on
+    /// a selection change. A notification tap (or any deep-link) is the opposite:
+    /// the user explicitly asked to open that workspace, so the compact stack
+    /// must push it. The id plus a monotonic token lets the view push even when
+    /// the target is already the selection (re-tapping the same workspace).
+    public private(set) var pendingWorkspaceOpenRequest: (id: MobileWorkspacePreview.ID, token: Int)?
+    private var workspaceOpenRequestCounter = 0
 
     /// Surface IDs whose next window attach must NOT grab the keyboard.
     ///
@@ -265,6 +288,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessListenerID: UUID?
     private var lastTerminalEventAt: Date?
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
+    private var notificationsRefreshTask: Task<Void, Never>?
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
@@ -1544,6 +1568,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         setSelectedWorkspaceID(id)
     }
 
+    /// Explicitly open a workspace (notification tap / deep-link), selecting it
+    /// and signalling the compact shell to push its detail even from the root
+    /// list. The monotonic token makes a repeat request for the already-selected
+    /// workspace still fire an `onChange`.
+    public func requestOpenWorkspace(_ id: MobileWorkspacePreview.ID) {
+        setSelectedWorkspaceID(id)
+        workspaceOpenRequestCounter += 1
+        pendingWorkspaceOpenRequest = (id: id, token: workspaceOpenRequestCounter)
+    }
+
     public func sendTerminalInput() {
         Task { @MainActor [weak self] in
             await self?.submitTerminalInput()
@@ -1904,6 +1938,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func replaceRemoteClient(with newValue: MobileCoreRPCClient?) {
         let previous = remoteClient
         remoteClient = newValue
+        if previous !== newValue {
+            // The notification feed is per-Mac. Dropping or swapping the client
+            // (sign-out, forget, reauth failure, Mac switch) must clear the
+            // mirror so the Notifications tab never shows the previous Mac's
+            // titles/bodies. A fresh connection's cold-attach fetch repopulates
+            // it; an older Mac with no notifications hub leaves it empty.
+            notificationsStore.apply([])
+        }
         if let previous, previous !== newValue {
             Task { await previous.disconnect() }
         }
@@ -1920,6 +1962,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTaskID = nil
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = nil
+        notificationsRefreshTask?.cancel()
+        notificationsRefreshTask = nil
     }
 
     private func resetTerminalOutputTracking() {
@@ -2409,6 +2453,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             self?.markMacConnectionHealthy()
+            // Cold-attach snapshot: pull the recent notification feed once the
+            // subscription is live, the same way the workspace list is fetched on
+            // connect. Live updates then arrive via `notifications.updated`.
+            self?.scheduleNotificationsRefreshFromEvent()
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(outputTransport)")
             // Keep the listener alive without keeping the shell store alive.
             for await event in stream {
@@ -2421,6 +2469,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
+                    // The notification feed rows carry `workspace_name`, which
+                    // comes from the same workspace metadata. A rename/close fires
+                    // `workspace.updated` (not `notifications.updated`, whose hash
+                    // omits the label), so refresh the feed too to keep row labels
+                    // current.
+                    self.scheduleNotificationsRefreshFromEvent()
+                } else if event.topic == "notifications.updated" {
+                    self.scheduleNotificationsRefreshFromEvent()
                 } else if event.topic == "terminal.render_grid" {
                     self.handleTerminalRenderGridEvent(event)
                 } else if event.topic == "terminal.bytes" {
@@ -2926,10 +2982,79 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Refetch the notification feed and mirror it into `notificationsStore`.
+    ///
+    /// Mirrors `scheduleWorkspaceListRefreshFromEvent`: the Mac emits an
+    /// empty-payload `notifications.updated` signal, the phone pulls the recent
+    /// list via `mobile.notifications.list` and replaces its mirror. Called both
+    /// on the live event and once on connect so a cold attach gets a snapshot.
+    func scheduleNotificationsRefreshFromEvent() {
+        guard let client = remoteClient else { return }
+        notificationsRefreshTask?.cancel()
+        notificationsRefreshTask = Task { @MainActor [weak self] in
+            defer { self?.notificationsRefreshTask = nil }
+            guard let self else { return }
+            do {
+                let request = try MobileCoreRPCClient.requestData(method: "mobile.notifications.list", params: [:])
+                let data = try await client.sendRequest(request)
+                let response = try MobileNotificationsListResponse.decode(data)
+                // Guard on client identity only, NOT `connectionState == .connected`.
+                // The cold-attach fetch is kicked from `startTerminalRefreshPolling`
+                // which runs just before the connect path flips the state to
+                // `.connected`; requiring `.connected` here would race-drop the
+                // initial snapshot and leave the feed empty until the next event.
+                // `replaceRemoteClient` clears the store and swaps the client on
+                // teardown, so a stale client's late response is rejected here and
+                // never overwrites a newer connection's feed.
+                guard self.remoteClient === client else { return }
+                self.notificationsStore.apply(response.previews())
+            } catch {
+                // A Mac too old to advertise the verb returns `method_not_found`;
+                // the feed simply stays empty. Best-effort like the workspace
+                // refetch — never disrupt the connection.
+                mobileShellLog.error("notifications refresh failed: \(String(describing: error), privacy: .private)")
+            }
+        }
+    }
+
+    /// Mark a notification read on the phone (optimistic) and propagate the
+    /// read-state to the Mac so it stops re-notifying. The Mac's emit makes every
+    /// connected phone refetch the reconciled state.
+    public func markNotificationRead(id: String) {
+        notificationsStore.markReadLocally(id: id)
+        propagateNotificationMarkRead(params: ["id": id])
+    }
+
+    /// Mark every notification for a workspace read (used on workspace open).
+    public func markNotificationsRead(forWorkspace workspaceID: String) {
+        guard notificationsStore.unreadCount(forWorkspace: workspaceID) > 0 else { return }
+        notificationsStore.markReadLocally(forWorkspace: workspaceID)
+        propagateNotificationMarkRead(params: ["workspace_id": workspaceID])
+    }
+
+    private func propagateNotificationMarkRead(params: [String: Any]) {
+        guard let client = remoteClient, connectionState == .connected else { return }
+        Task { @MainActor in
+            do {
+                let request = try MobileCoreRPCClient.requestData(
+                    method: "mobile.notifications.mark_read",
+                    params: params
+                )
+                _ = try await client.sendRequest(request)
+            } catch {
+                // Optimistic local flip already cleared the badge; a failed
+                // propagation reconciles on the next refetch. Best-effort.
+                mobileShellLog.error("notifications mark_read failed: \(String(describing: error), privacy: .private)")
+            }
+        }
+    }
+
     private func stopTerminalRefreshPolling() {
         terminalEventListenerTask?.cancel()
         terminalEventListenerTask = nil
         terminalEventListenerID = nil
+        notificationsRefreshTask?.cancel()
+        notificationsRefreshTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
     }
 

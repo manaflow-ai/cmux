@@ -52,6 +52,24 @@ import Testing
         #expect(store.selectedWorkspace?.name == "cmux")
     }
 
+    @Test func requestOpenWorkspaceSelectsAndBumpsToken() {
+        let store = MobileShellComposite.preview()
+        let target = try! #require(store.workspaces.last?.id)
+
+        #expect(store.pendingWorkspaceOpenRequest == nil)
+        store.requestOpenWorkspace(target)
+        #expect(store.selectedWorkspaceID == target)
+        let first = try! #require(store.pendingWorkspaceOpenRequest)
+        #expect(first.id == target)
+
+        // A repeat open of the already-selected workspace must still bump the
+        // token so the compact stack's `onChange` fires again.
+        store.requestOpenWorkspace(target)
+        let second = try! #require(store.pendingWorkspaceOpenRequest)
+        #expect(second.id == target)
+        #expect(second.token > first.token)
+    }
+
     @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {
         let store = MobileShellComposite.preview()
         store.signIn()

@@ -20823,6 +20823,10 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+        case "mobile.notifications.list", "notifications.list":
+            result = v2MobileNotificationsList(params: request.params)
+        case "mobile.notifications.mark_read", "notifications.mark_read":
+            result = v2MobileNotificationsMarkRead(params: request.params)
 #if DEBUG
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
@@ -20834,6 +20838,87 @@ class TerminalController {
         }
         return mobileHostResult(result)
     }
+
+    /// `mobile.notifications.list`: the recent notification feed the iOS
+    /// Notifications hub mirrors. Reads `TerminalNotificationStore.shared`, sorts
+    /// newest-first, caps to the recent window, and maps to a snake_case wire
+    /// shape with `created_at` as Unix epoch seconds (the phone decodes it into a
+    /// `Date`). This is the snapshot the phone pulls on cold-attach and on every
+    /// `notifications.updated` signal.
+    ///
+    /// Authorization: like `workspace.list`, this returns the user's own state
+    /// across all of their Mac's workspaces and is account-scoped by same-account
+    /// Stack auth, which is the SOLE authorization gate for the mobile data plane
+    /// (`MobileHostService.authorizationError(for:)`). The attach ticket is
+    /// route-discovery + workspace-selection only and never authorizes on its
+    /// own, and `mobile.attach_ticket.create` itself requires the same-account
+    /// Stack token to mint, so every caller here is the Mac owner reading their
+    /// own notifications. Confining the feed to a single workspace (cross-account
+    /// or scoped sharing) would require a data-plane-wide scope model, not a
+    /// notifications-only check, and is out of scope for this foundation.
+    private func v2MobileNotificationsList(params: [String: Any]) -> V2CallResult {
+        let recent = TerminalNotificationStore.shared.notifications
+            .sorted { $0.createdAt > $1.createdAt }
+            .prefix(Self.mobileNotificationRecentLimit)
+        let items: [[String: Any]] = recent.map { notification in
+            [
+                "id": notification.id.uuidString,
+                "workspace_id": notification.tabId.uuidString,
+                // The workspace's display title, so the feed row can name which
+                // workspace/Mac the notification came from (titles are activity
+                // strings like "Claude finished" with no workspace context).
+                // Null when the workspace has closed or has no title.
+                "workspace_name": v2OrNull(AppDelegate.shared?.tabTitle(for: notification.tabId)),
+                "surface_id": v2OrNull(notification.surfaceId?.uuidString),
+                "title": notification.title,
+                "subtitle": notification.subtitle,
+                "body": notification.body,
+                "created_at": notification.createdAt.timeIntervalSince1970,
+                "is_read": notification.isRead,
+            ]
+        }
+        return .ok(["notifications": items])
+    }
+
+    /// `mobile.notifications.mark_read`: mark a single notification (`id`) or a
+    /// whole workspace (`workspace_id`) read on the Mac. Routes through the same
+    /// `TerminalNotificationStore` read-state path the Mac UI uses (no parallel
+    /// copy), so the Mac stops re-notifying and the store change re-emits
+    /// `notifications.updated` to reconcile every connected phone.
+    private func v2MobileNotificationsMarkRead(params: [String: Any]) -> V2CallResult {
+        // Reject any present-but-invalid selector first. This is a mutating RPC
+        // at a trust boundary: a malformed `id` alongside a valid `workspace_id`
+        // must NOT silently downgrade to a broader workspace-wide mark-read than
+        // the caller asked for. Mirrors `v2MobileWorkspaceList`'s
+        // `v2HasNonNullParam`-guarded UUID validation.
+        let id = v2UUID(params, "id")
+        if v2HasNonNullParam(params, "id"), id == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid id", data: nil)
+        }
+        let workspaceID = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), workspaceID == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        // Exactly one selector. Both/neither is a client bug, not a partial op.
+        let selectorCount = (id == nil ? 0 : 1) + (workspaceID == nil ? 0 : 1)
+        guard selectorCount == 1 else {
+            return .err(
+                code: "invalid_params",
+                message: "Provide exactly one of id or workspace_id",
+                data: nil
+            )
+        }
+        if let id {
+            TerminalNotificationStore.shared.markRead(id: id)
+        } else if let workspaceID {
+            TerminalNotificationStore.shared.markRead(forTabId: workspaceID)
+        }
+        return .ok(["ok": true])
+    }
+
+    /// Recent-notification window the mobile feed mirrors. Kept in sync with the
+    /// phone-side `MobileNotificationsStore.recentLimit` and the observer hash.
+    private static let mobileNotificationRecentLimit = 200
 
 #if DEBUG
     /// Hard caps for the DEV dogfood feedback sink. A debug client is the only
