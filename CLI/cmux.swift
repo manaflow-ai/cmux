@@ -3016,6 +3016,17 @@ struct CMUXCLI {
             return
         }
 
+        // `window default-display` only reads/writes the shared dev setting file;
+        // it must work with no cmux running, so handle it before socket resolution.
+        if command == "window",
+           commandArgs.first?.lowercased() == "default-display" {
+            try runWindowDefaultDisplayCommand(
+                commandArgs: Array(commandArgs.dropFirst()),
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
         // Keep no-socket config subcommands on the early path. Socket-backed
         // config subcommands fall through to the resolved-socket dispatch below.
         if command == "config",
@@ -7126,6 +7137,56 @@ struct CMUXCLI {
     /// same v2 socket methods that legacy verbs use (`new-workspace`,
     /// `list-workspaces`, etc.) so behavior matches. Legacy verbs keep working
     /// unchanged for backwards compatibility.
+    /// `cmux window default-display [<name>|--clear]` — read/write the shared,
+    /// cross-tag default display that DEBUG cmux builds open new windows on
+    /// (file: ~/.config/cmux/dev-window-display). No running app required.
+    private func runWindowDefaultDisplayCommand(commandArgs: [String], jsonOutput: Bool) throws {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/cmux/dev-window-display")
+
+        func currentValue() -> String? {
+            guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        if commandArgs.contains("--clear") {
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+            if jsonOutput { print(jsonString(["default_display": NSNull()])) }
+            else { print("Cleared dev window display default.") }
+            return
+        }
+
+        let positional = commandArgs.filter { !$0.hasPrefix("-") }
+        if let raw = positional.first {
+            let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else {
+                throw CLIError(message: "window default-display requires a display name, or --clear")
+            }
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try (name + "\n").write(to: url, atomically: true, encoding: .utf8)
+            if jsonOutput { print(jsonString(["default_display": name])) }
+            else { print("Dev builds will open on \"\(name)\" (DEBUG builds, applied at window creation).") }
+            return
+        }
+
+        let current = currentValue()
+        if jsonOutput {
+            if let current {
+                print(jsonString(["default_display": current]))
+            } else {
+                print(jsonString(["default_display": NSNull()]))
+            }
+        } else {
+            print(current ?? "(unset)")
+        }
+    }
+
     private func runWindowNamespace(
         commandArgs: [String],
         client: SocketClient,
@@ -7134,7 +7195,7 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "window requires a subcommand. Try: display, displays")
+            throw CLIError(message: "window requires a subcommand. Try: display, displays, default-display")
         }
         let rest = Array(commandArgs.dropFirst())
         switch sub {

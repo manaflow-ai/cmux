@@ -8270,6 +8270,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
         }
+#if DEBUG
+        // Honor the shared dev-only default display (set via `cmux window
+        // default-display` or the Debug menu) so every dev build, any tag and
+        // any launch path, opens on the chosen monitor. Focus-safe and a no-op
+        // when unset. See DevWindowDisplayDefault.
+        DevWindowDisplayDefault.applyToNewWindow(window)
+#endif
         return windowId
     }
 
@@ -17983,7 +17990,7 @@ extension AppDelegate {
     /// Resolve a display from a query: case-insensitive exact name, then
     /// case-insensitive substring, then a zero-based index string. Returns nil
     /// when nothing matches so callers can report the available names.
-    private func screenMatching(_ query: String) -> NSScreen? {
+    func screenMatching(_ query: String) -> NSScreen? {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let screens = NSScreen.screens
@@ -18031,7 +18038,7 @@ extension AppDelegate {
     /// size (clamped to the display) and centering it. Deliberately does NOT
     /// raise, key, or activate the window: `window.display` is not a focus-intent
     /// command, so it must never steal macOS focus (see `focusIntentV2Methods`).
-    private func repositionPreservingSize(_ window: NSWindow, onto screen: NSScreen) {
+    func repositionPreservingSize(_ window: NSWindow, onto screen: NSScreen) {
         let visible = screen.visibleFrame
         let width = min(window.frame.width, visible.width)
         let height = min(window.frame.height, visible.height)
