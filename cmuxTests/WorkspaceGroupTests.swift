@@ -177,7 +177,9 @@ struct WorkspaceGroupTests {
 
         var groupMemberIds: [UUID] = []
         var visibleWorkspaceIds: [UUID] = []
+        var visibleRowIds: [UUID] = []
         for item in items {
+            visibleRowIds.append(item.rowWorkspaceId)
             switch item {
             case .groupHeader(let renderedGroup, let memberWorkspaceIds) where renderedGroup.id == groupId:
                 groupMemberIds = memberWorkspaceIds
@@ -195,6 +197,11 @@ struct WorkspaceGroupTests {
         ])
         #expect(!visibleWorkspaceIds.contains(originalIds[1]))
         #expect(!visibleWorkspaceIds.contains(originalIds[2]))
+        #expect(visibleRowIds == [
+            originalIds[0],
+            group.anchorWorkspaceId,
+            originalIds[3],
+        ])
     }
 
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {

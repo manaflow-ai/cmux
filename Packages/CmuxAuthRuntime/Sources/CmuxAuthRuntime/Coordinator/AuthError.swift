@@ -11,6 +11,10 @@ public enum AuthError: Error, LocalizedError, Equatable, Sendable {
     case offline
     /// A transport-level network failure (timeout, DNS, TLS, etc.).
     case networkError
+    /// A bounded sign-in phase hit its deadline without completing or failing.
+    /// Replaces the prior behavior of waiting forever on a call (or a system
+    /// auth callback) that never resolves.
+    case timedOut
     /// The auth server returned a non-success status. Carries the HTTP status
     /// code (or `0` when unknown) and a stable machine-readable reason.
     case serverError(Int, String)
@@ -36,6 +40,12 @@ public enum AuthError: Error, LocalizedError, Equatable, Sendable {
             return String(
                 localized: "auth.error.network_error",
                 defaultValue: "Network error. Please check your connection.",
+                bundle: .main
+            )
+        case .timedOut:
+            return String(
+                localized: "auth.error.timed_out",
+                defaultValue: "Sign-in timed out. Check your connection and try again.",
                 bundle: .main
             )
         case .serverError:
