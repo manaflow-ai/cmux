@@ -36,7 +36,11 @@ enum WorkspaceRemoteHostReachabilityProbe {
         timeout: TimeInterval = defaultTimeout,
         completion: @escaping (WorkspaceRemoteHostProbeOutcome) -> Void
     ) {
-        probeQueue.async {
+        // Endpoint resolution shells out to `ssh -G` and can block for up to
+        // its timeout; run it on the concurrent utility pool so simultaneous
+        // probes from multiple workspaces don't serialize behind it (the
+        // serial probeQueue is reserved for NWConnection callbacks).
+        DispatchQueue.global(qos: .utility).async {
             guard let endpoint = resolveEndpoint(
                 destination: destination,
                 port: port,

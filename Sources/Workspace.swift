@@ -7213,6 +7213,9 @@ final class WorkspaceRemoteSessionController {
             reconnectWorkItem = nil
             reconnectRetryCount = 0
             consecutiveUnreachableProbeCount = 0
+            // A live connection ends any suspension; without this a future
+            // failure would hit the suspended guard and never reschedule.
+            reconnectSuspended = false
             reachabilityProbeGeneration &+= 1
             guard proxyEndpoint != endpoint else {
                 recordHeartbeatActivityLocked()
