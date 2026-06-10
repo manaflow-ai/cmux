@@ -1771,6 +1771,144 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertEqual(error.code, "invalid_params")
     }
 
+    // MARK: - notification.reconcile (foreground sweep) + unread badge count
+
+    /// The phone's reconcile sweep sends its delivered banner ids; the Mac must
+    /// report handled = read-in-store OR recently-removed (tombstoned), leave
+    /// unread and foreign ids alone, and return the authoritative unread count
+    /// the phone SETS its icon badge to.
+    func testMobileNotificationReconcileClassifiesHandledAndReportsUnreadCount() async throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        defer { store.replaceNotificationsForTesting(previousNotifications) }
+
+        let tabId = UUID()
+        let read = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: UUID(),
+            title: "Read on Mac", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_000), isRead: true
+        )
+        let unread = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: UUID(),
+            title: "Still unread", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_001), isRead: false
+        )
+        let removed = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: UUID(),
+            title: "Removed on Mac", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_002), isRead: false
+        )
+        store.replaceNotificationsForTesting([read, unread, removed])
+        // User-driven removal: the entry leaves the store but must stay
+        // reconcilable through the dismiss tombstone.
+        store.remove(id: removed.id)
+
+        // A banner mirrored from a different paired Mac; this Mac has never seen
+        // its id and must NOT claim it as handled.
+        let foreignId = UUID()
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "reconcile",
+                method: "notification.reconcile",
+                params: [
+                    "delivered_ids": [
+                        read.id.uuidString,
+                        unread.id.uuidString,
+                        removed.id.uuidString,
+                        foreignId.uuidString,
+                    ]
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any] else {
+            XCTFail("Expected notification.reconcile to succeed, got \(response)")
+            return
+        }
+        XCTAssertEqual(payload["handled_ids"] as? [String], [read.id.uuidString, removed.id.uuidString])
+        // The phone badge mirrors unread notification *entries*: only `unread`
+        // remains unread in the store.
+        XCTAssertEqual(payload["unread_count"] as? Int, 1)
+    }
+
+    /// An empty `delivered_ids` is a valid badge-only sync: nothing handled,
+    /// count still returned.
+    func testMobileNotificationReconcileEmptyDeliveredIsBadgeOnlySync() async throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        defer { store.replaceNotificationsForTesting(previousNotifications) }
+
+        let unread = TerminalNotification(
+            id: UUID(), tabId: UUID(), surfaceId: UUID(),
+            title: "Unread", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_000), isRead: false
+        )
+        store.replaceNotificationsForTesting([unread])
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "reconcile-empty",
+                method: "notification.reconcile",
+                params: ["delivered_ids": [String]()],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any] else {
+            XCTFail("Expected badge-only notification.reconcile to succeed, got \(response)")
+            return
+        }
+        XCTAssertEqual(payload["handled_ids"] as? [String], [])
+        XCTAssertEqual(payload["unread_count"] as? Int, 1)
+    }
+
+    /// markRead leaves a dismiss tombstone, but a later markUnread resurrects
+    /// the entry: a currently-unread id must never be reported handled, or the
+    /// reconcile sweep would clear a banner the user explicitly un-read.
+    func testReconcileUnreadEntryBeatsStaleDismissTombstone() throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        defer { store.replaceNotificationsForTesting(previousNotifications) }
+
+        let notification = TerminalNotification(
+            id: UUID(), tabId: UUID(), surfaceId: UUID(),
+            title: "Resurrected", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_000), isRead: false
+        )
+        store.replaceNotificationsForTesting([notification])
+        store.markRead(id: notification.id) // records a dismiss tombstone
+        XCTAssertEqual(
+            store.reconcileHandledNotificationIDs(deliveredIDs: [notification.id]),
+            [notification.id.uuidString]
+        )
+
+        store.markUnread(id: notification.id)
+
+        XCTAssertEqual(store.reconcileHandledNotificationIDs(deliveredIDs: [notification.id]), [])
+    }
+
+    /// The phone badge counts unread notification entries only. Workspace-level
+    /// manual unread indicators feed the Mac Dock badge but have no phone banner,
+    /// so they must not inflate the phone count.
+    func testPhoneBadgeCountsNotificationEntriesNotWorkspaceIndicators() throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        defer { store.replaceNotificationsForTesting(previousNotifications) }
+
+        let tabId = UUID()
+        store.replaceNotificationsForTesting([]) // also clears manual unread state
+        let dockCountBefore = store.unreadCount
+
+        store.markUnread(forTabId: tabId) // workspace indicator, no entry
+        defer { store.markRead(forTabId: tabId) }
+
+        XCTAssertEqual(store.unreadCount, dockCountBefore + 1)
+        XCTAssertEqual(store.unreadNotificationCount, 0)
+    }
+
 #if DEBUG
     func testMobileWorkspaceCreateSkipsHiddenMacSideWorkAndReturnsCreatedScopeOnly() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
