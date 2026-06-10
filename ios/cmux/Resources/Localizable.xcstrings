@@ -256,6 +256,23 @@
         }
       }
     },
+    "auth.error.timed_out": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in timed out. Check your connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインがタイムアウトしました。接続を確認してもう一度お試しください。"
+          }
+        }
+      }
+    },
     "auth.error.unauthorized": {
       "extractionState": "manual",
       "localizations": {
@@ -1629,6 +1646,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "サインイン"
+          }
+        }
+      }
+    },
+    "mobile.signIn.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
           }
         }
       }
@@ -3703,6 +3737,210 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペースト"
+          }
+        }
+      }
+    },
+    "mobile.pairing.accountMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is signed in to a different cmux account. Sign out and sign back in with the account that owns this Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacは別のcmuxアカウントでサインインしています。サインアウトして、このMacを所有するアカウントでサインインし直してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.appNotRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac is reachable, but cmux isn't running there (or mobile pairing is off). Open cmux on the Mac, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macには接続できますが、cmuxが起動していません（またはモバイルのペア設定がオフです）。Macでcmuxを開いてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.connectTimedOutFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No response from %@:%d. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@:%d から応答がありません。Macがスリープしているか、Tailscaleに接続されていない可能性があります。Macがスリープしておらず、同じTailscaleネットワーク上にあることを確認してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.dnsFailedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't resolve %@. Check that Tailscale is connected on both devices."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を解決できませんでした。両方の端末でTailscaleが接続されていることを確認してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.fail.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device looks offline. Connect to Wi-Fi or cellular, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この端末はオフラインのようです。Wi-Fiまたはモバイルデータに接続してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.localNetwork": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings > cmux > Local Network, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定 > cmux > ローカルネットワーク を開いてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.openMacApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open cmux on your Mac, then scan the QR or link from it again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでcmuxを開いてから、そのQRコードまたはリンクをもう一度スキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.reachability": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check that this phone and your Mac are on the same Wi-Fi or both running Tailscale, that the Mac is awake, and that cmux is open on it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このスマートフォンとMacが同じWi-Fi上にあるか、両方でTailscaleが動作していること、Macがスリープしていないこと、Macでcmuxが開いていることを確認してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.rescanFresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the pairing window on your Mac and scan a fresh QR or link."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでペアリングウィンドウを開き、新しいQRコードまたはリンクをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.sameAccount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Both devices must be signed in to the same cmux account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方の端末が同じcmuxアカウントでサインインしている必要があります。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.hostUnreachableFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't reach %@:%d. Make sure your Mac is awake and on the same Tailscale network as this device."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@:%d に接続できません。Macがスリープしておらず、この端末と同じTailscaleネットワーク上にあることを確認してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.localNetworkPermission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS blocked the connection. Allow cmux to use the Local Network in iOS Settings, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSが接続をブロックしました。iOSの設定でcmuxにローカルネットワークの使用を許可してから、もう一度お試しください。"
           }
         }
       }
