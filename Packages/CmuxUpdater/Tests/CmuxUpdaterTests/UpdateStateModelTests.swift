@@ -67,4 +67,33 @@ import Testing
         #expect(UpdateStateModel.normalizedDetectedUpdateVersion(from: "  1.2.3 ") == "1.2.3")
         #expect(UpdateStateModel.normalizedDetectedUpdateVersion(from: "   ") == nil)
     }
+
+    // MARK: - Installer / launchd-agent failure (SUInstallationError 4005, SUAgentInvalidationError 4010)
+    //
+    // Domain literal "SUSparkleErrorDomain" matches the value of Sparkle's `SUSparkleErrorDomain`
+    // constant, so tests don't need to import Sparkle. Title/message assertions check English
+    // substrings because `String(localized:)` falls back to its `defaultValue` under the test bundle.
+
+    /// Regression: a 4005 installation error wrapping an agent-connection timeout (the wedged
+    /// launchd-session case) must steer the user to restart, not the misleading "move into
+    /// Applications" guidance that the old code returned for every 4005.
+    @Test func installerAgentFailureTellsUserToRestartNotRelocate() {
+        let underlying = NSError(
+            domain: "SUSparkleErrorDomain",
+            code: 10,
+            userInfo: [NSLocalizedDescriptionKey: "Timeout: agent connection was never initiated"]
+        )
+        let err = NSError(
+            domain: "SUSparkleErrorDomain",
+            code: 4005,
+            userInfo: [
+                NSLocalizedDescriptionKey: "An error occurred while running the updater.",
+                NSUnderlyingErrorKey: underlying,
+            ]
+        )
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(message.localizedCaseInsensitiveContains("restart"))
+        #expect(!message.localizedCaseInsensitiveContains("Applications"))
+    }
+
 }
