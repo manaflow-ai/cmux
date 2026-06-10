@@ -302,21 +302,18 @@ final class AgentHibernationController {
                 pendingCommandLineByPanel[record.key] = nowTime
             }
         }
-        let liveCount = isLiveByKey.values.filter { $0 }.count
         let liveRestorableCount = records.filter { record in
             record.agent != nil && (isLiveByKey[record.key] ?? false)
         }.count
         // Tail fingerprints detect output-only activity (a hidden build still
-        // streaming) and cost a terminal text read per candidate, so only
-        // maintain them while some rule could actually select panels.
-        let agentCapPressure = agentSettings.enabled && liveRestorableCount >= agentSettings.maxLiveTerminals
-        let surfaceCapPressure = surfaceSettings.enabled && liveCount >= surfaceSettings.maxLiveSurfaces
-        let unmountedPressure = surfaceSettings.enabled && records.contains { record in
-            guard isLiveByKey[record.key] ?? false,
-                  let workspaceUnmountedAt = record.workspaceUnmountedAt else { return false }
-            return nowTime - workspaceUnmountedAt >= surfaceSettings.unmountedIdleSeconds
-        }
-        let shouldMaintainTailSamples = agentCapPressure || surfaceCapPressure || unmountedPressure
+        // streaming) and cost a terminal text read per candidate per tick, so
+        // they stay scoped to the pre-existing opt-in agent cap. The surface
+        // rules select at most maxSelectionsPerEvaluation panels and the
+        // confirmation fingerprint re-reads exactly those tails, which keeps
+        // streaming panels safe without fanning reads across every hidden
+        // terminal.
+        let shouldMaintainTailSamples = agentSettings.enabled &&
+            liveRestorableCount >= agentSettings.maxLiveTerminals
         var inputsByKey: [AgentHibernationPanelKey: SurfaceHibernationPlannerInput] = [:]
         let plannerInputs = records.map { record -> SurfaceHibernationPlannerInput in
             var input = SurfaceHibernationPlannerInput(
@@ -333,6 +330,7 @@ final class AgentHibernationController {
                 workspaceUnmountedAt: record.workspaceUnmountedAt
             )
             if shouldMaintainTailSamples,
+               record.agent != nil,
                input.isLive,
                SurfaceHibernationPlanner.isEvictable(input, agentSettings: agentSettings),
                let tailActivityAt = updateTailFingerprintSample(record: record, now: nowTime) {
