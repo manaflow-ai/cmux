@@ -73,15 +73,17 @@ public final class AuthCoordinator {
     private var debugCredentials: CMUXAuthAutoLoginCredentials?
     private var bootstrapTask: Task<Void, Never>?
     private var isRevalidatingSession = false
-    /// Monotonic session-clear count, bumped by ``clearAuthState()``. Flows
-    /// that publish session state after suspension points (launch restore,
-    /// foreground revalidation, sign-in completion) capture it at entry and
-    /// drop their writes when it has moved on: local-first sign-out clears
-    /// state up front with no trailing clear, so a sign-out that lands while
-    /// such a flow is parked in a network call must win instead of being
-    /// overwritten by the stale result (and conversely, a stale validation
-    /// failure must not wipe a newer session). Same pattern as
-    /// `HostBrowserSignInFlow.signOutGeneration`.
+    /// Monotonic session epoch, advanced by every session transition: each
+    /// ``clearAuthState()`` AND each published sign-in
+    /// (``applySignedInUser(_:)``). Flows that touch session state after
+    /// suspension points (launch restore, foreground revalidation, sign-in
+    /// completion) capture it at entry and drop their writes when it has
+    /// moved on: local-first sign-out clears state up front with no trailing
+    /// clear, so a sign-out that lands while such a flow is parked in a
+    /// network call must win instead of being overwritten by the stale
+    /// result; conversely a stale validation failure must not wipe a newer
+    /// session, including one published with no clear in between. Same
+    /// pattern as `HostBrowserSignInFlow.signOutGeneration`.
     @ObservationIgnored private var sessionGeneration: UInt64 = 0
     /// Monotonic sign-in attempt count, allocating each flow's attempt id.
     @ObservationIgnored private var signInAttemptCounter: UInt64 = 0
@@ -342,7 +344,7 @@ public final class AuthCoordinator {
             // republishing a session whose local tokens are already gone.
             guard generation == sessionGeneration else { return }
             if let user {
-                await applySignedInUser(user, generation: generation)
+                await applySignedInUser(user)
                 return
             }
             authLog.info("Cached session validation returned no current user")
@@ -534,7 +536,7 @@ public final class AuthCoordinator {
         guard flow.generation == sessionGeneration else {
             throw CancellationError()
         }
-        await applySignedInUser(user, generation: flow.generation)
+        await applySignedInUser(user)
     }
 
     /// Complete a sign-in whose credentials were established outside the
@@ -751,7 +753,13 @@ public final class AuthCoordinator {
 
     // MARK: - State helpers
 
-    private func applySignedInUser(_ user: CMUXAuthUser, generation: UInt64) async {
+    private func applySignedInUser(_ user: CMUXAuthUser) async {
+        // Publishing a session advances the epoch exactly like clearing one:
+        // any other flow that captured the pre-publish generation (a stale
+        // revalidation of the previous session still parked in its fetch)
+        // must not clear or overwrite this newer session when it resumes.
+        sessionGeneration &+= 1
+        let generation = sessionGeneration
         currentUser = user
         isAuthenticated = true
         isRestoringSession = false
