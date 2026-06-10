@@ -2265,10 +2265,14 @@ final class TerminalNotificationStore: ObservableObject {
                 self.logAuthorization(
                     "request callback origin=\(origin.rawValue) granted=\(granted) error=\(error?.localizedDescription ?? "nil") mapped=\(self.authorizationState.statusLabel)"
                 )
-                // The user just answered the prompt: a non-grant is a live
-                // denial even while authorizationState is still refreshing
-                // (FeedCoordinator's prompt path makes the same call).
-                completion(granted, granted ? .authorized : .denied)
+                // A non-grant without an error is the user answering the
+                // prompt with a live denial, even while authorizationState is
+                // still refreshing. A request error is not a user decision,
+                // so it reports .unknown and the fallback sound stays on
+                // (fail-open).
+                let effectiveState: NotificationAuthorizationState =
+                    granted ? .authorized : (error == nil ? .denied : .unknown)
+                completion(granted, effectiveState)
             }
         }
     }
