@@ -52,7 +52,7 @@ struct SettingsWindowPresenter {
         if state.shouldOpenWhenConfigured {
             state.shouldOpenWhenConfigured = false
             openWindow()
-            scheduleOpenVerification(attempt: 1)
+            scheduleOpenVerification(attempt: 1, opener: openWindow)
         }
     }
 
@@ -126,7 +126,12 @@ struct SettingsWindowPresenter {
         }
 
         if let openWindowOverride {
+            // The override still funnels into SwiftUI's `openWindow(id:)`, which
+            // can hit the same mid-teardown no-op, so it gets the same retry/
+            // logging recovery as the configured opener (issue #5770).
+            Self.log.notice("settings.window.show no existing window; requesting via override")
             openWindowOverride()
+            scheduleOpenVerification(attempt: 1, opener: openWindowOverride)
             return
         }
 
@@ -136,7 +141,7 @@ struct SettingsWindowPresenter {
         }
         Self.log.notice("settings.window.show no existing window; requesting new settings window")
         openWindow()
-        scheduleOpenVerification(attempt: 1)
+        scheduleOpenVerification(attempt: 1, opener: openWindow)
     }
 
     static func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
@@ -192,7 +197,10 @@ struct SettingsWindowPresenter {
     /// Success is event-driven: `configure(window:)` cancels the pending check
     /// as soon as the scene materializes a window, so the timer below only ever
     /// decides the failure case.
-    private func scheduleOpenVerification(attempt: Int) {
+    private func scheduleOpenVerification(
+        attempt: Int,
+        opener: @escaping @MainActor () -> Void
+    ) {
         guard state.openVerificationTask == nil else { return }
         state.openVerificationTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -205,8 +213,8 @@ struct SettingsWindowPresenter {
                 Self.log.error(
                     "settings.window.open no window after attempt \(attempt, privacy: .public); retrying"
                 )
-                state.openWindow?()
-                scheduleOpenVerification(attempt: attempt + 1)
+                opener()
+                scheduleOpenVerification(attempt: attempt + 1, opener: opener)
             case .giveUp:
                 Self.log.error(
                     "settings.window.open gave up after \(attempt, privacy: .public) attempts; no window materialized"

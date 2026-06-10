@@ -382,6 +382,20 @@ final class SettingsWindowPresenterTests: XCTestCase {
         XCTAssertEqual(openRequests, 2)
     }
 
+    // An override opener (e.g. BrowserPanelView.openBrowserImportSettings still
+    // calls SwiftUI openWindow(id:)) hits the same mid-teardown no-op, so it
+    // must get the same lost-request verification and single retry.
+    func testOverrideOpenRequestAlsoVerifiesAndRetries() async {
+        let presenter = SettingsWindowPresenter()
+        var openRequests = 0
+
+        presenter.show(openWindowOverride: { openRequests += 1 })
+        XCTAssertEqual(openRequests, 1)
+
+        await waitUntil { openRequests >= 2 }
+        XCTAssertEqual(openRequests, 2)
+    }
+
     func testOpenOutcomeRetriesWhenWindowDoesNotMaterializeOnFirstAttempt() {
         XCTAssertEqual(
             SettingsWindowPresenter.openOutcome(windowExists: false, attempt: 1),
