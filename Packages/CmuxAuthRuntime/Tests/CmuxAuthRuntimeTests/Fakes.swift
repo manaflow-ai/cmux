@@ -36,8 +36,9 @@ actor FakeAuthClient: AuthClient {
     private(set) var revokeCount = 0
     private(set) var lastRevokedAccessToken: String?
     private(set) var lastRevokedRefreshToken: String?
-    /// Scripted result of ``mintAccessToken(refreshToken:)`` (default `nil`,
-    /// like a mint that failed offline).
+    /// Scripted mint result of ``freshAccessToken(accessToken:refreshToken:)``
+    /// (default `nil`: the fake passes the captured access token through, like
+    /// a still-fresh token or a mint that failed offline).
     var mintedAccessToken: String?
     private(set) var lastMintedRefreshToken: String?
 
@@ -108,9 +109,9 @@ actor FakeAuthClient: AuthClient {
         lastRevokedRefreshToken = refreshToken
     }
 
-    func mintAccessToken(refreshToken: String) async -> String? {
+    func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? {
         lastMintedRefreshToken = refreshToken
-        return mintedAccessToken
+        return mintedAccessToken ?? accessToken
     }
 }
 

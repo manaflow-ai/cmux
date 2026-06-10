@@ -74,5 +74,5 @@ actor HangingSignOutAuthClient: AuthClient {
         localSessionCleared = true
     }
 
-    func mintAccessToken(refreshToken: String) async -> String? { nil }
+    func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? { accessToken }
 }

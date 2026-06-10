@@ -268,6 +268,7 @@ public final class AuthCoordinator {
         isRevalidatingSession = true
         defer { isRevalidatingSession = false }
         let generation = sessionGeneration
+        let storeWriteHighWater = tokenStoreWriteHighWater
 
         let cachedUser = loadCachedUser()
         // accessToken() may refresh over the network; a sign-out can land
@@ -306,7 +307,7 @@ public final class AuthCoordinator {
             if currentUser == nil, let cachedUser {
                 currentUser = cachedUser
             }
-            await validateCachedSession(generation: generation)
+            await validateCachedSession(generation: generation, storeWriteHighWater: storeWriteHighWater)
             return
         }
 
@@ -333,7 +334,7 @@ public final class AuthCoordinator {
         }
     }
 
-    private func validateCachedSession(generation: UInt64) async {
+    private func validateCachedSession(generation: UInt64, storeWriteHighWater: UInt64) async {
         do {
             let client = self.client
             let user = try await runPhase(.validateSession, timeout: timeouts.network) {
@@ -348,8 +349,7 @@ public final class AuthCoordinator {
                 return
             }
             authLog.info("Cached session validation returned no current user")
-            await clearPersistedStackSession()
-            clearAuthState()
+            await clearStaleSessionState(generation: generation, storeWriteHighWater: storeWriteHighWater)
         } catch {
             // Same staleness rule for the failure paths: a stale clear here
             // could wipe a session established after this flow began.
@@ -372,8 +372,7 @@ public final class AuthCoordinator {
                 authLog.error(
                     "Session validation failed and no refresh token survives; routing to login error=\(error.localizedDescription, privacy: .private)"
                 )
-                await clearPersistedStackSession()
-                clearAuthState()
+                await clearStaleSessionState(generation: generation, storeWriteHighWater: storeWriteHighWater)
                 return
             }
             let action = AuthError(displaySafe: error)?.cachedSessionValidationFailureAction
@@ -383,12 +382,30 @@ public final class AuthCoordinator {
             )
             switch action {
             case .clearSession:
-                await clearPersistedStackSession()
-                clearAuthState()
+                await clearStaleSessionState(generation: generation, storeWriteHighWater: storeWriteHighWater)
             case .preserveCachedSession:
                 preserveCachedSessionAfterValidationFailure()
             }
         }
+    }
+
+    /// Clear the persisted token store and published auth state on behalf of
+    /// a validation flow that captured `generation` and `storeWriteHighWater`
+    /// at entry, re-checking staleness around the suspension points: the
+    /// store clear is skipped when a newer sign-in exchange has written the
+    /// store since (the new owner's tokens must survive), and the
+    /// published-state clear is skipped when a newer session transition
+    /// landed while the store clear was suspended (a fresh sign-in must not
+    /// be unpublished by a stale failure). Residual: a store clear already
+    /// executing when a faster sign-in writes cannot be unwound from here;
+    /// that would need a compare-and-clear inside the token store itself, and
+    /// the exposure is a single keychain write.
+    private func clearStaleSessionState(generation: UInt64, storeWriteHighWater: UInt64) async {
+        if tokenStoreWriteHighWater == storeWriteHighWater {
+            await clearPersistedStackSession()
+        }
+        guard generation == sessionGeneration else { return }
+        clearAuthState()
     }
 
     // MARK: - Sign-in flows
@@ -618,15 +635,20 @@ public final class AuthCoordinator {
         let log = self.log
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
-                // Refresh-only store at capture time (the SDK drops expired
-                // access tokens): mint a usable Bearer credential from the
-                // captured refresh through an ephemeral store, since the cmux
-                // API authenticates the teardown with the Bearer + refresh
-                // header pair. Best-effort and cancellation-aware (URLSession)
-                // like the rest of the tail.
+                // The raw capture can hold an expired access token (the SDK
+                // leaves stale ones stored while a valid refresh survives) or
+                // none at all on a refresh-only store. Run the captured pair
+                // through the refresh-aware ephemeral credential path so the
+                // teardown presents a usable Bearer: the captured token when
+                // still fresh, else one minted from the captured refresh,
+                // never touching the cleared live store. Best-effort and
+                // cancellation-aware (URLSession) like the rest of the tail.
                 var teardownAccessToken = accessToken
-                if teardownAccessToken == nil, let refreshToken {
-                    teardownAccessToken = await client.mintAccessToken(refreshToken: refreshToken)
+                if let refreshToken {
+                    teardownAccessToken = await client.freshAccessToken(
+                        accessToken: accessToken,
+                        refreshToken: refreshToken
+                    ) ?? accessToken
                 }
                 await onSignedOut(teardownAccessToken, refreshToken)
                 guard !Task.isCancelled else {

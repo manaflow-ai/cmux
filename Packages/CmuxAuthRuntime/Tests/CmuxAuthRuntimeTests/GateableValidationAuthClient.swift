@@ -126,5 +126,5 @@ actor GateableValidationAuthClient: AuthClient {
 
     func revokeSession(accessToken: String?, refreshToken: String?) async throws {}
 
-    func mintAccessToken(refreshToken: String) async -> String? { nil }
+    func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? { accessToken }
 }

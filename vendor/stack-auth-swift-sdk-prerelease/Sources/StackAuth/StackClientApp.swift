@@ -1000,18 +1000,20 @@ public actor StackClientApp {
         }
     }
 
-    /// Mint a fresh access token from an explicit refresh token, touching no
-    /// persistent token store.
+    /// Resolve a likely-valid access token for an explicit token pair,
+    /// touching no persistent token store.
     ///
-    /// For local-first sign-out teardowns that captured a refresh-only
-    /// session (the SDK drops expired access tokens from the store): the mint
-    /// runs against an ephemeral store seeded with the captured refresh
-    /// token, so it can never write to the app's real keychain.
-    /// - Returns: The minted access token, or `nil` when the mint failed
-    ///   (offline, dead server, rejected refresh token).
-    public func mintAccessToken(refreshToken: String) async -> String? {
+    /// For local-first sign-out teardowns that captured the session's tokens
+    /// before destroying them: the resolution runs against an ephemeral store
+    /// seeded with the captured pair, so the SDK's freshness check returns
+    /// the captured access token while it is still fresh and otherwise mints
+    /// a new one from the refresh token, never writing to the app's real
+    /// keychain.
+    /// - Returns: A likely-valid access token, or `nil` when none could be
+    ///   resolved (offline, dead server, rejected refresh token).
+    public func likelyValidAccessToken(accessToken: String?, refreshToken: String) async -> String? {
         let store = NullTokenStore()
-        await store.setTokens(accessToken: nil, refreshToken: refreshToken)
+        await store.setTokens(accessToken: accessToken, refreshToken: refreshToken)
         return await client.getAccessToken(tokenStoreOverride: store)
     }
 
