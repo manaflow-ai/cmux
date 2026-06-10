@@ -3,8 +3,11 @@ import {
   applyHeartbeat,
   buildSnapshot,
   checkDeviceOwner,
+  checkPresenceCaps,
   expireInstances,
   HEARTBEAT_INTERVAL_MS,
+  MAX_DEVICES_PER_TEAM,
+  MAX_INSTANCES_PER_DEVICE,
   nextAlarmTime,
   OFFLINE_TIMEOUT_MS,
   PRUNE_AFTER_MS,
@@ -223,5 +226,60 @@ describe("checkDeviceOwner", () => {
       ok: false,
       error: "device_owner_mismatch",
     });
+  });
+});
+
+describe("checkPresenceCaps", () => {
+  it("mirrors the registry caps", () => {
+    // web/app/api/devices/route.ts: MAX_DEVICES_PER_TEAM / MAX_INSTANCES_PER_DEVICE.
+    expect(MAX_DEVICES_PER_TEAM).toBe(200);
+    expect(MAX_INSTANCES_PER_DEVICE).toBe(25);
+  });
+
+  it("accepts a new device and instance under both caps", () => {
+    expect(
+      checkPresenceCaps({
+        isNewDevice: true,
+        teamDeviceCount: MAX_DEVICES_PER_TEAM - 1,
+        isNewInstance: true,
+        deviceInstanceCount: MAX_INSTANCES_PER_DEVICE - 1,
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  it("rejects the device that would exceed the per-team device cap", () => {
+    expect(
+      checkPresenceCaps({
+        isNewDevice: true,
+        teamDeviceCount: MAX_DEVICES_PER_TEAM,
+        isNewInstance: true,
+        deviceInstanceCount: 0,
+      }),
+    ).toEqual({ ok: false, error: "too_many_devices" });
+  });
+
+  it("rejects the tag that would exceed the per-device instance cap", () => {
+    // One member minting unbounded tags for a single device must hit the
+    // 25-instance bound, not the whole team's budget.
+    expect(
+      checkPresenceCaps({
+        isNewDevice: false,
+        teamDeviceCount: 0,
+        isNewInstance: true,
+        deviceInstanceCount: MAX_INSTANCES_PER_DEVICE,
+      }),
+    ).toEqual({ ok: false, error: "too_many_instances" });
+  });
+
+  it("ignores the device cap for a heartbeat on an already-pinned device", () => {
+    // A full team must not lock out heartbeats from its existing devices.
+    expect(
+      checkPresenceCaps({
+        isNewDevice: false,
+        teamDeviceCount: MAX_DEVICES_PER_TEAM,
+        isNewInstance: false,
+        deviceInstanceCount: MAX_INSTANCES_PER_DEVICE,
+      }),
+    ).toEqual({ ok: true });
   });
 });

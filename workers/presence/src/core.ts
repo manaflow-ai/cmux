@@ -114,6 +114,48 @@ function applyGoodbye(
   return { instance, events };
 }
 
+/** Devices per team, mirroring the registry's `MAX_DEVICES_PER_TEAM`
+ * (`web/app/api/devices/route.ts`). Owner pins are the DO's device records. */
+export const MAX_DEVICES_PER_TEAM = 200;
+
+/** App instances (tags) per device, mirroring the registry's
+ * `MAX_INSTANCES_PER_DEVICE`. */
+export const MAX_INSTANCES_PER_DEVICE = 25;
+
+export type CapCheck =
+  | { ok: true }
+  | { ok: false; error: "too_many_devices" | "too_many_instances" };
+
+/** Enforce the registry's per-team caps on presence writes.
+ *
+ * Both `deviceId` and `tag` are client-controlled after auth, so without
+ * per-device and per-team bounds one authenticated member could mint
+ * unbounded fake devices or tags, bloat every snapshot, and starve the rest
+ * of the team out of the caps. Mirroring the registry's limits (200 devices
+ * per team, 25 instances per device) also structurally bounds the team's
+ * instance map at 200 x 25 = 5000 without a separate aggregate check,
+ * because every stored instance's device holds an owner pin. Pure for tests.
+ *
+ * - `teamDeviceCount` is consulted only when this heartbeat pins a new
+ *   device (`isNewDevice`).
+ * - `deviceInstanceCount` is consulted only when this heartbeat stores a new
+ *   `(deviceId, tag)` record (`isNewInstance`).
+ */
+export function checkPresenceCaps(input: {
+  isNewDevice: boolean;
+  teamDeviceCount: number;
+  isNewInstance: boolean;
+  deviceInstanceCount: number;
+}): CapCheck {
+  if (input.isNewDevice && input.teamDeviceCount >= MAX_DEVICES_PER_TEAM) {
+    return { ok: false, error: "too_many_devices" };
+  }
+  if (input.isNewInstance && input.deviceInstanceCount >= MAX_INSTANCES_PER_DEVICE) {
+    return { ok: false, error: "too_many_instances" };
+  }
+  return { ok: true };
+}
+
 export type OwnerCheck =
   | { ok: true; /** Pin this user as the device owner (first contact). */ pin: boolean }
   | { ok: false; error: "device_owner_mismatch" };

@@ -20,8 +20,11 @@ import {
   applyHeartbeat,
   buildSnapshot,
   checkDeviceOwner,
+  checkPresenceCaps,
   expireInstances,
   HEARTBEAT_INTERVAL_MS,
+  MAX_DEVICES_PER_TEAM,
+  MAX_INSTANCES_PER_DEVICE,
   nextAlarmTime,
   OFFLINE_TIMEOUT_MS,
   shouldPrune,
@@ -34,13 +37,9 @@ const INSTANCE_PREFIX = "inst:";
 /** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
  * never pruned with the presence tail (see checkDeviceOwner in core.ts), so
  * an idle device cannot be re-claimed by a co-member. Bounded by
- * MAX_OWNERS_PER_TEAM. */
+ * MAX_DEVICES_PER_TEAM (owner pins are the DO's device records). */
 const OWNER_PREFIX = "owner:";
 const TEAM_ID_KEY = "meta:teamId";
-/** Mirrors the registry caps (200 devices x 25 instances per device). */
-const MAX_INSTANCES_PER_TEAM = 5000;
-/** Cap on durable owner pins; matches the instance cap (owners <= devices). */
-const MAX_OWNERS_PER_TEAM = 5000;
 /** Combined WebSocket + SSE subscriber cap per team. */
 const MAX_SUBSCRIBERS_PER_TEAM = 64;
 /** Drop an SSE subscriber once this many frames sit unread in its stream
@@ -136,14 +135,25 @@ export class TeamPresence extends DurableObject {
       });
     }
 
-    if (!existing) {
-      const count = (await this.ctx.storage.list({ prefix: INSTANCE_PREFIX, limit: MAX_INSTANCES_PER_TEAM })).size;
-      if (count >= MAX_INSTANCES_PER_TEAM) return { error: "too_many_instances", status: 429 };
-    }
+    // Registry-mirrored caps (see checkPresenceCaps in core.ts): 200 devices
+    // per team, 25 instances (tags) per device. Counts are fetched lazily and
+    // listed with a limit one past the cap, so the checks stay cheap.
+    const caps = checkPresenceCaps({
+      isNewDevice: owner.pin,
+      teamDeviceCount: owner.pin
+        ? (await this.ctx.storage.list({ prefix: OWNER_PREFIX, limit: MAX_DEVICES_PER_TEAM + 1 })).size
+        : 0,
+      isNewInstance: !existing,
+      deviceInstanceCount: existing
+        ? 0
+        : (await this.ctx.storage.list({
+            prefix: `${INSTANCE_PREFIX}${beat.deviceId}:`,
+            limit: MAX_INSTANCES_PER_DEVICE + 1,
+          })).size,
+    });
+    if (!caps.ok) return { error: caps.error, status: 429 };
 
     if (owner.pin) {
-      const ownerCount = (await this.ctx.storage.list({ prefix: OWNER_PREFIX, limit: MAX_OWNERS_PER_TEAM })).size;
-      if (ownerCount >= MAX_OWNERS_PER_TEAM) return { error: "too_many_devices", status: 429 };
       await this.ctx.storage.put(ownerKey(beat.deviceId), userId);
     }
     const { instance, events } = applyHeartbeat(existing, beat, now);
