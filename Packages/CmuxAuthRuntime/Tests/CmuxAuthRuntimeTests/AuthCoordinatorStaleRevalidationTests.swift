@@ -221,6 +221,56 @@ import Testing
         #expect(await client.accessToken() != nil)
         #expect(await client.refreshToken() != nil)
     }
+
+    @Test func failedNewerAttemptDoesNotBlockStaleRollback() async throws {
+        // Counterpart to the in-flight test above: sign-in B starts after the
+        // sign-out but fails fast (offline) BEFORE its exchange writes
+        // anything. B bumped the attempt counter, but it never took ownership
+        // of the token store, so when stale A resumes and re-stores its old
+        // tokens the rollback must still clear them; otherwise the signed-out
+        // device keeps credentials the next launch restore resurrects.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let online = OnlineFlag()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain(),
+            isOnline: { await online.value }
+        )
+
+        await client.armCredentialGate()
+        let staleSignIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await client.credentialDidPark()
+
+        await coordinator.signOut()
+        #expect(coordinator.isAuthenticated == false)
+
+        // B fails its connectivity probe after registering as an attempt.
+        await online.set(false)
+        await #expect(throws: AuthError.offline) {
+            try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        }
+
+        await client.releaseParkedCredential()
+        await #expect(throws: AuthError.cancelled) { try await staleSignIn.value }
+
+        #expect(coordinator.isAuthenticated == false)
+        #expect(store.bool(forKey: "has_tokens") == false)
+        #expect(await client.accessToken() == nil)
+        #expect(await client.refreshToken() == nil)
+    }
+}
+
+/// Mutable connectivity flag for scripting `isOnline` mid-test.
+private actor OnlineFlag {
+    private(set) var value = true
+    func set(_ newValue: Bool) { value = newValue }
 }
 
 /// Counts `onSignedIn` hook runs across actor hops.
