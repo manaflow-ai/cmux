@@ -10,8 +10,8 @@ struct ControlCommandExecutionPolicyTests {
 
     @Test func fixedWorkerSetRunsOnTheSocketWorker() {
         for method in [
-            "system.ping", "system.capabilities", "auth.status", "feed.push",
-            "browser.download.wait", "system.top", "system.memory",
+            "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
+            "feed.push", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "sidebar.custom.reload",
             "debug.sidebar.simulate_drag", "mobile.attach_ticket.create",
         ] {
