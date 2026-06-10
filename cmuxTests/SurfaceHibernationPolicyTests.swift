@@ -783,6 +783,170 @@ struct SurfaceHibernationPolicyTests {
         )
     }
 
+    // MARK: - Pending command-line survivals
+
+    @MainActor
+    @Test
+    func plainTextInputDoesNotDropBatchedPromptSurvivals() {
+        let wasTracking = AgentHibernationTrackingGate.isEnabled()
+        AgentHibernationTrackingGate.setEnabled(true)
+        defer { AgentHibernationTrackingGate.setEnabled(wasTracking) }
+        let controller = AgentHibernationController.shared
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let base = Date()
+
+        // Queued payload "cmd\npartial": one settling newline, trailing text.
+        controller.recordTerminalInput(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            recordedAt: base,
+            armsPendingCommandLine: true,
+            pendingPromptSurvivals: 1
+        )
+        // "x" arrives before the shell reports cmd's preexec; it appends to
+        // the eventual editable line and must not consume the survival.
+        controller.recordTerminalInput(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            recordedAt: base.addingTimeInterval(0.01),
+            armsPendingCommandLine: true,
+            pendingPromptSurvivals: 0
+        )
+        controller.recordShellActivityTransition(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            state: .commandRunning,
+            recordedAt: base.addingTimeInterval(0.02)
+        )
+        controller.recordShellActivityTransition(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            state: .promptIdle,
+            recordedAt: base.addingTimeInterval(0.03)
+        )
+
+        let state = controller.debugPendingCommandLineStateForTesting(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        #expect(
+            state.pendingAt != nil,
+            "cmd's own prompt return must consume the survival, not the pending guard for the editable \"partialx\""
+        )
+    }
+
+    @MainActor
+    @Test
+    func batchedPromptSurvivalsAccumulateAcrossPayloads() {
+        let wasTracking = AgentHibernationTrackingGate.isEnabled()
+        AgentHibernationTrackingGate.setEnabled(true)
+        defer { AgentHibernationTrackingGate.setEnabled(wasTracking) }
+        let controller = AgentHibernationController.shared
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let base = Date()
+
+        // Two queued payloads, each with one settling newline and trailing
+        // text: the first batch's leftovers get submitted by the second
+        // batch's newline, so both transitions must be survived.
+        for offset in [0.0, 0.01] {
+            controller.recordTerminalInput(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                recordedAt: base.addingTimeInterval(offset),
+                armsPendingCommandLine: true,
+                pendingPromptSurvivals: 1
+            )
+        }
+        for (index, offset) in [0.02, 0.03, 0.04, 0.05].enumerated() {
+            controller.recordShellActivityTransition(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                state: index.isMultiple(of: 2) ? .commandRunning : .promptIdle,
+                recordedAt: base.addingTimeInterval(offset)
+            )
+        }
+
+        let state = controller.debugPendingCommandLineStateForTesting(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        #expect(state.survivals == nil, "Both survivals must be consumed by the two prompt returns")
+        #expect(
+            state.pendingAt != nil,
+            "The second batch's trailing text is still editable after both transitions"
+        )
+    }
+
+    // MARK: - Replay-hook installation evidence
+
+    @Test
+    func replayHookEvidenceRequiresInstalledIntegration() {
+        #expect(TerminalSurface.shellIntegrationInstalledReplayHook(
+            shellName: "zsh", managedKeysAdded: ["ZDOTDIR"], shellSpecificCommandApplied: false
+        ))
+        #expect(!TerminalSurface.shellIntegrationInstalledReplayHook(
+            shellName: "zsh", managedKeysAdded: [], shellSpecificCommandApplied: false
+        ))
+        #expect(TerminalSurface.shellIntegrationInstalledReplayHook(
+            shellName: "bash", managedKeysAdded: ["PROMPT_COMMAND"], shellSpecificCommandApplied: false
+        ))
+        #expect(!TerminalSurface.shellIntegrationInstalledReplayHook(
+            shellName: "bash", managedKeysAdded: ["CMUX_LOAD_GHOSTTY_BASH_INTEGRATION"],
+            shellSpecificCommandApplied: false
+        ))
+        #expect(TerminalSurface.shellIntegrationInstalledReplayHook(
+            shellName: "fish", managedKeysAdded: [], shellSpecificCommandApplied: true
+        ))
+        #expect(!TerminalSurface.shellIntegrationInstalledReplayHook(
+            shellName: "fish", managedKeysAdded: [], shellSpecificCommandApplied: false
+        ))
+        #expect(!TerminalSurface.shellIntegrationInstalledReplayHook(
+            shellName: "nu", managedKeysAdded: ["ZDOTDIR"], shellSpecificCommandApplied: true
+        ))
+    }
+
+    @Test
+    func unreadableBashBootstrapInstallsNoReplayHook() {
+        var environment: [String: String] = [:]
+        var protectedKeys: Set<String> = []
+        let command = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
+            shell: "/bin/bash",
+            integrationDir: "/nonexistent-cmux-integration",
+            userGhosttyShellIntegrationMode: "none",
+            to: &environment,
+            protectedKeys: &protectedKeys,
+            readFile: { _ in throw CocoaError(.fileReadNoSuchFile) }
+        )
+        #expect(command == nil)
+        #expect(!TerminalSurface.shellIntegrationInstalledReplayHook(
+            shellName: "bash",
+            managedKeysAdded: protectedKeys,
+            shellSpecificCommandApplied: false
+        ))
+    }
+
+    @Test
+    func unreadableZshBootstrapInstallsNoReplayHook() {
+        var environment: [String: String] = [:]
+        var protectedKeys: Set<String> = []
+        let command = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
+            shell: "/bin/zsh",
+            integrationDir: "/nonexistent-cmux-integration",
+            userGhosttyShellIntegrationMode: "none",
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+        #expect(command == nil)
+        #expect(protectedKeys.isEmpty, "A missing .zshenv must skip the ZDOTDIR redirection entirely")
+        #expect(!TerminalSurface.shellIntegrationInstalledReplayHook(
+            shellName: "zsh",
+            managedKeysAdded: protectedKeys,
+            shellSpecificCommandApplied: false
+        ))
+    }
+
     // MARK: - Helpers
 
     private func panelKey() -> AgentHibernationPanelKey {

@@ -147,11 +147,16 @@ final class AgentHibernationController {
         }
         // A batched payload such as "cmd1\ncmd2\npartial" runs one command
         // per settling character and only then leaves text editable, so the
-        // pending state must outlive that many prompt transitions.
+        // pending state must outlive that many prompt transitions. Counts
+        // accumulate across payloads and survive interleaved plain text:
+        // typing "x" while a batch's commands are still settling appends to
+        // the eventual editable line, so dropping the count here would let
+        // the batch's own promptIdle clear pending while "…x" sits at the
+        // prompt. Only shell transitions consume survivals (an overcount
+        // after ^C just delays eviction by a few prompts).
         if pendingPromptSurvivals > 0 {
-            pendingPromptSurvivalsByPanel[key] = pendingPromptSurvivals
-        } else if armsPendingCommandLine {
-            pendingPromptSurvivalsByPanel.removeValue(forKey: key)
+            pendingPromptSurvivalsByPanel[key] =
+                (pendingPromptSurvivalsByPanel[key] ?? 0) + pendingPromptSurvivals
         }
     }
 
@@ -202,6 +207,16 @@ final class AgentHibernationController {
         let recordedAt = recordedAt ?? Date()
         recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
     }
+
+#if DEBUG
+    func debugPendingCommandLineStateForTesting(
+        workspaceId: UUID,
+        panelId: UUID
+    ) -> (pendingAt: TimeInterval?, survivals: Int?) {
+        let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
+        return (pendingCommandLineByPanel[key], pendingPromptSurvivalsByPanel[key])
+    }
+#endif
 
     func recordAgentLifecycleChange(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }

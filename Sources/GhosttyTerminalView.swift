@@ -6709,22 +6709,34 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 ?? getenv("SHELL").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["SHELL"]
                 ?? "/bin/zsh"
-            // The managed integrations are the consumers of
-            // CMUX_RESTORE_SCROLLBACK_FILE; without one, a restored shell
-            // would never replay captured scrollback. Keyed off the shell
-            // name: zsh/bash apply via environment (the helper returns nil),
-            // only fish returns a replacement command.
             let shellName = URL(fileURLWithPath: shell).lastPathComponent
-            runtimeSupportsScrollbackReplay = ["zsh", "bash", "fish"].contains(shellName)
-            if let command = Self.applyManagedShellSpecificStartupEnvironment(
+            let protectedKeysBeforeShellSpecific = protectedStartupEnvironmentKeys
+            let shellSpecificCommand = Self.applyManagedShellSpecificStartupEnvironment(
                 shell: shell,
                 integrationDir: integrationDir,
                 userGhosttyShellIntegrationMode: GhosttyApp.shared.userGhosttyShellIntegrationMode,
                 to: &env,
                 protectedKeys: &protectedStartupEnvironmentKeys
-            ) {
-                if baseConfig.command?.isEmpty != false { baseConfig.command = command }
+            )
+            var shellSpecificCommandApplied = false
+            if let shellSpecificCommand, baseConfig.command?.isEmpty != false {
+                baseConfig.command = shellSpecificCommand
+                shellSpecificCommandApplied = true
             }
+            // The managed integrations are the consumers of
+            // CMUX_RESTORE_SCROLLBACK_FILE; without one, a restored shell
+            // would never replay captured scrollback. The helper skips
+            // installation when its bundled bootstrap is unreadable (and a
+            // custom startup command displaces the fish wrapper), so the
+            // flag requires evidence this launch installed a hook: the zsh
+            // ZDOTDIR redirection, the bash PROMPT_COMMAND bootstrap, or the
+            // applied fish wrapper command.
+            runtimeSupportsScrollbackReplay = Self.shellIntegrationInstalledReplayHook(
+                shellName: shellName,
+                managedKeysAdded: protectedStartupEnvironmentKeys
+                    .subtracting(protectedKeysBeforeShellSpecific),
+                shellSpecificCommandApplied: shellSpecificCommandApplied
+            )
         }
         env = Self.mergedStartupEnvironment(
             base: env,
