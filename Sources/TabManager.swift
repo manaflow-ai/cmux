@@ -3810,9 +3810,34 @@ class TabManager: ObservableObject {
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID?
     ) -> Bool {
+        sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: draggedWorkspaceId,
+            targetWorkspaceId: targetWorkspaceId,
+            workspaceGroupIdByWorkspaceId: Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
+        )
+    }
+
+    func sidebarReorderUsesTopLevelRows(
+        forDraggedWorkspaceId draggedWorkspaceId: UUID?,
+        targetWorkspaceId: UUID?,
+        workspaceGroupIdByWorkspaceId: [UUID: UUID?]
+    ) -> Bool {
         guard let draggedWorkspaceId else { return false }
-        return isWorkspaceGroupAnchor(draggedWorkspaceId)
-            || targetWorkspaceId.map(isWorkspaceGroupAnchor) == true
+        if isWorkspaceGroupAnchor(draggedWorkspaceId) ||
+            targetWorkspaceId.map(isWorkspaceGroupAnchor) == true {
+            return true
+        }
+        guard let draggedWorkspaceGroupId = workspaceGroupIdByWorkspaceId[draggedWorkspaceId],
+              draggedWorkspaceGroupId != nil else {
+            return false
+        }
+        // A grouped child dragged over top-level space is leaving the group;
+        // plan in top-level rows so the promotion is explicit and ordered.
+        guard let targetWorkspaceId else { return true }
+        guard let targetWorkspaceGroupId = workspaceGroupIdByWorkspaceId[targetWorkspaceId] else {
+            return false
+        }
+        return targetWorkspaceGroupId == nil
     }
 
     /// After a drag-driven reorder, infer the dragged workspace's group
@@ -5270,9 +5295,14 @@ class TabManager: ObservableObject {
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
            let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
+            // Prefer the warm cached agent index over a synchronous
+            // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
+            // workspace does not freeze the main thread; fall back to a fresh load only
+            // while the cache has not loaded yet. See closedPanelHistoryEntry.
             let snapshot = workspace.sessionSnapshot(
                 includeScrollback: true,
-                restorableAgentIndex: RestorableAgentSessionIndex.load()
+                restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                    ?? RestorableAgentSessionIndex.load()
             )
             ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,

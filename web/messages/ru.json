@@ -742,12 +742,20 @@
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Необязательные контекстные предикаты для каждой операции (условия `when` в стиле VS Code), заданные по идентификатору операции cmux. Каждое значение — булево выражение над ключами контекста, объединенными с помощью !, &&, || и скобок. Булевы ключи: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Типизированные ключи поддерживают сравнения: строка sidebarMode (files, find, sessions, feed или dock) и целые числа paneCount и workspaceCount. Операторы сравнения: ==, !=, =~ (регулярное выражение), <, <=, >, >= и `in [a, b]`; неизвестный или отсутствующий ключ считается false. Также принимаются булевы литералы true и false; `key == false` эквивалентно `!key`. Сочетание клавиш операции срабатывает (и конфликтует с другими сочетаниями) только когда условие истинно. Примеры: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } выбирает рабочие области с помощью Ctrl+1–9 везде, кроме случаев, когда в фокусе правая боковая панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ограничивает привязку боковой панелью поиска, когда в рабочей области несколько панелей."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "shortcutsWhenIntro": "Необязательные контекстные предикаты для каждой операции (условия when в стиле VS Code), заданные по идентификатору операции cmux. Привязка срабатывает — и конфликтует с другой привязкой на том же нажатии — только когда её условие истинно. Опустите условие, чтобы сохранить встроенный контекст операции. Словарь условий:",
+      "shortcutsWhenBooleanKeys": "булевы ключи. Неизвестный или отсутствующий ключ считается false; также принимаются литералы true и false.",
+      "shortcutsWhenTypedKeys": "типизированные ключи для сравнений: активный режим правой боковой панели (строка) и количество панелей и рабочих областей (целые числа).",
+      "shortcutsWhenOperators": "булевы операторы, типизированные сравнения, сопоставление по регулярному выражению и принадлежность списку. Сравнения связывают сильнее, чем && и ||.",
+      "shortcutsWhenExample": "Например, эта настройка заставляет Ctrl+1–9 выбирать рабочие области везде, кроме случаев, когда в фокусе правая боковая панель (оставляя Ctrl+1–5 переключателю режимов боковой панели), и ограничивает выбор поверхности боковой панелью поиска, когда в рабочей области несколько панелей:"
     },
     "customCommands": {
       "title": "Пользовательские команды",
@@ -1429,5 +1437,10 @@
     "downloadLight": "Скачать светлую иконку",
     "downloadDark": "Скачать тёмную иконку",
     "brandPage": "Материалы бренда"
+  },
+  "afterSignIn": {
+    "title": "Вход в cmux выполнен",
+    "body": "Если cmux не открылся автоматически, используйте кнопку ниже.",
+    "button": "Вернуться в cmux"
   }
 }
