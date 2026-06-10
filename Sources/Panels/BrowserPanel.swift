@@ -4226,6 +4226,7 @@ final class BrowserPanel: Panel, ObservableObject {
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
         setupMediaPlaybackMessageHandler(for: webView)
+        setupEditorSaveMessageHandler(for: webView)
         applyMuteState(to: webView, reason: "bindWebView")
     }
 

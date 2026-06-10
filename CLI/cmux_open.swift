@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -994,12 +995,18 @@ extension CMUXCLI {
 
         let appearance = diffViewerAppearance(socketPath: socketPath, fontSizeOverride: nil)
         let runtime = diffViewerRuntime(socketPath: socketPath)
+        let writable = FileManager.default.isWritableFile(atPath: fileURL.path)
+        let contentSha256 = SHA256.hash(data: fileData)
+            .map { String(format: "%02x", $0) }
+            .joined()
         let editor = try writeEditor(
             filePath: fileURL.path,
             content: content,
             title: fileURL.lastPathComponent,
             appearance: appearance,
-            runtime: runtime
+            runtime: runtime,
+            readOnly: !writable,
+            contentSha256: contentSha256
         )
 
         let client = try connectClient(
@@ -1024,6 +1031,12 @@ extension CMUXCLI {
         if editor.url.scheme == DiffViewerURLMapper.scheme {
             params["diff_viewer_token"] = editor.url.host ?? ""
             params["diff_viewer_files"] = editor.allowedFiles.map(\.jsonObject)
+            // Register the source file as this token's write target so the
+            // page's Cmd+S save bridge can write it back. Only for writable
+            // files; read-only opens never mint a write capability.
+            if writable {
+                params["editor_file"] = ["path": fileURL.path]
+            }
         }
         if let windowHandle { params["window_id"] = windowHandle }
         if let workspaceHandle { params["workspace_id"] = workspaceHandle }
@@ -1051,7 +1064,9 @@ extension CMUXCLI {
         content: String,
         title: String,
         appearance: DiffViewerAppearance,
-        runtime: URL?
+        runtime: URL?,
+        readOnly: Bool,
+        contentSha256: String
     ) throws -> EditorWriteResult {
         let directory = try diffViewerDirectory()
         let origin = try diffViewerHTTPServerOrigin(rootDirectory: directory, runtime: runtime)
@@ -1070,7 +1085,12 @@ extension CMUXCLI {
             filePath: filePath,
             content: content,
             title: title,
-            appearance: appearance
+            appearance: appearance,
+            // The save bridge authorizes by custom-scheme frame origin; pages
+            // served over the localhost HTTP origin cannot save, so they open
+            // read-only instead of failing on the first Cmd+S.
+            readOnly: readOnly || origin != nil,
+            contentSha256: contentSha256
         )
         let allowedFiles = try diffViewerAllowedFiles(
             pageURLs: [viewerFileURL],
@@ -1090,19 +1110,39 @@ extension CMUXCLI {
         )
     }
 
+    private static let editorLabels: [String: String] = [
+        "conflictChanged": String(localized: "editor.conflict.changed", defaultValue: "The file changed on disk after it was opened."),
+        "conflictMissing": String(localized: "editor.conflict.missing", defaultValue: "The file no longer exists on disk."),
+        "dismiss": String(localized: "editor.conflict.dismiss", defaultValue: "Dismiss"),
+        "modified": String(localized: "editor.status.modified", defaultValue: "Modified"),
+        "overwrite": String(localized: "editor.conflict.overwrite", defaultValue: "Overwrite"),
+        "readOnly": String(localized: "editor.status.readOnly", defaultValue: "Read-only"),
+        "saved": String(localized: "editor.status.saved", defaultValue: "Saved"),
+        "saveFailed": String(localized: "editor.error.saveFailed", defaultValue: "Could not save the file."),
+        "savePermissionDenied": String(localized: "editor.error.permissionDenied", defaultValue: "You don't have permission to save this file."),
+        "saveUnavailable": String(localized: "editor.error.saveUnavailable", defaultValue: "Saving is unavailable for this editor."),
+        "saving": String(localized: "editor.status.saving", defaultValue: "Saving…"),
+        "useDiskVersion": String(localized: "editor.conflict.useDiskVersion", defaultValue: "Use disk version")
+    ]
+
     private func writeEditorHTML(
         to viewerURL: URL,
         appModuleURL: String,
         filePath: String,
         content: String,
         title: String,
-        appearance: DiffViewerAppearance
+        appearance: DiffViewerAppearance,
+        readOnly: Bool,
+        contentSha256: String
     ) throws {
         let payload: [String: Any] = [
             "filePath": filePath,
             "content": content,
             "title": title,
-            "appearance": appearance.jsonObject
+            "appearance": appearance.jsonObject,
+            "readOnly": readOnly,
+            "contentSha256": contentSha256,
+            "labels": Self.editorLabels
         ]
         let config: [String: Any] = ["payload": payload]
         let configLiteral = try jsonScriptLiteral(config)

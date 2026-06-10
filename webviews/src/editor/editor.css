@@ -7,7 +7,76 @@ body,
   overflow: hidden;
 }
 
-.cmux-monaco-root {
-  width: 100%;
+.cmux-editor-shell {
+  display: flex;
+  flex-direction: column;
   height: 100vh;
+  width: 100%;
+}
+
+.cmux-monaco-root {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+.cmux-editor-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  min-height: 22px;
+  padding: 2px 10px;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 11px;
+  background: var(--cmux-editor-chrome-bg, transparent);
+  color: var(--cmux-editor-chrome-fg, inherit);
+  border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  user-select: none;
+}
+
+.cmux-editor-statusbar-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+.cmux-editor-dirty-dot {
+  font-size: 9px;
+  line-height: 1;
+}
+
+.cmux-editor-statusbar-status {
+  margin-left: auto;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+.cmux-editor-conflict {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.cmux-editor-conflict-message {
+  opacity: 0.9;
+}
+
+.cmux-editor-conflict-button {
+  font: inherit;
+  color: inherit;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 4px;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+
+.cmux-editor-conflict-button:hover {
+  background: color-mix(in srgb, currentColor 20%, transparent);
 }

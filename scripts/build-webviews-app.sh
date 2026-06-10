@@ -54,6 +54,11 @@ compress_webviews_output() {
   find "$out_dir/chunks" -type f -name '*.mjs' -size +1000k 2>/dev/null | while IFS= read -r f; do
     node -e 'const z=require("zlib"),fs=require("fs");const p=process.argv[1];fs.writeFileSync(p+".deflate",z.deflateRawSync(fs.readFileSync(p),{level:9}));fs.unlinkSync(p)' "$f"
   done
+  # Vite emits Monaco's codicon icon font because monaco-vendor.css references
+  # it, but the editor surface inlines that CSS under a page CSP with no
+  # font-src, so the font can never load (editorSurface.tsx documents the
+  # trade-off). Drop the dead 122KB instead of shipping it.
+  rm -f "$out_dir/assets/codicon.ttf"
 }
 
 # Materialize a directory for comparison: inflate every `*.deflate` back to its
