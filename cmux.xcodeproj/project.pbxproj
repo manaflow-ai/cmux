@@ -205,6 +205,7 @@
 		A9F20000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift */; };
 		A9F200000000000000000007 /* CmuxRuntimeDebugCaptureSequence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000007 /* CmuxRuntimeDebugCaptureSequence.swift */; };
 		CD0CFE5300000000CD0CFE53 /* CmuxSettings in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5200000000CD0CFE52 /* CmuxSettings */; };
+		CD0CFE5700000000CD0CFE57 /* CmuxSettings in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5200000000CD0CFE52 /* CmuxSettings */; };
 		D3610C010000000000000001 /* CmuxSettingsJSONPathSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */; };
 		CD0CFE5600000000CD0CFE56 /* CmuxSettingsUI in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */; };
 		DC5DC5DC0000000000000001 /* CmuxSidebarActionDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5DC5DC0000000000000002 /* CmuxSidebarActionDispatch.swift */; };
@@ -1535,6 +1536,7 @@
 				C8000314C8000314C8000314 /* CmuxFileWatch in Frameworks */,
 				CF00F00000000000000000A4 /* CmuxFoundation in Frameworks */,
 				C8000304C8000304C8000304 /* CmuxProcess in Frameworks */,
+				CD0CFE5700000000CD0CFE57 /* CmuxSettings in Frameworks */,
 				C5A1FED200000000000000E2 /* CmuxSidebarInterpreterClient in Frameworks */,
 				B900004CA1B2C3D4E5F60719 /* CmuxSocketControl in Frameworks */,
 				C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */,
@@ -2417,6 +2419,7 @@
 				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
 				C8000302C8000302C8000302 /* CmuxProcess */,
 				C8000312C8000312C8000312 /* CmuxFileWatch */,
+				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
 				CF00F00000000000000000A2 /* CmuxFoundation */,
 			);
 			productName = cmux;

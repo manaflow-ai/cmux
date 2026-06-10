@@ -1977,6 +1977,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1" {
             scheduleUITestSocketSanityCheckIfNeeded()
         }
+        // Best-effort one-time migration: a value previously stored in the
+        // legacy ~/.config/cmux/dev-window-display file moves into the shared
+        // cmux.json (app.devWindowDisplay) so an existing dev-display default
+        // keeps working. No-op when already set or the legacy file is absent.
+        Task { await DevWindowDisplayDefault.migrateLegacyFileIfNeeded(runtime: settingsRuntime) }
 #endif
     }
 

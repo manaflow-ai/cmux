@@ -1,6 +1,7 @@
 import Foundation
 import CMUXAgentLaunch
 import CmuxFoundation
+import CmuxSettings
 import CmuxSocketControl
 import CoreFoundation
 import CryptoKit
@@ -7138,22 +7139,40 @@ struct CMUXCLI {
     /// `list-workspaces`, etc.) so behavior matches. Legacy verbs keep working
     /// unchanged for backwards compatibility.
     /// `cmux window default-display [<name>|--clear]` — read/write the shared,
-    /// cross-tag default display that DEBUG cmux builds open new windows on
-    /// (file: ~/.config/cmux/dev-window-display). No running app required.
+    /// cross-tag default display that DEBUG cmux builds open new windows on.
+    ///
+    /// Persisted through ``CmuxSettings/JSONConfigStore`` in the shared
+    /// `cmux.json` under `app.devWindowDisplay`, so it applies to every tagged
+    /// dev build regardless of bundle id. No running app required: the value is
+    /// read/written directly on disk via the store on this no-socket early path.
     private func runWindowDefaultDisplayCommand(commandArgs: [String], jsonOutput: Bool) throws {
-        let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/cmux/dev-window-display")
+        let store = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+        let key = SettingCatalog().app.devWindowDisplay
 
-        func currentValue() -> String? {
-            guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Bridge the actor-backed store to this synchronous CLI: run the async
+        // store call on the cooperative pool and block this thread until it
+        // signals. The semaphore establishes the happens-before that makes the
+        // `nonisolated(unsafe)` result hand-off race-free.
+        func runBlocking<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) throws -> T {
+            let semaphore = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var output: Result<T, Error>!
+            Task {
+                do { output = .success(try await work()) }
+                catch { output = .failure(error) }
+                semaphore.signal()
+            }
+            semaphore.wait()
+            return try output.get()
+        }
+
+        func currentValue() throws -> String? {
+            let trimmed = try runBlocking { await store.value(for: key) }
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
 
         if commandArgs.contains("--clear") {
-            if FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
-            }
+            try runBlocking { try await store.reset(key) }
             if jsonOutput { print(jsonString(["default_display": NSNull()])) }
             else { print("Cleared dev window display default.") }
             return
@@ -7165,17 +7184,13 @@ struct CMUXCLI {
             guard !name.isEmpty else {
                 throw CLIError(message: "window default-display requires a display name, or --clear")
             }
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try (name + "\n").write(to: url, atomically: true, encoding: .utf8)
+            try runBlocking { try await store.set(name, for: key) }
             if jsonOutput { print(jsonString(["default_display": name])) }
             else { print("Dev builds will open on \"\(name)\" (DEBUG builds, applied at window creation).") }
             return
         }
 
-        let current = currentValue()
+        let current = try currentValue()
         if jsonOutput {
             if let current {
                 print(jsonString(["default_display": current]))

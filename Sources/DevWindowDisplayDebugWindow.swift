@@ -4,9 +4,10 @@ import SwiftUI
 /// Debug-menu window for the shared, cross-tag default display that new DEBUG
 /// cmux windows open on.
 ///
-/// Reads and writes ``DevWindowDisplayDefault`` (a shared file rather than
-/// `@AppStorage`, so the value applies to every tagged dev build, not just this
-/// one). The same value is also settable from `cmux window default-display`.
+/// Reads and writes ``DevWindowDisplayDefault`` (persisted in the shared
+/// `cmux.json` via ``CmuxSettings``, not `@AppStorage`, so the value applies to
+/// every tagged dev build, not just this one). The same value is also settable
+/// from `cmux window default-display`.
 final class DevWindowDisplayDebugWindowController: NSWindowController, NSWindowDelegate {
     static let shared = DevWindowDisplayDebugWindowController()
 
@@ -43,7 +44,8 @@ final class DevWindowDisplayDebugWindowController: NSWindowController, NSWindowD
 }
 
 private struct DevWindowDisplayDebugView: View {
-    @State private var current: String? = DevWindowDisplayDefault.read()
+    @State private var current: String? =
+        AppDelegate.shared?.settingsRuntime.flatMap(DevWindowDisplayDefault.current)
     @State private var displays: [String] = NSScreen.screens.map(\.localizedName)
 
     var body: some View {
@@ -61,8 +63,7 @@ private struct DevWindowDisplayDebugView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(displays, id: \.self) { name in
                         Button {
-                            DevWindowDisplayDefault.write(name)
-                            current = name
+                            write(name)
                         } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: current == name ? "checkmark.circle.fill" : "circle")
@@ -81,12 +82,11 @@ private struct DevWindowDisplayDebugView: View {
             HStack {
                 Button(String(localized: "debug.devWindowDisplay.refresh", defaultValue: "Refresh displays")) {
                     displays = NSScreen.screens.map(\.localizedName)
-                    current = DevWindowDisplayDefault.read()
+                    current = AppDelegate.shared?.settingsRuntime.flatMap(DevWindowDisplayDefault.current)
                 }
                 Spacer()
                 Button(String(localized: "debug.devWindowDisplay.clear", defaultValue: "Clear (system default)")) {
-                    DevWindowDisplayDefault.write(nil)
-                    current = nil
+                    write(nil)
                 }
             }
 
@@ -97,6 +97,14 @@ private struct DevWindowDisplayDebugView: View {
         }
         .padding(16)
         .frame(minWidth: 380, minHeight: 300)
+    }
+
+    /// Optimistically reflect the selection, then persist it through the shared
+    /// settings store. `nil` clears the value (system-default placement).
+    private func write(_ name: String?) {
+        current = name
+        guard let runtime = AppDelegate.shared?.settingsRuntime else { return }
+        Task { await DevWindowDisplayDefault.set(name, runtime: runtime) }
     }
 
     private var currentLabel: String {
