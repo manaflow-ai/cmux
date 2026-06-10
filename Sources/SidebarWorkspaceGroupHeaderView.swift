@@ -236,13 +236,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
         .opacity(isBeingDragged ? 0.6 : 1)
-        .overlay(alignment: .top) {
-            SidebarWorkspaceTopDropIndicator(
-                isVisible: topDropIndicatorVisible,
-                isFirstRow: isFirstRow,
-                rowSpacing: rowSpacing
-            )
-        }
+        // Animated drop gap above the header (see TabItemView): the list shifts
+        // apart to preview the drop slot, replacing the old blue line.
+        .padding(.top, topDropIndicatorVisible ? SidebarWorkspaceGroupingMetrics.dropGapHeight : 0)
+        .animation(SidebarGroupAnimation.collapse, value: topDropIndicatorVisible)
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))

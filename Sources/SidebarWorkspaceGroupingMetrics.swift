@@ -3,6 +3,13 @@ import SwiftUI
 enum SidebarWorkspaceGroupingMetrics {
     /// Leading inset applied to workspace rows that visually nest under a group header.
     static let memberIndent: CGFloat = 12
+
+    /// Height of the animated gap that opens above the row a drag would drop
+    /// into, replacing the old blue insertion line. Roughly one row tall so the
+    /// opening reads as "the dropped row goes here". Purely visual — it does not
+    /// reorder the model (commit still happens once on drop), so there's no
+    /// during-drag @Published thrash (issue #2586) or hover oscillation.
+    static let dropGapHeight: CGFloat = 30
 }
 
 /// Shared animation timings for workspace-group structure changes in the

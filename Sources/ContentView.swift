@@ -15869,13 +15869,12 @@ struct TabItemView: View, Equatable {
                 tabManager.closeWorkspaceWithConfirmation(tab)
             }
         }
-        .overlay(alignment: .top) {
-            SidebarWorkspaceTopDropIndicator(
-                isVisible: topDropIndicatorVisible,
-                isFirstRow: index == 0,
-                rowSpacing: rowSpacing
-            )
-        }
+        // Animated drop gap: when a drag would insert above this row, open a
+        // row-tall space so the list visibly shifts apart to preview where the
+        // workspace lands. Replaces the old blue insertion line. The model is
+        // not reordered until drop, so this is purely a layout animation.
+        .padding(.top, topDropIndicatorVisible ? SidebarWorkspaceGroupingMetrics.dropGapHeight : 0)
+        .animation(SidebarGroupAnimation.collapse, value: topDropIndicatorVisible)
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
         }
