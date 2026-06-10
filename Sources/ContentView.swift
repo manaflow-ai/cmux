@@ -10585,6 +10585,7 @@ struct VerticalTabsSidebar: View {
     // row sitting behind the open menu. See `SidebarShortcutHintFreezePolicy`.
     @State private var frozenShortcutHintsTabId: UUID?
     @State private var frozenShortcutHintsValue: Bool = false
+    @State private var workspaceRowsMeasurement: SidebarWorkspaceRowsMeasurement<UUID>?
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
@@ -10945,6 +10946,8 @@ struct VerticalTabsSidebar: View {
         let workspaceGroups: [WorkspaceGroup]
         let workspaceGroupById: [UUID: WorkspaceGroup]
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
+        let workspaceRenderItems: [SidebarWorkspaceRenderItem]
+        let visibleWorkspaceRowIds: [UUID]
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -10975,6 +10978,11 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
+        let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
+            tabs: tabs,
+            groupsById: workspaceGroupById
+        )
+        let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         let draggedSidebarTabId = dragState.draggedTabId
         let sidebarReorderIds = draggedSidebarTabId.map {
             tabManager.sidebarReorderWorkspaceIds(
@@ -10999,7 +11007,9 @@ struct VerticalTabsSidebar: View {
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
             workspaceGroups: workspaceGroups,
             workspaceGroupById: workspaceGroupById,
-            workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot
+            workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
+            workspaceRenderItems: workspaceRenderItems,
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -11100,18 +11110,36 @@ struct VerticalTabsSidebar: View {
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
         return GeometryReader { geometryProxy in
+            let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
+                viewportHeight: geometryProxy.size.height,
+                insets: scrollInsets
+            )
+            let measuredWorkspaceRowsHeight = workspaceRowsMeasurement?.rowsHeight(
+                for: renderContext.visibleWorkspaceRowIds
+            )
+            // The empty drop/tap area below the last row is sized to the
+            // remaining viewport so the scroll content fills (but never
+            // exceeds) the visible height when the rows fit. Sizing it to a
+            // finite remainder — instead of the old `maxHeight: .infinity` —
+            // is what keeps the document view from always overflowing, so the
+            // overlay scroller stays hidden when there is nothing to scroll
+            // (https://github.com/manaflow-ai/cmux/issues/3241).
+            let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
+                contentMinHeight: contentMinHeight,
+                rowsHeight: measuredWorkspaceRowsHeight
+            )
+
             ScrollViewReader { scrollProxy in
-                ScrollView {
+                ScrollView(.vertical) {
                     workspaceScrollContent(
                         renderContext: renderContext,
-                        minHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
-                            viewportHeight: geometryProxy.size.height,
-                            insets: scrollInsets
-                        )
+                        minHeight: contentMinHeight,
+                        emptyAreaHeight: emptyAreaHeight
                     )
                 }
                 .background(
                     SidebarScrollViewResolver { scrollView in
+                        configureSidebarScrollView(scrollView)
                         dragAutoScrollController.attach(scrollView: scrollView)
                     }
                     .frame(width: 0, height: 0)
@@ -11205,6 +11233,12 @@ struct VerticalTabsSidebar: View {
                     }
                     requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
                 }
+                .onChange(of: renderContext.visibleWorkspaceRowIds) { _, _ in
+                    // Drop the stale rows-height measurement so the empty-area
+                    // sizing recomputes for the new row set. The measurement is
+                    // also keyed by workspace ids, so this is belt-and-suspenders.
+                    workspaceRowsMeasurement = nil
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
                     requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
                 }
@@ -11253,8 +11287,33 @@ struct VerticalTabsSidebar: View {
                         lastSidebarSelectionIndex = index
                     }
                 }
+                .onPreferenceChange(SidebarWorkspaceRowsHeightPreferenceKey.self) { measurement in
+                    guard let measurement else {
+                        workspaceRowsMeasurement = nil
+                        return
+                    }
+                    let nextMeasurement = SidebarWorkspaceRowsMeasurement(
+                        workspaceIds: measurement.workspaceIds,
+                        rowsHeight: max(0, measurement.rowsHeight)
+                    )
+                    if let workspaceRowsMeasurement,
+                       workspaceRowsMeasurement.isEquivalent(to: nextMeasurement) {
+                        return
+                    }
+                    workspaceRowsMeasurement = nextMeasurement
+                }
             }
         }
+    }
+
+    // Applies one stable overlay/autohide scroller config and never toggles it.
+    // Toggling `hasVerticalScroller`/style from SwiftUI re-renders (constant
+    // while agents update rows) re-flashes the overlay knob so it never reaches
+    // its idle fade; a stable config lets AppKit own appear/scroll/fade and the
+    // finite empty-area height keeps it hidden when content fits (#3241).
+    private func configureSidebarScrollView(_ scrollView: NSScrollView?) {
+        guard let scrollView else { return }
+        SidebarScrollViewConfigurator.apply(to: scrollView)
     }
 
     @ViewBuilder
@@ -11376,6 +11435,7 @@ struct VerticalTabsSidebar: View {
             }
             .background(
                 SidebarScrollViewResolver { scrollView in
+                    configureSidebarScrollView(scrollView)
                     dragAutoScrollController.attach(scrollView: scrollView)
                 }
                 .frame(width: 0, height: 0)
@@ -12349,7 +12409,8 @@ struct VerticalTabsSidebar: View {
 
     private func workspaceScrollContent(
         renderContext: WorkspaceListRenderContext,
-        minHeight: CGFloat
+        minHeight: CGFloat,
+        emptyAreaHeight: CGFloat
     ) -> some View {
         VStack(spacing: 0) {
             workspaceRows(renderContext: renderContext)
@@ -12362,19 +12423,17 @@ struct VerticalTabsSidebar: View {
                 dragAutoScrollController: dragAutoScrollController,
                 topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                 tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
-                bonsplitDropIndicator: dropIndicatorBinding
+                bonsplitDropIndicator: dropIndicatorBinding,
+                expandsVertically: false,
+                minimumHeight: emptyAreaHeight
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minHeight: minHeight, alignment: .top)
     }
 
     @ViewBuilder
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
-        let renderItems = SidebarWorkspaceRenderItem.renderItems(
-            tabs: renderContext.tabs,
-            groupsById: renderContext.workspaceGroupById
-        )
+        let renderItems = renderContext.workspaceRenderItems
         let shouldCollectWorkspaceDropTargets = SidebarDropPlanner.shouldCollectWorkspaceDropTargets(
             draggedTabId: dragState.draggedTabId,
             isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive
@@ -12404,6 +12463,18 @@ struct VerticalTabsSidebar: View {
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
+        let measuredRows = rows
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: SidebarWorkspaceRowsHeightPreferenceKey.self,
+                        value: SidebarWorkspaceRowsMeasurement(
+                            workspaceIds: renderContext.visibleWorkspaceRowIds,
+                            rowsHeight: proxy.size.height
+                        )
+                    )
+                }
+            }
 
         // Gate ONLY the per-row frame-anchor *reader* (the virtualization-defeating
         // work) behind the drag-active check, and keep the Bonsplit drop-capture
@@ -12413,7 +12484,7 @@ struct VerticalTabsSidebar: View {
         // the drop NSView, orphaning the in-flight drag. Applying it at the stable outer
         // level keeps the NSView identity-stable across gate flips. (#5325 review)
         rowsWithGatedDropTargetReader(
-            rows: rows,
+            rows: measuredRows,
             renderContext: renderContext,
             shouldCollect: shouldCollectWorkspaceDropTargets
         )
@@ -14433,9 +14504,18 @@ private struct SidebarHelpMenuButton: View {
             isPopoverPresented.toggle()
         } label: {
             Image(systemName: "questionmark.circle")
+                .resizable()
+                .scaledToFit()
+                .fontWeight(.medium)
                 .symbolRenderingMode(.monochrome)
-                .font(.system(size: iconSize, weight: .medium))
                 .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                // Drive the symbol's raster size from an explicit frame rather
+                // than font metrics. During the window's pre-visible layout pass
+                // the font metrics aren't resolved yet, so a `.font`-sized symbol
+                // rasterizes at 0×0 — which macOS 26+ rejects with an uncaught
+                // `NSInvalidArgumentException` (targetSizeInPoints.width/height>0),
+                // crashing on launch. A fixed frame keeps the raster size positive.
+                .frame(width: iconSize, height: iconSize, alignment: .center)
                 .frame(width: buttonSize, height: buttonSize, alignment: .center)
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
@@ -14890,11 +14970,11 @@ private struct SidebarEmptyArea: View {
     let topDropIndicatorVisible: Bool
     let tabDropDelegate: SidebarTabDropDelegate
     let bonsplitDropIndicator: Binding<SidebarDropIndicator?>
+    var expandsVertically = true
+    var minimumHeight: CGFloat? = nil
 
     var body: some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        hitTarget
             .onTapGesture(count: 2) {
                 tabManager.addWorkspace(placementOverride: .end)
                 if let selectedId = tabManager.selectedTabId {
@@ -14922,6 +15002,19 @@ private struct SidebarEmptyArea: View {
                         .offset(y: -(rowSpacing / 2))
                 }
             }
+    }
+
+    @ViewBuilder
+    private var hitTarget: some View {
+        if expandsVertically {
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+        } else {
+            Color.clear
+                .frame(maxWidth: .infinity, minHeight: minimumHeight ?? 0)
+                .contentShape(Rectangle())
+        }
     }
 }
 

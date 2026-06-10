@@ -5059,6 +5059,10 @@ class GhosttyApp {
     }
 
     func logBackground(_ message: String) {
+        // Skip all work (string formatting and disk I/O) unless background logging is
+        // explicitly enabled via env/defaults. Without this guard, direct callers wrote
+        // to /tmp/cmux-bg.log on every theme/OSC color event even in normal runs.
+        guard backgroundLogEnabled else { return }
         let timestamp = Self.backgroundLogTimestampFormatter.string(from: Date())
         let uptimeMs = (ProcessInfo.processInfo.systemUptime - backgroundLogStartUptime) * 1000
         let frame60 = Int((CACurrentMediaTime() * 60.0).rounded(.down))
