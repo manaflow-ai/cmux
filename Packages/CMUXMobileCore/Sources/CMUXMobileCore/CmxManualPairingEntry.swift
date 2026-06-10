@@ -16,6 +16,10 @@ public struct CmxManualPairingEntry: Equatable, Sendable {
     /// The port the user types into the phone's port field.
     public let port: Int
 
+    /// Creates a manual-entry pair.
+    /// - Parameters:
+    ///   - host: The address for the phone's host field.
+    ///   - port: The port for the phone's port field.
     public init(host: String, port: Int) {
         self.host = host
         self.port = port
