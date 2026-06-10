@@ -15053,6 +15053,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let url: URL
         let status: SidebarPullRequestStatus
         let isStale: Bool
+        let ciStatus: SidebarPullRequestCIStatus
     }
 
     struct Snapshot: Equatable {
@@ -15732,6 +15733,14 @@ struct TabItemView: View, Equatable {
                             )
                             Text(pullRequestTitle).underline(settings.makesPullRequestsClickable).lineLimit(1).truncationMode(.tail)
                             Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
+                            if pullRequest.status == .open {
+                                PullRequestCIStatusIcon(
+                                    status: pullRequest.ciStatus,
+                                    neutralColor: pullRequestForegroundColor,
+                                    fontScale: fontScale
+                                )
+                                .safeHelp(pullRequestCIStatusLabel(pullRequest.ciStatus))
+                            }
                             Spacer(minLength: 0)
                         }
                         .font(.system(size: scaledFontSize(10), weight: .semibold))
@@ -16700,7 +16709,8 @@ struct TabItemView: View, Equatable {
                 label: pullRequest.label,
                 url: pullRequest.url,
                 status: pullRequest.status,
-                isStale: pullRequest.isStale
+                isStale: pullRequest.isStale,
+                ciStatus: pullRequest.ciStatus
             )
         }
     }
@@ -16750,6 +16760,14 @@ struct TabItemView: View, Equatable {
         }
     }
 
+    private func pullRequestCIStatusLabel(_ status: SidebarPullRequestCIStatus) -> String {
+        switch status {
+        case .success: return String(localized: "sidebar.ciStatus.success", defaultValue: "CI checks passed")
+        case .failure: return String(localized: "sidebar.ciStatus.failed", defaultValue: "CI checks failed")
+        case .neutral: return String(localized: "sidebar.ciStatus.pending", defaultValue: "CI checks pending")
+        }
+    }
+
     private func logLevelIcon(_ level: SidebarLogLevel) -> String {
         switch level {
         case .info: return "circle.fill"
@@ -16794,6 +16812,44 @@ struct TabItemView: View, Equatable {
             return "~" + trimmed.dropFirst(home.count)
         }
         return trimmed
+    }
+
+    /// The CI/CD rollup glyph rendered next to an open PR badge: a green check
+    /// (success), red X (failure), or dim dash (neutral/pending/no checks).
+    /// Never renders a false check or X — neutral covers every uncertain state.
+    private struct PullRequestCIStatusIcon: View {
+        let status: SidebarPullRequestCIStatus
+        /// Foreground for the neutral dash; success/failure use semantic colors.
+        let neutralColor: Color
+        var fontScale: CGFloat = 1
+        private static let frameSize: CGFloat = 12
+
+        private var frameSize: CGFloat {
+            Self.frameSize * fontScale
+        }
+
+        private var symbolName: String {
+            switch status {
+            case .success: return "checkmark.circle.fill"
+            case .failure: return "xmark.circle.fill"
+            case .neutral: return "minus.circle"
+            }
+        }
+
+        private var symbolColor: Color {
+            switch status {
+            case .success: return .green
+            case .failure: return .red
+            case .neutral: return neutralColor
+            }
+        }
+
+        var body: some View {
+            Image(systemName: symbolName)
+                .font(.system(size: 9 * fontScale, weight: .regular))
+                .foregroundColor(symbolColor)
+                .frame(width: frameSize, height: frameSize)
+        }
     }
 
     private struct PullRequestStatusIcon: View {

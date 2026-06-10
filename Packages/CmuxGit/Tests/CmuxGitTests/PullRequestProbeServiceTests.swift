@@ -199,4 +199,96 @@ import Testing
             return
         }
     }
+
+    // MARK: CI rollup status
+
+    @Test func workspaceCIStatusMapsRollupStates() {
+        #expect(WorkspaceCIStatus(rollupState: "SUCCESS") == .success)
+        #expect(WorkspaceCIStatus(rollupState: "success") == .success)
+        #expect(WorkspaceCIStatus(rollupState: "FAILURE") == .failure)
+        #expect(WorkspaceCIStatus(rollupState: "ERROR") == .failure)
+        #expect(WorkspaceCIStatus(rollupState: "PENDING") == .neutral)
+        #expect(WorkspaceCIStatus(rollupState: "EXPECTED") == .neutral)
+        #expect(WorkspaceCIStatus(rollupState: nil) == .neutral)
+        #expect(WorkspaceCIStatus(rollupState: "weird") == .neutral)
+    }
+
+    @Test func resolveRefreshResultsPropagatesCIStatusForOpenPRs() {
+        let ws = UUID(), panel = UUID()
+        let pr = item(number: 7, state: "OPEN", url: "https://github.com/o/r/pull/7", updatedAt: "2026-06-01T00:00:00Z", headRefName: "feat/x")
+        let entry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: Date(),
+            pullRequestsByBranch: ["feat/x": pr],
+            ciStatusByBranch: ["feat/x": .failure]
+        )
+        let results = PullRequestProbeService.resolveRefreshResults(
+            candidates: [WorkspacePullRequestCandidate(workspaceId: ws, panelId: panel, branch: "feat/x", repoSlugs: ["o/r"])],
+            repoResults: ["o/r": .success(entry, usedCache: false, transientBranches: [])]
+        )
+        guard case .resolved(let resolved) = results[0].resolution else {
+            Issue.record("expected resolved")
+            return
+        }
+        #expect(resolved.ciStatusRawValue == WorkspaceCIStatus.failure.rawValue)
+    }
+
+    @Test func resolveRefreshResultsForcesNeutralCIOnMergedPRs() {
+        let ws = UUID(), panel = UUID()
+        // A merged PR must never carry a CI glyph even if a rollup is cached.
+        let pr = item(number: 9, state: "MERGED", url: "https://github.com/o/r/pull/9", updatedAt: "2026-06-01T00:00:00Z", mergedAt: "2026-06-08T00:00:00Z", headRefName: "feat/y")
+        let entry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: Date(),
+            pullRequestsByBranch: ["feat/y": pr],
+            ciStatusByBranch: ["feat/y": .success]
+        )
+        let results = PullRequestProbeService.resolveRefreshResults(
+            candidates: [WorkspacePullRequestCandidate(workspaceId: ws, panelId: panel, branch: "feat/y", repoSlugs: ["o/r"])],
+            repoResults: ["o/r": .success(entry, usedCache: false, transientBranches: [])]
+        )
+        guard case .resolved(let resolved) = results[0].resolution else {
+            Issue.record("expected resolved")
+            return
+        }
+        #expect(resolved.statusRawValue == PullRequestStatus.merged.rawValue)
+        #expect(resolved.ciStatusRawValue == WorkspaceCIStatus.neutral.rawValue)
+    }
+
+    @Test func resolveRefreshResultsDefaultsCIToNeutralWhenNoRollupCached() {
+        let ws = UUID(), panel = UUID()
+        let pr = item(number: 11, state: "OPEN", url: "https://github.com/o/r/pull/11", updatedAt: "2026-06-01T00:00:00Z", headRefName: "feat/z")
+        let entry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: Date(),
+            pullRequestsByBranch: ["feat/z": pr]
+        )
+        let results = PullRequestProbeService.resolveRefreshResults(
+            candidates: [WorkspacePullRequestCandidate(workspaceId: ws, panelId: panel, branch: "feat/z", repoSlugs: ["o/r"])],
+            repoResults: ["o/r": .success(entry, usedCache: false, transientBranches: [])]
+        )
+        guard case .resolved(let resolved) = results[0].resolution else {
+            Issue.record("expected resolved")
+            return
+        }
+        #expect(resolved.ciStatusRawValue == WorkspaceCIStatus.neutral.rawValue)
+    }
+
+    @Test func graphQLResponseFoldsRollupByNormalizedBranch() throws {
+        let json = """
+        {"data":{"repository":{"pullRequests":{"nodes":[
+          {"number":1,"headRefName":"feat/a","commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}},
+          {"number":2,"headRefName":"feat/b","commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"FAILURE"}}}]}},
+          {"number":3,"headRefName":"feat/c","commits":{"nodes":[{"commit":{"statusCheckRollup":null}}]}},
+          {"number":4,"headRefName":"feat/d","commits":{"nodes":[]}}
+        ]}}}}
+        """
+        let decoded = try JSONDecoder().decode(
+            WorkspaceCIStatusGraphQLResponse.self,
+            from: Data(json.utf8)
+        )
+        let map = decoded.ciStatusByNormalizedBranch()
+        #expect(map["feat/a"] == .success)
+        #expect(map["feat/b"] == .failure)
+        // No checks / missing commit → neutral, never a false check or X.
+        #expect(map["feat/c"] == .neutral)
+        #expect(map["feat/d"] == .neutral)
+    }
 }
