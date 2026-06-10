@@ -12411,14 +12411,11 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "click") { selectorLiteral in
             """
             (() => {
+              \(Self.browserInputHelpers)
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-              if (typeof el.click === 'function') {
-                el.click();
-              } else {
-                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, detail: 1 }));
-              }
+              __cmuxClick(el);
               return { ok: true };
             })()
             """
@@ -12429,10 +12426,14 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "dblclick") { selectorLiteral in
             """
             (() => {
+              \(Self.browserInputHelpers)
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-              el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window, detail: 2 }));
+              __cmuxClick(el);
+              __cmuxClick(el);
+              const c = __cmuxCenter(el);
+              __cmuxMouse(el, 'dblclick', c, 0, 2);
               return { ok: true };
             })()
             """
@@ -12443,11 +12444,11 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "hover") { selectorLiteral in
             """
             (() => {
+              \(Self.browserInputHelpers)
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-              el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window }));
-              el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true, view: window }));
+              __cmuxHover(el);
               return { ok: true };
             })()
             """
@@ -12489,6 +12490,58 @@ class TerminalController {
         }
     """
 
+    /// Reusable JS that dispatches framework-correct input events. Synthetic (untrusted) events do
+    /// not run native default actions, and many frameworks/libraries listen on the full pointer +
+    /// mouse sequence (not just `click`) or need legacy KeyboardEvent fields (keyCode/which/code).
+    /// These helpers reproduce a real user gesture so React, Vue, Svelte, Angular, Solid, and
+    /// vanilla handlers all fire. Define them once at the top of an injected snippet, then call
+    /// `__cmuxClick(el)`, `__cmuxHover(el)`, `__cmuxSetChecked(el, desired)`, and `__cmuxKey(t,type,key)`.
+    private static let browserInputHelpers = """
+    function __cmuxCenter(el){const r=el.getBoundingClientRect();return {x:Math.floor(r.left+Math.min(r.width,r.width/2)),y:Math.floor(r.top+Math.min(r.height,r.height/2))};}
+    function __cmuxPointer(el,type,c,buttons){try{el.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,composed:true,view:window,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:buttons,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}catch(e){}}
+    function __cmuxMouse(el,type,c,buttons,detail,bubbles){el.dispatchEvent(new MouseEvent(type,{bubbles:(bubbles===false?false:true),cancelable:true,composed:true,view:window,button:0,buttons:buttons,detail:detail||0,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}
+    function __cmuxClick(el){const c=__cmuxCenter(el);
+      __cmuxPointer(el,'pointerover',c,0);__cmuxMouse(el,'mouseover',c,0);
+      __cmuxPointer(el,'pointerenter',c,0);__cmuxMouse(el,'mouseenter',c,0,0,false);
+      __cmuxPointer(el,'pointermove',c,0);__cmuxMouse(el,'mousemove',c,0);
+      __cmuxPointer(el,'pointerdown',c,1);__cmuxMouse(el,'mousedown',c,1,1);
+      if(typeof el.focus==='function'){try{el.focus({preventScroll:true});}catch(e){try{el.focus();}catch(e2){}}}
+      __cmuxPointer(el,'pointerup',c,0);__cmuxMouse(el,'mouseup',c,0,1);
+      if(typeof el.click==='function'){el.click();}else{__cmuxMouse(el,'click',c,0,1);}
+    }
+    function __cmuxHover(el){const c=__cmuxCenter(el);
+      __cmuxPointer(el,'pointerover',c,0);__cmuxMouse(el,'mouseover',c,0);
+      __cmuxPointer(el,'pointerenter',c,0);__cmuxMouse(el,'mouseenter',c,0,0,false);
+      __cmuxPointer(el,'pointermove',c,0);__cmuxMouse(el,'mousemove',c,0);
+    }
+    function __cmuxSetChecked(el,desired){
+      // A click event runs the checkbox/radio activation behavior (it TOGGLES the box) even when
+      // dispatched, and it is also what React maps onChange to. So the correct way to reach a target
+      // state is to click only when the current state differs; clicking fires input + change +
+      // (React) onChange and leaves checked === desired. Setting el.checked directly does not update
+      // React's controlled state and a separate click would toggle it back.
+      if(el.checked===desired) return;
+      if(typeof el.click==='function'){el.click();}
+      else {const c=__cmuxCenter(el); __cmuxMouse(el,'click',c,0,1);}
+    }
+    function __cmuxKeyMeta(key){
+      const map={Enter:[13,'Enter'],Tab:[9,'Tab'],Backspace:[8,'Backspace'],Delete:[46,'Delete'],Escape:[27,'Escape'],' ':[32,'Space'],ArrowUp:[38,'ArrowUp'],ArrowDown:[40,'ArrowDown'],ArrowLeft:[37,'ArrowLeft'],ArrowRight:[39,'ArrowRight'],Home:[36,'Home'],End:[35,'End'],PageUp:[33,'PageUp'],PageDown:[34,'PageDown']};
+      if(map[key])return {keyCode:map[key][0],code:map[key][1]};
+      if(key&&key.length===1){const u=key.toUpperCase();
+        if(/[A-Z]/.test(u))return {keyCode:u.charCodeAt(0),code:'Key'+u};
+        if(/[0-9]/.test(u))return {keyCode:u.charCodeAt(0),code:'Digit'+u};
+        return {keyCode:key.charCodeAt(0),code:''};}
+      return {keyCode:0,code:key||''};
+    }
+    function __cmuxKey(target,type,key){
+      const meta=__cmuxKeyMeta(key);
+      const ev=new KeyboardEvent(type,{key:key,code:meta.code,location:0,repeat:false,isComposing:false,bubbles:true,cancelable:true,composed:true,view:window});
+      try{Object.defineProperty(ev,'keyCode',{get(){return meta.keyCode;}});}catch(e){}
+      try{Object.defineProperty(ev,'which',{get(){return meta.keyCode;}});}catch(e){}
+      return target.dispatchEvent(ev);
+    }
+    """
+
     private func v2BrowserType(params: [String: Any]) -> V2CallResult {
         guard let text = v2String(params, "text") else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
@@ -12503,11 +12556,14 @@ class TerminalController {
               const chunk = String(\(textLiteral));
               if ('value' in el) {
                 const newValue = (el.value || '') + chunk;
+                try { el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: chunk })); } catch (e) {}
                 \(Self.reactCompatibleSetValue)
-                el.dispatchEvent(new Event('input', { bubbles: true }));
+                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: chunk })); }
+                catch (e) { el.dispatchEvent(new Event('input', { bubbles: true })); }
                 el.dispatchEvent(new Event('change', { bubbles: true }));
               } else {
                 el.textContent = (el.textContent || '') + chunk;
+                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: chunk })); } catch (e) {}
               }
               return { ok: true };
             })()
@@ -12529,11 +12585,14 @@ class TerminalController {
               if (typeof el.focus === 'function') el.focus();
               const newValue = String(\(textLiteral));
               if ('value' in el) {
+                try { el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
                 \(Self.reactCompatibleSetValue)
-                el.dispatchEvent(new Event('input', { bubbles: true }));
+                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: newValue })); }
+                catch (e) { el.dispatchEvent(new Event('input', { bubbles: true })); }
                 el.dispatchEvent(new Event('change', { bubbles: true }));
               } else {
                 el.textContent = newValue;
+                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
               }
               return { ok: true };
             })()
@@ -12550,12 +12609,13 @@ class TerminalController {
             let keyLiteral = v2JSONLiteral(key)
             let script = """
             (() => {
+              \(Self.browserInputHelpers)
               const target = document.activeElement || document.body || document.documentElement;
               if (!target) return { ok: false, error: 'not_found' };
               const k = String(\(keyLiteral));
-              target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
-              target.dispatchEvent(new KeyboardEvent('keypress', { key: k, bubbles: true, cancelable: true }));
-              target.dispatchEvent(new KeyboardEvent('keyup', { key: k, bubbles: true, cancelable: true }));
+              __cmuxKey(target, 'keydown', k);
+              if (k.length === 1) { __cmuxKey(target, 'keypress', k); }
+              __cmuxKey(target, 'keyup', k);
               return { ok: true };
             })()
             """
@@ -12583,10 +12643,11 @@ class TerminalController {
             let keyLiteral = v2JSONLiteral(key)
             let script = """
             (() => {
+              \(Self.browserInputHelpers)
               const target = document.activeElement || document.body || document.documentElement;
               if (!target) return { ok: false, error: 'not_found' };
               const k = String(\(keyLiteral));
-              target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+              __cmuxKey(target, 'keydown', k);
               return { ok: true };
             })()
             """
@@ -12614,10 +12675,11 @@ class TerminalController {
             let keyLiteral = v2JSONLiteral(key)
             let script = """
             (() => {
+              \(Self.browserInputHelpers)
               const target = document.activeElement || document.body || document.documentElement;
               if (!target) return { ok: false, error: 'not_found' };
               const k = String(\(keyLiteral));
-              target.dispatchEvent(new KeyboardEvent('keyup', { key: k, bubbles: true, cancelable: true }));
+              __cmuxKey(target, 'keyup', k);
               return { ok: true };
             })()
             """
@@ -12641,12 +12703,13 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: checked ? "check" : "uncheck") { selectorLiteral in
             """
             (() => {
+              \(Self.browserInputHelpers)
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (!('checked' in el)) return { ok: false, error: 'not_checkable' };
-              el.checked = \(checked ? "true" : "false");
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
+              el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+              if (typeof el.focus === 'function') { try { el.focus({ preventScroll: true }); } catch (e) {} }
+              __cmuxSetChecked(el, \(checked ? "true" : "false"));
               return { ok: true };
             })()
             """
@@ -13187,6 +13250,15 @@ class TerminalController {
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            // Entering browser focus mode requires the target browser to be the focused, on-screen
+            // panel (the GUI shortcut already runs from inside it). When the CLI targets a browser
+            // that is not focused, focus it first so "enter" actually engages instead of no-opping.
+            let willActivate = enterAliases.contains(mode)
+                || (mode == "toggle" && !target.panel.isBrowserFocusModeActive)
+            if willActivate, ws.focusedPanelId != target.surfaceId {
+                ws.clearSplitZoom()
+                ws.focusPanel(target.surfaceId)
+            }
             let handled: Bool
             if enterAliases.contains(mode) {
                 handled = target.panel.setBrowserFocusModeActive(true, reason: "cli.focusMode", focusWebView: true)
