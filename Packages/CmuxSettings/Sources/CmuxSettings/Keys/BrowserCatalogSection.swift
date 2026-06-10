@@ -74,6 +74,14 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserInsecureHTTPAllowlist"
     )
 
+    /// When `true`, the embedded browser always fetches fresh content from
+    /// local dev hosts (hard reloads, no-cache loads, pre-navigation purge).
+    public let disableCacheForDevHosts = DefaultsKey<Bool>(
+        id: "browser.disableCacheForDevHosts",
+        defaultValue: true,
+        userDefaultsKey: "browserDisableCacheForDevHosts"
+    )
+
     public let showImportHintOnBlankTabs = DefaultsKey<Bool>(
         id: "browser.showImportHintOnBlankTabs",
         defaultValue: true,

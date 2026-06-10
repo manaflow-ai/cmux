@@ -996,6 +996,9 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("insecureHttpHostsAllowedInEmbeddedBrowser") {
             logInvalid("browser.insecureHttpHostsAllowedInEmbeddedBrowser", sourcePath: sourcePath)
         }
+        if let value = jsonBool(section["disableCacheForDevHosts"]) {
+            snapshot.managedUserDefaults[BrowserDevHostCachePolicy.enabledKey] = .bool(value)
+        }
         if let value = jsonBool(section["showImportHintOnBlankTabs"]) {
             snapshot.managedUserDefaults[BrowserImportHintSettings.showOnBlankTabsKey] = .bool(value)
         }

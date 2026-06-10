@@ -42,6 +42,19 @@ import WebKit
         #expect(BrowserDevHostCachePolicy.isEnabled(defaults: defaults))
     }
 
+    @Test func configKeyDisablesFetchThroughManagedDefaults() {
+        let defaults = isolatedDefaults()
+        // Simulate what KeyboardShortcutSettingsFileStore does when it parses
+        // {"browser": {"disableCacheForDevHosts": false}} — it writes
+        // .bool(false) to managedUserDefaults[BrowserDevHostCachePolicy.enabledKey].
+        // The runtime then reads that key from UserDefaults.
+        #expect(BrowserDevHostCachePolicy.enabledKey == "browserDisableCacheForDevHosts")
+        defaults.set(false, forKey: BrowserDevHostCachePolicy.enabledKey)
+        #expect(!BrowserDevHostCachePolicy.isEnabled(defaults: defaults))
+        #expect(!BrowserDevHostCachePolicy.shouldBypassCache(
+            for: URL(string: "http://localhost:3000"), defaults: defaults))
+    }
+
     @Test func shouldBypassCacheDecisions() {
         let defaults = isolatedDefaults()
         #expect(BrowserDevHostCachePolicy.shouldBypassCache(

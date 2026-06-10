@@ -1005,6 +1005,11 @@
           ],
           "description": "HTTP hosts allowed in the embedded browser without a warning prompt."
         },
+        "disableCacheForDevHosts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Always fetch fresh content from local dev hosts (localhost, 127.0.0.1, *.localhost, *.localtest.me): hard reloads, no-cache loads, and a cache purge before navigations."
+        },
         "showImportHintOnBlankTabs": {
           "type": "boolean",
           "default": true,
