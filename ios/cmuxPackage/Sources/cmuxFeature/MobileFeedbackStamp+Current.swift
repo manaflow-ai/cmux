@@ -11,7 +11,7 @@ import UIKit
 /// hardware machine identifier, none of which belong in the platform-light shell
 /// package. The build type is derived from `#if DEBUG` plus the bundle id, the
 /// single place that derivation lives.
-enum MobileFeedbackStampFactory {
+extension MobileFeedbackStamp {
     /// Resolve the stamp for the running build.
     @MainActor
     static func current() -> MobileFeedbackStamp {

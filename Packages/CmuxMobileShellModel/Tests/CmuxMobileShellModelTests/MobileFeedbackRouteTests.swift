@@ -9,7 +9,7 @@ struct MobileFeedbackRouteTests {
 
     @Test func privilegedWhenManaflowConnectedAndHostSupportsSink() {
         #expect(
-            resolveMobileFeedbackRoute(
+            MobileFeedbackRoute.resolve(
                 email: "lawrence@manaflow.ai",
                 hasActiveMacConnection: true,
                 hostSupportsAgentSink: true
@@ -19,7 +19,7 @@ struct MobileFeedbackRouteTests {
 
     @Test func emailWhenManaflowButNotConnected() {
         #expect(
-            resolveMobileFeedbackRoute(
+            MobileFeedbackRoute.resolve(
                 email: "lawrence@manaflow.ai",
                 hasActiveMacConnection: false,
                 hostSupportsAgentSink: true
@@ -29,7 +29,7 @@ struct MobileFeedbackRouteTests {
 
     @Test func emailWhenConnectedButNotManaflow() {
         #expect(
-            resolveMobileFeedbackRoute(
+            MobileFeedbackRoute.resolve(
                 email: "someone@gmail.com",
                 hasActiveMacConnection: true,
                 hostSupportsAgentSink: true
@@ -39,7 +39,7 @@ struct MobileFeedbackRouteTests {
 
     @Test func emailWhenSignedOut() {
         #expect(
-            resolveMobileFeedbackRoute(
+            MobileFeedbackRoute.resolve(
                 email: nil,
                 hasActiveMacConnection: true,
                 hostSupportsAgentSink: true
@@ -52,7 +52,7 @@ struct MobileFeedbackRouteTests {
         // that does not expose `dogfood.feedback.submit` must fall back to email,
         // not take the agent path and fail with `method_not_found`.
         #expect(
-            resolveMobileFeedbackRoute(
+            MobileFeedbackRoute.resolve(
                 email: "lawrence@manaflow.ai",
                 hasActiveMacConnection: true,
                 hostSupportsAgentSink: false
@@ -61,8 +61,8 @@ struct MobileFeedbackRouteTests {
     }
 
     @Test func manaflowMatchIsCaseAndWhitespaceInsensitive() {
-        #expect(isManaflowEmail("  Lawrence@Manaflow.AI \n"))
-        #expect(resolveMobileFeedbackRoute(
+        #expect(MobileFeedbackRoute.isManaflowEmail("  Lawrence@Manaflow.AI \n"))
+        #expect(MobileFeedbackRoute.resolve(
             email: "  Lawrence@Manaflow.AI ",
             hasActiveMacConnection: true,
             hostSupportsAgentSink: true
@@ -70,16 +70,16 @@ struct MobileFeedbackRouteTests {
     }
 
     @Test func lookalikeDomainsAreNotPrivileged() {
-        #expect(!isManaflowEmail("evil@manaflow.ai.attacker.com"))
-        #expect(!isManaflowEmail("evil@notmanaflow.ai")) // suffix guard alone would pass; ensure "@" anchor
-        #expect(!isManaflowEmail("manaflow.ai"))
-        #expect(!isManaflowEmail(""))
-        #expect(!isManaflowEmail(nil))
+        #expect(!MobileFeedbackRoute.isManaflowEmail("evil@manaflow.ai.attacker.com"))
+        #expect(!MobileFeedbackRoute.isManaflowEmail("evil@notmanaflow.ai")) // suffix guard alone would pass; ensure "@" anchor
+        #expect(!MobileFeedbackRoute.isManaflowEmail("manaflow.ai"))
+        #expect(!MobileFeedbackRoute.isManaflowEmail(""))
+        #expect(!MobileFeedbackRoute.isManaflowEmail(nil))
     }
 
     @Test func subdomainImpersonationIsNotPrivileged() {
         // "x@manaflow.ai" is the only privileged shape; a subdomain is not.
-        #expect(!isManaflowEmail("x@sub.manaflow.ai"))
+        #expect(!MobileFeedbackRoute.isManaflowEmail("x@sub.manaflow.ai"))
     }
 
     // MARK: - Build-type derivation

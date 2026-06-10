@@ -170,7 +170,7 @@ public struct CMUXMobileRootScene: View {
         let deviceRegistry = makeDeviceRegistry()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
-            MobileFeedbackStampFactory.current()
+            MobileFeedbackStamp.current()
         }
         #if DEBUG
         return CMUXMobileShellStore(

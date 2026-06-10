@@ -605,7 +605,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///
     /// This is the privileged path of the Send Feedback feature: it is offered
     /// only to `@manaflow.ai` users on an active mobile-host connection (see
-    /// ``resolveMobileFeedbackRoute(email:hasActiveMacConnection:)``), and is NOT
+    /// ``MobileFeedbackRoute/resolve(email:hasActiveMacConnection:hostSupportsAgentSink:)``), and is NOT
     /// `#if DEBUG`-gated, so it works on Release (beta/prod) builds for the team.
     ///
     /// The structured log is exported here (the store owns ``diagnosticLog``);
@@ -739,7 +739,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// direct-to-agent route is offered only to `@manaflow.ai` users on an
     /// active connection, everyone else routes to the email inbox.
     public var currentFeedbackRoute: MobileFeedbackRoute {
-        resolveMobileFeedbackRoute(
+        MobileFeedbackRoute.resolve(
             email: signedInUserEmail,
             hasActiveMacConnection: hasActiveMacConnection,
             hostSupportsAgentSink: supportsDogfoodFeedback
