@@ -13288,7 +13288,7 @@ class TerminalController {
         let enterAliases: Set<String> = ["enter", "on", "true", "active"]
         let exitAliases: Set<String> = ["exit", "off", "false", "inactive"]
         guard mode == "toggle" || enterAliases.contains(mode) || exitAliases.contains(mode) else {
-            return .err(code: "invalid_params", message: "mode must be one of: enter, exit, toggle", data: nil)
+            return .err(code: "invalid_params", message: "mode must be one of: enter, exit, toggle, on, off", data: nil)
         }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
         v2MainSync {

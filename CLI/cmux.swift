@@ -11610,11 +11610,15 @@ struct CMUXCLI {
             var params = try optionalSurfaceParams()
             let routing = try callerRoutingHandles()
             let (returnOpt, _) = parseOption(subArgs, name: "--return-to")
-            if let returnRaw = returnOpt,
-               let resolvedReturn = try normalizeSurfaceHandle(
-                   returnRaw, client: client,
-                   workspaceHandle: routing.workspace, windowHandle: routing.window
-               ) {
+            if let returnRaw = returnOpt {
+                // A supplied-but-unresolvable --return-to is an error, never a silent
+                // pasteback drop: mirror the explicit-surface guard in optionalSurfaceParams().
+                guard let resolvedReturn = try normalizeSurfaceHandle(
+                    returnRaw, client: client,
+                    workspaceHandle: routing.workspace, windowHandle: routing.window
+                ) else {
+                    throw CLIError(message: "Invalid --return-to surface handle")
+                }
                 params["return_to"] = resolvedReturn
             }
             let payload = try client.sendV2(method: "browser.react_grab.toggle", params: params)
@@ -11639,7 +11643,7 @@ struct CMUXCLI {
         if subcommand == "focus-mode" {
             let mode = browserActionVerbArgs().first?.lowercased() ?? "toggle"
             guard ["enter", "exit", "toggle", "on", "off"].contains(mode) else {
-                throw CLIError(message: "browser focus-mode requires one of: enter, exit, toggle")
+                throw CLIError(message: "browser focus-mode requires one of: enter, exit, toggle, on, off")
             }
             var params = try optionalSurfaceParams()
             params["mode"] = mode
