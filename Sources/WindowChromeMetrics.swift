@@ -76,6 +76,30 @@ enum SidebarWorkspaceScrollLayout {
         viewportHeight: CGFloat,
         insets: SidebarWorkspaceScrollInsets
     ) -> CGFloat {
-        max(0, viewportHeight - insets.total)
+        return max(0, viewportHeight - insets.total)
+    }
+
+    /// Height of the empty drop/tap area placed below the last workspace row.
+    ///
+    /// The area fills the remaining viewport (so the content fills the visible
+    /// height when the rows fit) but is clamped to `0` once the rows already
+    /// reach or exceed `contentMinHeight`. Sizing it to this finite remainder —
+    /// rather than `maxHeight: .infinity` — is what keeps the document view
+    /// from perpetually overflowing, so the overlay scroller stays hidden when
+    /// there is nothing to scroll
+    /// (https://github.com/manaflow-ai/cmux/issues/3241).
+    ///
+    /// - Parameters:
+    ///   - contentMinHeight: The viewport height available to the scroll content.
+    ///   - rowsHeight: The measured height of the laid-out rows, or `nil` when
+    ///     no measurement is available yet (in which case the area collapses to
+    ///     `0` and the content's `minHeight` frame still fills the viewport).
+    /// - Returns: The non-negative height for the empty area.
+    nonisolated static func emptyAreaHeight(
+        contentMinHeight: CGFloat,
+        rowsHeight: CGFloat?
+    ) -> CGFloat {
+        guard let rowsHeight, rowsHeight > 0 else { return 0 }
+        return max(0, contentMinHeight - rowsHeight)
     }
 }
