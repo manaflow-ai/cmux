@@ -12750,22 +12750,6 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
     }
 }
 
-private struct SidebarWorkspaceRowsHeightPreferenceKey: PreferenceKey {
-    static let defaultValue: SidebarWorkspaceRowsMeasurement<UUID>? = nil
-
-    static func reduce(
-        value: inout SidebarWorkspaceRowsMeasurement<UUID>?,
-        nextValue: () -> SidebarWorkspaceRowsMeasurement<UUID>?
-    ) {
-        guard let next = nextValue() else { return }
-        guard let current = value else {
-            value = next
-            return
-        }
-        value = current.rowsHeight >= next.rowsHeight ? current : next
-    }
-}
-
 enum ShortcutHintModifierPolicy {
     static let intentionalHoldDelay: TimeInterval = 0.30
 

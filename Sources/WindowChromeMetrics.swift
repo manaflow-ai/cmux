@@ -103,20 +103,3 @@ enum SidebarWorkspaceScrollLayout {
         return max(0, contentMinHeight - rowsHeight)
     }
 }
-
-struct SidebarWorkspaceRowsMeasurement<ID: Equatable>: Equatable {
-    let workspaceIds: [ID]
-    let rowsHeight: CGFloat
-
-    nonisolated func rowsHeight(for currentWorkspaceIds: [ID]) -> CGFloat? {
-        guard workspaceIds == currentWorkspaceIds else { return nil }
-        return max(0, rowsHeight)
-    }
-
-    nonisolated func isEquivalent(
-        to other: SidebarWorkspaceRowsMeasurement<ID>,
-        tolerance: CGFloat = 0.5
-    ) -> Bool {
-        workspaceIds == other.workspaceIds && abs(rowsHeight - other.rowsHeight) <= tolerance
-    }
-}
