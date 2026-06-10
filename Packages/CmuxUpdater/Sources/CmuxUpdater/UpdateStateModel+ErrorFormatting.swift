@@ -40,7 +40,7 @@ extension UpdateStateModel {
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
             case 4005:
-                return String(localized: "update.error.installFailed.title", defaultValue: "Couldn’t Install Update")
+                return String(localized: "update.error.permissionError.title", defaultValue: "Updater Permission Error")
             case 2001:
                 return String(localized: "update.error.downloadFailed.title", defaultValue: "Couldn't Download Update")
             case 1000, 1002:
@@ -85,9 +85,6 @@ extension UpdateStateModel {
                 break
             }
         }
-        if isUpdaterAgentConnectionFailure(nsError) {
-            return String(localized: "update.error.installerAgent.message", defaultValue: "macOS couldn’t start the updater service, which can happen after your Mac has been running for a long time. Restart your Mac and try again, or download the latest version below.")
-        }
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
             case 2001:
@@ -102,8 +99,8 @@ extension UpdateStateModel {
                 return String(localized: "update.error.signatureError.message", defaultValue: "The update's signature could not be verified. Please try again later.")
             case 1003, 1005:
                 return String(localized: "update.error.permissionError.message", defaultValue: "Move cmux into Applications and relaunch to enable updates.")
-            case 4005:
-                return String(localized: "update.error.installFailed.message", defaultValue: "The update couldn’t be installed. Restart your Mac and try again, or download the latest version below.")
+            case 4005, 4010:
+                return String(localized: "update.error.installRecovery.message", defaultValue: "Move cmux into Applications and relaunch to enable updates. If it’s already in Applications, restart your Mac and try again, or download the latest version below.")
             default:
                 break
             }

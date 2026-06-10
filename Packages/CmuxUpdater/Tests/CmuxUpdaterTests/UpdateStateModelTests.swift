@@ -75,9 +75,9 @@ import Testing
     // substrings because `String(localized:)` falls back to its `defaultValue` under the test bundle.
 
     /// Regression: a 4005 installation error wrapping an agent-connection timeout (the wedged
-    /// launchd-session case) must steer the user to restart, not the misleading "move into
-    /// Applications" guidance that the old code returned for every 4005.
-    @Test func installerAgentFailureTellsUserToRestartNotRelocate() {
+    /// launchd-session case) adds restart guidance on top of the existing "move into Applications"
+    /// guidance, rather than replacing it. Both must be present.
+    @Test func installerAgentFailureKeepsRelocateGuidanceAndAddsRestart() {
         let underlying = NSError(
             domain: "SUSparkleErrorDomain",
             code: 10,
@@ -92,8 +92,8 @@ import Testing
             ]
         )
         let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(message.localizedCaseInsensitiveContains("Applications"))
         #expect(message.localizedCaseInsensitiveContains("restart"))
-        #expect(!message.localizedCaseInsensitiveContains("Applications"))
     }
 
     @Test func installerAgentFailureHasOwnTitleAndOffersManualDownload() {
@@ -113,11 +113,13 @@ import Testing
         #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
     }
 
-    @Test func genericInstallFailureUsesInstallTitleAndOffersDownload() {
+    @Test func genericInstallFailureKeepsPermissionTitleAndOffersDownload() {
         let err = NSError(domain: "SUSparkleErrorDomain", code: 4005)
         let title = UpdateStateModel.userFacingErrorTitle(for: err)
-        #expect(title.contains("Install Update"))
         #expect(!title.contains("Start Updater"))
+        #expect(title.contains("Permission"))
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(message.localizedCaseInsensitiveContains("Applications"))
         #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
     }
 
@@ -135,7 +137,7 @@ import Testing
         ])
         let title = UpdateStateModel.userFacingErrorTitle(for: err)
         #expect(!title.contains("Start Updater"))
-        #expect(title.contains("Install Update"))
+        #expect(title.contains("Permission"))
         #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
     }
 
