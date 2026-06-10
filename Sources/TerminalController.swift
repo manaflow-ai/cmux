@@ -194,6 +194,7 @@ class TerminalController {
         "notification.open",
         "notification.jump_to_unread",
         "debug.command_palette.toggle",
+        "debug.command_palette.execute",
         "debug.notification.focus",
         "debug.app.activate",
         "debug.right_sidebar.focus",
@@ -2347,6 +2348,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugActivateApp())
         case "debug.command_palette.toggle":
             return v2Result(id: id, self.v2DebugToggleCommandPalette(params: params))
+        case "debug.command_palette.execute":
+            return v2Result(id: id, self.v2DebugExecuteCommandPaletteCommand(params: params))
         case "debug.command_palette.rename_tab.open":
             return v2Result(id: id, self.v2DebugOpenCommandPaletteRenameTabInput(params: params))
         case "debug.command_palette.visible":
@@ -15099,6 +15102,37 @@ class TerminalController {
     private func v2DebugActivateApp() -> V2CallResult {
         let resp = activateApp()
         return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugExecuteCommandPaletteCommand(params: [String: Any]) -> V2CallResult {
+        guard let commandId = v2RawString(params, "command_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !commandId.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing command_id", data: nil)
+        }
+        let requestedWindowId = v2UUID(params, "window_id")
+        var result: V2CallResult = .ok(["command_id": commandId])
+        v2MainSync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: ["window_id": requestedWindowId.uuidString, "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(
+                name: .commandPaletteExecuteRequested,
+                object: targetWindow,
+                userInfo: ["commandId": commandId]
+            )
+        }
+        return result
     }
 
     private func v2DebugToggleCommandPalette(params: [String: Any]) -> V2CallResult {

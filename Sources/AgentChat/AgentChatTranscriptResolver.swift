@@ -50,49 +50,101 @@ struct AgentChatTranscriptResolver {
         let transcriptURL: URL?
     }
 
-    /// Resolves a panel's transcript from the restorable-session index.
+    /// Resolves a panel's transcript from the restorable-session index, with
+    /// the workspace's in-memory restored-agent snapshot as the fallback.
+    ///
+    /// The hook-session index is keyed by the `(workspaceId, panelId)` pair the
+    /// agent's hooks last reported. A freshly RESTORED panel has new ids and
+    /// its resumed agent has not fired a hook yet, so the index lookup misses;
+    /// the restored snapshot (the same source the resume path launched from)
+    /// covers that window. The index entry wins when both exist because hooks
+    /// track live session-id changes (e.g. a resume fork).
     ///
     /// - Parameters:
     ///   - index: The loaded restorable-session index.
+    ///   - restoredSnapshot: The workspace's in-memory restored-agent snapshot
+    ///     for the panel, when one exists.
     ///   - workspaceId: The panel's workspace id.
     ///   - panelId: The panel id.
     /// - Returns: The resolution, or `nil` when the panel has no known agent
     ///   session or the agent kind is not a transcript-backed kind P1 supports.
     func resolve(
         index: RestorableAgentSessionIndex,
+        restoredSnapshot: SessionRestorableAgentSnapshot?,
         workspaceId: UUID,
         panelId: UUID
     ) -> Resolution? {
-        guard let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) else {
+        let indexSnapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId)
+#if DEBUG
+        cmuxDebugLog(
+            "agentChat.resolve.sources indexHit=\(indexSnapshot != nil ? 1 : 0) " +
+            "restoredHit=\(restoredSnapshot != nil ? 1 : 0)"
+        )
+#endif
+        guard let snapshot = indexSnapshot ?? restoredSnapshot else {
+#if DEBUG
+            cmuxDebugLog(
+                "agentChat.resolve.miss reason=noIndexEntryOrRestoredSnapshot " +
+                "ws=\(workspaceId.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5))"
+            )
+#endif
             return nil
         }
         let sessionId = snapshot.sessionId
-        guard !sessionId.isEmpty else { return nil }
+        guard !sessionId.isEmpty else {
+#if DEBUG
+            cmuxDebugLog("agentChat.resolve.miss reason=emptySessionId kind=\(snapshot.kind.rawValue)")
+#endif
+            return nil
+        }
         let cwd = snapshot.workingDirectory
+#if DEBUG
+        cmuxDebugLog(
+            "agentChat.resolve.snapshot kind=\(snapshot.kind.rawValue) " +
+            "session=\(sessionId.prefix(8)) hasCwd=\(cwd != nil ? 1 : 0)"
+        )
+#endif
 
         switch snapshot.kind {
         case .claude:
             let configuredRoot = snapshot.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]
+            let transcriptURL = claudeTranscriptURL(
+                sessionId: sessionId,
+                cwd: cwd,
+                configuredRoot: configuredRoot
+            )
+#if DEBUG
+            cmuxDebugLog(
+                "agentChat.resolve.claude session=\(sessionId.prefix(8)) " +
+                "transcriptFound=\(transcriptURL != nil ? 1 : 0)"
+            )
+#endif
             return Resolution(
                 provider: .claude,
                 sessionId: sessionId,
                 workingDirectory: cwd,
-                transcriptURL: claudeTranscriptURL(
-                    sessionId: sessionId,
-                    cwd: cwd,
-                    configuredRoot: configuredRoot
-                )
+                transcriptURL: transcriptURL
             )
         case .codex:
             let codexHome = snapshot.launchCommand?.environment?["CODEX_HOME"]
+            let transcriptURL = codexTranscriptURL(sessionId: sessionId, codexHome: codexHome)
+#if DEBUG
+            cmuxDebugLog(
+                "agentChat.resolve.codex session=\(sessionId.prefix(8)) " +
+                "transcriptFound=\(transcriptURL != nil ? 1 : 0)"
+            )
+#endif
             return Resolution(
                 provider: .codex,
                 sessionId: sessionId,
                 workingDirectory: cwd,
-                transcriptURL: codexTranscriptURL(sessionId: sessionId, codexHome: codexHome)
+                transcriptURL: transcriptURL
             )
         default:
             // Other agents are not transcript-backed in the P1 parsers.
+#if DEBUG
+            cmuxDebugLog("agentChat.resolve.miss reason=unsupportedKind kind=\(snapshot.kind.rawValue)")
+#endif
             return nil
         }
     }

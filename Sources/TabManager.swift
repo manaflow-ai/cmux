@@ -9874,6 +9874,9 @@ extension Notification.Name {
     /// when focus moved (so the focused row stays in the selection set).
     static let sidebarMultiSelectionDidHide = Notification.Name("cmux.sidebarMultiSelectionDidHide")
     static let commandPaletteToggleRequested = Notification.Name("cmux.commandPaletteToggleRequested")
+    /// Executes a palette command by id without presenting the palette UI
+    /// (debug socket path; userInfo carries "commandId").
+    static let commandPaletteExecuteRequested = Notification.Name("cmux.commandPaletteExecuteRequested")
     static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
     static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")
     static let commandPaletteSubmitRequested = Notification.Name("cmux.commandPaletteSubmitRequested")

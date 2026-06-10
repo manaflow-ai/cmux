@@ -24,9 +24,25 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
     /// Replaces the presented session; reloads the surface so the page state
     /// restarts from `chat.init` for the new target.
     func present(resolution: AgentChatTranscriptResolver.Resolution?) {
+#if DEBUG
+        cmuxDebugLog(
+            "agentChat.web.present session=\(resolution?.sessionId.prefix(8) ?? "nil") " +
+            "transcriptFound=\(resolution?.transcriptURL != nil ? 1 : 0)"
+        )
+#endif
         self.resolution = resolution
         teardownDaemon()
         loadSurface()
+    }
+
+    /// Terminates the daemon child without reloading the page; called when
+    /// the hosting panel closes for good.
+    func teardownForClose() {
+#if DEBUG
+        cmuxDebugLog("agentChat.web.teardownForClose")
+#endif
+        resolution = nil
+        teardownDaemon()
     }
 
     override func loadView() {
@@ -36,6 +52,23 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
             contentWorld: .page,
             name: Self.handlerName
         )
+#if DEBUG
+        // Surface page-level JS failures in the debug log so a blank surface
+        // is diagnosable from the tagged log sink.
+        let errorRelay = """
+        window.addEventListener('error', (e) => {
+          try { window.webkit.messageHandlers.agentChat.postMessage({method:'page.error', params:{message:String(e.message||''), source:String(e.filename||''), line:(e.lineno||0)}}); } catch (_) {}
+        });
+        window.addEventListener('unhandledrejection', (e) => {
+          try { window.webkit.messageHandlers.agentChat.postMessage({method:'page.error', params:{message:String((e.reason && e.reason.message) || e.reason || 'unhandledrejection')}}); } catch (_) {}
+        });
+        """
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: errorRelay,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
+#endif
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
         webView.allowsBackForwardNavigationGestures = false
@@ -87,8 +120,14 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
         }
         switch method {
         case "chat.init":
+#if DEBUG
+            cmuxDebugLog("agentChat.web.bridge method=chat.init")
+#endif
             replyHandler(["ok": true, "value": initResultPayload()], nil)
         case "chat.subscribe":
+#if DEBUG
+            cmuxDebugLog("agentChat.web.bridge method=chat.subscribe")
+#endif
             Task { [weak self] in
                 guard let self else {
                     // The page awaits every reply; never leak the handler.
@@ -97,8 +136,14 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
                 }
                 do {
                     try await self.subscribe()
+#if DEBUG
+                    cmuxDebugLog("agentChat.web.subscribe result=ok")
+#endif
                     replyHandler(["ok": true, "value": NSNull()], nil)
                 } catch {
+#if DEBUG
+                    cmuxDebugLog("agentChat.web.subscribe result=error detail=\(error.localizedDescription)")
+#endif
                     replyHandler([
                         "ok": false,
                         "error": [
@@ -108,6 +153,15 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
                     ], nil)
                 }
             }
+        case "page.error":
+#if DEBUG
+            let params = body["params"] as? [String: Any]
+            cmuxDebugLog(
+                "agentChat.web.pageError message=\(params?["message"] as? String ?? "?") " +
+                "source=\(params?["source"] as? String ?? "?") line=\(params?["line"] as? Int ?? 0)"
+            )
+#endif
+            replyHandler(["ok": true, "value": NSNull()], nil)
         default:
             replyHandler(["ok": false, "error": ["code": "unknown_method"]], nil)
         }
@@ -205,6 +259,52 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
     }
 
     // MARK: - WKNavigationDelegate
+
+#if DEBUG
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        cmuxDebugLog("agentChat.web.didFinish")
+        webView.evaluateJavaScript(
+            "document.readyState + '|' + document.title + '|' + (window.cmuxAgentChatBridge ? 'bridge' : 'nobridge')"
+        ) { value, error in
+            cmuxDebugLog(
+                "agentChat.web.pageState value=\(value as? String ?? "nil") " +
+                "error=\(error?.localizedDescription ?? "none")"
+            )
+        }
+        webView.callAsyncJavaScript(
+            """
+            try {
+              await import('./chunks/agentChatSurface.mjs');
+              return 'import-ok rootChildren=' + document.getElementById('root').childElementCount;
+            } catch (e) {
+              return 'import-fail message=' + ((e && e.message) ? e.message : String(e));
+            }
+            """,
+            arguments: [:],
+            in: nil,
+            in: .page
+        ) { result in
+            switch result {
+            case .success(let value):
+                cmuxDebugLog("agentChat.web.importProbe value=\(value as? String ?? "nil")")
+            case .failure(let error):
+                cmuxDebugLog("agentChat.web.importProbe error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        cmuxDebugLog("agentChat.web.didFailProvisional error=\(error.localizedDescription)")
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        cmuxDebugLog("agentChat.web.didFail error=\(error.localizedDescription)")
+    }
+#endif
 
     func webView(
         _ webView: WKWebView,
