@@ -1054,6 +1054,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
+    /// Durable `cmux://workspace/...` links that arrived before startup session
+    /// restore registered their target workspaces (cold-launch link click).
+    /// Replayed by `flushPendingStartupNavigationURLRequests()` once the
+    /// restore window closes; see `shouldDeferNavigationURLRequestsForStartupRestore`.
+    var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
+
+    /// True while startup session restore could still register workspaces a
+    /// navigation deep link targets: before the restore attempt runs, and while
+    /// restored windows are still being created asynchronously.
+    var shouldDeferNavigationURLRequestsForStartupRestore: Bool {
+        !didAttemptStartupSessionRestore || isApplyingSessionRestore
+    }
+
+    /// All restart-stable workspace and surface identities currently live
+    /// across open main windows. Restores that may duplicate an open session
+    /// exclude these so the copies mint fresh identities instead of making
+    /// durable deep links ambiguous.
+    func liveStableIdentitySet() -> Set<UUID> {
+        var identities: Set<UUID> = []
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                identities.insert(workspace.stableId)
+                for panel in workspace.panels.values {
+                    identities.insert(panel.stableSurfaceId)
+                }
+            }
+        }
+        return identities
+    }
+
+    /// Replays navigation links that were deferred during startup session
+    /// restore. Drains the queue before re-dispatching so an unresolvable link
+    /// is dropped (with a debug log) instead of re-queued forever.
+    func flushPendingStartupNavigationURLRequests() {
+        guard !pendingStartupNavigationURLRequests.isEmpty else { return }
+        let requests = pendingStartupNavigationURLRequests
+        pendingStartupNavigationURLRequests.removeAll()
+        for request in requests {
+            _ = handleCmuxNavigationURLRequest(request)
+        }
+    }
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
@@ -3128,6 +3169,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) -> Bool {
         guard !didAttemptStartupSessionRestore else { return false }
         didAttemptStartupSessionRestore = true
+        // Every exit below closes the defer window for navigation deep links
+        // unless additional restored windows are still being created (in which
+        // case completeSessionRestoreOperation flushes once they exist).
+        defer {
+            if !isApplyingSessionRestore {
+                flushPendingStartupNavigationURLRequests()
+            }
+        }
         guard !didHandleExplicitOpenIntentAtStartup else { return false }
         guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return false }
 
@@ -3193,6 +3242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         startupSessionSnapshot = nil
         isApplyingSessionRestore = false
+        flushPendingStartupNavigationURLRequests()
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             // Auto-resume input can be queued before tmux has spawned; preserve
             // restored process-detected bindings until a later live scan.
@@ -3229,10 +3279,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didAttemptStartupSessionRestore = true
         var createdWindowIds: [UUID] = []
 
+        // Manual reopen can restore a session whose workspaces are still open.
+        // Re-adopting their persisted stable identities would duplicate them and
+        // make durable deep links ambiguous between the copies; live identities
+        // are excluded so duplicates mint fresh ones instead.
+        let liveStableIdentities = liveStableIdentitySet()
+
         for windowSnapshot in snapshotWindows {
             let windowId = createMainWindow(
                 sessionWindowSnapshot: windowSnapshot,
-                shouldActivate: false
+                shouldActivate: false,
+                excludingStableIdentitiesFromSessionSnapshot: liveStableIdentities
             )
             createdWindowIds.append(windowId)
         }
@@ -7485,6 +7542,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !didAttemptStartupSessionRestore {
             startupSessionSnapshot = nil
             didAttemptStartupSessionRestore = true
+            // Explicit open intent cancels session restore, so deferred
+            // navigation links can never gain more targets — replay them now.
+            flushPendingStartupNavigationURLRequests()
         }
     }
 
@@ -8008,6 +8068,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shouldActivate: Bool = true,
         sourceWindow preferredSourceWindow: NSWindow? = nil,
         remapClosedPanelHistoryFromSessionSnapshot: Bool = true,
+        excludingStableIdentitiesFromSessionSnapshot: Set<UUID> = [],
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
@@ -8021,7 +8082,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let sessionWindowSnapshot {
             let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(
                 sessionWindowSnapshot.tabManager,
-                remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot
+                remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot,
+                excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot
             )
             if let originalWindowId = sessionWindowSnapshot.windowId,
                originalWindowId != windowId {

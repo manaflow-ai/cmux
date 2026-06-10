@@ -236,6 +236,7 @@ extension Workspace {
 
         return SessionWorkspaceSnapshot(
             workspaceId: id,
+            stableId: stableId,
             processTitle: processTitle,
             customTitle: customTitle,
             customDescription: customDescription,
@@ -258,10 +259,28 @@ extension Workspace {
     }
 
     @discardableResult
-    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) -> [UUID: UUID] {
+    func restoreSessionSnapshot(
+        _ snapshot: SessionWorkspaceSnapshot,
+        excludingStableIdentities: Set<UUID> = []
+    ) -> [UUID: UUID] {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
+        let previousStableIdentityAdoptionExclusions = stableIdentityAdoptionExclusions
+        stableIdentityAdoptionExclusions = excludingStableIdentities
+        defer { stableIdentityAdoptionExclusions = previousStableIdentityAdoptionExclusions }
+
+        // Re-adopt the persisted restart-stable workspace identifier so durable
+        // deep links keep resolving after an app restart. `id` is re-minted on
+        // restore; `stableId` is not. Legacy snapshots omit it and keep the fresh
+        // value assigned at construction. A persisted identity that is still
+        // live in another open workspace (manual reopen of a session that never
+        // closed) keeps the fresh value instead — duplicating a stable id would
+        // make deep links ambiguous between the two copies.
+        if let persistedStableId = snapshot.stableId,
+           !excludingStableIdentities.contains(persistedStableId) {
+            stableId = persistedStableId
+        }
 
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
@@ -705,6 +724,7 @@ extension Workspace {
 
         return SessionPanelSnapshot(
             id: panelId,
+            stableSurfaceId: panel.stableSurfaceId,
             type: panel.panelType,
             title: panelTitle,
             customTitle: customTitle,
@@ -1928,6 +1948,17 @@ extension Workspace {
     }
 
     private func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
+        // Re-adopt the persisted restart-stable surface identifier so durable deep
+        // links keep resolving after an app restart (or a closed-tab reopen). The
+        // panel `id` is re-minted on restore; `stableSurfaceId` is not. Legacy
+        // snapshots omit it and keep the fresh value assigned at construction, as
+        // does an identity that is still live elsewhere (duplicate manual reopen).
+        if let stableSurfaceId = snapshot.stableSurfaceId,
+           !stableIdentityAdoptionExclusions.contains(stableSurfaceId),
+           let panel = panels[panelId] {
+            panel.adoptStableSurfaceId(stableSurfaceId)
+        }
+
         if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
         }
@@ -10479,6 +10510,16 @@ final class Workspace: Identifiable, ObservableObject {
     )
 
     let id: UUID
+    /// Restart-stable workspace identifier for durable deep links.
+    ///
+    /// `id` is a runtime instance handle re-minted every time the workspace is
+    /// recreated (including session restore); `stableId` is persisted in the
+    /// session snapshot and re-adopted on restore. Durable deep links
+    /// (`cmux://workspace/<id>`) encode this value so a copied link keeps
+    /// resolving to the same logical workspace across app restarts. A freshly
+    /// created workspace gets a fresh `stableId`; restore overwrites it with the
+    /// persisted value via ``restoreSessionSnapshot(_:)``.
+    private(set) var stableId = UUID()
     @Published var title: String
     @Published var customTitle: String?
     @Published var customDescription: String?
@@ -11455,6 +11496,11 @@ final class Workspace: Identifiable, ObservableObject {
     private var closeHistoryEligibleTabIds: Set<TabID> = []
     private var closeHistoryEligiblePanelIds: Set<UUID> = []
     private var suppressClosedPanelHistory = false
+    /// Persisted stable identities that must NOT be re-adopted during the
+    /// in-flight `restoreSessionSnapshot` because they are still live in
+    /// another open workspace (duplicate manual reopen). Consulted by
+    /// `applySessionPanelMetadata`; empty outside a restore.
+    private var stableIdentityAdoptionExclusions: Set<UUID> = []
     private var tabCloseButtonCloseTabIds: Set<TabID> = []
 
     /// Deterministic tab selection to apply after a tab closes.
@@ -14888,6 +14934,10 @@ final class Workspace: Identifiable, ObservableObject {
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement
         )
+        // Respawn replaces the panel object but keeps the logical tab (same
+        // panelId/bonsplit tab). Carry the restart-stable surface id over so
+        // durable deep links copied before the respawn keep resolving.
+        replacementPanel.adoptStableSurfaceId(oldPanel.stableSurfaceId)
         configureNewTerminalPanel(replacementPanel)
         panels[panelId] = replacementPanel
         panelTitles[panelId] = replacementPanel.displayTitle

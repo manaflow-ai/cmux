@@ -519,18 +519,59 @@ extension AppDelegate {
     }
 
     @discardableResult
-    private func handleCmuxNavigationURLRequest(_ request: CmuxNavigationURLRequest) -> Bool {
-        let workspaceId: UUID
-        switch request.target {
-        case .workspace(let id), .pane(let id, _), .surface(let id, _):
-            workspaceId = id
+    func handleCmuxNavigationURLRequest(_ request: CmuxNavigationURLRequest) -> Bool {
+        let resolver = CmuxNavigationTargetResolver(workspaces: cmuxNavigationWorkspaceDescriptors())
+        guard let resolution = resolver.resolve(request.target) else {
+            // On a cold launch the link's target workspace may not exist yet —
+            // startup session restore registers restored windows asynchronously.
+            // Defer the request and replay it once the restore window closes.
+            if shouldDeferNavigationURLRequestsForStartupRestore {
+                pendingStartupNavigationURLRequests.append(request)
+#if DEBUG
+                cmuxDebugLog(
+                    "navigationURL.deferred reason=startupRestorePending " +
+                    "url=\(request.originalURL.absoluteString.prefix(120))"
+                )
+#endif
+                return true
+            }
+#if DEBUG
+            switch request.target {
+            case .workspace(let workspaceId):
+                cmuxDebugLog("navigationURL.notFound workspace=\(workspaceId.uuidString.prefix(8))")
+            case .pane(let workspaceId, let paneId):
+                cmuxDebugLog(
+                    "navigationURL.notFound workspace=\(workspaceId.uuidString.prefix(8)) " +
+                    "pane=\(paneId.uuidString.prefix(8))"
+                )
+            case .surface(let workspaceId, let surfaceId):
+                cmuxDebugLog(
+                    "navigationURL.notFound workspace=\(workspaceId.uuidString.prefix(8)) " +
+                    "surface=\(surfaceId.uuidString.prefix(8))"
+                )
+            }
+#endif
+            return false
         }
 
+        let workspaceId = resolution.workspaceId
         guard let context = mainWindowContexts.values.first(where: { context in
             context.tabManager.tabs.contains(where: { $0.id == workspaceId })
         }),
               let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceId }),
               let window = context.window ?? windowForMainWindowId(context.windowId) else {
+            // The workspace can resolve while its window is still being
+            // registered mid-restore; defer rather than drop in that window.
+            if shouldDeferNavigationURLRequestsForStartupRestore {
+                pendingStartupNavigationURLRequests.append(request)
+#if DEBUG
+                cmuxDebugLog(
+                    "navigationURL.deferred reason=windowPendingStartupRestore " +
+                    "workspace=\(workspaceId.uuidString.prefix(8))"
+                )
+#endif
+                return true
+            }
 #if DEBUG
             cmuxDebugLog("navigationURL.notFound workspace=\(workspaceId.uuidString.prefix(8))")
 #endif
@@ -538,7 +579,7 @@ extension AppDelegate {
         }
 
         let targetPanelId: UUID?
-        switch request.target {
+        switch resolution {
         case .workspace:
             targetPanelId = nil
         case .pane(_, let paneId):
@@ -557,18 +598,8 @@ extension AppDelegate {
             if targetPanelId == nil {
                 workspace.bonsplitController.focusPane(pane)
             }
-        case .surface(_, let surfaceId):
-            guard workspace.panels[surfaceId] != nil,
-                  workspace.surfaceIdFromPanelId(surfaceId) != nil else {
-#if DEBUG
-                cmuxDebugLog(
-                    "navigationURL.notFound workspace=\(workspaceId.uuidString.prefix(8)) " +
-                    "surface=\(surfaceId.uuidString.prefix(8))"
-                )
-#endif
-                return false
-            }
-            targetPanelId = surfaceId
+        case .surface(_, let panelId):
+            targetPanelId = panelId
         }
 
         prepareForExplicitOpenIntentAtStartup()
@@ -588,6 +619,17 @@ extension AppDelegate {
         )
 #endif
         return true
+    }
+
+    /// Snapshots every open workspace across all main windows into the pure
+    /// descriptors ``CmuxNavigationTargetResolver`` resolves against. Sorted by
+    /// window id so duplicate-identifier ties resolve deterministically.
+    private func cmuxNavigationWorkspaceDescriptors() -> [CmuxNavigationTargetResolver.WorkspaceDescriptor] {
+        mainWindowContexts.values
+            .sorted { $0.windowId.uuidString < $1.windowId.uuidString }
+            .flatMap { context in
+                context.tabManager.tabs.map(\.cmuxNavigationDescriptor)
+            }
     }
 
     @discardableResult

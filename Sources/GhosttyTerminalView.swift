@@ -9512,11 +9512,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @IBAction func copyCurrentSurfaceLink(_ sender: Any?) {
-        guard let terminalSurface else { return }
+        // Links encode the restart-stable ids so they survive an app relaunch.
+        // Beep rather than silently copying a session-scoped (non-durable) link
+        // when the surface is mid-teardown and the workspace/panel lookup fails.
+        guard let terminalSurface,
+              let workspace = terminalSurface.owningWorkspace(),
+              let panel = workspace.panels[terminalSurface.id] else {
+            NSSound.beep()
+            return
+        }
         WorkspaceSurfaceIdentifierClipboardText.copy(
             WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
-                workspaceId: terminalSurface.tabId,
-                surfaceId: terminalSurface.id
+                workspaceId: workspace.stableId,
+                surfaceId: panel.stableSurfaceId
             )
         )
     }
