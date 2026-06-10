@@ -312,6 +312,9 @@ extension BrowserPanel {
     func setupEditorSaveMessageHandler(for webView: WKWebView) {
         webView.configuration.userContentController.addScriptMessageHandler(
             EditorSaveMessageHandler { [weak self] dirty in
+                // Any dirty report (true or false, incl. the one sent on mount)
+                // means an editor page is live in this webview.
+                self?.editorPageActive = true
                 self?.editorBufferIsDirty = dirty
             },
             contentWorld: .page,
@@ -319,29 +322,49 @@ extension BrowserPanel {
         )
     }
 
-    /// Routes the configurable `saveFilePreview` shortcut to the editor page
-    /// (one shared save action across native previews and the Monaco editor;
-    /// the page itself binds no hard-coded shortcut). Returns whether the
-    /// event was consumed. Tracks the chord prefix for two-stroke bindings.
-    func handleEditorSaveShortcut(event: NSEvent, webView: WKWebView) -> Bool {
-        guard editorBufferIsDirty || editorSaveChordPrefixPending else { return false }
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
-        if shortcut.hasChord {
-            if editorSaveChordPrefixPending {
-                editorSaveChordPrefixPending = false
-                guard let secondStroke = shortcut.secondStroke, secondStroke.matches(event: event) else {
-                    return false
+    /// Routes editor key equivalents to the Monaco page so the app's standard
+    /// Edit menu never shadows the editor: the configurable `saveFilePreview`
+    /// shortcut triggers a save, and the standard undo/redo chords drive
+    /// Monaco's own model undo/redo (WKWebView's native `undo:` does nothing
+    /// useful for a Monaco buffer). Returns whether the event was consumed.
+    func handleEditorKeyEquivalent(event: NSEvent, webView: WKWebView) -> Bool {
+        // Save: configurable shortcut, gated on a dirty buffer / chord prefix.
+        if editorBufferIsDirty || editorSaveChordPrefixPending {
+            let shortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
+            var saveMatched = false
+            if shortcut.hasChord {
+                if editorSaveChordPrefixPending {
+                    editorSaveChordPrefixPending = false
+                    if let secondStroke = shortcut.secondStroke, secondStroke.matches(event: event) {
+                        saveMatched = true
+                    }
+                } else if shortcut.firstStroke.matches(event: event) {
+                    editorSaveChordPrefixPending = true
+                    return true
                 }
-            } else if shortcut.firstStroke.matches(event: event) {
-                editorSaveChordPrefixPending = true
-                return true
-            } else {
-                return false
+            } else if shortcut.matches(event: event) {
+                saveMatched = true
             }
-        } else if !shortcut.matches(event: event) {
-            return false
+            if saveMatched {
+                webView.evaluateJavaScript("window.__cmuxEditorRequestSave && window.__cmuxEditorRequestSave();")
+                return true
+            }
         }
-        webView.evaluateJavaScript("window.__cmuxEditorRequestSave && window.__cmuxEditorRequestSave();")
-        return true
+        // Undo / redo: only when an editor page is live in this webview.
+        guard editorPageActive else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let command = flags.contains(.command)
+        let shift = flags.contains(.shift)
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        guard command, !flags.contains(.option), !flags.contains(.control) else { return false }
+        if key == "z", !shift {
+            webView.evaluateJavaScript("window.__cmuxEditorUndo && window.__cmuxEditorUndo();")
+            return true
+        }
+        if (key == "z" && shift) || key == "y" {
+            webView.evaluateJavaScript("window.__cmuxEditorRedo && window.__cmuxEditorRedo();")
+            return true
+        }
+        return false
     }
 }
