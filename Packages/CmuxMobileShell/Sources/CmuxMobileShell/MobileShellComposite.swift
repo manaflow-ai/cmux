@@ -214,23 +214,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             persistCurrentDraft()
         }
     }
-    /// Whether the iMessage-style composer is shown above the terminal. Toggled
-    /// from the input accessory bar's composer button and observed by the
-    /// terminal screen to present ``terminalInputText`` for multi-line editing.
-    public var isComposerPresented: Bool = false {
-        didSet {
-            #if DEBUG
-            // COMPOSER: record every flag change (mutated by `toggleComposer`,
-            // `dismissComposer`, and `presentAndFocusComposer`). An unexpected
-            // `a == 0` during a bare keyboard dismiss is the "flag toggled off"
-            // cause of the disappearing draft.
-            diagnosticLog?.record(DiagnosticEvent(
-                .composerPresentedChanged,
-                a: isComposerPresented ? 1 : 0
-            ))
-            #endif
-        }
+    /// Whether the iMessage-style composer is shown above the terminal, observed
+    /// by the terminal screen to present ``terminalInputText`` for multi-line
+    /// editing.
+    ///
+    /// OPEN BY DEFAULT per terminal: like iMessage showing its input bar in every
+    /// conversation, the composer is presented for any selected terminal the user
+    /// has not explicitly dismissed (``composerDismissedTerminalIDs`` records the
+    /// exception, not the rule). Presented does NOT mean focused — the keyboard
+    /// comes up only when the user taps the field or an explicit open/reveal
+    /// requests focus (``composerFocusRequest``). Derived from observable stored
+    /// state (`selectedTerminalID` + the dismissed set), so views tracking it
+    /// re-render on terminal switches and explicit toggles alike.
+    public var isComposerPresented: Bool {
+        guard let terminalID = selectedTerminalID?.rawValue else { return false }
+        return !composerDismissedTerminalIDs.contains(terminalID)
     }
+    /// Terminal IDs whose composer the user explicitly dismissed (the band's
+    /// chevron, or a genuine close from the compose button). Session-only: a
+    /// relaunch returns every terminal to the default-open composer. Stored (not
+    /// `@ObservationIgnored`) so ``isComposerPresented`` is observable through it.
+    private var composerDismissedTerminalIDs: Set<String> = []
     /// Monotonic focus-request token for the iMessage-style composer field.
     ///
     /// The composer's text field owns its first responder via SwiftUI `@FocusState`,
@@ -242,6 +246,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// drives `isFieldFocused = true`, keeping `@FocusState` the single source of truth
     /// for who holds the keyboard.
     public private(set) var composerFocusRequest: Int = 0
+    /// True while a ``composerFocusRequest`` has been issued but not yet consumed
+    /// by the composer field. The field's `onChange` of the token only observes
+    /// bumps that happen while the view is mounted; an explicit open (or a
+    /// terminal switch while composing) bumps the token BEFORE the new composer
+    /// view mounts, so the view's `onAppear` consumes this flag instead
+    /// (``consumePendingComposerFocusRequest()``). Default-open presentations
+    /// never set it, which is exactly what keeps the keyboard down for them.
+    /// Not observed: a handshake with the field, not view state.
+    @ObservationIgnored private var composerFocusRequestPending = false
+    /// Whether the composer's text field currently holds first responder,
+    /// mirrored from the view's `@FocusState` via
+    /// ``composerFieldFocusChanged(_:)``. Read on terminal switches to decide
+    /// whether the incoming terminal's composer should re-take focus (keeping the
+    /// keyboard up across a switch mid-compose) — without it, every switch would
+    /// either pop the keyboard (always refocus) or drop it (never refocus).
+    /// Cleared explicitly on dismiss because the unmounting field does not
+    /// reliably deliver its final unfocus change. Not observed: bookkeeping for
+    /// the switch decision, not view state.
+    @ObservationIgnored private var composerFieldIsFocused = false
     /// Guards ``submitComposerInput()`` against re-entrancy. A quick double tap
     /// on Send would otherwise start two sends that both capture the same text
     /// (the field is cleared only on ack), pasting the message to the agent
@@ -266,6 +289,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             swapDraft(from: draftedOutgoingTerminalID, outgoingText: draftedOutgoingText, to: selectedTerminalID)
             draftedOutgoingTerminalID = nil
             draftedOutgoingText = ""
+            // Switching terminals rebuilds the surface (and the composer view with
+            // it). When the user was actively composing — the field held first
+            // responder at the moment of the switch — ask the incoming terminal's
+            // composer to re-take focus so the keyboard hands over in place
+            // instead of dropping. A default-open-but-unfocused composer issues no
+            // request, so a mere switch never pops the keyboard.
+            if composerFieldIsFocused, isComposerPresented {
+                requestComposerFieldFocus()
+            }
         }
     }
 
@@ -2093,8 +2125,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Show or hide the iMessage-style composer from the input accessory bar.
+    ///
+    /// With the composer open by default, the OPEN branch is reached only after
+    /// the user explicitly dismissed it on this terminal and tapped compose again
+    /// — an unambiguous "I want to compose" intent, so it also requests field
+    /// focus (the default-open presentation deliberately does not).
     public func toggleComposer() {
-        isComposerPresented.toggle()
+        if isComposerPresented {
+            setComposerPresented(false)
+        } else {
+            setComposerPresented(true)
+            requestComposerFieldFocus()
+        }
     }
 
     /// Ensure the composer is presented and ask its field to take focus, without ever
@@ -2102,15 +2144,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///
     /// Drives the reveal-and-focus path: the surface invokes this when the user taps
     /// the compose button (or reveals the chrome) while a composer is already
-    /// logically presented but suppressed or unfocused. `isComposerPresented` is only
-    /// set to `true` (never toggled off here), so a still-presented composer and its
+    /// logically presented but suppressed or unfocused. The presented state is only
+    /// ever raised here (never dismissed), so a still-presented composer and its
     /// draft are preserved; the focus token is always bumped so the field re-focuses
     /// even when the presented flag did not change.
     public func presentAndFocusComposer() {
-        if !isComposerPresented {
-            isComposerPresented = true
-        }
-        composerFocusRequest &+= 1
+        setComposerPresented(true)
+        requestComposerFieldFocus()
     }
 
     /// Dismiss the iMessage-style composer if it is open. Used when the user hides
@@ -2119,7 +2159,62 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// closed.
     public func dismissComposer() {
         guard isComposerPresented else { return }
-        isComposerPresented = false
+        setComposerPresented(false)
+    }
+
+    /// Mirror of the composer field's `@FocusState`, reported by
+    /// ``TerminalComposerView`` on every focus change. See
+    /// ``composerFieldIsFocused`` for what reads it.
+    public func composerFieldFocusChanged(_ focused: Bool) {
+        composerFieldIsFocused = focused
+    }
+
+    /// Consume the one-shot "focus the composer field" handshake, returning
+    /// whether a request was pending. The composer view calls this from
+    /// `onAppear` (a mount that follows an explicit open or a mid-compose
+    /// terminal switch) and from its `onChange` of ``composerFocusRequest`` (a
+    /// bump while already mounted), so a request is honored exactly once and a
+    /// later default-open remount never re-pops the keyboard.
+    public func consumePendingComposerFocusRequest() -> Bool {
+        defer { composerFocusRequestPending = false }
+        return composerFocusRequestPending
+    }
+
+    /// Ask the composer field to take focus: bump the token the mounted view
+    /// observes and arm the pending flag a not-yet-mounted view consumes on
+    /// appear.
+    private func requestComposerFieldFocus() {
+        composerFocusRequest &+= 1
+        composerFocusRequestPending = true
+    }
+
+    /// Single mutation path for the per-terminal presented state (the dismissed
+    /// set): both explicit transitions land here so the DEBUG diagnostic records
+    /// every flag change, exactly like the old stored property's `didSet`. A
+    /// no-op without a selected terminal (there is nothing to compose to) or
+    /// when the state already matches.
+    private func setComposerPresented(_ presented: Bool) {
+        guard let terminalID = selectedTerminalID?.rawValue,
+              presented != isComposerPresented else { return }
+        if presented {
+            composerDismissedTerminalIDs.remove(terminalID)
+        } else {
+            composerDismissedTerminalIDs.insert(terminalID)
+            // The band (and its field) unmounts with the dismissal; the dying
+            // field does not reliably deliver a final unfocus change, so clear
+            // the mirror here to never leave a stale "field owns the keyboard".
+            composerFieldIsFocused = false
+        }
+        #if DEBUG
+        // COMPOSER: record every flag change (mutated by `toggleComposer`,
+        // `dismissComposer`, and `presentAndFocusComposer`). An unexpected
+        // `a == 0` during a bare keyboard dismiss is the "flag toggled off"
+        // cause of the disappearing draft.
+        diagnosticLog?.record(DiagnosticEvent(
+            .composerPresentedChanged,
+            a: presented ? 1 : 0
+        ))
+        #endif
     }
 
     /// Submit the composer's text to the selected terminal as a bracketed paste

@@ -7,12 +7,18 @@ import SwiftUI
 
 /// iMessage-style composer hosted in the terminal surface's composer band.
 ///
-/// A growing multi-line text field plus a send button, rendered with Liquid
-/// Glass (iOS 26+, with a thin-material fallback). Send delivers the text as a
-/// bracketed paste followed by a single Return (via `terminal.paste`), so a
-/// multi-line message lands as one submission instead of fragmenting on every
-/// interior newline. Toggled from the input accessory bar's composer button; the
-/// chevron dismisses it.
+/// A growing multi-line text field with the send button INSIDE its rounded
+/// container (trailing edge, riding the last line as the field grows — exactly
+/// iMessage's circular up-arrow), rendered with Liquid Glass (iOS 26+, with a
+/// thin-material fallback). Send delivers the text as a bracketed paste followed
+/// by a single Return (via `terminal.paste`), so a multi-line message lands as
+/// one submission instead of fragmenting on every interior newline.
+///
+/// Open by default per terminal (like iMessage's always-present input bar), and
+/// presented does NOT mean focused: the field appears with the keyboard down and
+/// takes focus only on a user tap or an explicit focus request from the store
+/// (an explicit open/reveal, or a terminal switch mid-compose). The chevron
+/// dismisses it for that terminal.
 ///
 /// The bottom dock (terminal grid / composer band / accessory toolbar / keyboard)
 /// is owned entirely by `GhosttySurfaceView` in one coordinate system. This view is
@@ -36,9 +42,17 @@ struct TerminalComposerView: View {
         self.requestHeightRemeasure = requestHeightRemeasure
     }
 
-    /// Single-line height of the round close/send buttons. They stay pinned to the
-    /// bottom edge of the (taller) field via the `HStack`'s `.bottom` alignment.
+    /// Single-line height of the round close button beside the field. It stays
+    /// pinned to the bottom edge of the (taller) field via the outer `HStack`'s
+    /// `.bottom` alignment.
     private let controlHeight: CGFloat = 40
+
+    /// Diameter of the iMessage-style send button INSIDE the field's rounded
+    /// container. With the container's 6pt vertical padding it exactly fills the
+    /// 40pt single-line field height (6 + 28 + 6), centering the circle on a
+    /// one-line message; the inner `HStack`'s `.bottom` alignment keeps it riding
+    /// the last line as the field grows.
+    private let inlineSendDiameter: CGFloat = 28
 
     /// Line range for the growing compose field. Opens at a SINGLE line (`1...`) so it
     /// starts as a compact one-line message box and grows as the user types, up to 14
@@ -66,7 +80,14 @@ struct TerminalComposerView: View {
         }
         .onAppear {
             recordComposerEvent(.composerViewAppear)
-            focusField()
+            // Focus only when an explicit request preceded this mount (an
+            // explicit open after a dismissal, or a terminal switch while the
+            // user was mid-compose). A default-open presentation arrives with no
+            // pending request, so the field shows WITHOUT summoning the keyboard
+            // — iMessage's input bar, visible but unfocused until tapped.
+            if store.consumePendingComposerFocusRequest() {
+                focusField()
+            }
         }
         .onDisappear {
             // COMPOSER: logged independently of `isComposerPresented`. A
@@ -76,6 +97,11 @@ struct TerminalComposerView: View {
             recordComposerEvent(.composerViewDisappear)
         }
         .onChange(of: isFieldFocused) { _, focused in
+            // Mirror the field's focus into the store so a terminal switch knows
+            // whether the user was mid-compose (and should keep the keyboard up
+            // on the incoming composer) or merely looking at the default-open
+            // field (keyboard stays down).
+            store.composerFieldFocusChanged(focused)
             // COMPOSER: a focus-lost while the flag stayed presented and the
             // view stayed mounted, yet the field reads empty, isolates the
             // residual TextField/@FocusState render-blank case.
@@ -86,7 +112,9 @@ struct TerminalComposerView: View {
             // composer — the reveal-after-hide case, where the chrome and draft are
             // already back but the terminal proxy holds first responder. Driving
             // `@FocusState` here keeps it the single source of truth (the surface
-            // never touches the hosted UITextField directly).
+            // never touches the hosted UITextField directly). Consume the pending
+            // handshake too, so a later remount does not honor this request twice.
+            _ = store.consumePendingComposerFocusRequest()
             focusField()
         }
     }
@@ -130,38 +158,56 @@ struct TerminalComposerView: View {
             .accessibilityIdentifier("MobileComposerClose")
             .accessibilityLabel(L10n.string("mobile.composer.close", defaultValue: "Hide Composer"))
 
-            TextField(
-                L10n.string("mobile.composer.placeholder", defaultValue: "Message"),
-                text: $store.terminalInputText,
-                axis: .vertical
-            )
-            // Opens at a single line and grows up to 14 lines so a long message has
-            // room. Each added line grows this view, which the host reserves above the
-            // always-visible toolbar; the toolbar and keyboard never move.
-            .lineLimit(composerLineLimit)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled(true)
-            .focused($isFieldFocused)
-            .foregroundStyle(TerminalPalette.foreground)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
+            // The field and its send button share ONE rounded glass container —
+            // iMessage's layout, where the circular up-arrow lives INSIDE the
+            // field at the trailing edge. `.bottom` alignment pins the button to
+            // the field's last line as it grows, so a multi-line draft keeps the
+            // send affordance at the natural "end of message" spot.
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField(
+                    L10n.string("mobile.composer.placeholder", defaultValue: "Message"),
+                    text: $store.terminalInputText,
+                    axis: .vertical
+                )
+                // Opens at a single line and grows up to 14 lines so a long message has
+                // room. Each added line grows this view, which the host reserves above the
+                // always-visible toolbar; the toolbar and keyboard never move.
+                .lineLimit(composerLineLimit)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+                .focused($isFieldFocused)
+                .foregroundStyle(TerminalPalette.foreground)
+                // 6pt container padding + 3pt here keeps the text's 9pt inset
+                // from the round-7 layout, and bottom-aligns the single-line text
+                // with the inline button's circle.
+                .padding(.vertical, 3)
+                .accessibilityIdentifier("MobileComposerField")
+
+                Button {
+                    send()
+                } label: {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(trimmedIsEmpty ? TerminalPalette.foreground.opacity(0.35) : .white)
+                        .frame(width: inlineSendDiameter, height: inlineSendDiameter)
+                        .background(
+                            Circle().fill(
+                                trimmedIsEmpty
+                                    ? AnyShapeStyle(TerminalPalette.foreground.opacity(0.12))
+                                    : AnyShapeStyle(Color.accentColor)
+                            )
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(trimmedIsEmpty)
+                .accessibilityIdentifier("MobileComposerSend")
+                .accessibilityLabel(L10n.string("mobile.composer.send", defaultValue: "Send"))
+            }
+            .padding(.leading, 14)
+            .padding(.trailing, 6)
+            .padding(.vertical, 6)
             .frame(minHeight: composerFieldMinHeight, alignment: .top)
             .mobileGlassField(cornerRadius: 20)
-            .accessibilityIdentifier("MobileComposerField")
-
-            Button {
-                send()
-            } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 17, weight: .bold))
-                    .frame(width: controlHeight, height: controlHeight)
-                    .foregroundStyle(trimmedIsEmpty ? TerminalPalette.foreground.opacity(0.35) : Color.accentColor)
-            }
-            .buttonStyle(.plain)
-            .mobileGlassCircle()
-            .disabled(trimmedIsEmpty)
-            .accessibilityIdentifier("MobileComposerSend")
-            .accessibilityLabel(L10n.string("mobile.composer.send", defaultValue: "Send"))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

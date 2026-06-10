@@ -1135,9 +1135,20 @@ final class cmuxUITests: XCTestCase {
         let app = try launchConnectedApp(port: port)
         XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
 
-        // Baseline: nothing presented, toolbar visible.
-        let baseline = surfaceDock(in: app)
-        XCTAssertEqual(baseline["composerActive"], "0", "should start with no composer. \(baseline)")
+        // Baseline: the composer is OPEN BY DEFAULT for the selected terminal
+        // (iMessage-style input bar), but UNFOCUSED — the keyboard stays down.
+        let baseline = waitForDock(in: app, describe: "baseline: default-open composer band") {
+            $0["composerActive"] == "1" && $0["bandMounted"] == "1"
+        }
+        XCTAssertEqual(baseline["fieldFocused"], "0", "default-open must not focus the field. \(baseline)")
+        assertDockCoherent(in: app, cycle: 0)
+
+        // Dismiss the default-open composer via the band's chevron so the loop
+        // below exercises the explicit open→close cycle from a closed dock.
+        app.buttons[Composer.bandClose].tap()
+        waitForDock(in: app, describe: "baseline: chevron dismissed the default-open composer") {
+            $0["composerActive"] == "0"
+        }
         assertDockCoherent(in: app, cycle: 0)
 
         let composeButton = app.buttons[Composer.composeButton]

@@ -93,9 +93,14 @@ struct WorkspaceDetailView: View {
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
-                    // While the composer is open it owns the keyboard, so a
-                    // surface re-create from switching terminals must not let the
-                    // hidden terminal input proxy grab first responder back.
+                    // While the composer is presented the terminal input proxy
+                    // must not grab first responder on attach. This covers both
+                    // composer states: mid-compose (the field owns the keyboard
+                    // and a surface re-create from switching terminals must not
+                    // steal it back) and the default-open presentation (the field
+                    // is visible but unfocused — iMessage semantics — so the
+                    // keyboard stays DOWN until the user taps the terminal or the
+                    // field).
                     autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
                         && !store.isComposerPresented,
                     isComposerActive: store.isComposerPresented
