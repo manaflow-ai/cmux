@@ -5291,24 +5291,12 @@ enum TerminalSurfaceFocusPlacement: Equatable {
     case rightSidebarDock
 }
 
-// Throttle repeated activity records for the same panel: this runs on the
-// keyDown hot path and idle windows are tens of seconds, so sub-second repeats
-// only spend allocations without changing any hibernation decision.
-private let agentHibernationInputRecordLock = NSLock()
-private nonisolated(unsafe) var lastAgentHibernationInputRecord: (panelId: UUID, uptime: TimeInterval)?
-
+// Note: deliberately not throttled. The unconfirmed-input safety check
+// compares the latest input timestamp against the latest agent lifecycle
+// change, so suppressing a "repeat" keystroke could hide input typed right
+// after an idle lifecycle report and let hibernation kill an active agent.
 private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
-    let uptime = ProcessInfo.processInfo.systemUptime
-    agentHibernationInputRecordLock.lock()
-    if let last = lastAgentHibernationInputRecord,
-       last.panelId == panelId,
-       uptime - last.uptime < 1.0 {
-        agentHibernationInputRecordLock.unlock()
-        return
-    }
-    lastAgentHibernationInputRecord = (panelId, uptime)
-    agentHibernationInputRecordLock.unlock()
     let recordedAt = Date()
     Task { @MainActor in
         AgentHibernationController.shared.recordTerminalInput(

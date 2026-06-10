@@ -583,27 +583,38 @@ extension Workspace {
 #else
             let allowDebugFallbackScrollback = false
 #endif
-            let capturedScrollback: String?
+            let resolvedScrollback: String?
             if let surfaceHibernationState {
                 // The runtime surface was freed; the scrollback captured at
-                // hibernation time is the authoritative terminal content.
-                capturedScrollback = includeScrollback ? surfaceHibernationState.scrollback : nil
-            } else if includeScrollback, shouldPersistScrollback, hibernationState == nil {
-                capturedScrollback = TerminalController.shared.readTerminalTextForSnapshot(
-                    terminalPanel: terminalPanel,
-                    includeScrollback: true,
-                    lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
-                )
+                // hibernation time is the only copy of the terminal content,
+                // so persist it on every save — including scrollback-free
+                // autosaves, which would otherwise overwrite the session
+                // snapshot with nil before a terminating full save runs.
+                resolvedScrollback = surfaceHibernationState.scrollback
+                if let resolvedScrollback {
+                    restoredTerminalScrollbackByPanelId[panelId] = resolvedScrollback
+                } else {
+                    restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+                }
             } else {
-                capturedScrollback = nil
+                let capturedScrollback: String?
+                if includeScrollback, shouldPersistScrollback, hibernationState == nil {
+                    capturedScrollback = TerminalController.shared.readTerminalTextForSnapshot(
+                        terminalPanel: terminalPanel,
+                        includeScrollback: true,
+                        lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
+                    )
+                } else {
+                    capturedScrollback = nil
+                }
+                let hasRestoredScrollbackFallback = restoredTerminalScrollbackByPanelId[panelId] != nil
+                resolvedScrollback = terminalSnapshotScrollback(
+                    panelId: panelId,
+                    capturedScrollback: capturedScrollback,
+                    includeScrollback: includeScrollback,
+                    allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
+                )
             }
-            let hasRestoredScrollbackFallback = restoredTerminalScrollbackByPanelId[panelId] != nil
-            let resolvedScrollback = terminalSnapshotScrollback(
-                panelId: panelId,
-                capturedScrollback: capturedScrollback,
-                includeScrollback: includeScrollback,
-                allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
-            )
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
                 scrollback: resolvedScrollback,

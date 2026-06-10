@@ -579,6 +579,27 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
     }
 
     @MainActor
+    func testScrollbackFreeSnapshotStillPersistsHibernatedScrollback() throws {
+        // The freed surface's content exists only in the hibernation state, so
+        // even autosaves that skip scrollback capture must not overwrite the
+        // session snapshot with nil.
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+
+        panel.enterSurfaceHibernation(
+            scrollback: "hibernated-autosave-content",
+            workingDirectory: nil,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
+
+        XCTAssertEqual(panelSnapshot.terminal?.scrollback, "hibernated-autosave-content")
+    }
+
+    @MainActor
     func testAutosaveFingerprintTracksSurfaceHibernationTransitions() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
