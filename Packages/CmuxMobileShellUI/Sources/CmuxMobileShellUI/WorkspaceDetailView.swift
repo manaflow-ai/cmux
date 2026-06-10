@@ -224,6 +224,10 @@ struct WorkspaceDetailView: View {
     private func openFeedbackComposerFromMenu() {
         feedbackText = ""
         feedbackErrorMessage = nil
+        // A prior submission may still be in flight if the user dismissed the
+        // sheet mid-send (Cancel stays enabled); reset so the reopened composer
+        // does not render Send permanently disabled until that task times out.
+        isSubmittingFeedback = false
         // Prefill the reply-to address with the signed-in email on the email
         // path; the privileged agent path never reads it.
         feedbackEmail = store.signedInUserEmail ?? ""
