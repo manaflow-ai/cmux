@@ -34,6 +34,13 @@ struct CMUXMobileRootView: View {
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
+    /// The app's one tailnet detector, built at the composition root and
+    /// injected through the environment so pairing, the disconnected shell,
+    /// and future setup-help surfaces share the same signal. Re-evaluates on
+    /// connectivity changes by itself; the scene-phase handler below covers
+    /// foreground returns. `nil` when unwired (previews), which shows no
+    /// Tailscale guidance.
+    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
     #if os(iOS)
     init(store: CMUXMobileShellStore, onboardingStore: MobileOnboardingStore) {
@@ -83,6 +90,8 @@ struct CMUXMobileRootView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             store.resumeForegroundRefresh()
+            // The user may have toggled Tailscale while we were backgrounded.
+            tailscaleStatusMonitor?.refresh()
             // Re-check the Stack session on resume so one that died while
             // backgrounded routes to the sign-in page instead of waiting for a
             // failed connect to surface a confusing host-side message.
@@ -161,6 +170,7 @@ struct CMUXMobileRootView: View {
             onboardingFlow
         } else if store.connectionState != .connected {
             DisconnectedWorkspaceShellView(
+                hasKnownPairedMac: store.hasKnownPairedMac,
                 showAddDevice: showAddDevice,
                 signOut: signOut
             )
