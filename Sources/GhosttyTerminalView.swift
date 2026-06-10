@@ -2243,6 +2243,22 @@ class GhosttyApp {
                    let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager,
                    let workspace = manager.tabs.first(where: { $0.id == callbackTabId }),
                    workspace.panels[callbackSurfaceId] != nil {
+                    // Respawn reuses the panel id, so a late close callback from a
+                    // freed surface can arrive after a replacement surface is
+                    // bound to the same id but before it registers. If the panel's
+                    // current surface is no longer the callback's surface, this is
+                    // a stale callback for the old surface — ignore it so the
+                    // replacement (e.g. a tmux-control-mode revert shell) is not
+                    // closed.
+                    if let terminalPanel = workspace.panels[callbackSurfaceId] as? TerminalPanel,
+                       terminalPanel.surface !== callbackSurface {
+#if DEBUG
+                        cmuxDebugLog(
+                            "surface.closeCallback.ignore surface=\(callbackSurfaceId.uuidString.prefix(5)) reason=replacedSurface"
+                        )
+#endif
+                        return
+                    }
                     if needsConfirmClose {
                         manager.closeRuntimeSurfaceWithConfirmation(
                             tabId: callbackTabId,
