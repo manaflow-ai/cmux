@@ -305,16 +305,16 @@ def main() -> int:
         )
         return 1
 
-    if runtime_node_options_value != "--max-old-space-size 2048 --trace-warnings":
+    if runtime_node_options_value != "--max-old-space-size=2048 --trace-warnings":
         print(
-            "FAIL: expected Claude runtime NODE_OPTIONS to preserve the original max-old-space-size flag, "
+            "FAIL: expected Claude runtime NODE_OPTIONS to preserve the original max-old-space-size value, "
             f"got {runtime_node_options_value!r}"
         )
         return 1
 
-    if child_node_options_value != "--max-old-space-size 2048 --trace-warnings":
+    if child_node_options_value != "--max-old-space-size=2048 --trace-warnings":
         print(
-            "FAIL: expected child NODE_OPTIONS to preserve the original max-old-space-size flag, "
+            "FAIL: expected child NODE_OPTIONS to preserve the original max-old-space-size value, "
             f"got {child_node_options_value!r}"
         )
         return 1

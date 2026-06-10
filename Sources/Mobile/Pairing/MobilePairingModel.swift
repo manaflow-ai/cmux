@@ -25,6 +25,9 @@ final class MobilePairingModel {
         case preparing
         /// A ticket is ready to display.
         case ready(Ready)
+        /// A phone has attached to the listener; show a paired/success state
+        /// instead of the QR + spinner.
+        case connected(Ready)
         /// The listener is up but there is no route a phone can reach (no
         /// Tailscale address on this Mac), so no ticket can be minted yet.
         case needsTailscale
@@ -56,6 +59,9 @@ final class MobilePairingModel {
     /// Re-mints the ticket shortly before it expires so the displayed QR is
     /// never stale. Cancelled on every refresh and when the window closes.
     private var autoRefreshTask: Task<Void, Never>?
+    /// Observes the host's connection status while a code is shown, flipping the
+    /// render state between `.ready` and `.connected`. Cancelled on each refresh.
+    private var connectionObservationTask: Task<Void, Never>?
     /// Bumped on each ``refresh()`` so a slower in-flight run (the UI fires
     /// refresh from several places) can't overwrite a newer result with a stale
     /// ticket. Each run captures its value and bails after an `await` if superseded.
@@ -146,6 +152,7 @@ final class MobilePairingModel {
                 )
             )
             scheduleExpiryRefresh()
+            observeConnections()
         } catch MobileAttachTicketStoreError.noRoutes, MobileAttachTicketStoreError.routeUnavailable {
             state = .needsTailscale
         } catch {
@@ -169,6 +176,8 @@ final class MobilePairingModel {
     func stopAutoRefresh() {
         autoRefreshTask?.cancel()
         autoRefreshTask = nil
+        connectionObservationTask?.cancel()
+        connectionObservationTask = nil
     }
 
     /// Schedules a re-mint shortly before the current ticket's TTL elapses, so a
@@ -182,6 +191,58 @@ final class MobilePairingModel {
             try? await ContinuousClock().sleep(for: .seconds(delay))
             guard let self, !Task.isCancelled else { return }
             await self.refresh()
+        }
+    }
+
+    /// Watches the mobile host's connection status while a code is displayed and
+    /// flips between `.ready` (QR shown, waiting) and `.connected` (a phone has
+    /// attached). Cancelled and superseded on each ``refresh()`` via the generation
+    /// guard, and on ``stopAutoRefresh()``.
+    private func observeConnections() {
+        connectionObservationTask?.cancel()
+        let generation = refreshGeneration
+        // Connections already present when this code is displayed (another phone
+        // is attached, or we are pairing an additional device). Only a NEW
+        // connection above this baseline means "this freshly minted QR was
+        // scanned"; without the baseline, opening the window while a phone is
+        // already connected would falsely jump to "connected" before the new
+        // ticket is ever used, which also makes pairing an additional device
+        // impossible (the QR would hide immediately).
+        let baseline = host.statusSnapshot().activeConnectionCount
+        connectionObservationTask = Task { [weak self] in
+            guard let self else { return }
+            for await status in self.host.statusUpdates() {
+                if Task.isCancelled { return }
+                guard generation == self.refreshGeneration else { return }
+                self.state = Self.connectionTransition(
+                    from: self.state,
+                    activeConnectionCount: status.activeConnectionCount,
+                    baselineConnectionCount: baseline
+                )
+            }
+        }
+    }
+
+    /// Computes the next render state from a connection-count change, relative to
+    /// the `baselineConnectionCount` captured when the code was displayed. A
+    /// connection *above* the baseline (a phone that attached after the QR was
+    /// shown) flips a displayed ticket from `.ready` to `.connected`; dropping
+    /// back to the baseline flips it back so the QR returns. All other states
+    /// pass through unchanged. Pure, so the transition is unit tested without a
+    /// live host.
+    static func connectionTransition(
+        from current: State,
+        activeConnectionCount: Int,
+        baselineConnectionCount: Int
+    ) -> State {
+        let connected = activeConnectionCount > baselineConnectionCount
+        switch current {
+        case let .ready(ready) where connected:
+            return .connected(ready)
+        case let .connected(ready) where !connected:
+            return .ready(ready)
+        default:
+            return current
         }
     }
 

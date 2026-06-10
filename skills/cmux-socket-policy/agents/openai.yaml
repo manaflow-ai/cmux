@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Socket Policy"
+  short_description: "Keep cmux socket commands off hot main-thread paths and focus-safe."
+  default_prompt: "Use this skill when adding or changing cmux socket or CLI commands, telemetry handlers, focus/select/open/close/send-key behavior, or automation that could activate the app or steal focus."

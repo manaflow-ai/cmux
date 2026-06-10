@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Darwin
 import XCTest
 
@@ -1808,7 +1809,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/cmux project' 2>/dev/null || [ ! -d '/tmp/cmux project' ]; } && 'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' 'claude' '--resume' 'claude-session-123' '--model' 'sonnet' '--permission-mode' 'auto'"
+            "{ cd -- '/tmp/cmux project' 2>/dev/null || [ ! -d '/tmp/cmux project' ]; } && /bin/sh -c "
+                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-123' '--model' 'sonnet' '--permission-mode' 'auto'")
         )
         // The captured real-binary path must not survive: it would bypass the wrapper.
         XCTAssertFalse(snapshot.resumeCommand?.contains("/opt/Claude Code/bin/claude") ?? true)
@@ -1842,10 +1844,422 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         // drop the captured session selectors and the stale hook --settings.
         // https://github.com/manaflow-ai/cmux/issues/5427
         let command = try XCTUnwrap(snapshot.forkCommand)
-        XCTAssertTrue(command.contains("'claude' '--resume' 'claude-session-123' '--fork-session'"), command)
+        XCTAssertTrue(
+            command.contains(
+                posixEscapedForTest(AgentResumeArgv.claudeWrapperShellExecutableToken)
+                    + " '\\''--resume'\\'' '\\''claude-session-123'\\'' '\\''--fork-session'\\''"
+            ),
+            command
+        )
         XCTAssertFalse(command.contains("/opt/Claude Code/bin/claude"), command)
         XCTAssertFalse(command.contains("cmux claude-hook session-start"), command)
         XCTAssertFalse(command.contains("old-session"), command)
+    }
+
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/5639.
+    ///
+    /// #5430 fixed the resume *argv string* (bare `claude`) but the close-&-reopen
+    /// restore launcher runs the resumed agent in a fresh `$SHELL -lic` login shell
+    /// where cmux's shell integration (the `claude()` function + per-surface PATH shim)
+    /// is NOT active, and the command is `env … claude …` — `env` resolves `claude`
+    /// via `execvp`, bypassing any shell function. So bare `claude` resolved to the
+    /// user's *real* binary, the cmux wrapper was bypassed, no hook `--settings` was
+    /// injected, and SessionStart/Stop/Notification stayed dead on resume.
+    ///
+    /// Unlike #5430's tests, this asserts the EXECUTED resume command — it runs the
+    /// real `resumeCommand` through `zsh -lic` (exactly what the restore launcher does)
+    /// inside a hermetic sandbox whose user login profile clobbers `PATH` and defines a
+    /// `claude` function (the conditions that defeat PATH-shim / shell-function fixes),
+    /// and asserts the launched invocation routed through the cmux wrapper (its injected
+    /// `--settings`), proving wrapper resolution at the shell layer, not just the argv.
+    func testClaudeResumeCommandExecutesThroughWrapperInsideLoginShellLauncher() throws {
+        let zshURL = URL(fileURLWithPath: "/bin/zsh")
+        try XCTSkipUnless(
+            FileManager.default.isExecutableFile(atPath: zshURL.path),
+            "/bin/zsh is required to exercise the $SHELL -lic restore launcher"
+        )
+
+        let fileManager = FileManager.default
+        let sandbox = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-5639-\(UUID().uuidString)", isDirectory: true)
+        let shimDir = sandbox.appendingPathComponent("cmux-cli-shims", isDirectory: true)
+        let realBinDir = sandbox.appendingPathComponent("realbin", isDirectory: true)
+        let userHome = sandbox.appendingPathComponent("home", isDirectory: true)
+        for dir in [shimDir, realBinDir, userHome] {
+            try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        defer { try? fileManager.removeItem(at: sandbox) }
+
+        let recordURL = sandbox.appendingPathComponent("record.txt", isDirectory: false)
+        let wrapperURL = sandbox.appendingPathComponent("cmux-claude-wrapper", isDirectory: false)
+        let shimURL = shimDir.appendingPathComponent("claude", isDirectory: false)
+        let realClaudeURL = realBinDir.appendingPathComponent("claude", isDirectory: false)
+
+        func writeExecutable(_ url: URL, _ contents: String) throws {
+            try contents.write(to: url, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+
+        // Stand-in for cmux-claude-wrapper: re-inject the hook --settings on --resume
+        // (as the real wrapper does), then record the final invocation.
+        try writeExecutable(wrapperURL, """
+        #!/usr/bin/env bash
+        set -- "$@"
+        for arg in "$@"; do
+          if [[ "$arg" == "--resume" || "$arg" == "-r" ]]; then
+            set -- --settings CMUX_HOOKS_JSON "$@"
+            break
+          fi
+        done
+        printf 'wrapper %s\\n' "$*" > \(shellQuotedForTest(recordURL.path))
+        """)
+        // Per-surface shim that cmux installs and points CMUX_CLAUDE_WRAPPER_SHIM at.
+        try writeExecutable(shimURL, """
+        #!/usr/bin/env bash
+        exec \(shellQuotedForTest(wrapperURL.path)) "$@"
+        """)
+        // The user's "real" claude binary: NO hook injection. If the resume command
+        // reaches this instead of the wrapper, hooks are lost (the bug).
+        try writeExecutable(realClaudeURL, """
+        #!/usr/bin/env bash
+        printf 'real %s\\n' "$*" > \(shellQuotedForTest(recordURL.path))
+        """)
+        // Hostile login profile: rebuild PATH (dropping any inherited shim dir) and
+        // shadow claude with a user function — both would defeat integration-based fixes.
+        try (
+            "export PATH=\(shellQuotedForTest(realBinDir.path)):/usr/bin:/bin\n"
+                + "claude() { command \(shellQuotedForTest(realClaudeURL.path)) \"$@\"; }\n"
+        ).write(to: userHome.appendingPathComponent(".zshrc"), atomically: true, encoding: .utf8)
+        try "".write(to: userHome.appendingPathComponent(".zshenv"), atomically: true, encoding: .utf8)
+        try "".write(to: userHome.appendingPathComponent(".zprofile"), atomically: true, encoding: .utf8)
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/Claude Code/bin/claude",
+                arguments: [
+                    "/opt/Claude Code/bin/claude",
+                    "--model",
+                    "sonnet"
+                ],
+                workingDirectory: nil,
+                environment: ["CLAUDE_CONFIG_DIR": "/tmp/claude config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+
+        // Run the resume command exactly as the restore launcher does: `$SHELL -lic <cmd>`.
+        let process = Process()
+        process.executableURL = zshURL
+        process.arguments = ["-lic", resumeCommand]
+        var environment = ["HOME": userHome.path, "ZDOTDIR": userHome.path]
+        // CMUX_CLAUDE_WRAPPER_SHIM is a managed terminal env var inherited by the -lic shell.
+        environment["CMUX_CLAUDE_WRAPPER_SHIM"] = shimURL.path
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(process, shellDescription: "zsh -lic")
+
+        let recorded = (try? String(contentsOf: recordURL, encoding: .utf8)) ?? ""
+        XCTAssertTrue(
+            recorded.contains("--settings"),
+            "Resumed claude must route through the cmux wrapper (which injects the hook --settings). Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+        XCTAssertTrue(
+            recorded.hasPrefix("wrapper "),
+            "Resume must exec the cmux wrapper, not the user's real claude binary. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+    }
+
+    private func shellQuotedForTest(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// The wrapper token as it appears inside a `/bin/sh -c '…'` wrapped command
+    /// (its single quotes escaped by the POSIX `'\''` dance, without outer quotes).
+    private func posixEscapedForTest(_ value: String) -> String {
+        value.replacingOccurrences(of: "'", with: "'\\''")
+    }
+
+    /// Regression: the rendered claude resume command must parse in NON-POSIX login shells.
+    ///
+    /// The restore launcher dispatches the resume command through the user's `$SHELL`
+    /// (`TerminalStartupReturnShellScript.commandThenReturnLines` runs
+    /// `"$_cmux_resume_shell" -c <command>` for its `csh|tcsh` branch), and the
+    /// session-index resume command is typed into — and copy-pasted into — the user's
+    /// interactive shell. tcsh has no `${VAR:-fallback}` parameter expansion
+    /// ("Bad : modifier in $"), so a raw POSIX-only wrapper token makes the whole resume
+    /// command fail to parse and claude never launches, even though the same string works
+    /// under `zsh -lic`. https://github.com/manaflow-ai/cmux/issues/5639
+    func testClaudeResumeCommandExecutesThroughWrapperInsideTcshLauncher() throws {
+        let tcshURL = URL(fileURLWithPath: "/bin/tcsh")
+        try XCTSkipUnless(
+            FileManager.default.isExecutableFile(atPath: tcshURL.path),
+            "/bin/tcsh is required to exercise the csh|tcsh restore-launcher dispatch"
+        )
+
+        let sandbox = try makeClaudeResumeWrapperShimSandbox()
+        defer { sandbox.removeSandbox() }
+        // Hostile tcsh profile: rebuild PATH (dropping any inherited shim dir) and alias
+        // claude to the user's real binary — the same conditions the zsh test exercises.
+        try (
+            "set path = (\(shellQuotedForTest(sandbox.realBinDirectoryURL.path)) /usr/bin /bin)\n"
+                + "alias claude \(shellQuotedForTest(sandbox.realClaudeURL.path))\n"
+        ).write(to: sandbox.homeURL.appendingPathComponent(".tcshrc"), atomically: true, encoding: .utf8)
+
+        // No working directory: keeps the command free of the POSIX `{ cd …; } &&` guard
+        // (csh/tcsh cannot parse that prefix with or without this fix, a pre-existing
+        // limitation shared by every agent kind) so the assertion isolates the claude
+        // executable token itself.
+        let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: nil)
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+
+        let recorded = try runClaudeResumeCommand(
+            resumeCommand,
+            shellURL: tcshURL,
+            arguments: ["-c"],
+            sandbox: sandbox
+        )
+        XCTAssertTrue(
+            recorded.hasPrefix("wrapper "),
+            "tcsh-dispatched resume must parse and exec the cmux wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+        XCTAssertTrue(
+            recorded.contains("--settings"),
+            "tcsh-dispatched resume must re-inject the hook --settings via the wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+    }
+
+    /// Regression: fish rejects `${…}` outright ("${ is not a valid variable"), and fish
+    /// is a shipped cmux integration (`Resources/shell-integration/fish/`). The restore
+    /// launcher's `*)` branch dispatches `"$_cmux_resume_shell" -c <command>` for fish
+    /// logins, and unlike csh the ENTIRE pre-#5639 command —
+    /// `{ cd …; } && 'env' … 'claude' …` — was valid fish (fish ≥3.4 parses the brace
+    /// group), so a POSIX-only wrapper token regresses fish users from working resume to
+    /// a hard parse error. Uses a working directory so the `{ cd …; } &&` composition is
+    /// exercised too. https://github.com/manaflow-ai/cmux/issues/5639
+    func testClaudeResumeCommandExecutesThroughWrapperInsideFishLauncher() throws {
+        let fishURL = ["/usr/local/bin/fish", "/opt/homebrew/bin/fish", "/usr/bin/fish"]
+            .map { URL(fileURLWithPath: $0) }
+            .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+        guard let fishURL else {
+            throw XCTSkip("fish is not installed; install fish to exercise the fish restore-launcher dispatch")
+        }
+
+        let sandbox = try makeClaudeResumeWrapperShimSandbox()
+        defer { sandbox.removeSandbox() }
+        let fishConfigDir = sandbox.homeURL.appendingPathComponent(".config/fish", isDirectory: true)
+        try FileManager.default.createDirectory(at: fishConfigDir, withIntermediateDirectories: true)
+        // Hostile fish config: rebuild PATH and shadow claude with a fish function.
+        try (
+            "set -gx PATH \(shellQuotedForTest(sandbox.realBinDirectoryURL.path)) /usr/bin /bin\n"
+                + "function claude\n    \(shellQuotedForTest(sandbox.realClaudeURL.path)) $argv\nend\n"
+        ).write(to: fishConfigDir.appendingPathComponent("config.fish"), atomically: true, encoding: .utf8)
+
+        let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: sandbox.sandboxURL.path)
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+
+        let recorded = try runClaudeResumeCommand(
+            resumeCommand,
+            shellURL: fishURL,
+            arguments: ["-c"],
+            sandbox: sandbox
+        )
+        XCTAssertTrue(
+            recorded.hasPrefix("wrapper "),
+            "fish-dispatched resume must parse and exec the cmux wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+        XCTAssertTrue(
+            recorded.contains("--settings"),
+            "fish-dispatched resume must re-inject the hook --settings via the wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+    }
+
+    /// Regression for the stale-shim fallback: `CMUX_CLAUDE_WRAPPER_SHIM` can outlive
+    /// its file (macOS reaps idle temporary-directory contents after ~3 days), and bare
+    /// `${VAR:-claude}` parameter expansion would exec the dead path and hard-fail
+    /// resume with "No such file or directory" — worse than the pre-#5639 behavior,
+    /// which degraded to the PATH-resolved binary. The executability guard in the
+    /// wrapper token must keep that graceful degradation: hooks are lost, resume works.
+    func testClaudeResumeCommandFallsBackToPathClaudeWhenShimFileIsStale() throws {
+        let zshURL = URL(fileURLWithPath: "/bin/zsh")
+        try XCTSkipUnless(
+            FileManager.default.isExecutableFile(atPath: zshURL.path),
+            "/bin/zsh is required to exercise the $SHELL -lic restore launcher"
+        )
+
+        let sandbox = try makeClaudeResumeWrapperShimSandbox()
+        defer { sandbox.removeSandbox() }
+        try ("export PATH=" + shellQuotedForTest(sandbox.realBinDirectoryURL.path) + ":/usr/bin:/bin\n")
+            .write(to: sandbox.homeURL.appendingPathComponent(".zshrc"), atomically: true, encoding: .utf8)
+        try "".write(to: sandbox.homeURL.appendingPathComponent(".zshenv"), atomically: true, encoding: .utf8)
+        try "".write(to: sandbox.homeURL.appendingPathComponent(".zprofile"), atomically: true, encoding: .utf8)
+
+        let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: nil)
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+
+        let reapedShimPath = sandbox.sandboxURL
+            .appendingPathComponent("reaped", isDirectory: true)
+            .appendingPathComponent("claude", isDirectory: false).path
+        let recorded = try runClaudeResumeCommand(
+            resumeCommand,
+            shellURL: zshURL,
+            arguments: ["-lic"],
+            sandbox: sandbox,
+            environmentOverrides: [
+                "ZDOTDIR": sandbox.homeURL.path,
+                "CMUX_CLAUDE_WRAPPER_SHIM": reapedShimPath
+            ]
+        )
+        XCTAssertTrue(
+            recorded.hasPrefix("real "),
+            "A stale shim path must degrade to the PATH-resolved claude binary, not hard-fail resume. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+        XCTAssertFalse(
+            recorded.contains("--settings"),
+            "The PATH fallback runs the real binary without wrapper hook injection. Recorded invocation: \(recorded)"
+        )
+    }
+
+    private struct ClaudeResumeWrapperShimSandbox {
+        let sandboxURL: URL
+        let homeURL: URL
+        let realBinDirectoryURL: URL
+        let realClaudeURL: URL
+        let shimURL: URL
+        let recordURL: URL
+
+        func removeSandbox() {
+            try? FileManager.default.removeItem(at: sandboxURL)
+        }
+    }
+
+    /// Builds the hermetic wrapper/shim/real-claude sandbox shared by the non-POSIX
+    /// restore-launcher regression tests: a recording stand-in for `cmux-claude-wrapper`
+    /// (re-injects the hook `--settings` on `--resume`, as the real wrapper does), the
+    /// per-surface shim that `CMUX_CLAUDE_WRAPPER_SHIM` points at, and a hook-less "real"
+    /// claude that records when the wrapper was bypassed.
+    private func makeClaudeResumeWrapperShimSandbox() throws -> ClaudeResumeWrapperShimSandbox {
+        let fileManager = FileManager.default
+        let sandbox = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-5639-\(UUID().uuidString)", isDirectory: true)
+        let shimDir = sandbox.appendingPathComponent("cmux-cli-shims", isDirectory: true)
+        let realBinDir = sandbox.appendingPathComponent("realbin", isDirectory: true)
+        let userHome = sandbox.appendingPathComponent("home", isDirectory: true)
+        for dir in [shimDir, realBinDir, userHome] {
+            try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+
+        let recordURL = sandbox.appendingPathComponent("record.txt", isDirectory: false)
+        let wrapperURL = sandbox.appendingPathComponent("cmux-claude-wrapper", isDirectory: false)
+        let shimURL = shimDir.appendingPathComponent("claude", isDirectory: false)
+        let realClaudeURL = realBinDir.appendingPathComponent("claude", isDirectory: false)
+
+        func writeExecutable(_ url: URL, _ contents: String) throws {
+            try contents.write(to: url, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+
+        try writeExecutable(wrapperURL, """
+        #!/usr/bin/env bash
+        set -- "$@"
+        for arg in "$@"; do
+          if [[ "$arg" == "--resume" || "$arg" == "-r" ]]; then
+            set -- --settings CMUX_HOOKS_JSON "$@"
+            break
+          fi
+        done
+        printf 'wrapper %s\\n' "$*" > \(shellQuotedForTest(recordURL.path))
+        """)
+        try writeExecutable(shimURL, """
+        #!/usr/bin/env bash
+        exec \(shellQuotedForTest(wrapperURL.path)) "$@"
+        """)
+        try writeExecutable(realClaudeURL, """
+        #!/usr/bin/env bash
+        printf 'real %s\\n' "$*" > \(shellQuotedForTest(recordURL.path))
+        """)
+
+        return ClaudeResumeWrapperShimSandbox(
+            sandboxURL: sandbox,
+            homeURL: userHome,
+            realBinDirectoryURL: realBinDir,
+            realClaudeURL: realClaudeURL,
+            shimURL: shimURL,
+            recordURL: recordURL
+        )
+    }
+
+    private static func makeClaudeRestorableSnapshot(workingDirectory: String?) -> SessionRestorableAgentSnapshot {
+        SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-123",
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/Claude Code/bin/claude",
+                arguments: [
+                    "/opt/Claude Code/bin/claude",
+                    "--model",
+                    "sonnet"
+                ],
+                workingDirectory: workingDirectory,
+                environment: ["CLAUDE_CONFIG_DIR": "/tmp/claude config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+    }
+
+    /// Runs `resumeCommand` through the given shell exactly as the restore launcher's
+    /// dispatch line does, with only the managed env the launcher guarantees (`HOME` for
+    /// profile sourcing, `CMUX_CLAUDE_WRAPPER_SHIM` from the managed terminal env).
+    private func runClaudeResumeCommand(
+        _ resumeCommand: String,
+        shellURL: URL,
+        arguments: [String],
+        sandbox: ClaudeResumeWrapperShimSandbox,
+        environmentOverrides: [String: String] = [:]
+    ) throws -> String {
+        let process = Process()
+        process.executableURL = shellURL
+        process.arguments = arguments + [resumeCommand]
+        var environment = [
+            "HOME": sandbox.homeURL.path,
+            "CMUX_CLAUDE_WRAPPER_SHIM": sandbox.shimURL.path
+        ]
+        for (key, value) in environmentOverrides {
+            environment[key] = value
+        }
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(process, shellDescription: shellURL.path)
+        return (try? String(contentsOf: sandbox.recordURL, encoding: .utf8)) ?? ""
+    }
+
+    /// Launches `process` and waits with a deadline so a stalled shell (missing
+    /// shebang interpreter, prompting profile) fails the test with a clear message
+    /// instead of hanging until the CI harness kills the job.
+    private func runWithBoundedWait(
+        _ process: Process,
+        shellDescription: String,
+        timeout: TimeInterval = 30
+    ) throws {
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+        try process.run()
+        if exited.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            XCTFail("Resume shell (\(shellDescription)) did not exit within \(Int(timeout))s; treating as hung.")
+        }
     }
 
     func testRestorableAgentResumeStartupInputEscapesNonAsciiWorkingDirectoryAsAsciiShellInput() throws {
@@ -1882,9 +2296,41 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "Terminal startup input must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
         )
 
-        let command = startupInput.trimmingCharacters(in: .newlines)
+        // The printf-escaped non-ASCII cwd plus the `/bin/sh -c` portability wrap
+        // (https://github.com/manaflow-ai/cmux/issues/5639) exceed the inline
+        // startup-input byte budget, so the input is the `/bin/zsh '<script>'`
+        // launcher form; the script body carries the actual resume command.
+        let command = try inlineResumeCommandResolvingLauncherScript(from: startupInput)
+        XCTAssertTrue(
+            command.utf8.allSatisfy { $0 < 0x80 },
+            "Launcher-script resume command must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
+        )
         let cdCommand = try leadingCdCommand(from: command)
         try assertZshCommandChangesDirectory(cdCommand, expectedPath: cwdURL.path)
+    }
+
+    /// Resolves a resume startup input to the line holding the resume command:
+    /// inline inputs are returned directly; `/bin/zsh '<script>'` launcher-script
+    /// inputs (used when the inline form exceeds the startup-input byte budget)
+    /// are read and the script line carrying the resume command is returned.
+    private func inlineResumeCommandResolvingLauncherScript(from startupInput: String) throws -> String {
+        let trimmed = startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/bin/zsh '") else { return trimmed }
+        let quotedPath = String(trimmed.dropFirst("/bin/zsh ".count))
+        let scriptPath = try XCTUnwrap(
+            singleQuotedValueForTest(quotedPath),
+            "unparseable launcher-script startup input: \(trimmed)"
+        )
+        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        return try XCTUnwrap(
+            script.split(separator: "\n").map(String.init).last(where: { $0.contains(" && ") }),
+            "no resume command line in launcher script: \(script)"
+        )
+    }
+
+    private func singleQuotedValueForTest(_ value: String) -> String? {
+        guard value.hasPrefix("'"), value.hasSuffix("'"), value.count >= 2 else { return nil }
+        return String(value.dropFirst().dropLast()).replacingOccurrences(of: "'\\''", with: "'")
     }
 
     func testSessionEntryClaudeResumeCommandChangesToSessionCwdBeforeResume() throws {
@@ -1921,7 +2367,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "cd /Users/tiffanysun/fun && claude --resume a22293b7-bcef-4707-8439-2f538c8517a4"
+            "cd /Users/tiffanysun/fun && /bin/sh -c "
+                + shellQuotedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume a22293b7-bcef-4707-8439-2f538c8517a4")
         )
     }
 
@@ -1962,7 +2409,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     }
 
     private func leadingCdCommand(from command: String) throws -> String {
-        let separator = try XCTUnwrap(command.range(of: " && "))
+        let separator = try XCTUnwrap(command.range(of: " && "), "no ' && ' separator in: \(command)")
         return String(command[..<separator.lowerBound])
     }
 
@@ -2126,7 +2573,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ]; } && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' 'claude' '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'"
+            "{ cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ]; } && /bin/sh -c "
+                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'")
         )
     }
 
@@ -2513,11 +2961,13 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             claude.forkCommand,
-            "{ cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ]; } && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' 'claude' '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--fork-session' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'"
+            "{ cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ]; } && /bin/sh -c "
+                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--fork-session' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'")
         )
         XCTAssertEqual(
             claudeFork.forkCommand,
-            "{ cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ]; } && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' 'claude' '--resume' 'claude-fork-child' '--fork-session' '--model' 'sonnet' '--dangerously-skip-permissions'"
+            "{ cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ]; } && /bin/sh -c "
+                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-fork-child' '--fork-session' '--model' 'sonnet' '--dangerously-skip-permissions'")
         )
         XCTAssertEqual(
             codex.forkCommand,
@@ -3180,7 +3630,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "'env' 'NODE_OPTIONS=--max-old-space-size=4096' 'claude' '--resume' 'claude-session-debug' '--debug' 'api,mcp' '--model' 'sonnet'"
+            "/bin/sh -c " + shellQuotedForTest("'env' 'NODE_OPTIONS=--max-old-space-size=4096' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-debug' '--debug' 'api,mcp' '--model' 'sonnet'")
         )
     }
 
@@ -3208,7 +3658,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "'env' 'ANTHROPIC_BASE_URL=https://api.example.test' 'ANTHROPIC_MODEL=' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=ANTHROPIC_BASE_URL,ANTHROPIC_MODEL' 'claude' '--resume' 'claude-session-env'"
+            "/bin/sh -c " + shellQuotedForTest("'env' 'ANTHROPIC_BASE_URL=https://api.example.test' 'ANTHROPIC_MODEL=' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=ANTHROPIC_BASE_URL,ANTHROPIC_MODEL' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-env'")
         )
         XCTAssertFalse(snapshot.resumeCommand?.contains("ANTHROPIC_AUTH_TOKEN") ?? true)
     }
@@ -3233,7 +3683,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "'env' 'NODE_OPTIONS=--trace-warnings' 'claude' '--resume' 'claude-session-node-options' '--model' 'sonnet'"
+            "/bin/sh -c " + shellQuotedForTest("'env' 'NODE_OPTIONS=--trace-warnings' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-node-options' '--model' 'sonnet'")
         )
     }
 
@@ -3257,7 +3707,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "'claude' '--resume' 'claude-session-empty-node-options' '--model' 'sonnet'"
+            "/bin/sh -c " + shellQuotedForTest("\"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-empty-node-options' '--model' 'sonnet'")
         )
     }
 

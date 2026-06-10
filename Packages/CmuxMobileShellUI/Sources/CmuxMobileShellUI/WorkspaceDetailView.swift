@@ -1,3 +1,4 @@
+import CmuxMobileBrowser
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -16,21 +17,65 @@ struct WorkspaceDetailView: View {
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
-    @Binding var selectedTerminalID: MobileTerminalPreview.ID?
     let createWorkspace: () -> Void
     let createTerminal: () -> Void
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
-    @State private var isTerminalPickerPresented = false
+    /// Phone-local browser surfaces, injected from the app root. When this
+    /// workspace has an active browser surface the detail view presents a
+    /// browser pane in place of the terminal; otherwise it shows the terminal.
+    @Environment(BrowserSurfaceStore.self) private var browserStore
+    #if DEBUG && canImport(UIKit)
+    @State private var isFeedbackComposerPresented = false
+    @State private var feedbackText = ""
+    @State private var isSubmittingFeedback = false
+    #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
-        workspace.terminals.first { $0.id == selectedTerminalID } ?? workspace.terminals.first
+        workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
+    }
+
+    /// The active browser surface for this workspace, when a browser pane is open.
+    private var activeBrowser: BrowserSurfaceState? {
+        browserStore.activeBrowser(for: workspace.id.rawValue)
     }
 
     var body: some View {
+        #if os(iOS)
+        if let browser = activeBrowser {
+            browserContent(browser)
+        } else {
+            detailContent()
+        }
+        #else
         detailContent()
+        #endif
     }
+
+    #if os(iOS)
+    /// The browser pane shown when this workspace has an active browser surface.
+    /// It carries its own navigation chrome, so it does not get the terminal's
+    /// keyboard/safe-area handling. Closing returns to the terminal.
+    @ViewBuilder
+    private func browserContent(_ browser: BrowserSurfaceState) -> some View {
+        MobileBrowserPane(
+            state: browser,
+            onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) }
+        )
+        // Key on the surface id so switching/reopening rebuilds the WKWebView.
+        .id(browser.id.rawValue)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle(browser.title ?? workspace.name)
+        .mobileTerminalNavigationChrome()
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                newWorkspaceToolbarButton
+                terminalPickerToolbarButton
+            }
+        }
+    }
+    #endif
 
     private func detailContent() -> some View {
         // `GhosttySurfaceView` owns the bottom accessory bar: it docks the
@@ -45,7 +90,8 @@ struct WorkspaceDetailView: View {
                 GhosttySurfaceRepresentable(
                     surfaceID: terminalID,
                     store: store,
-                    fontSize: MobileTerminalFontPreference.defaultSize
+                    fontSize: MobileTerminalFontPreference.defaultSize,
+                    autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -54,6 +100,9 @@ struct WorkspaceDetailView: View {
                 // Keying on terminalID tears down the old surface (unregistering its
                 // sink via dismantleUIView) and builds the newly-selected one.
                 .id(terminalID)
+                .onAppear {
+                    store.consumeTerminalAutoFocusSuppression(for: terminalID)
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(TerminalPalette.background)
                 // The surface positions its grid + docked toolbar from
@@ -102,6 +151,11 @@ struct WorkspaceDetailView: View {
             }
         #endif
         }
+        #if DEBUG && canImport(UIKit)
+        .sheet(isPresented: $isFeedbackComposerPresented) {
+            feedbackComposer
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -119,10 +173,19 @@ struct WorkspaceDetailView: View {
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
 
+    // The picker is a native SwiftUI `Menu`, which renders as the platform menu
+    // (a `UIMenu` on iOS). That gives the standard menu gesture for free: a
+    // single tap opens it, and a press-and-drag from the button onto an item
+    // followed by a release selects that item. The previous `Button` +
+    // `.popover` was two separate hit-test sessions (tap to present, then tap an
+    // item), so it never supported press-drag-release. Selection still routes
+    // through `selectTerminalFromPicker`, which dismisses the keyboard, so the
+    // chrome behavior is preserved; only keyboard-dismiss-on-open is dropped
+    // because `Menu` has no will-open hook (the menu simply floats over the live
+    // keyboard like any nav-bar menu).
     private var terminalPickerToolbarButton: some View {
-        Button {
-            dismissTerminalKeyboardForChrome()
-            isTerminalPickerPresented = true
+        Menu {
+            terminalPickerMenuContent
         } label: {
             Label(
                 selectedTerminal?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
@@ -133,79 +196,65 @@ struct WorkspaceDetailView: View {
         .foregroundStyle(TerminalPalette.foreground)
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
-        .popover(isPresented: $isTerminalPickerPresented, arrowEdge: .top) {
-            terminalPickerContent
-        }
     }
 
-    private var terminalPickerContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
-                .font(.headline)
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 8)
-
+    @ViewBuilder
+    private var terminalPickerMenuContent: some View {
+        Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
             ForEach(workspace.terminals) { terminal in
                 Button {
                     selectTerminalFromPicker(terminal.id)
                 } label: {
                     Label(
                         terminal.name,
-                        systemImage: terminal.id == selectedTerminal?.id ? "checkmark.circle.fill" : "terminal"
+                        systemImage: terminal.id == selectedTerminal?.id && activeBrowser == nil
+                            ? "checkmark.circle.fill"
+                            : "terminal"
                     )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
                 .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
             }
+        }
 
-            Divider()
-                .padding(.vertical, 4)
-
-            Button(action: createWorkspaceFromTerminalPicker) {
+        Section {
+            Button(action: createWorkspaceFromToolbar) {
                 Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
             .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
 
             Button(action: createTerminalFromToolbar) {
                 Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
             .accessibilityIdentifier("MobileNewTerminalMenuItem")
 
-            #if DEBUG && canImport(UIKit)
+            Button(action: openBrowserFromToolbar) {
+                Label(
+                    L10n.string("mobile.browser.new", defaultValue: "New Browser"),
+                    systemImage: activeBrowser == nil ? "globe" : "checkmark.circle.fill"
+                )
+            }
+            .accessibilityIdentifier("MobileNewBrowserMenuItem")
+        }
+
+        #if DEBUG && canImport(UIKit)
+        Section {
             Button(action: copyDebugLogsFromMenu) {
                 // DEV-only debug tooling; not shipped, so not localized.
                 Label("Copy Debug Logs", systemImage: "doc.on.clipboard")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
             .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
-            #endif
+
+            Button(action: openFeedbackComposerFromMenu) {
+                // DEV-only debug tooling; not shipped, so not localized.
+                Label("Send to agent", systemImage: "paperplane")
+            }
+            .accessibilityIdentifier("MobileSendFeedbackMenuItem")
         }
-        .frame(minWidth: 240, maxWidth: 320, alignment: .leading)
-        .presentationCompactAdaptation(.popover)
+        #endif
     }
 
     #if DEBUG && canImport(UIKit)
     private func copyDebugLogsFromMenu() {
-        isTerminalPickerPresented = false
         // Include "what the user sees" (the visible terminal text) above the
         // debug log so a pasted bug report shows the on-screen content too.
         let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
@@ -215,6 +264,67 @@ struct WorkspaceDetailView: View {
             NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)
         }
     }
+
+    private func openFeedbackComposerFromMenu() {
+        feedbackText = ""
+        isFeedbackComposerPresented = true
+    }
+
+    // DEV-only dogfood feedback composer; not shipped, so its strings are not
+    // localized. Lets the dogfooder type an optional note and ship the structured
+    // diagnostic log + debug log + visible terminal text to the paired Mac.
+    private var feedbackComposer: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Send a structured diagnostic bundle (events + debug log + visible terminal) to the paired Mac. Add an optional note.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                TextField("What happened? (optional)", text: $feedbackText, axis: .vertical)
+                    .lineLimit(3...8)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("MobileFeedbackComposerField")
+                Spacer()
+            }
+            .padding(16)
+            .navigationTitle("Send to agent")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { isFeedbackComposerPresented = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Send", action: submitFeedbackFromComposer)
+                        .disabled(isSubmittingFeedback)
+                        .accessibilityIdentifier("MobileFeedbackComposerSend")
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func submitFeedbackFromComposer() {
+        guard !isSubmittingFeedback else { return }
+        isSubmittingFeedback = true
+        let note = feedbackText
+        // `visibleTerminalSnapshot()` reads off the output queue with a bounded
+        // wait (never a main-thread `ghostty_surface_read_text`, which blanks the
+        // terminal). The debug-log snapshot is awaited from its actor.
+        let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
+        Task { @MainActor in
+            defer {
+                isSubmittingFeedback = false
+                isFeedbackComposerPresented = false
+            }
+            let (_, debugLogText) = await MobileDebugLog.shared.sink.snapshotWithCount()
+            let ok = await store.submitDogfoodFeedback(
+                text: note,
+                debugLogText: debugLogText,
+                terminalText: terminalText
+            )
+            UINotificationFeedbackGenerator().notificationOccurred(ok ? .success : .error)
+            NSLog("cmux.dogfood feedback submit ok=%@", ok ? "1" : "0")
+        }
+    }
     #endif
 
     private func createWorkspaceFromToolbar() {
@@ -222,25 +332,41 @@ struct WorkspaceDetailView: View {
         createWorkspace()
     }
 
-    private func createWorkspaceFromTerminalPicker() {
-        dismissTerminalKeyboardForChrome()
-        isTerminalPickerPresented = false
-        createWorkspace()
-    }
-
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
-        isTerminalPickerPresented = false
+        // Creating a terminal from the (shared) chrome must surface it. If a
+        // browser pane is up, close it so `body` leaves the browser branch and
+        // shows the new terminal instead of staying on the browser.
+        browserStore.closeBrowser(for: workspace.id.rawValue)
         createTerminal()
+    }
+
+    private func openBrowserFromToolbar() {
+        dismissTerminalKeyboardForChrome()
+        // Opens (or reveals the existing) browser pane for this workspace. The
+        // detail view flips to the browser because `activeBrowser` becomes
+        // non-nil; the picker shows a check next to "New Browser" while it is up.
+        browserStore.openBrowser(for: workspace.id.rawValue)
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
-        isTerminalPickerPresented = false
-        selectedTerminalID = terminalID
+        // Choosing a terminal returns from the browser pane (if up) to the
+        // terminal. Closing the browser is enough to flip the detail view back.
+        browserStore.closeBrowser(for: workspace.id.rawValue)
+        // Switching from the picker is chrome, not a typing intent, so the
+        // newly-selected surface must not grab the keyboard on attach. The
+        // store suppresses the target's autofocus (and is a no-op when it is
+        // already selected). A push-notification deep link uses the plain
+        // `selectTerminal` path instead and is allowed to autofocus.
+        store.selectTerminalFromChrome(terminalID)
     }
 
     private func dismissTerminalKeyboardForChrome() {
+        // Resign the terminal's hidden text input first so the surface clears
+        // its keyboard geometry and recomputes full-height before chrome covers
+        // it; then sweep any other responder across the scene.
+        GhosttySurfaceView.resignActiveInput()
         UIApplication.shared.dismissMobileKeyboard()
     }
 }

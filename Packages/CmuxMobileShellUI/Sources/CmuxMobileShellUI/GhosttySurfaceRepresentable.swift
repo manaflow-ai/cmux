@@ -16,6 +16,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let surfaceID: String
     let store: CMUXMobileShellStore
     let fontSize: Float32
+    /// Whether the mounted surface should grab the keyboard when it attaches to
+    /// a window. Driven by the host's autofocus-suppression state so chrome
+    /// actions (create workspace/terminal, switch terminal) do not pop the
+    /// software keyboard.
+    var autoFocusOnWindowAttach: Bool = true
 
     func makeCoordinator() -> Coordinator {
         Coordinator(surfaceID: surfaceID, store: store)
@@ -38,15 +43,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             delegate: context.coordinator,
             fontSize: fontSize
         )
+        view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         context.coordinator.attach(surfaceView: view)
         return view
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        // No prop-driven mutations yet; bytes flow via the byte sink.
+        (uiView as? GhosttySurfaceView)?.autoFocusOnWindowAttach = autoFocusOnWindowAttach
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        (uiView as? GhosttySurfaceView)?.prepareForDismantle()
         coordinator.detach()
     }
 
@@ -91,6 +98,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // turn writes them down the PTY.
             Task { @MainActor [weak store] in
                 await store?.submitTerminalRawInput(data, surfaceID: self.surfaceID)
+            }
+        }
+
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {
+            // An image the user pasted on the phone. Upload it to the Mac, which
+            // writes a temp file and injects its path into the terminal so the
+            // running TUI (e.g. Claude Code) attaches it.
+            Task { @MainActor [weak store] in
+                await store?.submitTerminalPasteImage(data, format: format)
             }
         }
 
@@ -139,6 +155,35 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 guard let self else { return }
                 await self.store?.clickTerminal(surfaceID: self.surfaceID, col: col, row: row)
             }
+        }
+
+        func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {
+            // The "customize" button on the keyboard toolbar. The editor view
+            // lives in this UI package, so present it here (the terminal package
+            // that owns the bar can't reach up to it) from the surface's owning
+            // view controller.
+            guard let presenter = presentingController(for: surfaceView) else { return }
+            let editor = UIHostingController(rootView: TerminalShortcutsSettingsView())
+            presenter.present(editor, animated: true)
+        }
+
+        /// Walk up from `view` to the nearest owning `UIViewController`, then to
+        /// its top-most presented controller, so a sheet presents above whatever
+        /// is already on screen.
+        @MainActor
+        private func presentingController(for view: UIView) -> UIViewController? {
+            var responder: UIResponder? = view
+            while let current = responder {
+                if let controller = current as? UIViewController {
+                    var top = controller
+                    while let presented = top.presentedViewController {
+                        top = presented
+                    }
+                    return top
+                }
+                responder = current.next
+            }
+            return view.window?.rootViewController
         }
     }
 }
