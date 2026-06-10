@@ -14950,7 +14950,7 @@ final class Workspace: Identifiable, ObservableObject {
             tmuxExecutablePath: tmuxPath,
             environment: ProcessInfo.processInfo.environment
         )
-        return respawnTerminalSurface(panelId: panelId, command: "", controlModeSession: session, focus: focus)
+        return respawnTerminalSurface(panelId: panelId, command: "", focus: focus, controlModeSession: session)
     }
 
     /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
