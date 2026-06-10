@@ -1095,7 +1095,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func requestAuthorizationFromSettings() {
         logAuthorization("settings request tapped state=\(authorizationState.statusLabel)")
-        ensureAuthorization(origin: .settingsButton) { _ in }
+        ensureAuthorization(origin: .settingsButton) { _, _ in }
     }
 
     func openNotificationSettings() {
@@ -1117,7 +1117,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func sendSettingsTestNotification() {
         logAuthorization("settings test tapped state=\(authorizationState.statusLabel)")
-        ensureAuthorization(origin: .settingsTest) { [weak self] authorized in
+        ensureAuthorization(origin: .settingsTest) { [weak self] authorized, _ in
             guard let self, authorized else { return }
 
             let content = UNMutableNotificationContent()
@@ -1152,7 +1152,7 @@ final class TerminalNotificationStore: ObservableObject {
         logAuthorization("app became active deferred=\(hasDeferredAuthorizationRequest)")
         if hasDeferredAuthorizationRequest {
             hasDeferredAuthorizationRequest = false
-            ensureAuthorization(origin: .settingsButton) { _ in }
+            ensureAuthorization(origin: .settingsButton) { _, _ in }
             return
         }
         refreshAuthorizationStatus()
@@ -1693,7 +1693,7 @@ final class TerminalNotificationStore: ObservableObject {
             "Notification hook failed hookId=\(failure.hookId, privacy: .public) sourcePath=\(failure.sourcePath ?? "<unknown>", privacy: .private) message=\(failure.message, privacy: .private)"
         )
 
-        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized in
+        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized, _ in
             guard let self, authorized else { return }
             let title = String(
                 localized: "notificationHook.failure.title",
@@ -2080,7 +2080,7 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
 
-        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized in
+        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized, effectiveAuthorizationState in
             guard let self else { return }
             let content = UNMutableNotificationContent()
             content.title = self.resolvedNotificationTitle(for: notification)
@@ -2091,7 +2091,7 @@ final class TerminalNotificationStore: ObservableObject {
                     title: content.title,
                     subtitle: content.subtitle,
                     body: content.body,
-                    effects: Self.fallbackEffects(effects, authorizationState: self.authorizationState)
+                    effects: Self.fallbackEffects(effects, authorizationState: effectiveAuthorizationState)
                 )
                 return
             }
@@ -2170,9 +2170,15 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    /// `completion` receives the decision plus the effective authorization
+    /// state behind it. The state matters for the just-prompted-and-declined
+    /// case: `authorizationState` is refreshed asynchronously there, so a
+    /// caller reading the property would still see `.notDetermined` and play
+    /// the fallback sound for the very notification whose prompt the user
+    /// just denied.
     private func ensureAuthorization(
         origin: AuthorizationRequestOrigin,
-        _ completion: @escaping (Bool) -> Void
+        _ completion: @escaping (Bool, NotificationAuthorizationState) -> Void
     ) {
         if origin == .notificationDelivery,
            let cachedDecision = Self.cachedDeliveryAuthorizationDecision(
@@ -2182,7 +2188,7 @@ final class TerminalNotificationStore: ObservableObject {
             if !cachedDecision, authorizationState == .notDetermined {
                 hasDeferredAuthorizationRequest = true
             }
-            completion(cachedDecision)
+            completion(cachedDecision, authorizationState)
             return
         }
 
@@ -2190,7 +2196,7 @@ final class TerminalNotificationStore: ObservableObject {
         center.getNotificationSettings { [weak self] settings in
             DispatchQueue.main.async {
                 guard let self else {
-                    completion(false)
+                    completion(false, .unknown)
                     return
                 }
 
@@ -2200,13 +2206,13 @@ final class TerminalNotificationStore: ObservableObject {
                 )
                 switch settings.authorizationStatus {
                 case .authorized, .provisional, .ephemeral:
-                    completion(true)
+                    completion(true, self.authorizationState)
                 case .denied:
                     if origin != .notificationDelivery {
                         self.logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
                         self.promptToEnableNotifications()
                     }
-                    completion(false)
+                    completion(false, .denied)
                 case .notDetermined:
                     if Self.shouldDeferAutomaticAuthorizationRequest(
                         origin: origin,
@@ -2215,13 +2221,13 @@ final class TerminalNotificationStore: ObservableObject {
                     ) {
                         self.logAuthorization("ensure deferred origin=\(origin.rawValue)")
                         self.hasDeferredAuthorizationRequest = true
-                        completion(false)
+                        completion(false, .notDetermined)
                     } else {
                         self.requestAuthorizationIfNeeded(origin: origin, completion)
                     }
                 @unknown default:
                     self.logAuthorization("ensure unknown status origin=\(origin.rawValue)")
-                    completion(false)
+                    completion(false, .unknown)
                 }
             }
         }
@@ -2229,7 +2235,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func requestAuthorizationIfNeeded(
         origin: AuthorizationRequestOrigin,
-        _ completion: @escaping (Bool) -> Void
+        _ completion: @escaping (Bool, NotificationAuthorizationState) -> Void
     ) {
         let isAutomaticRequest = origin == .notificationDelivery
         guard Self.shouldRequestAuthorization(
@@ -2239,7 +2245,7 @@ final class TerminalNotificationStore: ObservableObject {
             logAuthorization(
                 "request blocked origin=\(origin.rawValue) automatic=\(isAutomaticRequest) hasRequestedAutomatic=\(hasRequestedAutomaticAuthorization)"
             )
-            completion(false)
+            completion(false, authorizationState)
             return
         }
         if isAutomaticRequest {
@@ -2259,7 +2265,10 @@ final class TerminalNotificationStore: ObservableObject {
                 self.logAuthorization(
                     "request callback origin=\(origin.rawValue) granted=\(granted) error=\(error?.localizedDescription ?? "nil") mapped=\(self.authorizationState.statusLabel)"
                 )
-                completion(granted)
+                // The user just answered the prompt: a non-grant is a live
+                // denial even while authorizationState is still refreshing
+                // (FeedCoordinator's prompt path makes the same call).
+                completion(granted, granted ? .authorized : .denied)
             }
         }
     }
