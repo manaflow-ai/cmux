@@ -2859,24 +2859,26 @@ class GhosttyApp {
         let summary = userAppearanceConfigSummary(configPaths: configPaths)
         guard let rawThemeValue = summary.lastThemeDirective else { return nil }
 
-        let lightTheme = GhosttyConfig.resolveThemeName(
+        // Inject a resolved plain theme whenever the requested appearance side is
+        // explicitly named via ghostty's conditional `light:...`/`dark:...`
+        // syntax, even when both sides resolve to the same theme. `cmux themes
+        // set` always encodes the selection with this syntax (a single theme
+        // becomes `light:X,dark:X`), and ghostty mis-applies the conditional form
+        // — the background lands but the foreground/palette stay at the default
+        // white colors, producing the white-on-light terminals reported in
+        // https://github.com/manaflow-ai/cmux/issues/3459. Only override sides the
+        // value explicitly specifies: a one-sided `light:X` must not force the
+        // light theme onto dark appearances (which would clobber the inherited or
+        // default dark theme). Plain (non-conditional) theme values are applied
+        // correctly by ghostty, so they need no override.
+        guard let explicitTheme = GhosttyConfig.explicitConditionalThemeName(
             from: rawThemeValue,
-            preferredColorScheme: .light
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
-        let darkTheme = GhosttyConfig.resolveThemeName(
-            from: rawThemeValue,
-            preferredColorScheme: .dark
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !lightTheme.isEmpty,
-              !darkTheme.isEmpty,
-              lightTheme.caseInsensitiveCompare(darkTheme) != .orderedSame else {
+            preferredColorScheme: preferredColorScheme
+        ) else {
             return nil
         }
 
-        let resolvedTheme = GhosttyConfig.resolveThemeName(
-            from: rawThemeValue,
-            preferredColorScheme: preferredColorScheme
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTheme = explicitTheme.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !resolvedTheme.isEmpty,
               resolvedTheme.rangeOfCharacter(from: .newlines) == nil else {
             return nil
