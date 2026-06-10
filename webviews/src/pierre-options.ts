@@ -109,9 +109,14 @@ export function codeViewUnsafeCSS(): string {
     [data-diffs-header] {
       container-type: scroll-state;
       container-name: sticky-header;
-      min-height: 32px;
+      min-height: 30px;
       background-color: var(--cmux-diff-surface-bg) !important;
-      border-bottom: 1px solid var(--cmux-diff-border);
+      /* Hairline divider beneath the file metadata, drawn as an inset shadow
+         rather than a border so the header's box height stays equal to the
+         renderer's fixed \`diffHeaderHeight\` metric. A real border-bottom would
+         make every header 1px taller than the virtualizer expects and drift the
+         per-file layout (see the card-frame note in styles.css). */
+      box-shadow: inset 0 -1px 0 var(--cmux-diff-border);
     }
     /* Filename sits a touch heavier than the rest of the header chrome, the way
        Graphite emphasizes the file over its surrounding metadata. The renderer

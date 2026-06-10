@@ -26,9 +26,12 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
   expect(css).toContain("--diffs-fg-number-override: light-dark(");
   expect(css).toContain("[data-diffs-header] {");
   expect(css).toContain("background-color: var(--cmux-diff-surface-bg) !important");
-  expect(css).toContain("min-height: 32px");
-  // Header band carries a hairline divider beneath the file metadata.
-  expect(css).toContain("border-bottom: 1px solid var(--cmux-diff-border)");
+  expect(css).toContain("min-height: 30px");
+  // Header divider is a non-layout-affecting inset shadow (a real border-bottom
+  // would make the header taller than the renderer's fixed header metric and
+  // drift the virtualized per-file layout).
+  expect(css).toContain("box-shadow: inset 0 -1px 0 var(--cmux-diff-border)");
+  expect(css).not.toContain("border-bottom: 1px solid var(--cmux-diff-border)");
   expect(css).not.toContain("border-block: 1px solid var(--cmux-diff-border)");
   expect(css).not.toContain("@container sticky-header scroll-state");
   // Filename is emphasized over the rest of the header chrome.

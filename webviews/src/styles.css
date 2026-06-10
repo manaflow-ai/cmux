@@ -609,15 +609,18 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   --diffs-line-height: var(--cmux-diff-line-height);
   --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
   display: block;
-  /* Per-file card: a hairline border + rounded corners frame each file, and
-     `overflow: clip` clips the sticky header and code rows to that frame. With
-     the global `box-sizing: border-box`, the border sits inside the item's
-     `width: 100%` and is included in the height the virtualizer measures, so it
-     adds no horizontal overflow and no layout drift. The card fill comes from
-     the diff background; the gap between cards comes from the renderer layout
-     (see pierre-options.ts). */
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
+  /* Per-file card: rounded corners + `overflow: clip` frame each file and clip
+     the sticky header and code rows to that frame. The hairline ring is drawn
+     with an *outset* box-shadow rather than a border so it adds NO block size:
+     @pierre/diffs' CodeView computes each item's height from fixed header/line
+     metrics (constants.js `diffHeaderHeight` + estimated line heights, with
+     only per-line measured deltas reconciled) and never remeasures the host
+     box, so a real top/bottom border would leave item tops and total scroll
+     height undercounted by 2px per file and drift the virtualizer math. The gap
+     between cards comes from the renderer layout (see pierre-options.ts), which
+     leaves room for the 1px outset ring. */
   border-radius: 9px;
+  box-shadow: 0 0 0 1px color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
   overflow: clip;
   contain: layout paint style;
 }
