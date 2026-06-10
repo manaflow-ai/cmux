@@ -92,6 +92,30 @@ public struct MobileShellRouteAuthPolicy {
         }
     }
 
+    /// Whether a decoded pairing/attach ticket must be rejected because its
+    /// routes dial the device itself.
+    ///
+    /// On a physical phone a loopback route can never name a legitimate Mac:
+    /// dialing it reaches whatever process is listening on the phone's own
+    /// localhost, and since loopback is in the Stack-auth-trusted set
+    /// (``routeAllowsStackAuth(_:)``) the account bearer token would be
+    /// handed to that process. The v2 pairing-QR grammar rejects loopback in
+    /// the decoder; this policy closes the same hole for the legacy payload
+    /// grammars, which must keep decoding loopback for the simulator flow
+    /// (where 127.0.0.1 IS the host Mac and dev auto-pair depends on it).
+    /// - Parameters:
+    ///   - routes: The decoded ticket's routes.
+    ///   - isPhysicalDevice: `true` on a physical iPhone/iPad, `false` in the
+    ///     simulator and on other platforms.
+    /// - Returns: `true` when the ticket must fail with the loopback-rejected
+    ///   error instead of connecting.
+    public static func ticketRejectsLoopbackRoutes(
+        _ routes: [CmxAttachRoute],
+        isPhysicalDevice: Bool
+    ) -> Bool {
+        isPhysicalDevice && routes.contains(where: CmxLoopbackHost.matches)
+    }
+
     /// Whether the given route may carry Stack auth when reached via an implicit
     /// pair-link (no explicit attach token), restricted to loopback only.
     /// - Parameter route: The candidate attach route.
