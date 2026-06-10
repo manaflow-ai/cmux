@@ -1,0 +1,77 @@
+{
+  "session": {
+    "provider": "claude",
+    "session_id": "sess-claude-1",
+    "transcript_path": "testdata/claude/basic.jsonl",
+    "cwd": "/tmp/project",
+    "title": "Fix the login bug"
+  },
+  "items": [
+    {
+      "id": "u1",
+      "type": "user_message",
+      "status": "completed",
+      "text": "Fix the login bug",
+      "created_at": "2026-06-09T10:00:01.000Z"
+    },
+    {
+      "id": "a1",
+      "type": "reasoning",
+      "status": "completed",
+      "text": "The bug is in the session check.",
+      "created_at": "2026-06-09T10:00:02.000Z"
+    },
+    {
+      "id": "a1:1",
+      "type": "assistant_message",
+      "status": "completed",
+      "text": "Looking at the auth flow now.",
+      "created_at": "2026-06-09T10:00:02.000Z"
+    },
+    {
+      "id": "toolu_1",
+      "type": "command_execution",
+      "status": "completed",
+      "tool_name": "Bash",
+      "tool_use_id": "toolu_1",
+      "input": {
+        "command": "ls -la src/auth"
+      },
+      "output": {
+        "text": "login.ts\nsession.ts"
+      },
+      "title": "ls -la src/auth",
+      "created_at": "2026-06-09T10:00:02.000Z"
+    },
+    {
+      "id": "toolu_2",
+      "type": "file_change",
+      "status": "failed",
+      "tool_name": "Edit",
+      "tool_use_id": "toolu_2",
+      "input": {
+        "file_path": "/tmp/project/src/auth/login.ts",
+        "new_string": "b",
+        "old_string": "a"
+      },
+      "output": {
+        "text": "old_string not found",
+        "is_error": true
+      },
+      "title": "/tmp/project/src/auth/login.ts",
+      "created_at": "2026-06-09T10:00:04.000Z"
+    },
+    {
+      "id": "toolu_3",
+      "type": "web_search",
+      "status": "in_progress",
+      "tool_name": "WebFetch",
+      "tool_use_id": "toolu_3",
+      "input": {
+        "url": "https://example.com/docs"
+      },
+      "title": "https://example.com/docs",
+      "created_at": "2026-06-09T10:00:09.000Z"
+    }
+  ]
+}

@@ -63,16 +63,16 @@ type ToolOutput struct {
 // Item is one unit of conversation timeline content. Messages, reasoning, and
 // tool calls are all items; tool results fold into their tool item.
 type Item struct {
-	ID        string     `json:"id"`
-	Type      ItemType   `json:"type"`
-	Status    ItemStatus `json:"status"`
-	Text      string     `json:"text,omitempty"`
-	ToolName  string     `json:"tool_name,omitempty"`
-	ToolUseID string     `json:"tool_use_id,omitempty"`
-	Input     any        `json:"input,omitempty"`
+	ID        string      `json:"id"`
+	Type      ItemType    `json:"type"`
+	Status    ItemStatus  `json:"status"`
+	Text      string      `json:"text,omitempty"`
+	ToolName  string      `json:"tool_name,omitempty"`
+	ToolUseID string      `json:"tool_use_id,omitempty"`
+	Input     any         `json:"input,omitempty"`
 	Output    *ToolOutput `json:"output,omitempty"`
-	Title     string     `json:"title,omitempty"`
-	CreatedAt string     `json:"created_at,omitempty"`
+	Title     string      `json:"title,omitempty"`
+	CreatedAt string      `json:"created_at,omitempty"`
 }
 
 // EventType discriminates Event. The names content.delta, request.opened,

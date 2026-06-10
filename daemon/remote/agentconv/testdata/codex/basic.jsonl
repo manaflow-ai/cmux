@@ -1,0 +1,15 @@
+{"timestamp":"2026-06-09T10:00:00.000Z","type":"session_meta","payload":{"id":"sess-codex-1","timestamp":"2026-06-09T10:00:00.000Z","cwd":"/tmp/project","originator":"codex-tui","cli_version":"0.138.0"}}
+{"timestamp":"2026-06-09T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"developer instructions are skipped"}]}}
+{"timestamp":"2026-06-09T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>cwd=/tmp/project</environment_context>Make the tests pass"}]}}
+{"timestamp":"2026-06-09T10:00:02.500Z","type":"event_msg","payload":{"type":"user_message","message":"Make the tests pass"}}
+{"timestamp":"2026-06-09T10:00:03.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"Run the suite first."}],"encrypted_content":"opaque"}}
+{"timestamp":"2026-06-09T10:00:04.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"go test ./...\"}","call_id":"call-1"}}
+{"timestamp":"2026-06-09T10:00:05.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-1","output":"{\"output\":\"ok  \\tpkg\\t0.2s\",\"metadata\":{\"exit_code\":0,\"duration_seconds\":0.2}}"}}
+{"timestamp":"2026-06-09T10:00:06.000Z","type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","call_id":"call-2","input":"*** Begin Patch\n*** Update File: pkg/auth.go\n@@\n-a\n+b\n*** End Patch"}}
+{"timestamp":"2026-06-09T10:00:07.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call-2","output":"Done"}}
+{"timestamp":"2026-06-09T10:00:08.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Tests pass after the patch."}]}}
+{"timestamp":"2026-06-09T10:00:09.000Z","type":"compacted","payload":{"message":"Conversation compacted"}}
+{"timestamp":"2026-06-09T10:00:10.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total":1}}}
+{"timestamp":"2026-06-09T10:00:11.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions dump that must be skipped"}]}}
+{"timestamp":"2026-06-09T10:00:12.000Z","type":"response_item","payload":{"type":"web_search_call","action":{"type":"search","query":"golang file tail"},"status":"completed"}}
+{"timestamp":"2026-06-09T10:00:13.000Z","type":"turn_context","payload":{"cwd":"/tmp/project"}}

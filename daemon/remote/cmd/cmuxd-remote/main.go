@@ -72,14 +72,16 @@ type rpcResponse struct {
 }
 
 type rpcEvent struct {
-	Event           string `json:"event"`
-	StreamID        string `json:"stream_id,omitempty"`
-	SessionID       string `json:"session_id,omitempty"`
-	AttachmentID    string `json:"attachment_id,omitempty"`
-	AttachmentToken string `json:"attachment_token,omitempty"`
-	DataBase64      string `json:"data_base64,omitempty"`
-	Message         string `json:"message,omitempty"`
-	Error           string `json:"error,omitempty"`
+	Event           string          `json:"event"`
+	StreamID        string          `json:"stream_id,omitempty"`
+	SessionID       string          `json:"session_id,omitempty"`
+	AttachmentID    string          `json:"attachment_id,omitempty"`
+	AttachmentToken string          `json:"attachment_token,omitempty"`
+	DataBase64      string          `json:"data_base64,omitempty"`
+	Message         string          `json:"message,omitempty"`
+	Error           string          `json:"error,omitempty"`
+	SubscriptionID  string          `json:"subscription_id,omitempty"`
+	Payload         json.RawMessage `json:"payload,omitempty"`
 }
 
 type rpcFrameWriter interface {
@@ -101,8 +103,10 @@ type rpcServer struct {
 	mu             sync.Mutex
 	nextStreamID   uint64
 	nextSessionID  uint64
+	nextAgentSubID uint64
 	streams        map[string]*streamState
 	sessions       map[string]*sessionState
+	agentSubs      map[string]*agentSubscriptionState
 	ptyHub         *wsPTYHub
 	ownsPTYHub     bool
 	ptyAttachments map[string]*wsPTYAttachment
@@ -1312,6 +1316,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"pty.session.token",
 					"pty.session.persistent_daemon",
 					"pty.write.notification",
+					"agent.conversation",
 				},
 			},
 		}
@@ -1355,6 +1360,12 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 		return s.handlePTYClose(req)
 	case "pty.list":
 		return s.handlePTYList(req)
+	case "agent.sessions.list":
+		return s.handleAgentSessionsList(req)
+	case "agent.session.open":
+		return s.handleAgentSessionOpen(req)
+	case "agent.session.close":
+		return s.handleAgentSessionClose(req)
 	default:
 		return rpcResponse{
 			ID: req.ID,
@@ -2396,6 +2407,7 @@ func (s *rpcServer) dropStream(streamID string) {
 }
 
 func (s *rpcServer) closeAll() {
+	s.closeAgentSubscriptions()
 	s.mu.Lock()
 	streams := make([]net.Conn, 0, len(s.streams))
 	for id, state := range s.streams {

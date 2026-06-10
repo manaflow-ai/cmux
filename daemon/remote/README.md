@@ -41,6 +41,22 @@ When invoked as `cmux` (via wrapper/symlink installed during bootstrap), the bin
 17. `pty.detach`
 18. `pty.close`
 19. `pty.list`
+20. `agent.sessions.list`
+21. `agent.session.open`
+22. `agent.session.close`
+
+## Agent conversation layer
+
+The `agentconv` package normalizes coding-agent session transcripts read off
+the filesystem (`~/.claude/projects`, `~/.codex/sessions`) into a canonical
+conversation event stream; the protocol and provider mapping rules live in
+`docs/agent-conversation-protocol.md` at the repo root. `agent.session.open`
+replays a transcript as a `snapshot` and then tails it, pushing
+`{event: "agent.session.event", subscription_id, payload}` frames until
+`agent.session.close` or connection teardown. The verbs work over plain
+`serve --stdio` with no lease flags; the macOS app spawns this binary as a
+local stdio child to back the in-app agent chat surface. The `hello`
+capability string is `agent.conversation`.
 
 Current integration in cmux:
 1. `workspace.remote.configure` now bootstraps this binary over SSH when missing.
