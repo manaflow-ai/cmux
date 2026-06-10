@@ -86,11 +86,6 @@ public struct AgentResumeArgv: Sendable, Equatable {
         return portableClaudeResumeShellCommand(posixCommand: joined)
     }
 
-    /// Single-quotes `value` as one POSIX `sh` word, escaping embedded quotes as `'\''`.
-    private static func posixSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
     /// Renders shell command `parts` to quoted tokens, substituting
     /// ``claudeWrapperShellExecutableToken`` for the first bare `claude` executable token.
     ///
@@ -297,4 +292,9 @@ public struct AgentResumeArgv: Sendable, Equatable {
         }
         return trimmed
     }
+}
+
+/// Single-quotes `value` as one POSIX `sh` word, escaping embedded quotes as `'\''`.
+private func posixSingleQuoted(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
