@@ -46,6 +46,23 @@ struct NotesTreeObservedSession: Equatable, Sendable {
     var surfaceAnchorId: String?
 }
 
+/// An agent process seen running on one of the workspace's pane TTYs that has
+/// no hook record (bare launches bypass the wrapper when the user's PATH or
+/// alias shadows it), so its session id is unknown. The store resolves it
+/// against the cwd's session files: the newest session of that agent active
+/// since the process started is that pane's session.
+struct NotesTreeAnonymousAgentObservation: Equatable, Sendable {
+    var agent: String
+    var startedAt: TimeInterval
+}
+
+/// Everything the app layer can tell the store about agents in this
+/// workspace's panes for one refresh pass.
+struct NotesTreeObservation: Equatable, Sendable {
+    var sessions: [NotesTreeObservedSession] = []
+    var anonymousAgents: [NotesTreeAnonymousAgentObservation] = []
+}
+
 /// `ps -t` helper for pane↔process correlation. Agent processes survive app
 /// relaunches and keep reporting their previous run's workspace/surface UUIDs
 /// through hooks, so UUID matching misses them; the pane's TTY plus the
@@ -56,27 +73,67 @@ enum NotesTreePaneProcessLookup {
         return trimmed.hasPrefix("/dev/") ? String(trimmed.dropFirst(5)) : trimmed
     }
 
+    /// One process sitting on a pane TTY.
+    struct PaneProcess: Equatable, Sendable {
+        var pid: Int
+        var tty: String
+        var startedAt: TimeInterval
+        var command: String
+    }
+
     /// Map live pids to the (normalized) pane TTY they sit on.
     static func pidsByTTY(ttys: [String]) -> [Int: String] {
+        Dictionary(
+            paneProcesses(ttys: ttys).map { ($0.pid, $0.tty) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    /// Every process on the given pane TTYs with its start time (derived from
+    /// `ps` etime, locale-independent) and executable name.
+    static func paneProcesses(ttys: [String], now: TimeInterval = Date().timeIntervalSince1970) -> [PaneProcess] {
         let cleaned = Array(Set(ttys.map(normalizeTTY))).filter { !$0.isEmpty }
-        guard !cleaned.isEmpty else { return [:] }
+        guard !cleaned.isEmpty else { return [] }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-t", cleaned.joined(separator: ","), "-o", "pid=,tty="]
+        process.arguments = ["-t", cleaned.joined(separator: ","), "-o", "pid=,tty=,etime=,comm="]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return [:] }
+        do { try process.run() } catch { return [] }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        guard let output = String(data: data, encoding: .utf8) else { return [:] }
-        var result: [Int: String] = [:]
+        guard let output = String(data: data, encoding: .utf8) else { return [] }
+        var result: [PaneProcess] = []
         for line in output.split(separator: "\n") {
             let parts = line.split(separator: " ", omittingEmptySubsequences: true)
-            guard parts.count >= 2, let pid = Int(parts[0]) else { continue }
-            result[pid] = normalizeTTY(String(parts[1]))
+            guard parts.count >= 4, let pid = Int(parts[0]) else { continue }
+            let tty = normalizeTTY(String(parts[1]))
+            guard let elapsed = parseElapsedTime(String(parts[2])) else { continue }
+            // comm can contain spaces (path); take the basename of the joined rest.
+            let command = ((parts[3...].joined(separator: " ") as NSString).lastPathComponent)
+            result.append(PaneProcess(pid: pid, tty: tty, startedAt: now - elapsed, command: command))
         }
         return result
+    }
+
+    /// Parse `ps` etime ("[[dd-]hh:]mm:ss") into seconds.
+    static func parseElapsedTime(_ value: String) -> TimeInterval? {
+        var days = 0.0
+        var rest = value
+        if let dash = rest.firstIndex(of: "-") {
+            guard let d = Double(rest[..<dash]) else { return nil }
+            days = d
+            rest = String(rest[rest.index(after: dash)...])
+        }
+        let fields = rest.split(separator: ":").map(String.init)
+        guard (1...3).contains(fields.count) else { return nil }
+        var seconds = 0.0
+        for field in fields {
+            guard let part = Double(field) else { return nil }
+            seconds = seconds * 60 + part
+        }
+        return days * 86_400 + seconds
     }
 }
 
@@ -271,7 +328,7 @@ enum NotesTreeStorage {
         for (key, descriptor) in liveByKey {
             guard var record = byKey[key] else { continue }
             let trimmedTitle = descriptor.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedTitle.isEmpty { record.title = descriptor.title }
+            if !trimmedTitle.isEmpty { record.title = sanitizedSessionTitle(descriptor.title) }
             if descriptor.modified > record.modified { record.modified = descriptor.modified }
             if !descriptor.cwd.isEmpty { record.cwd = descriptor.cwd }
             byKey[key] = record
@@ -588,6 +645,14 @@ enum NotesTreeStorage {
         return found
     }
 
+    /// Session titles come from transcript content and can be huge multiline
+    /// pastes; rows are single-line, so collapse whitespace and cap length at
+    /// the storage boundary.
+    static func sanitizedSessionTitle(_ raw: String) -> String {
+        let collapsed = raw.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+        return String(collapsed.prefix(160))
+    }
+
     /// Rewrite the markers in `folders` whose session has drifted from the
     /// matching `live` entry (keyed by agent + sessionId): newer `modified`,
     /// changed title, or changed cwd. Folders with no live match (deleted or
@@ -608,7 +673,7 @@ enum NotesTreeStorage {
             guard let liveEntry = liveByKey["\(folder.marker.agent)\n\(folder.marker.sessionId)"] else { continue }
             var updated = folder.marker
             if !liveEntry.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                updated.title = liveEntry.title
+                updated.title = sanitizedSessionTitle(liveEntry.title)
             }
             if liveEntry.modified > (updated.modified ?? 0) {
                 updated.modified = liveEntry.modified

@@ -24,12 +24,14 @@ enum CmuxNoteStore {
 
     static func absoluteBodyPath(bodyPath: String, projectRoot: String) -> String {
         // `bodyPath` comes from project-controlled `.cmux/notes/index.json`, so an
-        // absolute path or `..` traversal must never let note read/write/append/rm
-        // escape the notes directory. Canonical body paths are `notes/<id>.md`
-        // relative to `.cmux`; anything resolving outside `.cmux/notes` is confined
-        // to that directory by its final path component.
-        let notesRoot = URL(fileURLWithPath: NoteSupport.notesDirectory(forProjectRoot: projectRoot))
-            .standardizedFileURL.path
+        // absolute path, `..` traversal, or a committed symlink must never let note
+        // read/write/append/rm escape the notes directory. Canonical body paths are
+        // `notes/<id>.md` relative to `.cmux`; containment is checked on the
+        // symlink-resolved path (a repo can commit a link under `.cmux/notes`
+        // pointing anywhere), and anything resolving outside `.cmux/notes` is
+        // confined to that directory by its final path component.
+        let notesRoot = ((NoteSupport.notesDirectory(forProjectRoot: projectRoot) as NSString)
+            .standardizingPath as NSString).resolvingSymlinksInPath
         let resolved: String
         if bodyPath.hasPrefix("/") {
             resolved = URL(fileURLWithPath: bodyPath).standardizedFileURL.path
@@ -38,8 +40,9 @@ enum CmuxNoteStore {
             let joined = (cmuxDir as NSString).appendingPathComponent(bodyPath)
             resolved = URL(fileURLWithPath: joined).standardizedFileURL.path
         }
-        if resolved == notesRoot || resolved.hasPrefix(notesRoot + "/") {
-            return resolved
+        let canonical = (resolved as NSString).resolvingSymlinksInPath
+        if canonical == notesRoot || canonical.hasPrefix(notesRoot + "/") {
+            return canonical
         }
         let leaf = (bodyPath as NSString).lastPathComponent
         let safeLeaf = (leaf.isEmpty || leaf == "." || leaf == "..") ? "untrusted-note.md" : leaf

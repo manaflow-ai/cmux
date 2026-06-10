@@ -12078,7 +12078,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// them, but the pane TTY and the live pid are current-run ground truth.
     /// Each entry carries the pane's note anchor (when one was minted, never
     /// minting) so pane-attached flat notes can nest under their session.
-    func notesTreeObservedAgentSessions() async -> [NotesTreeObservedSession] {
+    func notesTreeObservedAgentSessions() async -> NotesTreeObservation {
         SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
         var seen = Set<String>()
         var observed: [NotesTreeObservedSession] = []
@@ -12096,8 +12096,7 @@ final class Workspace: Identifiable, ObservableObject {
         for (panelId, snapshot) in restoredAgentSnapshotsByPanelId {
             add(snapshot, panelId: panelId)
         }
-        guard let index = SharedLiveAgentIndex.shared.index else { return observed }
-        let entries = index.allEntries()
+        let entries = SharedLiveAgentIndex.shared.index?.allEntries() ?? []
         var pidOwner: [Int: UUID] = [:]
         for (ownerId, keys) in agentPIDKeysByPanelId {
             for key in keys {
@@ -12111,27 +12110,57 @@ final class Workspace: Identifiable, ObservableObject {
             let panelId = panelIdFromSurfaceId(TabID(uuid: ownerId)) ?? ownerId
             add(entry.snapshot, panelId: panelId)
         }
-        // TTY pass for whatever the UUID/pid registries missed.
+        // TTY pass: ground truth for what is REALLY running in this
+        // workspace's panes, regardless of which run's UUIDs the hook records
+        // carry — and the only signal at all for bare launches that bypassed
+        // the hook wrapper (user PATH/alias shadowing).
         let ttyByPanel = surfaceTTYNames
-        let liveEntries = entries.filter { !$0.entry.processIDs.isEmpty }
-        guard !ttyByPanel.isEmpty, !liveEntries.isEmpty else { return observed }
+        guard !ttyByPanel.isEmpty else { return NotesTreeObservation(sessions: observed) }
         var panelByTTY: [String: UUID] = [:]
         for (panelId, tty) in ttyByPanel {
             panelByTTY[NotesTreePaneProcessLookup.normalizeTTY(tty)] = panelId
         }
         let ttys = Array(panelByTTY.keys)
-        let pidToTTY = await Task.detached(priority: .utility) {
-            NotesTreePaneProcessLookup.pidsByTTY(ttys: ttys)
+        let paneProcesses = await Task.detached(priority: .utility) {
+            NotesTreePaneProcessLookup.paneProcesses(ttys: ttys)
         }.value
-        guard !pidToTTY.isEmpty else { return observed }
+        var matchedPanePids = Set<Int>()
+        let liveEntries = entries.filter { !$0.entry.processIDs.isEmpty }
+        let pidToTTY = Dictionary(
+            paneProcesses.map { ($0.pid, $0.tty) }, uniquingKeysWith: { first, _ in first }
+        )
         for (_, entry) in liveEntries {
             guard let pid = entry.processIDs.first(where: { pidToTTY[$0] != nil }),
                   let tty = pidToTTY[pid],
                   let ownerId = panelByTTY[tty] else { continue }
+            matchedPanePids.formUnion(entry.processIDs)
             let panelId = panelIdFromSurfaceId(TabID(uuid: ownerId)) ?? ownerId
             add(entry.snapshot, panelId: panelId)
         }
-        return observed
+        // Hookless agents: an agent-named process on a pane TTY with no hook
+        // record anywhere. Report name + start time; the store resolves the
+        // session from the cwd's session files.
+        var anonymous: [NotesTreeAnonymousAgentObservation] = []
+        let builtInAgentIds = Set(SessionAgent.builtInCases.map(\.rawValue))
+        for process in paneProcesses where !matchedPanePids.contains(process.pid) {
+            let commandAgent = process.command.lowercased()
+            // Built-in executable names only: SessionAgent(rawValue:) accepts
+            // arbitrary registered ids, which would match every shell on the
+            // TTY.
+            guard builtInAgentIds.contains(commandAgent) else { continue }
+            anonymous.append(NotesTreeAnonymousAgentObservation(
+                agent: commandAgent,
+                startedAt: process.startedAt
+            ))
+        }
+        #if DEBUG
+        cmuxDebugLog(
+            "notes.observe ws=\(id.uuidString.prefix(8)) restored=\(restoredAgentSnapshotsByPanelId.count) "
+            + "entries=\(entries.count) ttyPanels=\(panelByTTY.count) ttyProcs=\(paneProcesses.count) "
+            + "observed=\(observed.count) anon=\(anonymous.count)"
+        )
+        #endif
+        return NotesTreeObservation(sessions: observed, anonymousAgents: anonymous)
     }
 
     /// The working directory app-level actions (diff viewer, configured commands)

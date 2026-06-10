@@ -36,7 +36,7 @@ final class NotesTreeStore: ObservableObject {
     /// panes (live snapshots, the shared restorable-agent index, and the
     /// pane-TTY process pass). Injected by the composition root; starts on the
     /// main actor and may suspend for the process lookup.
-    private var observedSessionsProvider: (() async -> [NotesTreeObservedSession])?
+    private var observedSessionsProvider: (() async -> NotesTreeObservation)?
     /// Absolute path to `<projectRoot>/.cmux/notes/<workspace-folder>` (resolved,
     /// not necessarily created yet — materialized on first mutation/sync).
     private(set) var resolvedRootPath: String?
@@ -55,6 +55,7 @@ final class NotesTreeStore: ObservableObject {
     private var watchedDirs: Set<String> = []
     private var reloadCoalesceTask: Task<Void, Never>?
     private var markerRefreshTask: Task<Void, Never>?
+    private var visibilityRefreshTask: Task<Void, Never>?
     private var lastMarkerRefresh: Date?
     /// Floor between appear-triggered marker refreshes; Refresh bypasses it.
     private let markerRefreshMinInterval: TimeInterval = 30
@@ -81,7 +82,7 @@ final class NotesTreeStore: ObservableObject {
         projectRoot: String?,
         currentDirectory: String?,
         anchorId: String? = nil,
-        observedSessions: (() async -> [NotesTreeObservedSession])? = nil
+        observedSessions: (() async -> NotesTreeObservation)? = nil
     ) {
         let cwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let projectRoot, let cwd, !cwd.isEmpty else {
@@ -153,6 +154,28 @@ final class NotesTreeStore: ObservableObject {
         guard hasWorkspace else { return }
         reload()
         refreshSessions(force: true)
+    }
+
+    /// While the Notes tab is visible, re-scan this workspace's sessions on a
+    /// short cadence so agents launched while the tab is open appear without
+    /// switching away and back. Cheap when nothing changed — the pass only
+    /// reloads on diffs. Only a timer is scheduled here; no published state
+    /// is touched (the appear/disappear reload feedback loop class).
+    func setVisible(_ visible: Bool) {
+        if visible {
+            guard visibilityRefreshTask == nil else { return }
+            visibilityRefreshTask = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(10))
+                    guard let self else { break }
+                    guard self.hasWorkspace, !Task.isCancelled else { continue }
+                    self.refreshSessions(force: true)
+                }
+            }
+        } else {
+            visibilityRefreshTask?.cancel()
+            visibilityRefreshTask = nil
+        }
     }
 
     // MARK: - Loading
@@ -340,12 +363,15 @@ final class NotesTreeStore: ObservableObject {
         guard let root = resolvedRootPath else { return }
         markerRefreshTask = Task { @MainActor [weak self] in
             defer { self?.markerRefreshTask = nil }
-            let observed = await provider?() ?? []
+            let observation = await provider?() ?? NotesTreeObservation()
+            let observed = observation.sessions
             // Observations need the workspace folder + marker on disk to
             // persist into; materialize it lazily the first time this
             // workspace actually runs an agent (one small folder — not the
             // per-session flood the old auto-materialization caused).
-            if !observed.isEmpty { _ = try? self?.ensureRoot(folder: nil) }
+            if !observed.isEmpty || !observation.anonymousAgents.isEmpty {
+                _ = try? self?.ensureRoot(folder: nil)
+            }
             let folders = await Task.detached(priority: .utility) {
                 NotesTreeStorage.collectSessionFolders(inRoot: root)
             }.value
@@ -380,8 +406,35 @@ final class NotesTreeStore: ObservableObject {
             // The shared agent index refreshes asynchronously (1s TTL); the
             // scans above bought it time, so re-pull observations to catch
             // panes a cold first pass missed.
-            let lateObserved = await provider?() ?? []
-            let allObserved = observed + lateObserved
+            let lateObservation = await provider?() ?? NotesTreeObservation()
+            let lateObserved = lateObservation.sessions
+            // Hookless agents (bare launches that bypassed the wrapper):
+            // resolve each agent-on-a-pane-TTY to the workspace cwd's newest
+            // session of that agent that has been active since the process
+            // started — the same inference a human makes in the Vault.
+            let anonymous = observation.anonymousAgents + lateObservation.anonymousAgents
+            var resolvedAnonymous: [NotesTreeObservedSession] = []
+            if !anonymous.isEmpty {
+                var taken = Set<String>()
+                let cwdLive = liveSnapshot
+                    .filter { ($0.cwd as NSString).standardizingPath == workspaceCwd }
+                    .sorted { $0.modified > $1.modified }
+                for anon in anonymous {
+                    // 120s slack: a just-resumed session's file mtime can
+                    // slightly predate the process start.
+                    if let match = cwdLive.first(where: { candidate in
+                        candidate.agent == anon.agent
+                            && candidate.modified >= anon.startedAt - 120
+                            && !taken.contains("\(candidate.agent)\n\(candidate.sessionId)")
+                    }) {
+                        taken.insert("\(match.agent)\n\(match.sessionId)")
+                        resolvedAnonymous.append(NotesTreeObservedSession(
+                            agent: match.agent, sessionId: match.sessionId, surfaceAnchorId: nil
+                        ))
+                    }
+                }
+            }
+            let allObserved = observed + lateObserved + resolvedAnonymous
             if !allObserved.isEmpty, observed.isEmpty {
                 _ = try? self?.ensureRoot(folder: nil)
             }
@@ -400,6 +453,14 @@ final class NotesTreeStore: ObservableObject {
             guard !Task.isCancelled, let self, self.hasWorkspace,
                   self.resolvedRootPath == root
             else { return }
+            #if DEBUG
+            cmuxDebugLog(
+                "notes.refresh observed=\(observed.count) late=\(lateObserved.count) "
+                + "anon=\(anonymous.count) anonResolved=\(resolvedAnonymous.count) "
+                + "folders=\(folders.count) live=\(liveSnapshot.count) changed=\(changed) "
+                + "records=\(NotesTreeStorage.readWorkspaceSessions(inRoot: root).count)"
+            )
+            #endif
             if changed { self.reload() }
             if allObserved.isEmpty, self.emptyObservationRetries < self.maxEmptyObservationRetries {
                 self.emptyObservationRetries += 1
@@ -625,5 +686,6 @@ final class NotesTreeStore: ObservableObject {
         for task in watcherTasks { task.cancel() }
         reloadCoalesceTask?.cancel()
         markerRefreshTask?.cancel()
+        visibilityRefreshTask?.cancel()
     }
 }

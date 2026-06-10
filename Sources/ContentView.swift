@@ -2747,7 +2747,7 @@ struct ContentView: View {
                 currentDirectory: dir,
                 anchorId: workspace.noteAnchorId,
                 observedSessions: { [weak workspace] in
-                    await workspace?.notesTreeObservedAgentSessions() ?? []
+                    await workspace?.notesTreeObservedAgentSessions() ?? NotesTreeObservation()
                 }
             )
         } else {

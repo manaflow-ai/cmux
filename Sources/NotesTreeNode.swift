@@ -94,7 +94,9 @@ final class NotesTreeNode: Identifiable {
     var displayName: String {
         switch kind {
         case .sessionFolder(let marker):
-            let trimmed = marker.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Titles come from transcripts and can be multiline pastes, which
+            // a single-line label renders as blank; collapse for display.
+            let trimmed = NotesTreeStorage.sanitizedSessionTitle(marker.title)
             return trimmed.isEmpty ? name : trimmed
         case .note:
             return name.hasSuffix(".md") ? String(name.dropLast(3)) : name

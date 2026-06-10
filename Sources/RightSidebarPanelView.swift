@@ -439,7 +439,11 @@ struct RightSidebarPanelView: View {
                 onOpenNote: onOpenNote,
                 onResumeMarker: onResumeNoteSession
             )
-            .onAppear { notesTreeStore.reloadIfNeeded() }
+            .onAppear {
+                notesTreeStore.setVisible(true)
+                notesTreeStore.reloadIfNeeded()
+            }
+            .onDisappear { notesTreeStore.setVisible(false) }
         case .find:
             FileExplorerPanelView(
                 store: fileExplorerStore,
