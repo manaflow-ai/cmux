@@ -1,18 +1,6 @@
 import CmuxAuthRuntime
 import Foundation
 
-/// UserDefaults keys for the device presence heartbeat. Default OFF: the Mac
-/// announces nothing unless the flag is enabled and a service URL is set.
-enum PresenceSettings {
-    /// Master gate. When false (default), no heartbeats are sent.
-    static let enabledKey = "presenceHeartbeatEnabled"
-    /// Base URL of the presence service (the cmux-presence worker), e.g.
-    /// "https://cmux-presence.<account>.workers.dev". Empty means disabled.
-    static let serviceURLKey = "presenceServiceURL"
-    /// Env override for dev/tagged builds, mirroring CMUX_VM_API_BASE_URL.
-    static let serviceURLEnvKey = "CMUX_PRESENCE_BASE_URL"
-}
-
 /// Announces this Mac's running cmux app instance to the team-scoped presence
 /// service (`POST /v1/presence/heartbeat` on `workers/presence`), so phones and
 /// other team devices can see it flip online/offline live.
@@ -127,10 +115,6 @@ final class PresenceHeartbeatClient {
 
     // MARK: - Heartbeat
 
-    private struct HeartbeatResponse: Decodable {
-        var heartbeatIntervalMs: Int?
-    }
-
     private func sendHeartbeat(stopping: Bool) async {
         guard let auth, let baseURL = Self.resolvedServiceURL() else { return }
         // Await tokens first, mirroring DeviceRegistryClient: gates on "signed
@@ -176,8 +160,10 @@ final class PresenceHeartbeatClient {
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
                 return // best-effort; retry happens on the next cadence tick
             }
-            if let decoded = try? JSONDecoder().decode(HeartbeatResponse.self, from: data),
-               let serverInterval = decoded.heartbeatIntervalMs,
+            // Mirrors the JSONSerialization encode above; a typed Decodable
+            // here would be a second major type in this file.
+            if let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let serverInterval = payload["heartbeatIntervalMs"] as? Int,
                serverInterval >= 1_000 {
                 intervalMs = serverInterval
             }

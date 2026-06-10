@@ -6,8 +6,8 @@ import Testing
 /// workers/presence local proof) into the typed updates the device tree will
 /// consume, so a server-side wire change breaks here before it breaks the UI.
 @Suite struct PresenceWireParsingTests {
-    private func parse(_ json: String) throws -> PresenceWire.Update {
-        try PresenceWire.parseUpdate(Data(json.utf8))
+    private func parse(_ json: String) throws -> PresenceUpdate {
+        try PresenceUpdate.parse(Data(json.utf8))
     }
 
     @Test func parsesSnapshot() throws {
@@ -52,8 +52,8 @@ import Testing
     }
 
     @Test func parsesOfflineWithReason() throws {
-        for (raw, reason) in [("timeout", PresenceWire.OfflineReason.timeout),
-                              ("goodbye", PresenceWire.OfflineReason.goodbye)] {
+        for (raw, reason) in [("timeout", PresenceOfflineReason.timeout),
+                              ("goodbye", PresenceOfflineReason.goodbye)] {
             let json = """
             {"type":"offline","reason":"\(raw)","instance":{"deviceId":"d","tag":"t",
              "platform":"mac","capabilities":[],"online":false,"lastSeenAt":1,"offlineAt":2}}
@@ -76,20 +76,20 @@ import Testing
     }
 
     @Test func unknownMessageTypeThrows() {
-        #expect(throws: PresenceWire.UnknownMessageError.self) {
+        #expect(throws: PresenceClientError.self) {
             _ = try parse(#"{"type":"mystery"}"#)
         }
     }
 
     @Test func subscribeURLSwitchesToWebSocketScheme() {
         #expect(
-            PresenceWire.subscribeURL(serviceBaseURL: "https://presence.example")?.absoluteString
+            PresenceClient.subscribeURL(serviceBaseURL: "https://presence.example")?.absoluteString
                 == "wss://presence.example/v1/presence/subscribe"
         )
         #expect(
-            PresenceWire.subscribeURL(serviceBaseURL: "http://127.0.0.1:8799/")?.absoluteString
+            PresenceClient.subscribeURL(serviceBaseURL: "http://127.0.0.1:8799/")?.absoluteString
                 == "ws://127.0.0.1:8799/v1/presence/subscribe"
         )
-        #expect(PresenceWire.subscribeURL(serviceBaseURL: "ftp://nope") == nil)
+        #expect(PresenceClient.subscribeURL(serviceBaseURL: "ftp://nope") == nil)
     }
 }
