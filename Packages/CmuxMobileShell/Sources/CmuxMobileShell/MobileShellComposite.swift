@@ -276,6 +276,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// would also race the key swap). Not observed: it gates a write, not view
     /// state.
     @ObservationIgnored private var isLoadingDraft = false
+    /// Tail of the FIFO draft pipeline (see ``enqueueDraftOperation(_:)``).
+    /// Every draft-store operation chains onto this so store effects apply in
+    /// exactly the order they were issued from the main actor. Not observed: it
+    /// sequences async work, not view state.
+    @ObservationIgnored private var draftOperationTail: Task<Void, Never>?
     /// The terminal id we are switching away from, captured in
     /// ``selectedTerminalID``'s `willSet` so its draft is saved under the right key.
     @ObservationIgnored private var draftedOutgoingTerminalID: MobileTerminalPreview.ID?
@@ -562,7 +567,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // store we are about to empty wholesale.
         isLoadingDraft = true
         terminalInputText = ""
-        draftStore.map { store in Task { await store.clearAllDrafts() } }
+        // Enqueued on the FIFO draft pipeline so every save issued before this
+        // point is applied first and then wiped; a pending keystroke save can
+        // never land after the wipe and leak into the next account's session.
+        if let draftStore {
+            enqueueDraftOperation { await draftStore.clearAllDrafts() }
+        }
         clearPairingError()
         activeTicket = nil
         activeRoute = nil
@@ -2153,11 +2163,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else if let submittedTerminalID, let draftStore {
             // Selection moved mid-flight. Clear the submitted terminal's stored
             // draft only when it is still exactly the sent text, so a newer draft
-            // (typed after Send, before the switch) is preserved.
+            // (typed after Send, before the switch) is preserved. Enqueued (and
+            // awaited) on the FIFO draft pipeline so the check runs after the
+            // terminal switch's own save of the outgoing text, and the
+            // check-then-clear pair is atomic with respect to other operations.
             let terminalID = submittedTerminalID.rawValue
-            if await draftStore.draft(forTerminalID: terminalID) == sentText {
-                await draftStore.clearDraft(forTerminalID: terminalID)
-            }
+            let sent = sentText
+            await enqueueDraftOperation {
+                if await draftStore.draft(forTerminalID: terminalID) == sent {
+                    await draftStore.clearDraft(forTerminalID: terminalID)
+                }
+            }.value
             // The user may have switched back during the awaits and had the sent
             // text restored into the field; clear that too so already-sent text
             // never resurrects.
@@ -2799,13 +2815,46 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     // MARK: - Per-terminal composer drafts
 
+    /// Enqueue one draft-store operation on a strictly ordered (FIFO) pipeline.
+    ///
+    /// All draft persistence is fire-and-forget from the caller's point of view,
+    /// but independent unstructured `Task`s are NOT ordered relative to each
+    /// other: an older keystroke save could reach the store actor after a newer
+    /// save, a post-send clear, or the sign-out wipe, resurrecting stale (or
+    /// another account's) text. Chaining every operation onto the previous one
+    /// makes store effects apply in exactly the order they were issued from the
+    /// main actor, which restores the two invariants the store exists for: sent
+    /// or superseded drafts never win over newer state, and nothing written
+    /// before sign-out survives the sign-out wipe.
+    ///
+    /// Operations are tiny (one actor dictionary access); only the tail task is
+    /// retained, so the chain does not grow under typing bursts.
+    @discardableResult
+    private func enqueueDraftOperation(
+        _ operation: @escaping @Sendable () async -> Void
+    ) -> Task<Void, Never> {
+        let previous = draftOperationTail
+        let task = Task {
+            await previous?.value
+            await operation()
+        }
+        draftOperationTail = task
+        return task
+    }
+
+    /// Wait until every draft operation enqueued so far has been applied to the
+    /// store. Test seam: lets tests assert on store contents without sleeping.
+    func drainDraftOperationsForTesting() async {
+        await draftOperationTail?.value
+    }
+
     /// Save the live ``terminalInputText`` under the currently selected
     /// terminal. Called from the field's `didSet`. A no-op when there is no
     /// selected terminal (nothing to key the draft to) or no draft store wired.
     private func persistCurrentDraft() {
         guard let draftStore, let terminalID = selectedTerminalID?.rawValue else { return }
         let text = terminalInputText
-        Task { await draftStore.saveDraft(text, forTerminalID: terminalID) }
+        enqueueDraftOperation { await draftStore.saveDraft(text, forTerminalID: terminalID) }
     }
 
     /// Swap the composer draft when the selected terminal changes: save the
@@ -2834,7 +2883,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalInputText = ""
             isLoadingDraft = false
         }
-        Task { [weak self] in
+        enqueueDraftOperation { [weak self] in
             if let outgoingID {
                 await draftStore.saveDraft(outgoingText, forTerminalID: outgoingID.rawValue)
             }
