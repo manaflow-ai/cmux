@@ -7679,7 +7679,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 terminalAgentContext: "restoredAgent:codex"
             ),
             [
+                .captureVisibleTextBaseline,
                 .pasteText("what is \(imageSubmissionText) now"),
+                .waitForVisibleText("what is \(imageSubmissionText) now"),
                 .namedKey("return")
             ]
         )
@@ -7689,7 +7691,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 terminalAgentContext: "panelTitle:Claude Code"
             ),
             [
+                .captureVisibleTextBaseline,
                 .pasteText("what is \(imageSubmissionText) now"),
+                .waitForVisibleText("what is \(imageSubmissionText) now"),
                 .namedKey("return")
             ]
         )
@@ -7699,7 +7703,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 terminalAgentContext: "initialCommand:echo Claude Code"
             ),
             [
+                .captureVisibleTextBaseline,
                 .pasteText("what is \(imageSubmissionText) now"),
+                .waitForVisibleText("what is \(imageSubmissionText) now"),
                 .namedKey("return")
             ]
         )
@@ -7708,8 +7714,52 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 for: [.text("hello\nworld")],
                 terminalAgentContext: "restoredAgent:claude"
             ),
-            [.pasteText("hello\nworld"), .namedKey("ctrl+enter")]
+            [
+                .captureVisibleTextBaseline,
+                .pasteText("hello\nworld"),
+                .waitForVisibleText("hello\nworld"),
+                .namedKey("ctrl+enter")
+            ]
         )
+    }
+
+    func testTextBoxSubmitWaitsForPastedPromptBeforeReturn() {
+#if DEBUG
+        let surface = FakeTextBoxSubmitSurface()
+        surface.visibleTextValue = "codex ready\n"
+        TextBoxSubmit.debugWaitTimeoutSecondsOverride = 10
+        defer {
+            TextBoxSubmit.debugWaitTimeoutSecondsOverride = nil
+            TextBoxSubmit.debugResetForTesting()
+        }
+
+        var completionContext: TextBoxSubmit.CompletionContext?
+        TextBoxSubmit.debugRunDispatchEvents(
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("fix the home prompt")],
+                terminalAgentContext: "restoredAgent:codex"
+            ),
+            via: surface
+        ) { context in
+            completionContext = context
+        }
+
+        XCTAssertEqual(surface.sentText, ["fix the home prompt"])
+        XCTAssertEqual(surface.sentKeys, [])
+        XCTAssertNil(completionContext)
+
+        surface.visibleTextValue = "codex ready\nfix the home prompt"
+        NotificationCenter.default.post(name: .ghosttyDidTick, object: nil)
+        let deadline = Date().addingTimeInterval(1)
+        while surface.sentKeys.isEmpty, Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+
+        XCTAssertEqual(surface.sentKeys, ["return"])
+        XCTAssertEqual(completionContext, .empty)
+#else
+        throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")
+#endif
     }
 
     func testTextBoxSubmitStagesClaudeImagePromptWithMultilineTail() throws {
