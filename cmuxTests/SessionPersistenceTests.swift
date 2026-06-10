@@ -3662,7 +3662,7 @@ final class SidebarDragFailsafePolicyTests: XCTestCase {
 }
 
 extension SessionPersistenceTests {
-    func testSurfaceResumeBindingStartupInputUsesExactCommand() {
+    func testSurfaceResumeBindingStartupInputPrependsWorkingDirectoryGuard() throws {
         let binding = SurfaceResumeBindingSnapshot(
             name: "OpenCode",
             kind: "opencode",
@@ -3673,7 +3673,150 @@ extension SessionPersistenceTests {
             updatedAt: 1_777_777_777
         )
 
-        XCTAssertEqual(binding.startupInput, "opencode --session ses_123\n")
+        let startupInput = try XCTUnwrap(binding.startupInput)
+        let cdRange = try XCTUnwrap(startupInput.range(of: "cd -- '/tmp/project'"))
+        let commandRange = try XCTUnwrap(startupInput.range(of: "opencode --session ses_123"))
+        XCTAssertLessThan(cdRange.lowerBound, commandRange.lowerBound)
+    }
+
+    func testSurfaceResumeBindingStartupInputOmitsWorkingDirectoryGuardWhenCwdIsNilOrEmpty() throws {
+        let nilCwdBinding = SurfaceResumeBindingSnapshot(
+            command: "opencode --session ses_123",
+            cwd: nil
+        )
+        let emptyCwdBinding = SurfaceResumeBindingSnapshot(
+            command: "opencode --session ses_123",
+            cwd: "   "
+        )
+
+        XCTAssertFalse(try XCTUnwrap(nilCwdBinding.startupInput).contains("cd --"))
+        XCTAssertFalse(try XCTUnwrap(emptyCwdBinding.startupInput).contains("cd --"))
+    }
+
+    func testSurfaceResumeBindingStartupInputOmitsWhitespaceOnlyCommandWithCwd() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "  \n\t  ",
+            cwd: "/tmp/project"
+        )
+
+        XCTAssertNil(binding.startupInput)
+        XCTAssertNil(binding.startupInputWithLauncherScript())
+    }
+
+    func testSurfaceResumeBindingStartupInputQuotesWorkingDirectory() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "codex resume session",
+            cwd: "/tmp/it's repo"
+        )
+
+        let startupInput = try XCTUnwrap(binding.startupInput)
+        XCTAssertTrue(startupInput.contains("cd -- '/tmp/it'\\''s repo'"), startupInput)
+    }
+
+    /// A caller-supplied (non-agent-hook) command that already begins with an
+    /// explicit *required* `cd '<cwd>' && …` must be preserved verbatim. Adding the
+    /// cwd guard for #5271 must not strip that required `cd` and substitute the
+    /// optional guard (`{ cd … 2>/dev/null || [ ! -d … ]; } && …`), because the
+    /// optional form runs the command in the shell's current directory when the
+    /// bound directory is gone, whereas the caller's required `cd && …` halts. The
+    /// startup input must keep the required `cd` and must not introduce the
+    /// directory-tolerant guard.
+    func testSurfaceResumeBindingStartupInputPreservesCallerRequiredChangeDirectory() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "cd '/tmp/project' && rm -rf build",
+            cwd: "/tmp/project"
+        )
+
+        let startupInput = try XCTUnwrap(binding.startupInput)
+        XCTAssertEqual(startupInput, "cd '/tmp/project' && rm -rf build\n")
+        XCTAssertFalse(startupInput.contains("2>/dev/null || [ ! -d"), startupInput)
+    }
+
+    /// #5271 regression (behavioral, not string-shape): a restored surface resume
+    /// binding must run the agent in its persisted `cwd`, even when the shell the
+    /// resume command is handed to started in a *different* directory. That is the
+    /// exact reported condition — the resume command goes in as `initialInput` typed
+    /// into the PTY, so before the fix (which emitted no `cd`) it ran wherever the
+    /// shell happened to start instead of `binding.cwd`.
+    ///
+    /// This drives the real `startupInput` through `/bin/zsh` starting in a directory
+    /// other than the bound cwd, and checks which directory the command actually ran
+    /// in via a marker file. It fails on pre-#5271 code (marker lands in the shell's
+    /// start dir) and passes with the cwd guard.
+    func testSurfaceResumeBindingResumesInBoundCwdWhenShellStartsElsewhere() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-5271-\(UUID().uuidString)", isDirectory: true)
+        let boundCwd = root.appendingPathComponent("bound-repo", isDirectory: true)
+        let shellStartCwd = root.appendingPathComponent("home-or-wherever", isDirectory: true)
+        try fileManager.createDirectory(at: boundCwd, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: shellStartCwd, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        // `touch <marker>` stands in for the agent's resume command; the directory the
+        // marker is created in is the directory the agent actually resumed in.
+        let marker = "resumed-here.marker"
+        let binding = SurfaceResumeBindingSnapshot(command: "touch \(marker)", cwd: boundCwd.path)
+        let startupInput = try XCTUnwrap(binding.startupInput)
+
+        try runResumeStartupInput(startupInput, startingIn: shellStartCwd)
+
+        XCTAssertTrue(
+            fileManager.fileExists(atPath: boundCwd.appendingPathComponent(marker).path),
+            "Resume binding did not run in its bound cwd \(boundCwd.path). startupInput=\(startupInput)"
+        )
+        XCTAssertFalse(
+            fileManager.fileExists(atPath: shellStartCwd.appendingPathComponent(marker).path),
+            "Resume binding ran in the shell's start dir \(shellStartCwd.path) instead of its bound cwd. "
+                + "startupInput=\(startupInput)"
+        )
+    }
+
+    /// Runs a resume `startupInput` through `/bin/zsh -c` whose process starts in
+    /// `startDirectory`, modeling session restore handing the resume command to a
+    /// shell that did not start in the bound cwd. Fails the test on a non-zero exit.
+    private func runResumeStartupInput(_ startupInput: String, startingIn startDirectory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-c", startupInput]
+        process.currentDirectoryURL = startDirectory
+        let stderr = Pipe()
+        process.standardError = stderr
+        try process.run()
+        let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        XCTAssertEqual(
+            process.terminationStatus,
+            0,
+            String(data: errorData, encoding: .utf8) ?? ""
+        )
+    }
+
+    func testSurfaceResumeBindingStartupInputKeepsEnvironmentScopedToCommandAfterWorkingDirectoryGuard() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "codex resume session",
+            cwd: "/tmp/project",
+            environment: [
+                "SPACED": "  keep exact  ",
+                "CODEX_HOME": "/tmp/codex home",
+                "ANTHROPIC_API_KEY": "should-not-persist",
+            ]
+        )
+
+        let startupInput = try XCTUnwrap(binding.startupInput)
+        let envRange = try XCTUnwrap(startupInput.range(of: "'/usr/bin/env'"))
+        let loginShellRange = try XCTUnwrap(startupInput.range(of: "'/bin/zsh' '-lc'"))
+        let cdRange = try XCTUnwrap(startupInput.range(of: "cd -- '\\''/tmp/project'\\''"))
+        let commandRange = try XCTUnwrap(startupInput.range(of: "codex resume session"))
+        // The env wrapper scopes a login shell, and the cwd guard is the first thing inside
+        // its -lc payload, so the full order is env < '/bin/zsh' '-lc' < cd < command. The cd
+        // must run *inside* the env-scoped shell (after profile sourcing), so it cannot precede
+        // env; what matters is that it precedes the resume command within that payload.
+        XCTAssertLessThan(envRange.lowerBound, loginShellRange.lowerBound)
+        XCTAssertLessThan(loginShellRange.lowerBound, cdRange.lowerBound)
+        XCTAssertLessThan(cdRange.lowerBound, commandRange.lowerBound)
+        XCTAssertTrue(startupInput.contains("'CODEX_HOME=/tmp/codex home'"), startupInput)
+        XCTAssertFalse(startupInput.contains("ANTHROPIC_API_KEY"), startupInput)
     }
 
     func testSurfaceResumeBindingStartupInputScopesEnvironmentToCommand() {
@@ -3852,6 +3995,7 @@ extension SessionPersistenceTests {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
             command: "codex resume session --add-dir \(longPath)",
+            cwd: "/tmp/project with spaces",
             environment: [
                 "CODEX_HOME": "/tmp/codex home",
             ]
@@ -3869,9 +4013,17 @@ extension SessionPersistenceTests {
         let prefix = "/bin/zsh '"
         let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
         let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        let envRange = try XCTUnwrap(scriptContents.range(of: "'/usr/bin/env'"))
+        let loginShellRange = try XCTUnwrap(scriptContents.range(of: "'/bin/zsh' '-lc'"))
+        let cdRange = try XCTUnwrap(scriptContents.range(of: "cd -- '\\''/tmp/project with spaces'\\''"))
+        let commandRange = try XCTUnwrap(scriptContents.range(of: "codex resume session"))
+        // Same env < '/bin/zsh' '-lc' < cd < command ordering as the inline path: the cwd guard
+        // is the first statement inside the env-scoped login shell, ahead of the resume command.
+        XCTAssertLessThan(envRange.lowerBound, loginShellRange.lowerBound)
+        XCTAssertLessThan(loginShellRange.lowerBound, cdRange.lowerBound)
+        XCTAssertLessThan(cdRange.lowerBound, commandRange.lowerBound)
         XCTAssertTrue(scriptContents.contains(longPath))
         XCTAssertTrue(scriptContents.contains("'CODEX_HOME=/tmp/codex home'"))
-        XCTAssertTrue(scriptContents.contains("codex resume session"))
     }
 
     @MainActor
@@ -5269,10 +5421,17 @@ extension SessionPersistenceTests {
 
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["CODEX_HOME"])
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["EMPTY"])
-        XCTAssertEqual(
-            restoredPanel.surface.debugInitialInputForTesting(),
-            "'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' '/bin/zsh' '-lc' 'codex resume session'\n"
+        let initialInput = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
+        // The environment stays scoped to the resume command via the env wrapper...
+        XCTAssertTrue(
+            initialInput.hasPrefix("'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' '/bin/zsh' '-lc' "),
+            initialInput
         )
+        // ...and the persisted cwd guard precedes the resume command (#5271), so the
+        // restored agent resumes in its bound directory rather than the shell's start dir.
+        let cdRange = try XCTUnwrap(initialInput.range(of: "cd -- '\\''/tmp/project'\\''"))
+        let commandRange = try XCTUnwrap(initialInput.range(of: "codex resume session"))
+        XCTAssertLessThan(cdRange.lowerBound, commandRange.lowerBound)
     }
 
     @MainActor

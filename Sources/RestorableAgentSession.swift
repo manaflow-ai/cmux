@@ -46,16 +46,33 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         return prefix + command
     }
 
+    static func replacingChangeDirectoryPrefix(
+        in command: String,
+        workingDirectory: String?
+    ) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let workingDirectory = normalized(workingDirectory) else { return trimmed }
+        // If the command already begins with a `cd` into this working directory —
+        // either the optional guard we generate for agent-hook bindings, or an
+        // explicit `cd <cwd> && …` a caller wrote — it already runs in the right
+        // place with the caller's chosen semantics. Preserve it verbatim.
+        // Stripping and re-adding would rewrite a caller's *required* `cd <cwd> &&`
+        // (which halts when the directory is gone) into the optional guard (which
+        // runs the command in the shell's current directory instead), silently
+        // downgrading its halt-on-missing-directory behavior.
+        if hasChangeDirectoryPrefix(trimmed, workingDirectory: workingDirectory) {
+            return trimmed
+        }
+        return prefix(trimmed, workingDirectory: workingDirectory)
+    }
+
     static func replacingRequiredChangeDirectoryPrefix(
         in command: String,
         workingDirectory: String?
     ) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let workingDirectory = normalized(workingDirectory) else { return trimmed }
-        let stripped = strippedRequiredChangeDirectoryPrefix(
-            from: trimmed,
-            workingDirectory: workingDirectory
-        )
+        let stripped = strippedRequiredChangeDirectoryPrefix(from: trimmed, workingDirectory: workingDirectory)
         let command = strippedSavedWorkingDirectoryOptions(
             from: stripped,
             workingDirectory: workingDirectory
@@ -67,23 +84,37 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         from command: String,
         workingDirectory: String
     ) -> String {
+        for prefix in changeDirectoryPrefixCandidates(workingDirectory: workingDirectory)
+        where command.hasPrefix(prefix) {
+            return String(command.dropFirst(prefix.count))
+        }
+        return command
+    }
+
+    private static func hasChangeDirectoryPrefix(
+        _ command: String,
+        workingDirectory: String
+    ) -> Bool {
+        changeDirectoryPrefixCandidates(workingDirectory: workingDirectory)
+            .contains { command.hasPrefix($0) }
+    }
+
+    private static func changeDirectoryPrefixCandidates(workingDirectory: String) -> [String] {
         let quotedCandidates = [
             TerminalStartupShellQuoting.singleQuoted(workingDirectory),
             legacySingleQuoted(workingDirectory)
         ]
         var seen = Set<String>()
+        var prefixes: [String] = []
         for quoted in quotedCandidates where seen.insert(quoted).inserted {
-            let prefixes = [
+            prefixes.append(contentsOf: [
                 "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && ",
                 "{ [ ! -d \(quoted) ] || cd -- \(quoted); } && ",
                 "cd -- \(quoted) && ",
                 "cd \(quoted) && "
-            ]
-            for prefix in prefixes where command.hasPrefix(prefix) {
-                return String(command.dropFirst(prefix.count))
-            }
+            ])
         }
-        return command
+        return prefixes
     }
 
     private static func strippedSavedWorkingDirectoryOptions(
