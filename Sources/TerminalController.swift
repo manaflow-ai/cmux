@@ -4123,7 +4123,7 @@ class TerminalController {
             }
             let windowExists = v2MainSync {
                 AppDelegate.shared?.windowForMainWindowId(windowId) != nil
-            } ?? false
+            }
             if !windowExists {
                 return .err(code: "not_found", message: "Window not found", data: [
                     "window_id": windowId.uuidString,
