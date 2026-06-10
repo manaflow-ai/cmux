@@ -53,12 +53,18 @@ final class MobileAttachTicketStore {
     }
 
     func payload(for ticket: CmxAttachTicket) throws -> [String: Any] {
-        [
+        var payload: [String: Any] = [
             "ticket": try Self.jsonObject(ticket),
             "attach_url": try attachURL(for: ticket).absoluteString,
-            "expires_at": ISO8601DateFormatter().string(from: ticket.expiresAt),
             "routes": ticket.routes.map(\.mobileHostJSONObject)
         ]
+        // `expires_at` describes the minted attach token's lifetime (tickets
+        // from `createTicket` always carry one). The QR payload itself encodes
+        // no expiry; a displayed pairing code never goes stale.
+        if let expiresAt = ticket.expiresAt {
+            payload["expires_at"] = ISO8601DateFormatter().string(from: expiresAt)
+        }
+        return payload
     }
 
     func validTicket(authToken: String?, now: Date = Date()) -> CmxAttachTicket? {
@@ -75,7 +81,7 @@ final class MobileAttachTicketStore {
             return nil
         }
         guard let record = recordsByAuthToken[authToken],
-              record.ticket.expiresAt > now else {
+              !record.ticket.isExpired(at: now) else {
             return nil
         }
         return MobileAttachTicketAuthorization(
@@ -97,7 +103,7 @@ final class MobileAttachTicketStore {
         guard let authToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !authToken.isEmpty,
               var record = recordsByAuthToken[authToken],
-              record.ticket.expiresAt > now else {
+              !record.ticket.isExpired(at: now) else {
             return
         }
 
@@ -129,7 +135,7 @@ final class MobileAttachTicketStore {
     }
 
     private func pruneExpired(now: Date) {
-        recordsByAuthToken = recordsByAuthToken.filter { $0.value.ticket.expiresAt > now }
+        recordsByAuthToken = recordsByAuthToken.filter { !$0.value.ticket.isExpired(at: now) }
     }
 
     private static func jsonObject<T: Encodable>(_ value: T) throws -> Any {

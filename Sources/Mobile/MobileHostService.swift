@@ -164,11 +164,9 @@ private enum MobileHostPublicStatusCache {
         lock.lock()
         let cachedRoutes = routes
         lock.unlock()
-        return .ok([
-            "routes": cachedRoutes.map(\.mobileHostJSONObject),
-            "terminal_fidelity": "render_grid",
-            "capabilities": MobileHostService.mobileHostCapabilities,
-        ])
+        return .ok(MobileHostService.publicStatusPayload(
+            routesPayload: cachedRoutes.map(\.mobileHostJSONObject)
+        ))
     }
 }
 
@@ -314,6 +312,27 @@ final class MobileHostService {
             "workspace.actions.v1",
             "dogfood.v1",
         ]
+    }
+
+    /// The single shape every public `mobile.host.status` reply uses (the
+    /// public-status cache, the live `publicHostStatusResult`, and
+    /// `TerminalController`'s no-private-metadata branch), so the fields
+    /// cannot drift. Includes the Mac's display name: the compact pairing QR
+    /// no longer carries it, so this status reply is where a freshly paired
+    /// phone learns what to call this Mac. The name (the user's pairing-name
+    /// override, or the System Settings computer name that Bonjour already
+    /// broadcasts on the local network) is the only identity field exposed on
+    /// this unauthenticated probe.
+    nonisolated static func publicStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
+        var payload: [String: Any] = [
+            "routes": routesPayload,
+            "terminal_fidelity": "render_grid",
+            "capabilities": mobileHostCapabilities,
+        ]
+        if let displayName = MobileHostIdentity.displayName() {
+            payload["mac_display_name"] = displayName
+        }
+        return payload
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
@@ -926,11 +945,9 @@ final class MobileHostService {
 
     private func publicHostStatusResult() async -> MobileHostRPCResult {
         let status = await publicStatusSnapshot()
-        return .ok([
-            "routes": status.routes.map(\.mobileHostJSONObject),
-            "terminal_fidelity": "render_grid",
-            "capabilities": MobileHostService.mobileHostCapabilities,
-        ])
+        return .ok(Self.publicStatusPayload(
+            routesPayload: status.routes.map(\.mobileHostJSONObject)
+        ))
     }
 
     nonisolated private static func acceptConnectionOffMain(
