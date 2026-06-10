@@ -15,6 +15,7 @@ final class CmuxEditorSaveRegistry: @unchecked Sendable {
 
     private struct Entry {
         let fileURL: URL
+        let expectedOrigin: String
         let createdAt: Date
     }
 
@@ -42,18 +43,19 @@ final class CmuxEditorSaveRegistry: @unchecked Sendable {
         guard let data = try? Data(contentsOf: sidecarURL),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String],
               object["token"] == token,
-              let path = object["path"], path.hasPrefix("/") else {
+              let path = object["path"], path.hasPrefix("/"),
+              let origin = object["origin"], !origin.isEmpty else {
             return false
         }
         do {
-            try register(token: token, fileURL: URL(fileURLWithPath: path))
+            try register(token: token, fileURL: URL(fileURLWithPath: path), expectedOrigin: origin)
             return true
         } catch {
             return false
         }
     }
 
-    func register(token: String, fileURL: URL, now: Date = Date()) throws {
+    func register(token: String, fileURL: URL, expectedOrigin: String, now: Date = Date()) throws {
         guard CmuxDiffViewerURLSchemeHandler.isValidToken(token) else {
             throw NSError(domain: "CmuxEditorSaveRegistry", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "Invalid editor token"
@@ -78,14 +80,19 @@ final class CmuxEditorSaveRegistry: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         entries = entries.filter { now.timeIntervalSince($0.value.createdAt) < maxEntryAge }
-        entries[token] = Entry(fileURL: standardized, createdAt: now)
+        entries[token] = Entry(fileURL: standardized, expectedOrigin: expectedOrigin, createdAt: now)
     }
 
-    func fileURL(forToken token: String) -> URL? {
+    /// Resolves the write target for `token`, but only when the requesting
+    /// page's serving origin matches the one the capability was minted for
+    /// (exact scheme/host/port, so a localhost page on another port that
+    /// learned a live token still resolves nothing).
+    func fileURL(forToken token: String, requestOrigin: String) -> URL? {
         lock.lock()
         defer { lock.unlock() }
         guard let entry = entries[token],
-              Date().timeIntervalSince(entry.createdAt) < maxEntryAge else {
+              Date().timeIntervalSince(entry.createdAt) < maxEntryAge,
+              entry.expectedOrigin == requestOrigin else {
             return nil
         }
         return entry.fileURL
@@ -115,8 +122,8 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
         didReceive message: WKScriptMessage,
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
-        guard let token = Self.editorToken(for: message),
-              let fileURL = CmuxEditorSaveRegistry.shared.fileURL(forToken: token) else {
+        guard let (token, requestOrigin) = Self.editorTokenAndOrigin(for: message),
+              let fileURL = CmuxEditorSaveRegistry.shared.fileURL(forToken: token, requestOrigin: requestOrigin) else {
             replyHandler(Self.errorEnvelope(code: "unauthorized", detail: nil), nil)
             return
         }
@@ -160,11 +167,11 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
     /// URL (the page cannot forge `frameInfo.request.url`). The token is an
     /// unguessable per-open capability; the registry lookup is what
     /// authorizes the write.
-    private static func editorToken(for message: WKScriptMessage) -> String? {
+    private static func editorTokenAndOrigin(for message: WKScriptMessage) -> (token: String, origin: String)? {
         guard message.frameInfo.isMainFrame else { return nil }
         let origin = message.frameInfo.securityOrigin
         if origin.protocol == CmuxDiffViewerURLSchemeHandler.scheme {
-            return origin.host
+            return (token: origin.host, origin: "\(origin.protocol)://\(origin.host)")
         }
         if origin.protocol == "http", origin.host == "127.0.0.1" {
             // The token is the first path component of the main-frame URL.
@@ -175,7 +182,8 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
             // the unguessable token + registry lookup below is.
             guard let frameURL = message.webView?.url else { return nil }
             let components = frameURL.path.split(separator: "/", omittingEmptySubsequences: true)
-            return components.first.map(String.init)
+            guard let token = components.first.map(String.init) else { return nil }
+            return (token: token, origin: "http://127.0.0.1:\(origin.port)")
         }
         return nil
     }

@@ -150,8 +150,11 @@ final class CmuxWebView: WKWebView {
     /// bottom edge and bottom corners are yielded; the right/left edges stay
     /// with the page so overlay scrollbars remain grabbable.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if let window {
-            let pointInWindow = convert(point, from: superview)
+        if let window, let superview {
+            // `point` arrives in the superview's coordinate space (AppKit's
+            // hitTest contract); lift it to window coordinates for the
+            // window-edge comparisons.
+            let pointInWindow = superview.convert(point, to: nil)
             let frameInWindow = convert(bounds, to: nil)
             let windowBounds = NSRect(origin: .zero, size: window.frame.size)
             let bottomFlush = abs(frameInWindow.minY - windowBounds.minY) < 1
