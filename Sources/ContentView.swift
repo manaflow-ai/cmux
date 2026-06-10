@@ -2602,6 +2602,13 @@ struct ContentView: View {
             }
             return
         }
+        // Route to a terminal editor (e.g. nvim) when the file type is configured
+        // for it, matching the terminal Cmd-click behavior. Falls back to the
+        // built-in file preview otherwise.
+        if CmdClickTerminalEditorRouteSettings.shouldRoute(path: filePath),
+           workspace.openTerminalEditorTab(inPane: paneId, sourcePanelId: nil, filePath: filePath) != nil {
+            return
+        }
         _ = workspace.openFileSurfaces(
             inPane: paneId,
             filePaths: [filePath],

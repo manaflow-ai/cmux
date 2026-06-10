@@ -14706,7 +14706,8 @@ final class Workspace: Identifiable, ObservableObject {
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
         remotePTYSessionID: String? = nil,
-        suppressWorkspaceRemoteStartupCommand: Bool = false
+        suppressWorkspaceRemoteStartupCommand: Bool = false,
+        waitAfterCommandOverride: Bool? = nil
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -14724,10 +14725,11 @@ final class Workspace: Identifiable, ObservableObject {
         )
         // See the comment at the other call site: hold the PTY open after the remote
         // command exits so the user sees the error rather than a silently-respawned
-        // local login shell.
+        // local login shell. Callers may override this — e.g. the terminal-editor
+        // route wants the tab to close when the editor exits.
         if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
+            template.waitAfterCommand = waitAfterCommandOverride ?? true
             inheritedConfig = template
         }
 
@@ -18057,43 +18059,51 @@ final class Workspace: Identifiable, ObservableObject {
     /// resolved (the caller then falls back to the external preferred-editor opener).
     @discardableResult
     func openTerminalEditorTab(from panelId: UUID, filePath: String) -> TerminalPanel? {
+        // Resolve the pane that owns the source panel — the same helper the file
+        // preview and markdown openers use.
+        guard let paneId = paneId(forPanelId: panelId) else { return nil }
+        return openTerminalEditorTab(inPane: paneId, sourcePanelId: panelId, filePath: filePath)
+    }
+
+    /// Core terminal-editor opener shared by the terminal Cmd-click router and the
+    /// Files-sidebar open path. `sourcePanelId`, when present, supplies the working
+    /// directory; otherwise the workspace directory is used.
+    @discardableResult
+    func openTerminalEditorTab(inPane paneId: PaneID, sourcePanelId: UUID?, filePath: String) -> TerminalPanel? {
         guard let invocation = CmdClickTerminalEditorRouteSettings.editorInvocation(forFile: filePath) else {
             return nil
         }
 
-        // Resolve the pane that owns the source panel (mirrors newTerminalSplit).
-        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
-        var sourcePaneId: PaneID?
-        for paneId in bonsplitController.allPaneIds {
-            if bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == sourceTabId }) {
-                sourcePaneId = paneId
-                break
-            }
-        }
-        guard let paneId = sourcePaneId else { return nil }
-
-        // Inherit the source panel's working directory so the editor opens with
-        // the right project context.
+        // Open the editor with the right project context: prefer the source
+        // panel's working directory, else the workspace directory.
         let workingDirectory: String? = {
-            if let dir = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !dir.isEmpty {
-                return dir
-            }
-            if let dir = terminalPanel(for: panelId)?
-                .requestedWorkingDirectory?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !dir.isEmpty {
-                return dir
+            if let sourcePanelId {
+                if let dir = panelDirectories[sourcePanelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !dir.isEmpty {
+                    return dir
+                }
+                if let dir = terminalPanel(for: sourcePanelId)?
+                    .requestedWorkingDirectory?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                   !dir.isEmpty {
+                    return dir
+                }
             }
             let dir = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             return dir.isEmpty ? nil : dir
         }()
 
+        // Run the editor as the surface's primary process (via Ghostty's
+        // `command`, which macOS executes through `login(1)` — a real login
+        // shell, so the user's PATH resolves the editor). This opens the editor
+        // directly without echoing the command, and `waitAfterCommand: false`
+        // lets the tab close when the editor exits.
         return newTerminalSurface(
             inPane: paneId,
             focus: true,
             workingDirectory: workingDirectory,
-            initialInput: invocation + "\n"
+            initialCommand: invocation,
+            waitAfterCommandOverride: false
         )
     }
 
