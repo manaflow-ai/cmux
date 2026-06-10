@@ -86,19 +86,23 @@ enum SurfaceHibernationPlanner {
     ) -> Set<AgentHibernationPanelKey> {
         var selected = agentCapSelection(inputs: inputs, agentSettings: agentSettings, now: now)
         selected.formUnion(
-            globalCapSelection(
+            unmountedIdleSelection(
                 inputs: inputs,
                 agentSettings: agentSettings,
                 surfaceSettings: surfaceSettings,
                 now: now
             )
         )
+        // The global cap runs last and discounts surfaces the other rules
+        // already selected — they are about to stop being live, so reclaiming
+        // further panels for the same overflow would overshoot the cap.
         selected.formUnion(
-            unmountedIdleSelection(
+            globalCapSelection(
                 inputs: inputs,
                 agentSettings: agentSettings,
                 surfaceSettings: surfaceSettings,
-                now: now
+                now: now,
+                alreadySelected: selected
             )
         )
         return selected
@@ -133,16 +137,19 @@ enum SurfaceHibernationPlanner {
         inputs: [SurfaceHibernationPlannerInput],
         agentSettings: AgentHibernationSettings.Values,
         surfaceSettings: SurfaceHibernationSettings.Values,
-        now: TimeInterval
+        now: TimeInterval,
+        alreadySelected: Set<AgentHibernationPanelKey>
     ) -> Set<AgentHibernationPanelKey> {
         guard surfaceSettings.enabled else { return [] }
         let live = inputs.filter(\.isLive)
-        let excess = live.count - surfaceSettings.maxLiveSurfaces
+        let alreadySelectedLiveCount = live.count { alreadySelected.contains($0.key) }
+        let excess = live.count - alreadySelectedLiveCount - surfaceSettings.maxLiveSurfaces
         guard excess > 0 else { return [] }
 
         let eligible = live
             .filter { input in
-                guard isEvictable(input, agentSettings: agentSettings) else { return false }
+                guard !alreadySelected.contains(input.key),
+                      isEvictable(input, agentSettings: agentSettings) else { return false }
                 let idleGate = input.mechanism == .agentResume
                     ? agentSettings.idleSeconds
                     : surfaceSettings.idleSeconds

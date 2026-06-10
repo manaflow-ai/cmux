@@ -197,6 +197,31 @@ struct SurfaceHibernationPolicyTests {
     }
 
     @Test
+    func globalCapDiscountsSurfacesOtherRulesAlreadySelected() {
+        // Agent-cap and unmounted selections are about to stop being live, so
+        // the global cap must not reclaim additional plain shells for the
+        // same overflow.
+        let agentOld = panelKey()
+        let agentNew = panelKey()
+        let plainOld = panelKey()
+
+        let selected = SurfaceHibernationPlanner.selectedPanelKeys(
+            inputs: [
+                agentPanel(agentOld, lifecycle: .idle, lastActivityAt: now - 7_200),
+                agentPanel(agentNew, lifecycle: .idle, lastActivityAt: now - 3_600),
+                plainShell(plainOld, lastActivityAt: now - 3_600),
+            ],
+            agentSettings: agentSettings(enabled: true, maxLiveTerminals: 1),
+            surfaceSettings: surfaceSettings(maxLiveSurfaces: 2),
+            now: now
+        )
+
+        // The agent cap evicts agentOld, bringing the live count to the
+        // global cap of 2; the plain shell must survive.
+        #expect(selected == Set([agentOld]))
+    }
+
+    @Test
     func unmountedRuleDrainsOldestFirstBoundedPerEvaluation() {
         // Hibernation work runs synchronously on the main actor, so a large
         // cohort crossing the idle window together drains a few per pass.

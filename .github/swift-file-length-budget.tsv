@@ -95,9 +95,9 @@
 913	cmuxTests/WorkspaceGroupTests.swift
 905	Sources/CmuxSSHURLRequest.swift
 894	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
+884	cmuxTests/SurfaceHibernationPolicyTests.swift
 878	Sources/WorkspaceContentView.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
-859	cmuxTests/SurfaceHibernationPolicyTests.swift
 856	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 846	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
