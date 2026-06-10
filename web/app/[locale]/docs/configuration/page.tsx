@@ -50,6 +50,7 @@ const sectionOrder = [
   "browser",
   "markdown",
   "fileEditor",
+  "fileExplorer",
   "shortcuts",
 ] as const;
 
@@ -106,6 +107,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   // "fileEditor": {
   //   // ${t("exampleFileEditorWordWrap")}
   //   "wordWrap": false
+  // },
+
+  // "fileExplorer": {
+  //   // ${t("exampleFileExplorerDoubleClickAction")}
+  //   "doubleClickAction": "preview"
   // },
 
   // "automation": {

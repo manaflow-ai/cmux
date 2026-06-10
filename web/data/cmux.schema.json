@@ -1061,6 +1061,21 @@
         }
       }
     },
+    "fileExplorer": {
+      "title": "fileExplorer",
+      "description": "Right-sidebar file explorer (file tree) settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "doubleClickAction": {
+          "type": "string",
+          "enum": ["preview", "defaultEditor", "preferredEditor"],
+          "default": "preview",
+          "description": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse.",
+          "descriptionKey": "schemaDescriptions.fileExplorer.doubleClickAction"
+        }
+      }
+    },
     "diffViewer": {
       "title": "diffViewer",
       "description": "Built-in diff viewer settings.",
