@@ -109,10 +109,19 @@ check_linux_runners() {
     case " $allowlist " in
       *" $base "*) continue ;;
     esac
-    if grep -Eq "runs-on:[[:space:]]*ubuntu-latest" "$file"; then
+    # Anchor to the YAML key so a literal "ubuntu-latest" inside a run: shell
+    # block or a comment cannot trip the guard, and catch quoted scalars and the
+    # list form (runs-on:\n  - ubuntu-latest) in both .yml and .yaml files.
+    if awk '
+      /^[[:space:]]*runs-on:[[:space:]]*"?'\''?ubuntu-latest'\''?"?([[:space:]#].*)?$/ { found = 1 }
+      /^[[:space:]]*runs-on:[[:space:]]*(#.*)?$/ { in_ro = 1; next }
+      in_ro && /^[[:space:]]*-[[:space:]]*"?'\''?ubuntu-latest'\''?"?([[:space:]#].*)?$/ { found = 1 }
+      in_ro && /^[[:space:]]*[A-Za-z0-9_-]+:/ { in_ro = 0 }
+      END { exit found ? 0 : 1 }
+    ' "$file"; then
       offenders="$offenders $base"
     fi
-  done < <(find "$ROOT_DIR/.github/workflows" -name '*.yml')
+  done < <(find "$ROOT_DIR/.github/workflows" \( -name '*.yml' -o -name '*.yaml' \))
 
   if [[ -n "$offenders" ]]; then
     echo "FAIL: GitHub-hosted 'runs-on: ubuntu-latest' found in:$offenders"
