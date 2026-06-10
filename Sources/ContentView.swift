@@ -9905,17 +9905,47 @@ struct ContentView: View {
 
     private func focusedTerminalDirectoryURL() -> URL? {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
-        let rawDirectory: String = {
+        let shellDirectory: String = {
             if let focusedPanelId = workspace.focusedPanelId,
                let directory = workspace.panelDirectories[focusedPanelId] {
                 return directory
             }
             return workspace.currentDirectory
         }()
-        let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Prefer the directory of the terminal's foreground job over the shell's
+        // last-reported OSC 7 cwd. `claude --worktree` (and any process started
+        // from a different directory than the prompt) leaves the interactive
+        // shell in the repo root while the active process works inside a
+        // worktree; "Open Current Directory" means the directory being worked
+        // in, which is the foreground process's cwd. Only override when the
+        // foreground job resolves to a genuinely different directory — at the
+        // prompt the two match, and keeping the shell's reported path preserves
+        // a symlinked cwd verbatim instead of swapping in its realpath.
+        let resolvedDirectory: String = {
+            guard let foreground = focusedTerminalForegroundDirectory(in: workspace),
+                  foreground != shellDirectory else {
+                return shellDirectory
+            }
+            let foregroundReal = URL(fileURLWithPath: foreground).resolvingSymlinksInPath().path
+            let shellReal = URL(fileURLWithPath: shellDirectory).resolvingSymlinksInPath().path
+            return foregroundReal == shellReal ? shellDirectory : foreground
+        }()
+        let trimmed = resolvedDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         guard FileManager.default.fileExists(atPath: trimmed) else { return nil }
         return URL(fileURLWithPath: trimmed, isDirectory: true)
+    }
+
+    /// The live working directory of the focused terminal's foreground process,
+    /// or `nil` when unavailable. Skips remote terminals, whose reported TTY
+    /// name can collide with an unrelated local device.
+    private func focusedTerminalForegroundDirectory(in workspace: Workspace) -> String? {
+        guard let focusedPanelId = workspace.focusedPanelId,
+              !workspace.isRemoteTerminalSurface(focusedPanelId),
+              let ttyName = workspace.surfaceTTYNames[focusedPanelId] else {
+            return nil
+        }
+        return TerminalForegroundDirectoryResolver().foregroundDirectory(forTTYName: ttyName)
     }
 
 #if DEBUG
