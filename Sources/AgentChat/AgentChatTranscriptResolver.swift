@@ -127,7 +127,8 @@ struct AgentChatTranscriptResolver {
     /// uses; `kind` is the persisted agent-kind string.
     private func resumeBindingInputs(_ binding: SurfaceResumeBindingSnapshot?) -> ResolutionInputs? {
         guard let binding,
-              let sessionId = binding.checkpointId, !sessionId.isEmpty,
+              let sessionId = binding.checkpointId,
+              isSafeSessionFilenameComponent(sessionId),
               let kind = restorableKind(fromBindingKind: binding.kind) else {
             return nil
         }
@@ -137,6 +138,20 @@ struct AgentChatTranscriptResolver {
             cwd: binding.cwd,
             environment: binding.environment
         )
+    }
+
+    /// Whether a session id from a persisted resume binding is safe to use as a
+    /// transcript filename component. The resume binding is a trust boundary
+    /// (it can be created through the public resume path and does not validate
+    /// the checkpoint id), and the session id is later appended to a project /
+    /// sessions directory, so a value containing a path separator or `..` could
+    /// escape into another reachable `.jsonl`. Mirrors the live index path's
+    /// Claude safe-filename invariant.
+    private func isSafeSessionFilenameComponent(_ sessionId: String) -> Bool {
+        !sessionId.isEmpty
+            && sessionId != "."
+            && sessionId != ".."
+            && sessionId.range(of: #"[\\/]"#, options: .regularExpression) == nil
     }
 
     /// Maps a resume binding's kind string to a `RestorableAgentKind`, limited
@@ -179,8 +194,45 @@ struct AgentChatTranscriptResolver {
                     .appending(fileName)
                 if regularFileExists(path) { return URL(fileURLWithPath: path) }
             }
+
+            // Workflow/sub-agent case: the recorded session id is a *container*
+            // directory and the real transcript is a newer sibling `.jsonl`
+            // with a different id in the same project dir. Mirrors the live
+            // index path's `resolvedClaudeWorkflowRecord` so restored workflow
+            // panels resolve their transcript too.
+            for dir in projectDirs {
+                let projectDir = (projectsRoot as NSString).appendingPathComponent(dir)
+                let container = (projectDir as NSString).appendingPathComponent(sessionId)
+                var isDir: ObjCBool = false
+                guard fileManager.fileExists(atPath: container, isDirectory: &isDir), isDir.boolValue else {
+                    continue
+                }
+                if let sibling = newestSiblingTranscript(in: projectDir, excludingSessionId: sessionId) {
+                    return sibling
+                }
+            }
         }
         return nil
+    }
+
+    /// The newest `<id>.jsonl` transcript in `projectDir` whose id is not
+    /// `excludedSessionId`, by file modification time. Used for the Claude
+    /// workflow-container fallback.
+    private func newestSiblingTranscript(in projectDir: String, excludingSessionId excluded: String) -> URL? {
+        guard let children = try? fileManager.contentsOfDirectory(atPath: projectDir) else { return nil }
+        var best: (url: URL, modifiedAt: Date)?
+        for child in children where child.hasSuffix(".jsonl") {
+            let id = String(child.dropLast(".jsonl".count))
+            guard id != excluded, !id.isEmpty else { continue }
+            let path = (projectDir as NSString).appendingPathComponent(child)
+            guard regularFileExists(path) else { continue }
+            let modified = (try? fileManager.attributesOfItem(atPath: path)[.modificationDate] as? Date) ?? nil
+            let when = modified ?? .distantPast
+            if best == nil || when > best!.modifiedAt {
+                best = (URL(fileURLWithPath: path), when)
+            }
+        }
+        return best?.url
     }
 
     /// The ordered Claude config roots to search, mirroring the restore/resume
