@@ -69,9 +69,9 @@
 1365	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1313	cmuxTests/MobileHostAuthorizationTests.swift
+1307	cmuxTests/TerminalNotificationClearAllTests.swift
 1285	Sources/Feed/FeedCoordinator.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
-1234	cmuxTests/TerminalNotificationClearAllTests.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1156	cmuxTests/SidebarOrderingTests.swift
 1144	Sources/VaultAgentProcessScanner.swift
