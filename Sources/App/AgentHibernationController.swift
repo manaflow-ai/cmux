@@ -147,12 +147,17 @@ final class AgentHibernationController {
         recordedAt: Date? = nil
     ) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
-        let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
-        let now = (recordedAt ?? Date()).timeIntervalSince1970
+        let recordedAt = recordedAt ?? Date()
+        let now = recordedAt.timeIntervalSince1970
         switch state {
         case .commandRunning:
+            // Transitions are activity: the idle window must restart when a
+            // hidden command starts or finishes, not stay anchored at the
+            // input or unmount time.
+            let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
             lastCommandStartByPanel[key] = now
         case .promptIdle:
+            let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
             if let pendingAt = pendingCommandLineByPanel[key],
                let commandStartAt = lastCommandStartByPanel[key],
                pendingAt <= commandStartAt {

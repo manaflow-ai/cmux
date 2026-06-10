@@ -12645,13 +12645,19 @@ final class Workspace: Identifiable, ObservableObject {
               !terminalPanel.isSurfaceHibernated else {
             return false
         }
-        let scrollback = SessionPersistencePolicy.truncatedScrollback(
-            TerminalController.shared.readTerminalTextForSnapshot(
-                terminalPanel: terminalPanel,
-                includeScrollback: true,
-                lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
-            )
+        let capturedText = TerminalController.shared.readTerminalTextForSnapshot(
+            terminalPanel: terminalPanel,
+            includeScrollback: true,
+            lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
         )
+        if terminalPanel.surface.hasLiveSurface, capturedText == nil {
+            // A live surface read came back nil, which means the read failed
+            // (an empty terminal reads as ""). The capture is the only copy
+            // restore will ever have, so keep the surface and let a later
+            // evaluation retry.
+            return false
+        }
+        let scrollback = SessionPersistencePolicy.truncatedScrollback(capturedText)
         let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackDirectory = terminalPanel.directory.trimmingCharacters(in: .whitespacesAndNewlines)
         let workingDirectory = panelDirectory?.isEmpty == false
