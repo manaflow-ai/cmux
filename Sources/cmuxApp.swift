@@ -4,6 +4,7 @@ import CmuxSidebarRemoteRender
 import CmuxSocketControl
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxUpdater
 import CmuxUpdaterUI
 import SwiftUI
 import Observation
