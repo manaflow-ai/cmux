@@ -153,6 +153,7 @@
 575	cmuxTests/FeedCoordinatorTests.swift
 574	Sources/Feed/FeedTextEditorDebugWindowController.swift
 568	Packages/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
+562	Sources/App/WorkspaceRuntimeSettings.swift
 562	cmuxTests/AgentExecutableResolverTests.swift
 560	cmuxTests/GhosttyConfigPathResolverTests.swift
 558	Packages/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
@@ -174,6 +175,7 @@
 519	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-two-column-cockpit-sidebar.swift
 518	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
 516	Sources/CmuxConfigExecutor.swift
+514	cmuxTests/SurfaceHibernationPolicyTests.swift
 514	cmuxUITests/UpdatePillUITests.swift
 509	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift
