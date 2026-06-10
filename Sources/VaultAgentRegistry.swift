@@ -3,9 +3,94 @@ import OSLog
 
 struct CmuxVaultConfigDefinition: Codable, Hashable, Sendable {
     var agents: [CmuxVaultAgentRegistration]
+    /// Extra Claude config directories (each expected to contain a `projects/`
+    /// subdirectory) scanned alongside the built-in roots. Lets the Vault read
+    /// transcripts from a mounted/synced container `~/.claude`.
+    var claudeSessionRoots: [String]
+    /// Remote↔local path equivalences (e.g. container `/workspace` ↔ Mac
+    /// `/Users/<me>`) applied to the "this folder only" Claude session filter so
+    /// mounted remote transcripts match their local workspace folder.
+    var claudePathMappings: [CmuxVaultPathMapping]
 
-    init(agents: [CmuxVaultAgentRegistration] = []) {
+    private enum CodingKeys: String, CodingKey {
+        case agents, claudeSessionRoots, claudePathMappings
+    }
+
+    init(
+        agents: [CmuxVaultAgentRegistration] = [],
+        claudeSessionRoots: [String] = [],
+        claudePathMappings: [CmuxVaultPathMapping] = []
+    ) {
         self.agents = agents
+        self.claudeSessionRoots = Self.normalizedRoots(claudeSessionRoots)
+        self.claudePathMappings = claudePathMappings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        agents = try container.decodeIfPresent([CmuxVaultAgentRegistration].self, forKey: .agents) ?? []
+        let roots = try container.decodeIfPresent([String].self, forKey: .claudeSessionRoots) ?? []
+        claudeSessionRoots = Self.normalizedRoots(roots)
+        claudePathMappings = try container.decodeIfPresent(
+            [CmuxVaultPathMapping].self,
+            forKey: .claudePathMappings
+        ) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(agents, forKey: .agents)
+        try container.encode(claudeSessionRoots, forKey: .claudeSessionRoots)
+        try container.encode(claudePathMappings, forKey: .claudePathMappings)
+    }
+
+    private static func normalizedRoots(_ roots: [String]) -> [String] {
+        var seen = Set<String>()
+        return roots
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter { seen.insert($0).inserted }
+    }
+}
+
+/// A bidirectional path-prefix equivalence between a remote location (e.g. a
+/// container's `/workspace`) and its local twin (e.g. `/Users/<me>`). Used to
+/// match mounted remote Claude transcripts against the local workspace folder.
+struct CmuxVaultPathMapping: Codable, Hashable, Sendable {
+    var remote: String
+    var local: String
+
+    private enum CodingKeys: String, CodingKey {
+        case remote, local
+    }
+
+    init(remote: String, local: String) {
+        self.remote = remote.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.local = local.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let remote = try container.decode(String.self, forKey: .remote)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let local = try container.decode(String.self, forKey: .local)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !remote.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .remote,
+                in: container,
+                debugDescription: "Vault path mapping remote must not be blank"
+            )
+        }
+        guard !local.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .local,
+                in: container,
+                debugDescription: "Vault path mapping local must not be blank"
+            )
+        }
+        self.remote = remote
+        self.local = local
     }
 }
 

@@ -695,7 +695,9 @@ final class SessionIndexStore: ObservableObject {
         let prefilteredByRipgrep: Bool
     }
 
-    nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
+    nonisolated private static func claudeSessionRoots(
+        extraConfigDirs: [String] = []
+    ) -> [ClaudeSessionRoot] {
         let fm = FileManager.default
         var roots: [ClaudeSessionRoot] = []
         var seen: Set<String> = []
@@ -745,6 +747,13 @@ final class SessionIndexStore: ObservableObject {
             ("~/.claude" as NSString).expandingTildeInPath,
             requireConfigured: false
         )
+
+        // User-configured extra Claude roots (e.g. a mounted/synced container
+        // ~/.claude). These may not carry a usable resume config, so don't
+        // require one — discovery and folder filtering are valuable on their own.
+        for extraConfigDir in extraConfigDirs {
+            appendRoot(extraConfigDir, requireConfigured: false)
+        }
 
         return roots
     }
@@ -872,9 +881,23 @@ final class SessionIndexStore: ObservableObject {
             ?? url.deletingLastPathComponent().lastPathComponent
     }
 
+    /// Whether a transcript `cwd` matches the "this folder only" filter,
+    /// normalizing both sides through the configured remote↔local path
+    /// equivalences first. A nil transcript cwd never matches (preserving the
+    /// prior exact-equality behavior, where `nil != filter`).
+    nonisolated private static func claudeCwd(
+        _ cwd: String?,
+        matchesFilter filter: String,
+        using equivalence: ClaudePathEquivalence
+    ) -> Bool {
+        guard let cwd else { return false }
+        return equivalence.equates(cwd, filter)
+    }
+
     nonisolated private static func enumerateClaudeJSONLCandidates(
         root: ClaudeSessionRoot,
         cwdFilter: String?,
+        equivalence: ClaudePathEquivalence,
         prefilteredByRipgrep: Bool
     ) -> [ClaudeSessionCandidate] {
         let fm = FileManager.default
@@ -902,11 +925,16 @@ final class SessionIndexStore: ObservableObject {
         if let cwdFilter {
             // Single-sourced with RestorableAgentSessionIndex so this fast-path cwd filter
             // encodes dotted paths ("." -> "-") identically to the transcript-discovery path.
-            let dirName = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwdFilter)
-            let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
-                appendJSONLFiles(in: dirPath, dirName: dirName)
+            // Path-equivalence mappings expand this to every mapped variant of the
+            // workspace folder (e.g. a container's /workspace twin of /Users/<me>), so a
+            // mounted remote transcript's project-dir slug is probed too. Stays
+            // O(number of mappings) — no full project-dir scan.
+            for dirName in equivalence.projectDirSlugCandidates(forCwd: cwdFilter) {
+                let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
+                var isDir: ObjCBool = false
+                if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
+                    appendJSONLFiles(in: dirPath, dirName: dirName)
+                }
             }
             return candidates
         }
@@ -1394,7 +1422,9 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func loadClaudeEntries(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) async -> [SessionEntry] {
-        let roots = claudeSessionRoots()
+        let vaultConfig = ClaudePathEquivalence.loadVaultClaudeConfig()
+        let equivalence = vaultConfig.equivalence
+        let roots = claudeSessionRoots(extraConfigDirs: vaultConfig.extraRoots)
         guard !roots.isEmpty else { return [] }
         let fm = FileManager.default
 
@@ -1413,6 +1443,7 @@ final class SessionIndexStore: ObservableObject {
                         contentsOf: enumerateClaudeJSONLCandidates(
                             root: root,
                             cwdFilter: cwdFilter,
+                            equivalence: equivalence,
                             prefilteredByRipgrep: false
                         )
                     )
@@ -1441,6 +1472,7 @@ final class SessionIndexStore: ObservableObject {
                     contentsOf: enumerateClaudeJSONLCandidates(
                         root: root,
                         cwdFilter: cwdFilter,
+                        equivalence: equivalence,
                         prefilteredByRipgrep: false
                     )
                 )
@@ -1451,6 +1483,7 @@ final class SessionIndexStore: ObservableObject {
                     contentsOf: enumerateClaudeJSONLCandidates(
                         root: root,
                         cwdFilter: nil,
+                        equivalence: equivalence,
                         prefilteredByRipgrep: false
                     )
                 )
@@ -1480,7 +1513,10 @@ final class SessionIndexStore: ObservableObject {
                     // Cache hit
                     let cached = ClaudeMetadataCache.shared.get(url: candidate.url, mtime: candidate.mtime)
                     if let cached, needle.isEmpty || candidate.prefilteredByRipgrep {
-                        if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
+                        if let cwdFilter,
+                           !claudeCwd(cached.cwd, matchesFilter: cwdFilter, using: equivalence) {
+                            return (idx, nil, true)
+                        }
                         return (
                             idx,
                             cached.withClaudeConfigDirectoryForResume(candidate.resumeConfigDirectory),
@@ -1496,7 +1532,10 @@ final class SessionIndexStore: ObservableObject {
                         }
                     }
                     if let cached {
-                        if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
+                        if let cwdFilter,
+                           !claudeCwd(cached.cwd, matchesFilter: cwdFilter, using: equivalence) {
+                            return (idx, nil, true)
+                        }
                         return (
                             idx,
                             cached.withClaudeConfigDirectoryForResume(candidate.resumeConfigDirectory),
@@ -1504,7 +1543,10 @@ final class SessionIndexStore: ObservableObject {
                         )
                     }
                     let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
-                    if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
+                    if let cwdFilter,
+                       !claudeCwd(parsed.cwd, matchesFilter: cwdFilter, using: equivalence) {
+                        return (idx, nil, false)
+                    }
                     let sid = candidate.url.deletingPathExtension().lastPathComponent
                     let entry = SessionEntry(
                         id: "claude:" + candidate.url.path,
