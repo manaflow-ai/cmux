@@ -1961,6 +1961,7 @@ class TabManager: ObservableObject {
                       let url = URL(string: resolvedPullRequest.urlString) else {
                     continue
                 }
+                let ciStatus = SidebarPullRequestCIStatus(rawValue: resolvedPullRequest.ciStatusRawValue) ?? .neutral
                 workspace.updatePanelPullRequest(
                     panelId: result.panelId,
                     number: resolvedPullRequest.number,
@@ -1968,7 +1969,8 @@ class TabManager: ObservableObject {
                     url: url,
                     status: status,
                     branch: resolvedPullRequest.branch,
-                    isStale: false
+                    isStale: false,
+                    ciStatus: ciStatus
                 )
             case .notFound:
                 workspacePullRequestTransientFailureCountByKey[key] = 0
@@ -1994,7 +1996,8 @@ class TabManager: ObservableObject {
                         url: currentPullRequest.url,
                         status: currentPullRequest.status,
                         branch: currentPullRequest.branch,
-                        isStale: true
+                        isStale: true,
+                        ciStatus: currentPullRequest.ciStatus
                     )
                 }
             }
@@ -3204,7 +3207,8 @@ class TabManager: ObservableObject {
                     url: pullRequest.url,
                     status: pullRequest.status,
                     branch: pullRequest.branch,
-                    isStale: false
+                    isStale: false,
+                    ciStatus: pullRequest.ciStatus
                 )
             } else if workspace.panelPullRequests[probeKey.panelId] != nil {
                 workspace.clearPanelPullRequest(panelId: probeKey.panelId)
@@ -5244,7 +5248,8 @@ class TabManager: ObservableObject {
             url: currentPullRequest.url,
             status: nextStatus,
             branch: currentPullRequest.branch,
-            isStale: false
+            isStale: false,
+            ciStatus: currentPullRequest.ciStatus
         )
     }
 

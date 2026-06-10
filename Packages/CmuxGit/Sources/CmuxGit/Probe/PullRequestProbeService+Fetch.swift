@@ -145,9 +145,17 @@ extension PullRequestProbeService {
             page += 1
         }
 
+        // One GraphQL request per repo per cache window for the CI rollup of
+        // all open PRs at once (empty/neutral without a token; never anon REST).
+        let ciStatusMap = await repoCIStatusByNumber(
+            repoSlug: repoSlug,
+            session: session,
+            authHeader: authHeader
+        )
         let recentWindowEntry = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: fetchTimestamp,
-            pullRequestsByBranch: Self.pullRequestMapByNormalizedBranch(from: allPullRequests)
+            pullRequestsByBranch: Self.pullRequestMapByNormalizedBranch(from: allPullRequests),
+            ciStatusByNumber: ciStatusMap
         )
         let unresolvedBranches = Self.unresolvedBranches(
             normalizedCandidateBranches,
@@ -254,6 +262,10 @@ extension PullRequestProbeService {
             cacheEntry: WorkspacePullRequestRepoCacheEntry(
                 fetchedAt: refreshedAt,
                 pullRequestsByBranch: pullRequestsByBranch,
+                // Carry the rollup map forward; per-branch REST fallbacks don't
+                // re-fetch it (PRs resolved this way render neutral until the
+                // next full GraphQL window).
+                ciStatusByNumber: baseEntry.ciStatusByNumber,
                 knownAbsentBranches: knownAbsentBranches
             ),
             transientBranches: transientBranches
@@ -343,6 +355,90 @@ extension PullRequestProbeService {
             headRefName: pullRequest.head.ref,
             baseRefName: pullRequest.base?.ref
         )
+    }
+
+    // MARK: CI rollup (GraphQL)
+
+    /// Fetches the CI rollup for every open PR in one repository with a single
+    /// GraphQL request, keyed by PR number. Returns an empty map (every PR
+    /// renders neutral) without a token — GraphQL rejects anonymous requests
+    /// and we never fall back to anonymous REST — or on any transport/decode
+    /// failure. Called only on a fresh repo fetch, so it adds at most one
+    /// request per repo per cache window and never scales with PR count.
+    nonisolated func repoCIStatusByNumber(
+        repoSlug: String,
+        session: URLSession,
+        authHeader: String?
+    ) async -> [Int: WorkspaceCIStatus] {
+        guard let authHeader, !authHeader.isEmpty else {
+            return [:]
+        }
+        let components = repoSlug.split(separator: "/", maxSplits: 1).map(String.init)
+        guard components.count == 2,
+              !components[0].isEmpty,
+              !components[1].isEmpty else {
+            return [:]
+        }
+
+        guard let body = Self.graphQLRequestBody(owner: components[0], name: components[1]),
+              let response = await performGraphQLRequest(
+                session: session,
+                body: body,
+                authHeader: authHeader
+              ),
+              response.statusCode == 200,
+              let decoded = Self.decodeJSON(WorkspaceCIStatusGraphQLResponse.self, from: response.data) else {
+            debugLog("workspace.prRefresh.ci.fail repo=\(repoSlug)")
+            return [:]
+        }
+
+        let ciStatusByNumber = decoded.ciStatusByPullRequestNumber()
+        debugLog("workspace.prRefresh.ci.success repo=\(repoSlug) prs=\(ciStatusByNumber.count)")
+        return ciStatusByNumber
+    }
+
+    /// Encodes the GraphQL query + `owner`/`name` variables as a JSON request
+    /// body; `nil` if encoding fails.
+    nonisolated static func graphQLRequestBody(owner: String, name: String) -> Data? {
+        let payload: [String: Any] = [
+            "query": WorkspaceCIStatusGraphQLResponse.query,
+            "variables": ["owner": owner, "name": name],
+        ]
+        return try? JSONSerialization.data(withJSONObject: payload)
+    }
+
+    /// One POST against the GitHub GraphQL API; `nil` on any transport error.
+    /// `authHeader` is required — GraphQL rejects anonymous requests, and the
+    /// only caller already proved a token is present.
+    nonisolated func performGraphQLRequest(
+        session: URLSession,
+        body: Data,
+        authHeader: String
+    ) async -> WorkspacePullRequestHTTPResponse? {
+        guard let url = URL(string: "https://api.github.com/graphql") else {
+            return nil
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("cmux-workspace-pr-poller", forHTTPHeaderField: "User-Agent")
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        request.httpBody = body
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return nil
+            }
+            return WorkspacePullRequestHTTPResponse(
+                statusCode: httpResponse.statusCode,
+                data: data
+            )
+        } catch {
+            return nil
+        }
     }
 
     /// One GET against the GitHub API; `nil` on any transport error.

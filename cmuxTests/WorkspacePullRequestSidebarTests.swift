@@ -1681,6 +1681,93 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             "Git index stores file size as a 32-bit field; matching large sparse files should compare with truncation, not clamping."
         )
     }
+
+    func testUpdatePanelPullRequestStoresCIStatus() throws {
+        let workspace = Workspace(title: "Test")
+        let panelId = UUID()
+        let url = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/4242"))
+
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 4242,
+            label: "PR",
+            url: url,
+            status: .open,
+            branch: "feature/ci",
+            ciStatus: .failure
+        )
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.ciStatus, .failure)
+
+        // A flip to success must overwrite, not preserve the old value.
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 4242,
+            label: "PR",
+            url: url,
+            status: .open,
+            branch: "feature/ci",
+            ciStatus: .success
+        )
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.ciStatus, .success)
+    }
+
+    func testUpdatePanelPullRequestPreservesCIStatusWhenNil() throws {
+        let workspace = Workspace(title: "Test")
+        let panelId = UUID()
+        let url = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/4243"))
+
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 4243,
+            label: "PR",
+            url: url,
+            status: .open,
+            branch: "feature/ci",
+            ciStatus: .success
+        )
+        // A CI-agnostic update (e.g. CLI report_pr passes nil) must not wipe the
+        // last fetched CI status.
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 4243,
+            label: "PR",
+            url: url,
+            status: .open,
+            branch: "feature/ci",
+            isStale: true
+        )
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.ciStatus, .success)
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.isStale, true)
+    }
+
+    func testUpdatePanelPullRequestDoesNotCarryCIStatusToDifferentPR() throws {
+        let workspace = Workspace(title: "Test")
+        let panelId = UUID()
+        let url1 = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/4244"))
+        let url2 = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/4245"))
+
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 4244,
+            label: "PR",
+            url: url1,
+            status: .open,
+            branch: "feature/ci",
+            ciStatus: .failure
+        )
+        // A CI-agnostic update (nil) reporting a *different* PR on the same
+        // panel must not inherit the prior PR's failure glyph.
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 4245,
+            label: "PR",
+            url: url2,
+            status: .open,
+            branch: "feature/ci"
+        )
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 4245)
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.ciStatus, .neutral)
+    }
 }
 
 private func restoreUserDefault(_ value: Any?, key: String) {

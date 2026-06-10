@@ -140,6 +140,7 @@ public struct PullRequestProbeService: Sendable {
             }
 
             var matchedPullRequest: GitHubPullRequestProbeItem?
+            var matchedCIStatus: WorkspaceCIStatus = .neutral
             var matchedPullRequestUsedCache = false
             var sawTransientFailure = false
             var sawCachedSuccess = false
@@ -153,6 +154,10 @@ public struct PullRequestProbeService: Sendable {
                     }
                     if let candidateMatch = cacheEntry.pullRequestsByBranch[candidate.branch] {
                         matchedPullRequest = candidateMatch
+                        // Key CI by the resolved PR's number, not its branch, so
+                        // a branch shared by multiple open PRs can't surface
+                        // another PR's glyph.
+                        matchedCIStatus = cacheEntry.ciStatusByNumber[candidateMatch.number] ?? .neutral
                         matchedPullRequestUsedCache = usedCache
                         break
                     }
@@ -168,11 +173,16 @@ public struct PullRequestProbeService: Sendable {
             let usedCachedRepoData: Bool
             if let matchedPullRequest,
                let status = PullRequestStatus(githubState: matchedPullRequest.state) {
+                // CI status is only meaningful for an open PR; collapse to
+                // neutral for merged/closed so the sidebar never renders a
+                // check/X on a terminal row.
+                let ciStatusRawValue = status == .open ? matchedCIStatus.rawValue : WorkspaceCIStatus.neutral.rawValue
                 resolution = .resolved(
                     WorkspacePullRequestResolvedItem(
                         number: matchedPullRequest.number,
                         urlString: matchedPullRequest.url,
                         statusRawValue: status.rawValue,
+                        ciStatusRawValue: ciStatusRawValue,
                         branch: candidate.branch
                     )
                 )

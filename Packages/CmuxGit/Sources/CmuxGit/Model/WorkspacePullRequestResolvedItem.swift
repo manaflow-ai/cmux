@@ -10,14 +10,26 @@ public struct WorkspacePullRequestResolvedItem: Sendable {
     /// The ``PullRequestStatus`` raw value (`"open"`/`"merged"`/`"closed"`),
     /// kept as a string so app-side status enums can bridge via `rawValue`.
     public let statusRawValue: String
+    /// The ``WorkspaceCIStatus`` raw value (`"neutral"`/`"success"`/`"failure"`)
+    /// for the PR's head commit, kept as a string so app-side status enums can
+    /// bridge via `rawValue`. `"neutral"` for non-open PRs and when no rollup
+    /// was fetched.
+    public let ciStatusRawValue: String
     /// The branch the PR was matched for.
     public let branch: String
 
     /// Creates a resolved item.
-    public init(number: Int, urlString: String, statusRawValue: String, branch: String) {
+    public init(
+        number: Int,
+        urlString: String,
+        statusRawValue: String,
+        ciStatusRawValue: String,
+        branch: String
+    ) {
         self.number = number
         self.urlString = urlString
         self.statusRawValue = statusRawValue
+        self.ciStatusRawValue = ciStatusRawValue
         self.branch = branch
     }
 }

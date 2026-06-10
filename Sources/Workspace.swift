@@ -9837,6 +9837,17 @@ enum SidebarPullRequestStatus: String {
     case closed
 }
 
+/// The rolled-up CI/CD check status rendered next to an open PR badge in the
+/// sidebar. Raw values bridge from `CmuxGit.WorkspaceCIStatus` via `rawValue`.
+enum SidebarPullRequestCIStatus: String {
+    /// No checks yet, queued/in-progress, no token, or not yet fetched.
+    case neutral
+    /// All required checks passed.
+    case success
+    /// At least one required check failed or errored.
+    case failure
+}
+
 private func normalizedSidebarBranchName(_ branch: String?) -> String? {
     guard let branch else { return nil }
     let trimmed = branch.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -9850,6 +9861,9 @@ struct SidebarPullRequestState: Equatable {
     let status: SidebarPullRequestStatus
     let branch: String?
     let isStale: Bool
+    /// The rolled-up CI status for this PR's head commit. Only meaningful (and
+    /// only rendered) when ``status`` is `.open`; `.neutral` otherwise.
+    let ciStatus: SidebarPullRequestCIStatus
 
     init(
         number: Int,
@@ -9857,7 +9871,8 @@ struct SidebarPullRequestState: Equatable {
         url: URL,
         status: SidebarPullRequestStatus,
         branch: String? = nil,
-        isStale: Bool = false
+        isStale: Bool = false,
+        ciStatus: SidebarPullRequestCIStatus = .neutral
     ) {
         self.number = number
         self.label = label
@@ -9865,6 +9880,7 @@ struct SidebarPullRequestState: Equatable {
         self.status = status
         self.branch = normalizedSidebarBranchName(branch)
         self.isStale = isStale
+        self.ciStatus = ciStatus
     }
 }
 
@@ -12747,9 +12763,25 @@ final class Workspace: Identifiable, ObservableObject {
         url: URL,
         status: SidebarPullRequestStatus,
         branch: String? = nil,
-        isStale: Bool = false
+        isStale: Bool = false,
+        ciStatus: SidebarPullRequestCIStatus? = nil
     ) {
         let existing = panelPullRequests[panelId]
+        // `nil` means "keep whatever CI status we already had" (callers that
+        // don't carry CI data, e.g. CLI report_pr); the probe always passes a
+        // concrete value so a real flip is never masked. Only preserve the
+        // existing value when the update is for the *same* PR — otherwise a new
+        // PR on this panel would inherit the previous PR's check glyph until the
+        // next probe corrects it, so fall back to neutral.
+        let resolvedCIStatus: SidebarPullRequestCIStatus = {
+            if let ciStatus {
+                return ciStatus
+            }
+            if let existing, existing.number == number, existing.url == url {
+                return existing.ciStatus
+            }
+            return .neutral
+        }()
         let normalizedBranch = normalizedSidebarBranchName(branch)
         let currentPanelBranch = normalizedSidebarBranchName(panelGitBranches[panelId]?.branch)
         let resolvedBranch: String? = {
@@ -12774,7 +12806,8 @@ final class Workspace: Identifiable, ObservableObject {
             url: url,
             status: status,
             branch: resolvedBranch,
-            isStale: isStale
+            isStale: isStale,
+            ciStatus: resolvedCIStatus
         )
         if existing != state {
             panelPullRequests[panelId] = state
