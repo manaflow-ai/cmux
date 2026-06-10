@@ -22,6 +22,37 @@ final class CmuxEditorSaveRegistry: @unchecked Sendable {
     private var entries: [String: Entry] = [:]
     private let maxEntryAge: TimeInterval = 24 * 60 * 60
 
+    /// The uid-owned diff-viewer serving directory (same trust root as
+    /// ``CmuxDiffViewerURLSchemeHandler``). Only same-uid processes can write
+    /// here, so its 0600 `.editor-<token>.json` sidecars are proof that a
+    /// real `cmux edit` minted the write capability; socket callers cannot
+    /// forge one through `browser.open_split` params.
+    private let trustedRootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+        .standardizedFileURL
+        .resolvingSymlinksInPath()
+
+    /// Registers the write target for `token` from its trusted sidecar, if
+    /// one exists. Returns whether a capability was registered. Tokens with
+    /// no sidecar (plain diff viewers, read-only opens) are not an error.
+    @discardableResult
+    func registerFromTrustedSidecar(token: String) -> Bool {
+        guard CmuxDiffViewerURLSchemeHandler.isValidToken(token) else { return false }
+        let sidecarURL = trustedRootURL.appendingPathComponent(".editor-\(token).json", isDirectory: false)
+        guard let data = try? Data(contentsOf: sidecarURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+              object["token"] == token,
+              let path = object["path"], path.hasPrefix("/") else {
+            return false
+        }
+        do {
+            try register(token: token, fileURL: URL(fileURLWithPath: path))
+            return true
+        } catch {
+            return false
+        }
+    }
+
     func register(token: String, fileURL: URL, now: Date = Date()) throws {
         guard CmuxDiffViewerURLSchemeHandler.isValidToken(token) else {
             throw NSError(domain: "CmuxEditorSaveRegistry", code: 1, userInfo: [
