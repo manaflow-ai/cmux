@@ -119,6 +119,27 @@ struct ShellStartupMatrixTests {
         expectEqual(environment["CMUX_FISH_USER_CONFIG_ALREADY_LOADED"], "1")
     }
 
+    // The spawn-env call site only advertises CMUX_SHELL_INTEGRATION /
+    // CMUX_SHELL_INTEGRATION_DIR when the bundled dir actually exists, so a
+    // deleted app bundle never leaks a dangling integration path into the
+    // shell environment.
+    @Test
+    func shellIntegrationDirectoryExistsRequiresARealDirectory() throws {
+        let bundled = try makeBundledIntegrationDir(files: [".zshenv": "# cmux zsh bootstrap stub\n"])
+        defer { try? FileManager.default.removeItem(at: bundled.root) }
+        expectTrue(TerminalSurface.shellIntegrationDirectoryExists(bundled.integrationDir))
+
+        let missingDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tests-deleted-bundle-\(UUID().uuidString)")
+            .appendingPathComponent("shell-integration")
+            .path
+        expectFalse(TerminalSurface.shellIntegrationDirectoryExists(missingDir))
+
+        // A plain file at the path does not count as the integration dir.
+        let filePath = bundled.integrationDir + "/.zshenv"
+        expectFalse(TerminalSurface.shellIntegrationDirectoryExists(filePath))
+    }
+
     // A tagged dev build's DerivedData (or any app bundle) can be deleted while
     // the app keeps running. Redirecting ZDOTDIR at a now-missing integration
     // dir makes zsh silently skip the user's ~/.zshenv/.zprofile/.zshrc, because
