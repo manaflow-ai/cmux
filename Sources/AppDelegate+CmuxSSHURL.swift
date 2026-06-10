@@ -560,6 +560,18 @@ extension AppDelegate {
         }),
               let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceId }),
               let window = context.window ?? windowForMainWindowId(context.windowId) else {
+            // The workspace can resolve while its window is still being
+            // registered mid-restore; defer rather than drop in that window.
+            if shouldDeferNavigationURLRequestsForStartupRestore {
+                pendingStartupNavigationURLRequests.append(request)
+#if DEBUG
+                cmuxDebugLog(
+                    "navigationURL.deferred reason=windowPendingStartupRestore " +
+                    "workspace=\(workspaceId.uuidString.prefix(8))"
+                )
+#endif
+                return true
+            }
 #if DEBUG
             cmuxDebugLog("navigationURL.notFound workspace=\(workspaceId.uuidString.prefix(8))")
 #endif

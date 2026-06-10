@@ -259,16 +259,26 @@ extension Workspace {
     }
 
     @discardableResult
-    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) -> [UUID: UUID] {
+    func restoreSessionSnapshot(
+        _ snapshot: SessionWorkspaceSnapshot,
+        excludingStableIdentities: Set<UUID> = []
+    ) -> [UUID: UUID] {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
+        let previousStableIdentityAdoptionExclusions = stableIdentityAdoptionExclusions
+        stableIdentityAdoptionExclusions = excludingStableIdentities
+        defer { stableIdentityAdoptionExclusions = previousStableIdentityAdoptionExclusions }
 
         // Re-adopt the persisted restart-stable workspace identifier so durable
         // deep links keep resolving after an app restart. `id` is re-minted on
         // restore; `stableId` is not. Legacy snapshots omit it and keep the fresh
-        // value assigned at construction.
-        if let persistedStableId = snapshot.stableId {
+        // value assigned at construction. A persisted identity that is still
+        // live in another open workspace (manual reopen of a session that never
+        // closed) keeps the fresh value instead — duplicating a stable id would
+        // make deep links ambiguous between the two copies.
+        if let persistedStableId = snapshot.stableId,
+           !excludingStableIdentities.contains(persistedStableId) {
             stableId = persistedStableId
         }
 
@@ -1941,8 +1951,10 @@ extension Workspace {
         // Re-adopt the persisted restart-stable surface identifier so durable deep
         // links keep resolving after an app restart (or a closed-tab reopen). The
         // panel `id` is re-minted on restore; `stableSurfaceId` is not. Legacy
-        // snapshots omit it and keep the fresh value assigned at construction.
+        // snapshots omit it and keep the fresh value assigned at construction, as
+        // does an identity that is still live elsewhere (duplicate manual reopen).
         if let stableSurfaceId = snapshot.stableSurfaceId,
+           !stableIdentityAdoptionExclusions.contains(stableSurfaceId),
            let panel = panels[panelId] {
             panel.adoptStableSurfaceId(stableSurfaceId)
         }
@@ -11484,6 +11496,11 @@ final class Workspace: Identifiable, ObservableObject {
     private var closeHistoryEligibleTabIds: Set<TabID> = []
     private var closeHistoryEligiblePanelIds: Set<UUID> = []
     private var suppressClosedPanelHistory = false
+    /// Persisted stable identities that must NOT be re-adopted during the
+    /// in-flight `restoreSessionSnapshot` because they are still live in
+    /// another open workspace (duplicate manual reopen). Consulted by
+    /// `applySessionPanelMetadata`; empty outside a restore.
+    private var stableIdentityAdoptionExclusions: Set<UUID> = []
     private var tabCloseButtonCloseTabIds: Set<TabID> = []
 
     /// Deterministic tab selection to apply after a tab closes.

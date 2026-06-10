@@ -113,6 +113,40 @@ struct CmuxDurableDeepLinkRestoreTests {
         #expect(resolution == .surface(workspaceId: workspace.id, panelId: panelId))
     }
 
+    @Test func duplicateReopenWithLiveIdentitiesMintsFreshOnes() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let liveSurfaceId = try #require(workspace.panels[panelId]).stableSurfaceId
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        // Manual "Reopen Previous Session" while the original is still open:
+        // live identities are excluded so the duplicate copy mints fresh ones
+        // and links keep targeting the original unambiguously.
+        let duplicate = TabManager()
+        duplicate.restoreSessionSnapshot(
+            snapshot,
+            excludingStableIdentities: [workspace.stableId, liveSurfaceId]
+        )
+
+        let duplicateWorkspace = try #require(duplicate.tabs.first)
+        #expect(duplicateWorkspace.stableId != workspace.stableId)
+        #expect(!duplicateWorkspace.panels.values.contains { $0.stableSurfaceId == liveSurfaceId })
+
+        // The original and the duplicate together never share a stable id, so
+        // a link to the original resolves to the original.
+        let resolver = CmuxNavigationTargetResolver(
+            workspaces: (manager.tabs + duplicate.tabs).map(\.cmuxNavigationDescriptor)
+        )
+        let link = CmuxNavigationURLRequest.surfaceLink(
+            workspaceId: workspace.stableId,
+            surfaceId: liveSurfaceId,
+            scheme: scheme
+        )
+        let resolution = try resolver.resolve(parsedTarget(link))
+        #expect(resolution == .surface(workspaceId: workspace.id, panelId: panelId))
+    }
+
     @Test func legacySnapshotWithoutStableIdsRestoresWithFreshOnes() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
