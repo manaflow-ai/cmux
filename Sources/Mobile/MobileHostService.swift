@@ -381,9 +381,8 @@ final class MobileHostService {
     /// networks or Tailscale flips, not only when the listener restarts.
     /// `nil` while stopped.
     private var pathMonitor: NWPathMonitor?
-    /// Signature of the last observed network path, for change detection. The
-    /// first observation after the monitor starts is the baseline (the
-    /// listener-ready handler has just published routes for it).
+    /// Signature of the last observed network path, for duplicate-callback
+    /// suppression (see ``shouldRepublishRoutesForPathChange(previousSignature:newSignature:)``).
     private var lastNetworkPathSignature: String?
     /// Injected once via `configure(auth:)` at app startup, before the
     /// listener starts accepting connections.
@@ -1647,16 +1646,20 @@ final class MobileHostService {
         return "\(status)|\(interfaces)|\(gatewayList)"
     }
 
-    /// Whether a path observation warrants republishing routes: only a *change*
-    /// from an established baseline does. The monitor's initial callback (the
-    /// current path at start) is the baseline, not a change — the listener-ready
-    /// handler has just published routes for it. Pure for tests.
+    /// Whether a path observation warrants republishing routes: any observation
+    /// that differs from the previous one does, *including the first*. The
+    /// monitor's initial callback can arrive after the listener-ready publish
+    /// and describe a different path than the one those routes were computed
+    /// on (e.g. Tailscale came up in between), so treating it as a silent
+    /// baseline would swallow that first real change; republishing is cheap
+    /// because downstream consumers dedup unchanged routes. Only an
+    /// observation identical to the previous one is skipped (NWPathMonitor
+    /// can deliver duplicate callbacks). Pure for tests.
     nonisolated static func shouldRepublishRoutesForPathChange(
         previousSignature: String?,
         newSignature: String
     ) -> Bool {
-        guard let previousSignature else { return false }
-        return previousSignature != newSignature
+        previousSignature != newSignature
     }
 
     private func handleNetworkPathChange(signature: String) {

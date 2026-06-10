@@ -61,13 +61,16 @@ import Testing
 
     // MARK: - Republish policy
 
-    @Test func firstObservationIsBaselineNotChange() {
-        // The monitor's initial callback reports the path the listener just
-        // published routes for; republishing would be redundant.
+    @Test func firstObservationRepublishes() {
+        // The monitor's initial callback can arrive after the listener-ready
+        // publish and describe a different path than the routes were computed
+        // on; treating it as a silent baseline would swallow that first real
+        // change. Republishing is deduped downstream, so the first observation
+        // always republishes.
         #expect(MobileHostService.shouldRepublishRoutesForPathChange(
             previousSignature: nil,
             newSignature: "satisfied|en0|192.168.1.1"
-        ) == false)
+        ) == true)
     }
 
     @Test func unchangedPathDoesNotRepublish() {

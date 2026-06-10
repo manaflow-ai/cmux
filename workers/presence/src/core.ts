@@ -156,6 +156,28 @@ export function checkPresenceCaps(input: {
   return { ok: true };
 }
 
+/** Resolve the subscribe-stream deadline the worker forwarded
+ * (`x-presence-expires-at`, computed from the verified token's expiry).
+ *
+ * Returns the effective deadline, defensively re-capped at `nowMs + maxAgeMs`,
+ * or `null` when the subscription must be rejected: a missing/garbled header
+ * (the worker always sets it, so absence means the request did not come
+ * through the worker path intact) or a deadline already in the past (the
+ * token was valid at verification but expired before the DO handled the
+ * forwarded request). A past deadline must never be replaced with a fresh
+ * window, or an expired token could open a stream for another `maxAgeMs`.
+ * Pure for tests. */
+export function resolveSubscribeDeadline(
+  header: string | null,
+  nowMs: number,
+  maxAgeMs: number,
+): number | null {
+  const value = Number(header);
+  if (header === null || header === "" || !Number.isFinite(value)) return null;
+  if (value <= nowMs) return null;
+  return Math.min(value, nowMs + maxAgeMs);
+}
+
 export type OwnerCheck =
   | { ok: true; /** Pin this user as the device owner (first contact). */ pin: boolean }
   | { ok: false; error: "device_owner_mismatch" };

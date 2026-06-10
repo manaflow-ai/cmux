@@ -27,6 +27,7 @@ import {
   MAX_INSTANCES_PER_DEVICE,
   nextAlarmTime,
   OFFLINE_TIMEOUT_MS,
+  resolveSubscribeDeadline,
   shouldPrune,
   type HeartbeatInput,
   type PresenceEvent,
@@ -177,11 +178,21 @@ export class TeamPresence extends DurableObject {
 
     const now = Date.now();
     // Deadline computed by the worker from the verified token (expiry capped
-    // at MAX_SUBSCRIBE_AGE_MS); never client-supplied.
-    const expiresHeader = Number(request.headers.get("x-presence-expires-at"));
-    const expiresAt = Number.isFinite(expiresHeader) && expiresHeader > now
-      ? expiresHeader
-      : now + MAX_SUBSCRIBE_AGE_MS;
+    // at MAX_SUBSCRIBE_AGE_MS); never client-supplied. A missing or already
+    // past deadline rejects rather than minting a fresh window: a token that
+    // expired between worker verification and DO handling must not buy
+    // another 15 minutes of stream (see resolveSubscribeDeadline in core.ts).
+    const expiresAt = resolveSubscribeDeadline(
+      request.headers.get("x-presence-expires-at"),
+      now,
+      MAX_SUBSCRIBE_AGE_MS,
+    );
+    if (expiresAt === null) {
+      return new Response(
+        JSON.stringify({ error: "subscription_expired" }),
+        { status: 401, headers: { "content-type": "application/json" } },
+      );
+    }
 
     if (this.subscriberCount() >= MAX_SUBSCRIBERS_PER_TEAM) {
       return new Response(JSON.stringify({ error: "too_many_subscribers" }), {

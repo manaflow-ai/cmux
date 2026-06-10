@@ -11,6 +11,7 @@ import {
   nextAlarmTime,
   OFFLINE_TIMEOUT_MS,
   PRUNE_AFTER_MS,
+  resolveSubscribeDeadline,
   shouldPrune,
   type HeartbeatInput,
   type PresenceInstance,
@@ -281,5 +282,31 @@ describe("checkPresenceCaps", () => {
         deviceInstanceCount: MAX_INSTANCES_PER_DEVICE,
       }),
     ).toEqual({ ok: true });
+  });
+});
+
+describe("resolveSubscribeDeadline", () => {
+  const MAX_AGE = 15 * 60 * 1000;
+
+  it("passes through a future deadline under the cap", () => {
+    expect(resolveSubscribeDeadline(String(T0 + 60_000), T0, MAX_AGE)).toBe(T0 + 60_000);
+  });
+
+  it("re-caps a deadline beyond the max age", () => {
+    expect(resolveSubscribeDeadline(String(T0 + MAX_AGE * 2), T0, MAX_AGE)).toBe(T0 + MAX_AGE);
+  });
+
+  it("rejects a deadline already in the past instead of minting a fresh window", () => {
+    // A token that expired between worker verification and DO handling must
+    // not buy another max-age window of stream.
+    expect(resolveSubscribeDeadline(String(T0 - 1), T0, MAX_AGE)).toBeNull();
+    expect(resolveSubscribeDeadline(String(T0), T0, MAX_AGE)).toBeNull();
+  });
+
+  it("rejects a missing or garbled header", () => {
+    expect(resolveSubscribeDeadline(null, T0, MAX_AGE)).toBeNull();
+    expect(resolveSubscribeDeadline("", T0, MAX_AGE)).toBeNull();
+    expect(resolveSubscribeDeadline("not-a-number", T0, MAX_AGE)).toBeNull();
+    expect(resolveSubscribeDeadline("Infinity", T0, MAX_AGE)).toBeNull();
   });
 });
