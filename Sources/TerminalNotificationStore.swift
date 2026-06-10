@@ -1352,14 +1352,41 @@ final class TerminalNotificationStore: ObservableObject {
     /// with no surface).
     @MainActor
     private static func owningTabId(forSurfaceId surfaceId: UUID?, fallbackTabId: UUID) -> UUID {
-        guard let surfaceId,
-              let resolved = AppDelegate.shared?.workspaceContainingPanel(
-                  panelId: surfaceId,
-                  preferredWorkspaceId: fallbackTabId
-              )?.workspace.id else {
+        guard let surfaceId, let appDelegate = AppDelegate.shared else {
             return fallbackTabId
         }
-        return resolved
+        if let resolved = appDelegate.workspaceContainingPanel(
+            panelId: surfaceId,
+            preferredWorkspaceId: fallbackTabId
+        )?.workspace.id {
+            return resolved
+        }
+        // Callers pass either a panel UUID (hooks, CLI) or a bonsplit surface
+        // UUID (ghostty callbacks); resolve the latter to its owning workspace.
+        if let resolved = appDelegate.locateSurfaceTab(surfaceTabId: surfaceId)?.workspaceId {
+            return resolved
+        }
+        return fallbackTabId
+    }
+
+    /// Ownership can change while async policy hooks are evaluated, so the
+    /// final apply path re-resolves the owning workspace before recording.
+    private func reresolvedOwnerRequest(
+        _ request: TerminalNotificationPolicyRequest
+    ) -> TerminalNotificationPolicyRequest {
+        let tabId = Self.owningTabId(forSurfaceId: request.surfaceId, fallbackTabId: request.tabId)
+        guard tabId != request.tabId else { return request }
+        return TerminalNotificationPolicyRequest(
+            tabId: tabId,
+            surfaceId: request.surfaceId,
+            panelId: request.panelId,
+            title: request.title,
+            subtitle: request.subtitle,
+            body: request.body,
+            cwd: request.cwd,
+            isAppFocused: request.isAppFocused,
+            isFocusedPanel: request.isFocusedPanel
+        )
     }
 
     private struct NotificationCooldownReservation: Sendable {
@@ -1479,6 +1506,7 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownReservation: NotificationCooldownReservation?,
         clickAction: TerminalNotificationClickAction?
     ) {
+        let request = reresolvedOwnerRequest(request)
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
             surfaceId: request.surfaceId
