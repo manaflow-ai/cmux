@@ -318,7 +318,8 @@ export function App({ config, initialStatus }: ConfigProps) {
     );
   };
 
-  const commentEntries = sidebarCommentEntries(state.items, state.comments);
+  const diffStreamComplete = Number.isFinite(state.metrics?.completedAt) && (state.metrics?.completedAt ?? 0) > 0;
+  const commentEntries = sidebarCommentEntries(state.items, state.comments, diffStreamComplete);
   const selectCommentEntry = (entry: SidebarCommentEntry) => {
     if (entry.itemId == null) {
       return;

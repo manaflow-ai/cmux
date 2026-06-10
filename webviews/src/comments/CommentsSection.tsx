@@ -34,7 +34,7 @@ export function CommentsSidebarSection({
             >
               <span className="comment-entry-header">
                 <span className="comment-entry-location">{commentDisplayName(entry.comment)}</span>
-                {entry.anchor.state === "outdated" ? (
+                {!entry.pending && entry.anchor.state === "outdated" ? (
                   <span className="comment-entry-badge">{labels.outdatedComment}</span>
                 ) : null}
               </span>

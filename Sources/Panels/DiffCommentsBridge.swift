@@ -269,23 +269,31 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
                 )
             }
             .sorted { lhs, rhs in
-                lhs.surfaceId.uuidString < rhs.surfaceId.uuidString
+                if lhs.hasActiveTextBox != rhs.hasActiveTextBox {
+                    return lhs.hasActiveTextBox
+                }
+                return lhs.surfaceId.uuidString < rhs.surfaceId.uuidString
             }
     }
 
-    /// Opener-first targeting: a requested surface wins when it is still a
-    /// terminal in the diff viewer's workspace. Otherwise fall back to the
-    /// only terminal with an open TextBox, then to the only terminal at all;
-    /// anything ambiguous becomes a picker.
+    /// Opener-first targeting: the surface the diff was opened from wins when
+    /// it is still a terminal in the diff viewer's workspace and either has
+    /// its TextBox open or no other terminal does. An opener whose TextBox is
+    /// closed must not silently win over terminals with visibly open
+    /// TextBoxes, so that case (and any other ambiguity) becomes a picker.
+    /// Without an opener: the only open TextBox wins, then the only terminal.
     static func resolveAttachTarget(
         requested: UUID?,
         candidates: [AttachCandidate]
     ) -> AttachResolution {
-        if let requested, candidates.contains(where: { $0.surfaceId == requested }) {
-            return .attach(requested)
-        }
         guard !candidates.isEmpty else { return .unavailable }
         let activeTextBoxes = candidates.filter(\.hasActiveTextBox)
+        if let requested, let opener = candidates.first(where: { $0.surfaceId == requested }) {
+            if opener.hasActiveTextBox || activeTextBoxes.isEmpty {
+                return .attach(opener.surfaceId)
+            }
+            return .picker(candidates)
+        }
         if activeTextBoxes.count == 1 {
             return .attach(activeTextBoxes[0].surfaceId)
         }

@@ -131,6 +131,10 @@ export type SidebarCommentEntry = {
   comment: DiffCommentRecord;
   itemId: string | null;
   anchor: AnchorResult;
+  /** True while the diff is still streaming and this comment's file has not
+   * arrived yet; render as loading instead of prematurely calling it
+   * outdated. */
+  pending: boolean;
 };
 
 /**
@@ -141,6 +145,7 @@ export type SidebarCommentEntry = {
 export function sidebarCommentEntries(
   items: readonly DiffItem[],
   comments: readonly DiffCommentRecord[],
+  streamComplete = true,
 ): SidebarCommentEntry[] {
   return comments.map((comment) => {
     let fallback: { itemId: string; anchor: AnchorResult } | null = null;
@@ -150,7 +155,7 @@ export function sidebarCommentEntries(
       }
       const anchor = anchorComment(item.fileDiff, comment);
       if (anchor.state !== "outdated") {
-        return { comment, itemId: item.id, anchor };
+        return { comment, itemId: item.id, anchor, pending: false };
       }
       fallback ??= { itemId: item.id, anchor };
     }
@@ -158,6 +163,7 @@ export function sidebarCommentEntries(
       comment,
       itemId: fallback?.itemId ?? null,
       anchor: fallback?.anchor ?? { state: "outdated" },
+      pending: fallback == null && !streamComplete,
     };
   });
 }

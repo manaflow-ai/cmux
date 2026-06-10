@@ -115,17 +115,41 @@ final class DiffCommentsAttachResolutionTests: XCTestCase {
         )
     }
 
-    func testRequestedOpenerWinsWhenPresent() {
+    func testOpenerWithActiveTextBoxWins() {
         let opener = UUID()
         let other = UUID()
         let resolution = DiffCommentsBridge.resolveAttachTarget(
             requested: opener,
-            candidates: [candidate(other, textBox: true), candidate(opener, textBox: false)]
+            candidates: [candidate(other, textBox: true), candidate(opener, textBox: true)]
         )
         guard case .attach(let target) = resolution else {
             return XCTFail("Expected attach, got \(resolution)")
         }
         XCTAssertEqual(target, opener)
+    }
+
+    func testOpenerWinsWhenNoTextBoxIsOpenAnywhere() {
+        let opener = UUID()
+        let resolution = DiffCommentsBridge.resolveAttachTarget(
+            requested: opener,
+            candidates: [candidate(UUID(), textBox: false), candidate(opener, textBox: false)]
+        )
+        guard case .attach(let target) = resolution else {
+            return XCTFail("Expected attach, got \(resolution)")
+        }
+        XCTAssertEqual(target, opener)
+    }
+
+    func testClosedOpenerYieldsPickerWhenAnotherTextBoxIsOpen() {
+        let opener = UUID()
+        let resolution = DiffCommentsBridge.resolveAttachTarget(
+            requested: opener,
+            candidates: [candidate(UUID(), textBox: true), candidate(opener, textBox: false)]
+        )
+        guard case .picker(let candidates) = resolution else {
+            return XCTFail("Expected picker, got \(resolution)")
+        }
+        XCTAssertEqual(candidates.count, 2)
     }
 
     func testSingleActiveTextBoxWinsWhenOpenerGone() {

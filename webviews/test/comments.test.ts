@@ -164,8 +164,16 @@ test("sidebarCommentEntries includes outdated comments with a fallback item", ()
     [comment(), comment({ id: "c-2", lineText: "gone forever" })],
   );
   expect(entries).toHaveLength(2);
-  expect(entries[0]).toMatchObject({ itemId: "src/example.ts", anchor: { state: "anchored" } });
-  expect(entries[1]).toMatchObject({ itemId: "src/example.ts", anchor: { state: "outdated" } });
+  expect(entries[0]).toMatchObject({ itemId: "src/example.ts", anchor: { state: "anchored" }, pending: false });
+  expect(entries[1]).toMatchObject({ itemId: "src/example.ts", anchor: { state: "outdated" }, pending: false });
+});
+
+test("sidebarCommentEntries marks unmatched comments pending while streaming", () => {
+  const streaming = sidebarCommentEntries([], [comment()], false);
+  expect(streaming[0]).toMatchObject({ itemId: null, pending: true });
+
+  const complete = sidebarCommentEntries([], [comment()], true);
+  expect(complete[0]).toMatchObject({ itemId: null, pending: false, anchor: { state: "outdated" } });
 });
 
 test("resolveCommentLabels prefers payload labels and falls back to English", () => {

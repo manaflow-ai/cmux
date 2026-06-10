@@ -803,39 +803,44 @@ body[data-loading="true"] #status::before {
 }
 .comment-composer,
 .comment-card {
-  margin: 6px 10px;
+  margin: 8px 12px;
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-width: 720px;
+  max-width: 680px;
   border: 1px solid var(--cmux-diff-border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: light-dark(
-    color-mix(in lab, var(--cmux-diff-bg) 94%, #fff),
-    color-mix(in lab, var(--cmux-diff-bg) 92%, #fff)
+    color-mix(in lab, var(--cmux-diff-bg) 92%, #fff),
+    color-mix(in lab, var(--cmux-diff-bg) 90%, #fff)
   );
-  box-shadow: 0 1px 3px color-mix(in lab, #000 14%, transparent);
+  box-shadow: 0 1px 2px color-mix(in lab, #000 10%, transparent), 0 2px 8px color-mix(in lab, #000 6%, transparent);
   color: var(--cmux-diff-fg);
   font-family: var(--cmux-diff-ui-font-family);
   font-size: 13px;
   line-height: 1.45;
 }
+.comment-composer:focus-within {
+  border-color: color-mix(in lab, var(--cmux-diff-accent) 60%, var(--cmux-diff-border));
+  box-shadow: 0 0 0 3px color-mix(in lab, var(--cmux-diff-accent) 18%, transparent);
+}
 .comment-composer-input {
   width: 100%;
   box-sizing: border-box;
-  resize: vertical;
-  min-height: 60px;
-  padding: 6px 8px;
-  border: 1px solid var(--cmux-diff-border);
-  border-radius: 6px;
-  background: var(--cmux-diff-bg);
+  resize: none;
+  min-height: 52px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--cmux-diff-fg);
   font: inherit;
 }
+.comment-composer-input::placeholder {
+  color: var(--cmux-diff-text-muted);
+}
 .comment-composer-input:focus-visible {
-  outline: 2px solid color-mix(in lab, var(--cmux-diff-accent) 72%, transparent);
-  outline-offset: -1px;
+  outline: none;
 }
 .comment-composer-footer {
   display: flex;
@@ -856,42 +861,52 @@ body[data-loading="true"] #status::before {
   user-select: none;
 }
 .comment-button {
-  padding: 3px 10px;
-  border: 1px solid var(--cmux-diff-border);
-  border-radius: 5px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 6px;
   background: transparent;
-  color: var(--cmux-diff-fg);
+  color: var(--cmux-diff-text-muted);
   font: inherit;
+  font-weight: 500;
   cursor: pointer;
 }
 .comment-button:hover:not(:disabled) {
   background: var(--cmux-diff-hover-bg);
+  color: var(--cmux-diff-fg);
 }
 .comment-button:disabled {
   opacity: 0.5;
   cursor: default;
 }
 .comment-button-primary {
-  border-color: transparent;
   background: var(--cmux-diff-accent);
-  color: light-dark(#fff, #000);
+  color: light-dark(#fff, #08233f);
 }
 .comment-button-primary:hover:not(:disabled) {
-  background: color-mix(in lab, var(--cmux-diff-accent) 88%, var(--cmux-diff-fg));
+  background: color-mix(in lab, var(--cmux-diff-accent) 86%, var(--cmux-diff-fg));
+  color: light-dark(#fff, #08233f);
 }
 .comment-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-height: 20px;
 }
 .comment-card-location {
   font-weight: 500;
+  font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
   color: var(--cmux-diff-text-muted);
 }
 .comment-card-actions {
   display: inline-flex;
   gap: 2px;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+.comment-card:hover .comment-card-actions,
+.comment-card:focus-within .comment-card-actions {
+  opacity: 1;
 }
 .comment-card-action {
   padding: 1px 6px;
