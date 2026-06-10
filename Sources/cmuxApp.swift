@@ -177,6 +177,11 @@ struct cmuxApp: App {
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
         let defaults = UserDefaults.standard
+        // Force overlay (auto-fading) scrollers process-wide before any scroll
+        // view is created, so browser-pane WKWebViews and other cmux chrome
+        // stop drawing a persistent legacy scrollbar in "Show scroll bars:
+        // Always" / mouse-connected environments. See #3241.
+        AppScrollerStylePolicy.applyAtLaunch(defaults: defaults)
         AppBundleIconPersistencePolicy.updateDisableDefault(
             defaults: defaults,
             launchArguments: ProcessInfo.processInfo.arguments

@@ -43,7 +43,12 @@ enum AppScrollerStylePolicy {
     /// before any scroll view (terminal, sidebar, browser pane) is created so
     /// `NSScroller.preferredScrollerStyle` resolves to overlay from the start.
     static func applyAtLaunch(defaults: UserDefaults = .standard) {
-        // Intentionally unimplemented in this commit so the regression test
-        // fails (red). The override is added in the following commit (green).
+        // `string(forKey:)` resolves across domains, so once cmux's own
+        // application domain holds `WhenScrolling` this is a no-op on every
+        // subsequent launch — no redundant write, no spurious change
+        // notification.
+        if defaults.string(forKey: scrollBarsDefaultsKey) != overlayValue {
+            defaults.set(overlayValue, forKey: scrollBarsDefaultsKey)
+        }
     }
 }
