@@ -26,8 +26,10 @@ public protocol PushRegistering: Sendable {
     func unregisterFromServer() async
 
     /// Remove the cached token from the server on the sign-out path,
-    /// authenticating with the credentials captured before the local-first
-    /// sign-out cleared the live token provider. Passing `nil` for either
-    /// token falls back to the provider.
+    /// authenticating ONLY with the credentials captured before the
+    /// local-first sign-out cleared the live token provider. When either
+    /// captured token is missing the request is skipped: falling back to the
+    /// live provider could authenticate as a NEXT account whose sign-in raced
+    /// the bounded teardown.
     func unregisterFromServer(accessToken: String?, refreshToken: String?) async
 }

@@ -81,11 +81,22 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     public func unregisterFromServer() async {
-        await unregisterFromServer(accessToken: nil, refreshToken: nil)
+        guard let hex = cachedTokenHex else { return }
+        await sendDelete(tokenHex: hex)
     }
 
     public func unregisterFromServer(accessToken: String?, refreshToken: String?) async {
         guard let hex = cachedTokenHex else { return }
+        // Sign-out path: never fall back to the live token provider. The
+        // local-first sign-out cleared it, and a sign-in racing the bounded
+        // teardown can repopulate it with the NEXT account's tokens; the
+        // DELETE must authenticate as the signing-out account or not run at
+        // all. An incomplete pair means the access-token mint failed
+        // (offline), where the DELETE could not have succeeded anyway.
+        guard let accessToken, let refreshToken else {
+            pushLog.info("Skipping push-token unregister at sign-out: captured credentials incomplete")
+            return
+        }
         await sendDelete(tokenHex: hex, capturedAccessToken: accessToken, capturedRefreshToken: refreshToken)
     }
 

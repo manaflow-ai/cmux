@@ -479,10 +479,15 @@ public final class AuthCoordinator {
         // this completion. The resuming exchange re-stored fresh tokens that
         // the sign-out's clear never saw, so drop those too: otherwise the
         // next launch restore resurrects the session the user just signed out
-        // of. The race surfaces as a cancellation (the sign-in UI treats
+        // of. The rollback only runs while no newer session has been
+        // published: when a second sign-in completed before this stale task
+        // resumed, clearing would wipe the newer account's tokens instead.
+        // The race surfaces as a cancellation (the sign-in UI treats
         // `.cancelled` as a deliberate back-out, not a failure).
         guard generation == sessionGeneration else {
-            await client.clearLocalSession()
+            if !isAuthenticated {
+                await client.clearLocalSession()
+            }
             throw CancellationError()
         }
         let client = self.client
