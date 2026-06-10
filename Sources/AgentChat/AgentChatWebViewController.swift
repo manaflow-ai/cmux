@@ -260,8 +260,17 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
 
     // MARK: - WKNavigationDelegate
 
-#if DEBUG
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // WKWebView does not execute `<script type="module" src>` under
+        // file:// (CORS-opaque origin), but dynamic import() from injected
+        // script works. Kick the entry module manually; main.mjs routes by
+        // data-cmux-webview-kind and mounts the surface. Follow-up: serve
+        // this surface over the diff-viewer custom scheme (the serving
+        // spine), which makes the script tag work natively.
+        webView.evaluateJavaScript(
+            "if (document.getElementById('root') && document.getElementById('root').childElementCount === 0) { import('./main.mjs'); }"
+        ) { _, _ in }
+#if DEBUG
         cmuxDebugLog("agentChat.web.didFinish")
         webView.evaluateJavaScript(
             "document.readyState + '|' + document.title + '|' + (window.cmuxAgentChatBridge ? 'bridge' : 'nobridge')"
@@ -273,11 +282,23 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
         }
         webView.callAsyncJavaScript(
             """
+            const fetched = performance.getEntriesByType('resource').map((r) => r.name.split('/').pop()).join(',');
             try {
-              await import('./chunks/agentChatSurface.mjs');
-              return 'import-ok rootChildren=' + document.getElementById('root').childElementCount;
+              const surface = await import('./chunks/agentChatSurface.mjs');
+              let mount = 'skipped';
+              const root = document.getElementById('root');
+              if (root && root.childElementCount === 0) {
+                try {
+                  surface.mountAgentChatSurface(root);
+                  mount = 'manual-ok';
+                } catch (e) {
+                  mount = 'manual-fail:' + ((e && e.message) ? e.message : String(e));
+                }
+              }
+              return 'import-ok rootChildren=' + (root ? root.childElementCount : -1) +
+                ' mount=' + mount + ' fetched=' + fetched;
             } catch (e) {
-              return 'import-fail message=' + ((e && e.message) ? e.message : String(e));
+              return 'import-fail message=' + ((e && e.message) ? e.message : String(e)) + ' fetched=' + fetched;
             }
             """,
             arguments: [:],
@@ -291,8 +312,10 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
                 cmuxDebugLog("agentChat.web.importProbe error=\(error.localizedDescription)")
             }
         }
+#endif
     }
 
+#if DEBUG
     func webView(
         _ webView: WKWebView,
         didFailProvisionalNavigation navigation: WKNavigation!,

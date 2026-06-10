@@ -15124,7 +15124,12 @@ class TerminalController {
                 }
                 targetWindow = window
             } else {
-                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+                // Key/main are nil while the app is background or mid-restore;
+                // fall back to the first cmux main window so socket-driven
+                // execution is deterministic.
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first {
+                    ($0.identifier?.rawValue ?? "").hasPrefix("cmux.main")
+                }
             }
             NotificationCenter.default.post(
                 name: .commandPaletteExecuteRequested,
