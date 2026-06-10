@@ -76,7 +76,16 @@ enum SidebarWorkspaceScrollLayout {
         viewportHeight: CGFloat,
         insets: SidebarWorkspaceScrollInsets
     ) -> CGFloat {
-        return max(0, viewportHeight - insets.total)
+        // Pixel-align (floor) the available height. The scroll content is sized
+        // to fill exactly `viewportHeight - insets.total`, but on Retina/scaled
+        // displays the viewport is frequently fractional and AppKit rounds the
+        // laid-out document view UP to the next backing-store pixel. A fractional
+        // value would round up past the viewport by a sub-pixel, making the
+        // content barely scrollable and showing the auto-hiding overlay scroller
+        // even with a single workspace. Flooring keeps `content + insets <=
+        // viewportHeight` after the round-up, so the phantom scrollbar stays
+        // hidden when content fits (https://github.com/manaflow-ai/cmux/issues/3241).
+        return max(0, (viewportHeight - insets.total).rounded(.down))
     }
 
     /// Height of the empty drop/tap area placed below the last workspace row.
