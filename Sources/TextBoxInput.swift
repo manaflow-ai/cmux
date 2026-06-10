@@ -3424,14 +3424,48 @@ struct TextBoxInputView: NSViewRepresentable {
             let nextText = textView.plainText()
             let nextAttachments = textView.inlineAttachments()
             let nextHasPendingAttachmentUpload = textView.hasPendingAttachmentUploadPlaceholder()
-            let contentChanged = parent.text != nextText
-                || parent.attachments.map(\.id) != nextAttachments.map(\.id)
-                || parent.hasPendingAttachmentUpload != nextHasPendingAttachmentUpload
-            parent.text = nextText
-            parent.attachments = nextAttachments
-            parent.hasPendingAttachmentUpload = nextHasPendingAttachmentUpload
+            let didChangeText = parent.text != nextText
+            let didChangeAttachments = Self.attachmentsDiffer(parent.attachments, nextAttachments)
+            let didChangePendingUpload = parent.hasPendingAttachmentUpload != nextHasPendingAttachmentUpload
+            let contentChanged = didChangeText || didChangeAttachments || didChangePendingUpload
+            if didChangeText {
+                parent.text = nextText
+            }
+            if didChangeAttachments {
+                parent.attachments = nextAttachments
+            }
+            if didChangePendingUpload {
+                parent.hasPendingAttachmentUpload = nextHasPendingAttachmentUpload
+            }
             if contentChanged {
                 parent.onContentChanged()
+            }
+        }
+
+        private static func attachmentsDiffer(
+            _ currentAttachments: [TextBoxAttachment],
+            _ nextAttachments: [TextBoxAttachment]
+        ) -> Bool {
+            guard currentAttachments.count == nextAttachments.count else { return true }
+            return zip(currentAttachments, nextAttachments).contains { current, next in
+                current.id != next.id
+                    || current.displayName != next.displayName
+                    || current.submissionText != next.submissionText
+                    || current.submissionPath != next.submissionPath
+                    || current.localURL != next.localURL
+                    || current.cleanupLocalURLWhenDisposed != next.cleanupLocalURLWhenDisposed
+                    || !sameThumbnail(current.thumbnail, next.thumbnail)
+            }
+        }
+
+        private static func sameThumbnail(_ currentThumbnail: NSImage?, _ nextThumbnail: NSImage?) -> Bool {
+            switch (currentThumbnail, nextThumbnail) {
+            case (nil, nil):
+                true
+            case let (current?, next?):
+                current === next
+            default:
+                false
             }
         }
 
