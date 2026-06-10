@@ -1962,6 +1962,10 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceReorder(params: params))
         case "workspace.reorder_many":
             return v2Result(id: id, self.v2WorkspaceReorderMany(params: params))
+        case "workspace.hide":
+            return v2Result(id: id, self.v2WorkspaceSetHidden(params: params, hidden: true))
+        case "workspace.show":
+            return v2Result(id: id, self.v2WorkspaceSetHidden(params: params, hidden: false))
         case "workspace.prompt_submit":
             return v2Result(id: id, self.v2WorkspacePromptSubmit(params: params))
         case "workspace.rename":
@@ -2474,6 +2478,8 @@ class TerminalController {
             "workspace.move_to_window",
             "workspace.reorder",
             "workspace.reorder_many",
+            "workspace.hide",
+            "workspace.show",
             "workspace.prompt_submit",
             "workspace.rename",
             "workspace.group.list",
@@ -2903,6 +2909,7 @@ class TerminalController {
         guard let routing = routingResult.routing else {
             return .err(code: "internal_error", message: "Invalid window routing payload", data: nil)
         }
+        let includeHidden = v2Bool(params, "include_hidden") ?? false
 
         var windowNodes: [[String: Any]] = []
         var workspaceFound = (workspaceFilter == nil)
@@ -2945,7 +2952,8 @@ class TerminalController {
                     continue
                 }
 
-                let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
+                let treeWorkspaces = manager.workspaceTabs(includeHidden: includeHidden)
+                let workspaceNodesForWindow = treeWorkspaces.enumerated().map { workspaceIndex, workspace in
                     v2TreeWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
@@ -3591,6 +3599,7 @@ class TerminalController {
             "description": v2OrNull(workspace.customDescription),
             "selected": selected,
             "pinned": workspace.isPinned,
+            "hidden": workspace.isHidden,
             "panes": panes
         ]
     }
@@ -4164,6 +4173,7 @@ class TerminalController {
             "description": v2OrNull(workspace.customDescription),
             "selected": selected,
             "pinned": workspace.isPinned,
+            "hidden": workspace.isHidden,
             "listening_ports": workspace.listeningPorts,
             "remote": workspace.remoteStatusPayload(),
             "current_directory": v2OrNull(workspace.currentDirectory),
@@ -4183,14 +4193,33 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        let includeHidden = v2Bool(params, "include_hidden") ?? false
+        let workspaceFilter = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), workspaceFilter == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
         var workspaces: [[String: Any]] = []
         v2MainSync {
-            workspaces = tabManager.tabs.enumerated().map { index, ws in
-                v2WorkspaceSummaryPayload(
-                    workspace: ws,
-                    index: index,
-                    selected: ws.id == tabManager.selectedTabId
-                )
+            let sourceTabs = tabManager.workspaceTabs(includeHidden: includeHidden)
+            if let workspaceFilter {
+                if let workspace = sourceTabs.first(where: { $0.id == workspaceFilter }) {
+                    let index = sourceTabs.firstIndex { $0.id == workspace.id }
+                    workspaces = [
+                        v2WorkspaceSummaryPayload(
+                            workspace: workspace,
+                            index: index,
+                            selected: workspace.id == tabManager.selectedTabId
+                        )
+                    ]
+                }
+            } else {
+                workspaces = sourceTabs.enumerated().map { index, ws in
+                    v2WorkspaceSummaryPayload(
+                        workspace: ws,
+                        index: index,
+                        selected: ws.id == tabManager.selectedTabId
+                    )
+                }
             }
         }
 
@@ -4198,6 +4227,7 @@ class TerminalController {
         return .ok([
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "include_hidden": includeHidden,
             "workspaces": workspaces
         ])
     }
@@ -4497,14 +4527,13 @@ class TerminalController {
 
         var success = false
         v2MainSync {
-            if let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
+            if tabManager.tabs.contains(where: { $0.id == wsId }) {
                 // If this workspace belongs to another window, bring it forward so focus is visible.
                 if let windowId = v2ResolveWindowId(tabManager: tabManager) {
                     _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
                     setActiveTabManager(tabManager)
                 }
-                tabManager.selectWorkspace(ws)
-                success = true
+                success = tabManager.selectWorkspaceRevealingIfNeeded(tabId: wsId)
             }
         }
 
@@ -4530,7 +4559,7 @@ class TerminalController {
         v2MainSync {
             wsId = tabManager.selectedTabId
             if let wsId, let workspace = tabManager.tabs.first(where: { $0.id == wsId }) {
-                let index = tabManager.tabs.firstIndex(where: { $0.id == wsId })
+                let index = tabManager.visibleWorkspaceTabs.firstIndex(where: { $0.id == wsId })
                 wsPayload = v2WorkspaceSummaryPayload(
                     workspace: workspace,
                     index: index,
@@ -4602,6 +4631,20 @@ class TerminalController {
         )
     }
 
+    private func workspaceLastVisibleHideMessage() -> String {
+        String(
+            localized: "workspace.hideLastVisible.message",
+            defaultValue: "Cannot hide the last visible workspace. Wake or create another workspace first."
+        )
+    }
+
+    private func workspaceLastVisibleMoveMessage() -> String {
+        String(
+            localized: "workspace.moveLastVisible.message",
+            defaultValue: "Cannot move the last visible workspace. Wake or create another workspace first."
+        )
+    }
+
     private func v2WorkspaceMoveToWindow(params: [String: Any]) -> V2CallResult {
         guard let wsId = v2UUID(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -4621,7 +4664,19 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Window not found", data: ["window_id": windowId.uuidString])
                 return
             }
-            guard let ws = srcTM.detachWorkspace(tabId: wsId) else {
+            let detachResult = srcTM.detachWorkspaceResult(tabId: wsId)
+            guard case .detached(let ws) = detachResult else {
+                if case .lastVisibleWorkspace = detachResult {
+                    result = .err(
+                        code: "last_visible_workspace",
+                        message: workspaceLastVisibleMoveMessage(),
+                        data: [
+                            "workspace_id": wsId.uuidString,
+                            "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
+                        ]
+                    )
+                    return
+                }
                 result = .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": wsId.uuidString])
                 return
             }
@@ -4640,6 +4695,64 @@ class TerminalController {
         }
         return result
     }
+
+    private func v2WorkspaceSetHidden(params: [String: Any], hidden: Bool) -> V2CallResult {
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let tabManager = v2ResolveWorkspaceOwner(workspaceId) ?? v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: [
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+        ])
+        v2MainSync {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            if hidden, !tabManager.canHideWorkspaces([workspaceId]) {
+                result = .err(
+                    code: "last_visible_workspace",
+                    message: workspaceLastVisibleHideMessage(),
+                    data: [
+                        "workspace_id": workspaceId.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+                    ]
+                )
+                return
+            }
+
+            guard tabManager.setWorkspaceHidden(workspace, hidden: hidden) else {
+                result = .err(
+                    code: hidden ? "last_visible_workspace" : "not_found",
+                    message: hidden ? workspaceLastVisibleHideMessage() : "Workspace not found",
+                    data: [
+                        "workspace_id": workspaceId.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+                    ]
+                )
+                return
+            }
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            let index = workspace.isHidden ? nil : tabManager.visibleWorkspaceTabs.firstIndex { $0.id == workspaceId }
+            result = .ok([
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "hidden": workspace.isHidden,
+                "selected_workspace_id": v2OrNull(tabManager.selectedTabId?.uuidString),
+                "selected_workspace_ref": v2Ref(kind: .workspace, uuid: tabManager.selectedTabId),
+                "workspace": v2WorkspaceSummaryPayload(
+                    workspace: workspace,
+                    index: index,
+                    selected: workspace.id == tabManager.selectedTabId
+                )
+            ])
+        }
+        return result
+    }
+
     private func v2WorkspaceReorder(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -4665,12 +4778,12 @@ class TerminalController {
         var plan: WorkspaceReorderPlanItem?
         v2MainSync {
             if let index {
-                plan = tabManager.workspaceReorderPlan(tabId: workspaceId, toIndex: index)
+                plan = tabManager.visibleWorkspaceReorderPlan(tabId: workspaceId, toVisibleIndex: index)
             } else {
-                plan = tabManager.workspaceReorderPlan(tabId: workspaceId, before: beforeId, after: afterId)
+                plan = tabManager.visibleWorkspaceReorderPlan(tabId: workspaceId, before: beforeId, after: afterId)
             }
             if let plan, !dryRun {
-                _ = tabManager.reorderWorkspace(tabId: workspaceId, toIndex: plan.toIndex)
+                _ = tabManager.reorderVisibleWorkspace(tabId: workspaceId, toVisibleIndex: plan.toIndex)
             }
         }
 
@@ -17270,24 +17383,34 @@ class TerminalController {
         guard let wsId = UUID(uuidString: parts[0]) else { return "ERROR: Invalid workspace id" }
         guard let windowId = UUID(uuidString: parts[1]) else { return "ERROR: Invalid window id" }
 
-        var ok = false
+        var response = "ERROR: Move failed"
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
-                  let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
-                  let ws = srcTM.detachWorkspace(tabId: wsId) else {
-                ok = false
+            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId) else {
+                response = "ERROR: Workspace not found"
                 return
             }
-            dstTM.attachWorkspace(ws, select: focus)
-            if focus {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(dstTM)
+            guard let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId) else {
+                response = "ERROR: Window not found"
+                return
             }
-            ok = true
+
+            switch srcTM.detachWorkspaceResult(tabId: wsId) {
+            case .detached(let ws):
+                dstTM.attachWorkspace(ws, select: focus)
+                if focus {
+                    _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                    setActiveTabManager(dstTM)
+                }
+                response = "OK"
+            case .notFound:
+                response = "ERROR: Workspace not found"
+            case .lastVisibleWorkspace:
+                response = "ERROR: \(workspaceLastVisibleMoveMessage())"
+            }
         }
 
-        return ok ? "OK" : "ERROR: Move failed"
+        return response
     }
 
     private func listWorkspaces() -> String {
@@ -18355,13 +18478,10 @@ class TerminalController {
         v2MainSync {
             // Try as UUID first
             if let uuid = UUID(uuidString: arg) {
-                if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
-                    tabManager.selectTab(tab)
-                    success = true
-                }
+                success = tabManager.selectWorkspaceRevealingIfNeeded(tabId: uuid)
             }
             // Try as index
-            else if let index = Int(arg), index >= 0, index < tabManager.tabs.count {
+            else if let index = Int(arg), index >= 0, index < tabManager.visibleWorkspaceTabs.count {
                 tabManager.selectTab(at: index)
                 success = true
             }

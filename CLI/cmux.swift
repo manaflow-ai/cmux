@@ -2887,6 +2887,15 @@ struct CMUXCLI {
 
     private static func shouldFocusWindowBeforeDispatch(command: String, commandArgs: [String]) -> Bool {
         let normalizedCommand = command.lowercased()
+        if normalizedCommand == "hide-workspace" || normalizedCommand == "show-workspace" {
+            return false
+        }
+        if normalizedCommand == "workspace" {
+            let subcommand = commandArgs.first?.lowercased()
+            if subcommand == "hide" || subcommand == "show" {
+                return false
+            }
+        }
         // `window` repositions a window (e.g. `window display`); it must not
         // pre-focus, or it would steal macOS focus before moving the window.
         if normalizedCommand == "window" {
@@ -3788,6 +3797,28 @@ struct CMUXCLI {
 
         case "reorder-workspaces":
             try runReorderWorkspaces(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "hide-workspace":
+            try runWorkspaceVisibilityCommand(
+                commandName: "hide-workspace",
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId,
+                hidden: true
+            )
+
+        case "show-workspace":
+            try runWorkspaceVisibilityCommand(
+                commandName: "show-workspace",
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId,
+                hidden: false
+            )
 
         case "simulate-sidebar-drag":
             try runSimulateSidebarDrag(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -5060,6 +5091,7 @@ struct CMUXCLI {
         "focus-window",
         "get-url",
         "help",
+        "hide-workspace",
         "hooks",
         "identify",
         "is-webview-focused",
@@ -5132,6 +5164,7 @@ struct CMUXCLI {
         "settings",
         "setup-hooks",
         "shortcuts",
+        "show-workspace",
         "simulate-app-active",
         "sidebar",
         "sidebar-state",
@@ -5710,7 +5743,8 @@ struct CMUXCLI {
         _ raw: String?,
         client: SocketClient,
         windowHandle: String? = nil,
-        allowCurrent: Bool = false
+        allowCurrent: Bool = false,
+        includeHidden: Bool = false
     ) throws -> String? {
         guard let raw else {
             if !allowCurrent { return nil }
@@ -5730,7 +5764,7 @@ struct CMUXCLI {
         }
         if isHandleRef(trimmed) {
             guard windowHandle != nil else { return trimmed }
-            return try resolveWorkspaceId(trimmed, client: client, windowHandle: windowHandle)
+            return try resolveWorkspaceId(trimmed, client: client, windowHandle: windowHandle, includeHidden: includeHidden)
         }
         guard let wantedIndex = Int(trimmed) else {
             throw CLIError(message: "Invalid workspace handle: \(trimmed) (expected UUID, ref like workspace:1, or index)")
@@ -5739,6 +5773,9 @@ struct CMUXCLI {
         var params: [String: Any] = [:]
         if let windowHandle {
             params["window_id"] = windowHandle
+        }
+        if includeHidden {
+            params["include_hidden"] = true
         }
         let listed = try client.sendV2(method: "workspace.list", params: params)
         let items = listed["workspaces"] as? [[String: Any]] ?? []
@@ -6574,6 +6611,49 @@ struct CMUXCLI {
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
     }
 
+    private func runWorkspaceVisibilityCommand(
+        commandName: String,
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?,
+        hidden: Bool
+    ) throws {
+        let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (windowOpt, remaining) = parseOption(rem0, name: "--window")
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "\(commandName): unknown flag '\(unknown)'")
+        }
+        let workspaceRaw = workspaceOpt ?? remaining.first
+        guard let workspaceRaw else {
+            throw CLIError(message: "\(commandName) requires --workspace <id|ref|index>")
+        }
+        if remaining.count > (workspaceOpt == nil ? 1 : 0) {
+            throw CLIError(message: "\(commandName): unexpected argument '\(remaining[workspaceOpt == nil ? 1 : 0])'")
+        }
+
+        let windowHandle = try normalizeWindowHandle(windowOpt ?? windowOverride, client: client)
+        // Plain numeric indices match the default visible workspace list. Hidden
+        // workspaces remain addressable by stable UUIDs and workspace refs.
+        let workspaceHandle = try normalizeWorkspaceHandle(
+            workspaceRaw,
+            client: client,
+            windowHandle: windowHandle,
+            includeHidden: !hidden && shouldResolveHiddenWorkspaceRefs(workspaceRaw)
+        )
+
+        var params: [String: Any] = [:]
+        if let workspaceHandle { params["workspace_id"] = workspaceHandle }
+        if let windowHandle { params["window_id"] = windowHandle }
+
+        let method = hidden ? "workspace.hide" : "workspace.show"
+        let payload = try client.sendV2(method: method, params: params)
+        let action = hidden ? "hidden" : "shown"
+        let summary = "OK workspace=\(formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown") \(action)"
+        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
+    }
+
     private func runReorderWorkspaces(
         commandArgs: [String],
         client: SocketClient,
@@ -6918,12 +6998,38 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
+        var index = 0
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            if arg == "--include-hidden" {
+                index += 1
+                continue
+            }
+            if arg == "--window" || arg == "--id-format" {
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "workspace list: \(arg) requires a value")
+                }
+                index += 2
+                continue
+            }
+            if arg.hasPrefix("--window=") || arg.hasPrefix("--id-format=") {
+                index += 1
+                continue
+            }
+            if arg.hasPrefix("--") {
+                throw CLIError(message: "workspace list: unknown flag '\(arg)'")
+            }
+            throw CLIError(message: "workspace list: unexpected argument '\(arg)'")
+        }
         var params: [String: Any] = [:]
         try applyWindowOrCallerContext(
             to: &params,
             client: client,
             windowRaw: windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
         )
+        if hasFlag(commandArgs, name: "--include-hidden") {
+            params["include_hidden"] = true
+        }
         let payload = try client.sendV2(method: "workspace.list", params: params)
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -6947,8 +7053,9 @@ struct CMUXCLI {
                     }()
                     let prefix = selected ? "* " : "  "
                     let selTag = selected ? "  [selected]" : ""
+                    let hiddenTag = (ws["hidden"] as? Bool) == true ? "  [hidden]" : ""
                     let titlePart = title.isEmpty ? "" : "  \(title)"
-                    print("\(prefix)\(handle)\(titlePart)\(remoteTag)\(selTag)")
+                    print("\(prefix)\(handle)\(titlePart)\(remoteTag)\(hiddenTag)\(selTag)")
                 }
             }
         }
@@ -7059,7 +7166,12 @@ struct CMUXCLI {
         var params: [String: Any] = [:]
         let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
         if let winId { params["window_id"] = winId }
-        let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
+        let wsId = try normalizeWorkspaceHandle(
+            target,
+            client: client,
+            windowHandle: winId,
+            includeHidden: shouldResolveHiddenWorkspaceRefs(target)
+        )
         if !requireWorkspaceFlag {
             guard let wsId else {
                 throw CLIError(message: "\(commandName): could not resolve workspace handle")
@@ -7070,6 +7182,12 @@ struct CMUXCLI {
         }
         let payload = try client.sendV2(method: "workspace.select", params: params)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+    }
+
+    private func shouldResolveHiddenWorkspaceRefs(_ raw: String?) -> Bool {
+        guard let raw else { return false }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && Int(trimmed) == nil
     }
 
     private func runWorkspaceRenameCommand(
@@ -7213,7 +7331,7 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "workspace requires a subcommand. Try: list, create, close, rename, select, group")
+            throw CLIError(message: "workspace requires a subcommand. Try: list, create, close, rename, select, hide, show, group")
         }
         let rest = Array(commandArgs.dropFirst())
         switch sub {
@@ -7273,8 +7391,28 @@ struct CMUXCLI {
                 windowOverride: windowOverride,
                 requireWorkspaceFlag: false
             )
+        case "hide":
+            try runWorkspaceVisibilityCommand(
+                commandName: "workspace hide",
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride,
+                hidden: true
+            )
+        case "show":
+            try runWorkspaceVisibilityCommand(
+                commandName: "workspace show",
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride,
+                hidden: false
+            )
         default:
-            throw CLIError(message: "Unknown workspace subcommand: \(sub). Try: list, create, close, rename, select, group")
+            throw CLIError(message: "Unknown workspace subcommand: \(sub). Try: list, create, close, rename, select, hide, show, group")
         }
     }
 
@@ -12771,13 +12909,22 @@ struct CMUXCLI {
             .replacingOccurrences(of: "%25", with: "%")
     }
 
-    private func resolveWorkspaceId(_ raw: String?, client: SocketClient, windowHandle: String? = nil) throws -> String {
+    private func resolveWorkspaceId(
+        _ raw: String?,
+        client: SocketClient,
+        windowHandle: String? = nil,
+        includeHidden: Bool = false
+    ) throws -> String {
         if let raw, isUUID(raw) {
             return raw
         }
         if let raw, isHandleRef(raw) {
             if let windowHandle {
-                let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle])
+                var params: [String: Any] = ["window_id": windowHandle]
+                if includeHidden {
+                    params["include_hidden"] = true
+                }
+                let listed = try client.sendV2(method: "workspace.list", params: params)
                 let items = listed["workspaces"] as? [[String: Any]] ?? []
                 for item in items where (item["ref"] as? String) == raw {
                     if let id = item["id"] as? String { return id }
@@ -12788,7 +12935,11 @@ struct CMUXCLI {
                 let windowList = windows["windows"] as? [[String: Any]] ?? []
                 for window in windowList {
                     guard let windowId = window["id"] as? String else { continue }
-                    let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowId])
+                    var params: [String: Any] = ["window_id": windowId]
+                    if includeHidden {
+                        params["include_hidden"] = true
+                    }
+                    let listed = try client.sendV2(method: "workspace.list", params: params)
                     let items = listed["workspaces"] as? [[String: Any]] ?? []
                     for item in items where (item["ref"] as? String) == raw {
                         if let id = item["id"] as? String { return id }
@@ -12801,6 +12952,7 @@ struct CMUXCLI {
         if let raw, let index = Int(raw) {
             var params: [String: Any] = [:]
             if let windowHandle { params["window_id"] = windowHandle }
+            if includeHidden { params["include_hidden"] = true }
             let listed = try client.sendV2(method: "workspace.list", params: params)
             let items = listed["workspaces"] as? [[String: Any]] ?? []
             for item in items where intFromAny(item["index"]) == index {
@@ -13582,15 +13734,43 @@ struct CMUXCLI {
             """
         case "list-workspaces":
             return """
-            Usage: cmux list-workspaces [--window <id|ref|index>]
+            Usage: cmux list-workspaces [--include-hidden] [--window <id|ref|index>]
 
             List workspaces in a window.
 
             Flags:
+              --include-hidden           Include hidden workspaces.
               --window <id|ref|index>   Target window (default: caller/current window)
 
             Example:
               cmux list-workspaces
+              cmux list-workspaces --include-hidden
+            """
+        case "hide-workspace":
+            return """
+            Usage: cmux hide-workspace [--workspace <id|ref|index> | <id|ref|index>] [--window <id|ref|index>]
+
+            Hide a workspace from the sidebar without stopping notifications.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace to hide (required unless passed positionally)
+              --window <id|ref|index>      Window context for numeric workspace indices
+
+            Example:
+              cmux hide-workspace --workspace workspace:2
+            """
+        case "show-workspace":
+            return """
+            Usage: cmux show-workspace [--workspace <id|ref|index> | <id|ref|index>] [--window <id|ref|index>]
+
+            Show a hidden workspace in the sidebar again.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace to show (required unless passed positionally)
+              --window <id|ref|index>      Window context for numeric workspace indices
+
+            Example:
+              cmux show-workspace --workspace workspace:2
             """
         case "workspace":
             return """
@@ -13607,12 +13787,15 @@ struct CMUXCLI {
               close <workspace>       Close a workspace
               rename <workspace> --title <new>
               select <workspace>      Make a workspace active
+              hide <workspace>        Hide a workspace from the sidebar
+              show <workspace>        Show a hidden workspace
               group <subcommand>      Workspace group operations (see cmux workspace-group --help)
 
             Examples:
               cmux workspace list --json
               cmux workspace create --name Build --cwd ~/projects/myapp
               cmux workspace close workspace:3
+              cmux workspace hide workspace:3
             """
         case "workspace-group":
             return """
@@ -32460,9 +32643,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
           reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
+          hide-workspace --workspace <id|ref|index> [--window <id|ref|index>]
+          show-workspace --workspace <id|ref|index> [--window <id|ref|index>]
           workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
-          list-workspaces [--window <id|ref|index>]
+          list-workspaces [--include-hidden] [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]

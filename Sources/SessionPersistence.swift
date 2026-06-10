@@ -1800,6 +1800,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customColor: String?
     var isPinned: Bool
     var groupId: UUID? = nil
+    var isHidden: Bool? = nil
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil
     var notifications: [SessionNotificationSnapshot]? = nil

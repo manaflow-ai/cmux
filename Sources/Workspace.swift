@@ -242,6 +242,7 @@ extension Workspace {
             customColor: customColor,
             isPinned: isPinned,
             groupId: groupId,
+            isHidden: isHidden ? true : nil,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
@@ -323,6 +324,8 @@ extension Workspace {
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
+        isHidden = snapshot.isHidden ?? false
+        setTerminalScrollBarHidden(snapshot.terminalScrollBarHidden ?? false)
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -10483,6 +10486,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customTitle: String?
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
+    @Published var isHidden: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?

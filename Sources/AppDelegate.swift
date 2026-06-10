@@ -6859,13 +6859,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "fr=\(beforeResponder)"
         )
 #endif
+        let target = context.keyboardFocusCoordinator.findShortcutTarget(
+            currentResponder: window?.firstResponder
+        )
+        guard target != .none else {
+#if DEBUG
+            let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            dlog(
+                "find.shortcut.app.end target=\(target) result=0 " +
+                "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
+            )
+#endif
+            return false
+        }
+
         if let window {
             mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
         }
 
-        let target = context.keyboardFocusCoordinator.findShortcutTarget(
-            currentResponder: window?.firstResponder
-        )
         let result: Bool
         switch target {
         case .rightSidebarFileSearch:
@@ -6873,6 +6884,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .mainPanelFind:
             result = context.tabManager.startSearch()
         case .none:
+            assertionFailure("Unhandled find shortcut target")
             result = false
         }
 #if DEBUG
@@ -9794,7 +9806,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
                 waitForContext { context in
                     let tabManager = context.tabManager
-                    let initialIndex = tabManager.tabs.firstIndex(where: { $0.id == tabManager.selectedTabId }) ?? 0
+                    let initialWorkspaceId = tabManager.selectedTabId ?? tabManager.visibleWorkspaceTabs.first?.id
                     let tab = tabManager.addTab()
                     guard let initialPanelId = tab.focusedPanelId else { return }
 
@@ -9824,7 +9836,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "expectedSurfaceId": targetPanelId.uuidString
                     ])
 
-                    tabManager.selectTab(at: initialIndex)
+                    if let initialWorkspaceId,
+                       let initialWorkspace = tabManager.tabs.first(where: { $0.id == initialWorkspaceId }) {
+                        tabManager.selectWorkspace(initialWorkspace)
+                    }
                 }
             }
         }
@@ -13365,13 +13380,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if shortcutWhenClauseAllows(action: .selectWorkspaceByNumber, event: event),
            let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
             if let manager = tabManager,
-               let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
+               let targetIndex = WorkspaceShortcutMapper.workspaceIndex(
+                   forDigit: digit,
+                   workspaceCount: manager.visibleWorkspaceTabs.count
+               ) {
 #if DEBUG
                 cmuxDebugLog(
                     "shortcut.action name=workspaceDigit digit=\(digit) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
                 )
 #endif
-                manager.selectTab(at: targetIndex)
+                manager.selectVisibleWorkspace(at: targetIndex)
             }
             return true
         }

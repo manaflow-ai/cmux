@@ -29,10 +29,10 @@ extension ContentView {
 }
 
 struct SidebarBonsplitTabNewWorkspaceDropOverlay: NSViewRepresentable {
-    let tabManager: TabManager
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var dropIndicator: SidebarDropIndicator?
+    let performMoveToNewWorkspace: (BonsplitTabDragPayload.Transfer) -> (workspaceId: UUID, sidebarIndex: Int?)?
 
     func makeNSView(context: Context) -> SidebarBonsplitTabNewWorkspaceDropView {
         return SidebarBonsplitTabNewWorkspaceDropView()
@@ -46,29 +46,13 @@ struct SidebarBonsplitTabNewWorkspaceDropOverlay: NSViewRepresentable {
             dropIndicator = isActive ? SidebarDropIndicator(tabId: nil, edge: .bottom) : nil
         }
         nsView.performMove = { transfer in
-            guard let app = AppDelegate.shared,
-                  let result = app.moveBonsplitTabToNewWorkspace(
-                    tabId: transfer.tab.id,
-                    destinationManager: tabManager,
-                    focus: true,
-                    focusWindow: true,
-                    placementOverride: .end
-                  ) else {
+            guard let result = performMoveToNewWorkspace(transfer) else {
                 return false
             }
 
-            selectedTabIds = [result.destinationWorkspaceId]
-            syncSidebarSelection(preferredSelectedTabId: result.destinationWorkspaceId)
+            selectedTabIds = [result.workspaceId]
+            lastSidebarSelectionIndex = result.sidebarIndex
             return true
-        }
-    }
-
-    private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {
-        let selectedId = preferredSelectedTabId ?? tabManager.selectedTabId
-        if let selectedId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
-        } else {
-            lastSidebarSelectionIndex = nil
         }
     }
 }

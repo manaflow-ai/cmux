@@ -43,6 +43,175 @@ final class CMUXOpenCommandTests: XCTestCase {
         }
     }
 
+    func testShowWorkspaceNumericIndexUsesVisibleWorkspaceProjection() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("show-ws")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = UUID().uuidString
+        let workspaceId = UUID().uuidString
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "window.list":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            ["id": windowId, "ref": "window:1", "index": 0],
+                        ],
+                    ]
+                )
+            case "workspace.list":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertNil(params["include_hidden"])
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "window_id": windowId,
+                        "window_ref": "window:1",
+                        "workspaces": [
+                            ["id": workspaceId, "ref": "workspace:3", "index": 1, "selected": false],
+                        ],
+                    ]
+                )
+            case "workspace.show":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "window_id": windowId,
+                        "window_ref": "window:1",
+                        "workspace_id": workspaceId,
+                        "workspace_ref": "workspace:3",
+                        "hidden": false,
+                    ]
+                )
+            default:
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["show-workspace", "1", "--window", "window:1"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK workspace=workspace:3 shown\n")
+        XCTAssertEqual(
+            state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String },
+            ["window.list", "workspace.list", "workspace.show"]
+        )
+    }
+
+    func testSelectWorkspaceRefCanResolveHiddenWorkspaceWithinWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sel-ws")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = UUID().uuidString
+        let workspaceId = UUID().uuidString
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "window.list":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            ["id": windowId, "ref": "window:1", "index": 0],
+                        ],
+                    ]
+                )
+            case "workspace.list":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["include_hidden"] as? Bool, true)
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "window_id": windowId,
+                        "window_ref": "window:1",
+                        "include_hidden": true,
+                        "workspaces": [
+                            [
+                                "id": workspaceId,
+                                "ref": "workspace:3",
+                                "index": 1,
+                                "selected": false,
+                                "hidden": true,
+                            ],
+                        ],
+                    ]
+                )
+            case "workspace.select":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "window_id": windowId,
+                        "window_ref": "window:1",
+                        "workspace_id": workspaceId,
+                        "workspace_ref": "workspace:3",
+                        "hidden": false,
+                    ]
+                )
+            default:
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["select-workspace", "--workspace", "workspace:3", "--window", "window:1"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK workspace=workspace:3\n")
+        XCTAssertEqual(
+            state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String },
+            ["window.list", "workspace.list", "workspace.select"]
+        )
+    }
+
     func testOpenCommandHonorsTerminatorForDashPrefixedPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("open-dash")

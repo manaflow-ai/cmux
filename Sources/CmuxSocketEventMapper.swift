@@ -62,6 +62,10 @@ enum CmuxSocketEventMapper {
         switch method {
         case "workspace.rename":
             return DomainEventMapping(name: "workspace.renamed", category: "workspace", params: .unchanged)
+        case "workspace.reorder", "workspace.reorder_many":
+            return DomainEventMapping(name: "workspace.reordered", category: "workspace", params: .unchanged)
+        case "workspace.hide", "workspace.show":
+            return DomainEventMapping(name: "workspace.visibility_changed", category: "workspace", params: .unchanged)
         case "workspace.move_to_window":
             return DomainEventMapping(name: "workspace.moved", category: "workspace", params: .unchanged)
         case "workspace.action":

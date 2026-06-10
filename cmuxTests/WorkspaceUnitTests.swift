@@ -3894,6 +3894,30 @@ final class SidebarWorkspaceSelectionSyncPolicyTests: XCTestCase {
 
         XCTAssertEqual(result, [second])
     }
+
+    @MainActor
+    func testReconciledSelectionDropsHiddenWorkspaceAndPreservesVisiblePeer() {
+        let first = UUID()
+        let focusedAfterHide = UUID()
+        let visiblePeer = UUID()
+        let hidden = UUID()
+
+        let result = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+            previousSelectionIds: [hidden, visiblePeer],
+            liveWorkspaceIds: [first, focusedAfterHide, visiblePeer],
+            fallbackSelectedWorkspaceId: focusedAfterHide
+        )
+
+        XCTAssertEqual(result, [visiblePeer])
+        XCTAssertEqual(
+            SidebarWorkspaceSelectionSyncPolicy.anchorIndex(
+                preferredWorkspaceId: focusedAfterHide,
+                selectedWorkspaceIds: result,
+                liveWorkspaceIds: [first, focusedAfterHide, visiblePeer]
+            ),
+            2
+        )
+    }
 }
 
 
