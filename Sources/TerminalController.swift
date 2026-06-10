@@ -11648,14 +11648,20 @@ class TerminalController {
         // so an unparseable raw string fails loudly instead of silently opening about:blank.
         let url: URL?
         if let urlStr {
-            // An explicit about:blank means "open a blank surface", which the rest
-            // of the browser code treats as a valid blank page. resolveBrowserNavigableURL
-            // rejects the about: scheme, so preserve it here instead of letting the
-            // search fallback turn it into a query.
-            if urlStr.trimmingCharacters(in: .whitespacesAndNewlines)
-                .caseInsensitiveCompare("about:blank") == .orderedSame,
+            let trimmedURLStr = urlStr.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Preserve schemes the app handles internally but resolveBrowserNavigableURL
+            // (http/https/file only) rejects, so the search fallback doesn't turn them into
+            // a query:
+            //   - about:blank: an explicit "open a blank surface" request the rest of the
+            //     browser code treats as a valid blank page.
+            //   - cmux-diff-viewer://<token>/...: the trusted internal diff viewer; turning it
+            //     into a search would also bypass v2RegisterDiffViewerURLIfNeeded below.
+            if trimmedURLStr.caseInsensitiveCompare("about:blank") == .orderedSame,
                let blank = URL(string: "about:blank") {
                 url = blank
+            } else if let parsed = URL(string: trimmedURLStr),
+                      parsed.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
+                url = parsed
             } else {
                 let resolved = resolveBrowserNavigableURL(urlStr)
                     ?? BrowserSearchSettings.currentConfiguration().searchURL(query: urlStr)
