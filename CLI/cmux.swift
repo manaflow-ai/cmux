@@ -21559,11 +21559,18 @@ struct CMUXCLI {
             // notification downgraded the Stop hook's idle to needsInput, so Claude
             // never became hibernation-eligible. Keyword matching mirrors the generic
             // notification classifier (`classifyAgentHookNotification`).
-            let hibernationLifecycle: AgentHibernationLifecycleState =
+            let classifiedLifecycle: AgentHibernationLifecycleState =
                 AgentHibernationLifecycleState.notificationIndicatesBlocked(
                     subtitle: summary.subtitle,
                     body: summary.body
                 ) ? .needsInput : .idle
+            // A plain notification must not downgrade .needsInput set by a preceding
+            // AskUserQuestion PreToolUse: the agent is still blocked waiting for the
+            // user's answer, so hibernate eligibility must not change.
+            let hibernationLifecycle: AgentHibernationLifecycleState =
+                classifiedLifecycle == .idle && mappedSession?.agentLifecycle == .needsInput
+                    ? .needsInput
+                    : classifiedLifecycle
 
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
@@ -27862,7 +27869,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             // record already proves a definitive lifecycle, so the live map stays
             // empty on resume/relaunch and Workspace.agentHibernationLifecycleState
             // falls through to the preserved persisted state.
-            if !(mapped?.agentLifecycle.map { $0 != .unknown } ?? false) {
+            // Use effective() so a record with only lastNotificationStatus=idle
+            // (no explicit agentLifecycle) is also treated as proven-definitive:
+            // pushing .unknown would defeat the effective() fallback that
+            // Workspace.agentHibernationLifecycleState uses to classify such records.
+            let mappedEffectiveLifecycle = AgentHibernationLifecycleState.effective(
+                agentLifecycle: mapped?.agentLifecycle,
+                lastNotificationStatus: mapped?.lastNotificationStatus?.rawValue
+            )
+            if !(mappedEffectiveLifecycle.map { $0 != .unknown } ?? false) {
                 setAgentLifecycle(
                     client: client,
                     key: def.statusKey,
