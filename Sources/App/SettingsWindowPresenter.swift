@@ -24,7 +24,7 @@ struct SettingsWindowPresenter {
         var pendingNavigationTarget: SettingsNavigationTarget?
         var pendingContentNavigationTarget: SettingsNavigationTarget?
         var shouldOpenWhenConfigured = false
-        var openVerificationInFlight = false
+        var openVerificationTask: Task<Void, Never>?
     }
 
     private let state: State
@@ -52,6 +52,7 @@ struct SettingsWindowPresenter {
         if state.shouldOpenWhenConfigured {
             state.shouldOpenWhenConfigured = false
             openWindow()
+            scheduleOpenVerification(attempt: 1)
         }
     }
 
@@ -60,6 +61,12 @@ struct SettingsWindowPresenter {
     }
 
     func configure(window: NSWindow) {
+        // The scene materialized a window, so a pending "did the open request
+        // get silently dropped?" check is moot. Cancelling here makes window
+        // materialization — not a timer — the success signal, so a slow launch
+        // can never be misread as a lost request.
+        state.openVerificationTask?.cancel()
+        state.openVerificationTask = nil
         let shouldFocusAfterConfiguration = state.settingsWindow !== window
         state.settingsWindow = window
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
@@ -178,16 +185,19 @@ struct SettingsWindowPresenter {
         }
     }
 
-    /// Re-request the window after a short delay when the previous request
-    /// produced no window. `openWindow(id:)` on a single `Window` scene can
-    /// silently no-op while the scene is mid-teardown; without this the open
-    /// request is lost and "nothing happens" (issue #5770 / #4053).
+    /// Re-request the window when the previous request silently produced no
+    /// window. `openWindow(id:)` on a single `Window` scene can no-op while the
+    /// scene is mid-teardown, and there is no failure callback, so a deferred
+    /// check is the only way to notice the lost request (issue #5770 / #4053).
+    /// Success is event-driven: `configure(window:)` cancels the pending check
+    /// as soon as the scene materializes a window, so the timer below only ever
+    /// decides the failure case.
     private func scheduleOpenVerification(attempt: Int) {
-        guard !state.openVerificationInFlight else { return }
-        state.openVerificationInFlight = true
-        Task { @MainActor in
+        guard state.openVerificationTask == nil else { return }
+        state.openVerificationTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 500_000_000)
-            state.openVerificationInFlight = false
+            guard !Task.isCancelled else { return }
+            state.openVerificationTask = nil
             switch Self.openOutcome(windowExists: existingWindow() != nil, attempt: attempt) {
             case .materialized:
                 return

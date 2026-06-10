@@ -349,6 +349,39 @@ final class SettingsWindowPresenterTests: XCTestCase {
 
     // MARK: - Silent no-op recovery (issue #5770 / #4053)
 
+    // The "click Settings and nothing happens" symptom: the open request is
+    // dispatched but no window ever materializes. The presenter must notice
+    // the silently-dropped request and re-request the window, bounded at
+    // exactly one retry by maxOpenAttempts.
+    func testShowReRequestsWindowWhenOpenRequestSilentlyProducesNoWindow() async {
+        let presenter = SettingsWindowPresenter()
+        var openRequests = 0
+        presenter.configure(openWindow: { openRequests += 1 })
+
+        presenter.show()
+        XCTAssertEqual(openRequests, 1)
+
+        await waitUntil { openRequests >= 2 }
+        XCTAssertEqual(openRequests, 2)
+    }
+
+    // show() before configure(openWindow:) defers the open request; the
+    // deferred request must get the same lost-request verification as a
+    // direct one instead of being fired blind.
+    func testDeferredOpenRequestAlsoVerifiesAndRetries() async {
+        let presenter = SettingsWindowPresenter()
+        var openRequests = 0
+
+        presenter.show()
+        XCTAssertEqual(openRequests, 0)
+
+        presenter.configure(openWindow: { openRequests += 1 })
+        XCTAssertEqual(openRequests, 1)
+
+        await waitUntil { openRequests >= 2 }
+        XCTAssertEqual(openRequests, 2)
+    }
+
     func testOpenOutcomeRetriesWhenWindowDoesNotMaterializeOnFirstAttempt() {
         XCTAssertEqual(
             SettingsWindowPresenter.openOutcome(windowExists: false, attempt: 1),
@@ -387,6 +420,16 @@ final class SettingsWindowPresenterTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier(identifier)
         return window
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 5,
+        _ condition: () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
     }
 
     private func closeSettingsWindows() {
