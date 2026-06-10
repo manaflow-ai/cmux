@@ -412,7 +412,8 @@ final class AgentHibernationController {
             previousStableSince: previousSample?.stableSince,
             currentFingerprint: fingerprint,
             lastActivityAt: record.lastActivityAt,
-            now: now
+            now: now,
+            firstSampleFallback: record.workspaceUnmountedAt.map { max(record.lastActivityAt, $0) }
         )
         tailFingerprintSamples[record.key] = TailFingerprintSample(
             fingerprint: fingerprint,
@@ -453,10 +454,19 @@ final class AgentHibernationController {
         previousStableSince: TimeInterval?,
         currentFingerprint: String,
         lastActivityAt: TimeInterval,
-        now: TimeInterval
+        now: TimeInterval,
+        firstSampleFallback: TimeInterval? = nil
     ) -> TimeInterval {
         if previousFingerprint == currentFingerprint {
             return previousStableSince ?? lastActivityAt
+        }
+        // First sample: stability was never observed. Cap-rule candidates
+        // conservatively start the window at `now`, but unmounted-workspace
+        // candidates may pass the wall-clock floor instead — otherwise the
+        // documented hidden-workspace window would double, since sampling only
+        // begins once the rule already has pressure.
+        if previousFingerprint == nil, let firstSampleFallback {
+            return firstSampleFallback
         }
         return now
     }

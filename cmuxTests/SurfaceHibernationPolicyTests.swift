@@ -668,6 +668,43 @@ struct SurfaceHibernationPolicyTests {
         #expect(hibernatedFingerprint != manager.sessionAutosaveFingerprint())
     }
 
+    @Test
+    func firstTailSampleUsesUnmountedFloorOnlyWhenProvided() {
+        // Cap-rule candidates keep the conservative now-based stability start.
+        #expect(
+            AgentHibernationController.tailFingerprintStableSince(
+                previousFingerprint: nil,
+                previousStableSince: nil,
+                currentFingerprint: "tail-a",
+                lastActivityAt: 100,
+                now: 500
+            ) == 500
+        )
+        // Unmounted-workspace candidates pass the wall-clock floor so the
+        // documented hidden-workspace window is not observed twice.
+        #expect(
+            AgentHibernationController.tailFingerprintStableSince(
+                previousFingerprint: nil,
+                previousStableSince: nil,
+                currentFingerprint: "tail-a",
+                lastActivityAt: 100,
+                now: 500,
+                firstSampleFallback: 150
+            ) == 150
+        )
+        // A genuinely changed fingerprint always restarts the window at now.
+        #expect(
+            AgentHibernationController.tailFingerprintStableSince(
+                previousFingerprint: "tail-a",
+                previousStableSince: 100,
+                currentFingerprint: "tail-b",
+                lastActivityAt: 100,
+                now: 500,
+                firstSampleFallback: 150
+            ) == 500
+        )
+    }
+
     @MainActor
     @Test
     func workspaceUnmountTimestampTracksPortalRendering() {
