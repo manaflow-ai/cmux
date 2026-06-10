@@ -120,8 +120,28 @@ fi
 
 [[ -d "$source_dir" ]] || die "skills directory not found: $source_dir"
 
+# A skill is a directory containing SKILL.md, either directly under skills/
+# or grouped one level deeper (e.g. skills/apple/swiftui-specialist/).
+# SKILL.md files nested inside another skill's subdirectories are ignored.
+skill_dirs() {
+  find "$source_dir" -mindepth 2 -maxdepth 3 -name SKILL.md | sort | while IFS= read -r f; do
+    local dir parent
+    dir="${f%/SKILL.md}"
+    parent="$(dirname "$dir")"
+    if [[ "$parent" != "$source_dir" && -f "$parent/SKILL.md" ]]; then
+      continue
+    fi
+    printf '%s\n' "$dir"
+  done
+}
+
 available_skills() {
-  find "$source_dir" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort
+  skill_dirs | while IFS= read -r dir; do basename "$dir"; done | sort
+}
+
+skill_source_path() {
+  local name="$1"
+  skill_dirs | awk -F/ -v n="$name" '$NF == n { print; exit }'
 }
 
 if [[ "$list_only" -eq 1 ]]; then
@@ -140,7 +160,7 @@ fi
 
 for skill_name in "${selected_skills[@]}"; do
   [[ "$skill_name" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid skill name: $skill_name"
-  [[ -d "$source_dir/$skill_name" ]] || die "skill not found: $skill_name"
+  [[ -n "$(skill_source_path "$skill_name")" ]] || die "skill not found: $skill_name"
 done
 
 if [[ "$dry_run" -eq 1 ]]; then
@@ -154,7 +174,7 @@ fi
 mkdir -p "$dest_dir"
 
 for skill_name in "${selected_skills[@]}"; do
-  src="$source_dir/$skill_name"
+  src="$(skill_source_path "$skill_name")"
   tmp_target="${dest_dir:?}/.${skill_name}.tmp.$$"
   rm -rf "$tmp_target"
   cp -R "$src" "$tmp_target"

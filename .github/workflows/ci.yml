@@ -25,6 +25,9 @@ jobs:
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
 
+      - name: Validate skills discovery wiring
+        run: ./scripts/lint-skills-wiring.sh
+
       - name: Validate release SDK build lane
         run: ./tests/test_ci_release_sdk_lane.sh
 
