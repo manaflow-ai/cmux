@@ -4745,6 +4745,10 @@ struct CMUXCLI {
         case "markdown":
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        // Native tmux control mode (renders a tmux pane in a manual-IO Ghostty surface)
+        case "tmux":
+            try runTmuxAttachCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
@@ -4815,6 +4819,67 @@ struct CMUXCLI {
     }
 
     // MARK: - Markdown Commands
+
+    /// `cmux tmux attach [session]` — take over the current pane with a native
+    /// Ghostty surface rendering a local tmux session via control mode. The user
+    /// never types `tmux -CC`; cmux drives it as a hidden gateway.
+    private func runTmuxAttachCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let usage = "Usage: cmux tmux attach [session] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]"
+        guard let sub = commandArgs.first, sub.lowercased() == "attach" else {
+            if let sub = commandArgs.first {
+                throw CLIError(message: "Unknown tmux subcommand: \(sub). \(usage)")
+            }
+            throw CLIError(message: usage)
+        }
+        var args = Array(commandArgs.dropFirst())
+
+        let (workspaceOpt, a1) = parseOption(args, name: "--workspace")
+        let (windowOpt, a2) = parseOption(a1, name: "--window")
+        let (surfaceOpt, a3) = parseOption(a2, name: "--surface")
+        let (focusOpt, a4) = parseOption(a3, name: "--focus")
+        args = a4
+
+        if let unknownFlag = args.first(where: { $0.hasPrefix("-") }) {
+            throw CLIError(message: "tmux attach: unknown flag '\(unknownFlag)'. \(usage)")
+        }
+        let target = args.first
+
+        var params: [String: Any] = [:]
+        if let target, !target.isEmpty {
+            params["target"] = target
+        }
+        if let surfaceRaw = surfaceOpt {
+            if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
+                params["surface_id"] = surface
+            }
+        }
+        let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        if let workspaceRaw {
+            if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
+                params["workspace_id"] = workspace
+            }
+        }
+        if let windowRaw = windowOpt {
+            if let window = try normalizeWindowHandle(windowRaw, client: client) {
+                params["window_id"] = window
+            }
+        }
+        try applyFocusOption(focusOpt, defaultValue: true, to: &params)
+
+        let payload = try client.sendV2(method: "tmux.attach", params: params)
+
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
+            print("OK surface=\(surfaceText)")
+        }
+    }
 
     private func runMarkdownCommand(
         commandArgs: [String],
@@ -5128,6 +5193,7 @@ struct CMUXCLI {
         "swap-pane",
         "tab-action",
         "themes",
+        "tmux",
         "top",
         "tree",
         "trigger-flash",
@@ -14726,6 +14792,32 @@ struct CMUXCLI {
               cmux markdown ~/project/CHANGELOG.md
               cmux markdown open ./docs/design.md --workspace 0
               cmux markdown open plan.md --direction down
+            """
+        case "tmux":
+            return """
+            Usage: cmux tmux attach [session] [options]
+
+            Attach a local tmux session and render it natively in the current
+            pane using a manual-IO Ghostty surface. You get native text
+            selection, cmd-F find, and real scrollback with a scrollbar, because
+            the pane is a real Ghostty terminal driven by tmux control mode
+            (cmux runs `tmux -CC` for you; never type it yourself). When the
+            session detaches or exits, the pane reverts to its previous surface.
+
+            Arguments:
+              session                      tmux session to attach or create
+                                           (default: most recent session)
+
+            Options:
+              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref|index>     Target surface (default: focused surface)
+              --window <id|ref|index>      Target window
+              --focus <true|false>         Focus the new surface (default: true)
+
+            Examples:
+              cmux tmux attach
+              cmux tmux attach main
+              cmux tmux attach work --window 0
             """
         default:
             return nil

@@ -4,6 +4,7 @@ import AppKit
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxSocketControl
+import CmuxTmuxControlMode
 import Combine
 import CryptoKit
 import Darwin
@@ -14861,6 +14862,96 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
         return newPanel
+    }
+
+    /// Add a control-mode terminal surface (manual-IO Ghostty, e.g. local
+    /// `tmux -CC`) to a pane. The surface renders the session natively (native
+    /// selection, find, scrollbar, scrollback). When the session ends, the
+    /// surface closes and the pane reveals the previously active surface — the
+    /// in-place takeover/revert described in
+    /// `plans/feat-control-mode-terminals/DESIGN.md`.
+    @discardableResult
+    func newControlModeTerminalSurface(
+        inPane paneId: PaneID,
+        session: any ControlModeSessionSource,
+        focus: Bool? = nil
+    ) -> TerminalPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+
+        let newPanel = TerminalPanel(
+            workspaceId: id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: inheritedConfig,
+            portOrdinal: portOrdinal,
+            controlModeSession: session
+        )
+        newPanel.updateTitle(session.displayName)
+        configureNewTerminalPanel(newPanel)
+        panels[newPanel.id] = newPanel
+        panelTitles[newPanel.id] = newPanel.displayTitle
+        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
+
+        // When the control-mode session ends (tmux detach/exit, gateway death),
+        // close this surface so the pane reveals the original shell surface.
+        let panelId = newPanel.id
+        newPanel.surface.onControlModeSessionEnded = { [weak self] _ in
+            self?.closePanel(panelId, force: true)
+        }
+
+        guard let newTabId = bonsplitController.createTab(
+            title: newPanel.displayTitle,
+            icon: newPanel.displayIcon,
+            kind: SurfaceKind.terminal,
+            isDirty: newPanel.isDirty,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: newPanel.id)
+            panelTitles.removeValue(forKey: newPanel.id)
+            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = newPanel.id
+        publishCmuxSurfaceCreated(newPanel.id, paneId: paneId, kind: "terminal", origin: "tmux_control_mode", focused: shouldFocusNewTab)
+
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            newPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: newPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+        return newPanel
+    }
+
+    /// Convenience: attach a local tmux control-mode session in the focused
+    /// pane of this workspace.
+    @discardableResult
+    func attachLocalTmuxControlMode(
+        target: TmuxAttachTarget,
+        inPane paneId: PaneID? = nil,
+        focus: Bool? = nil
+    ) -> TerminalPanel? {
+        guard let tmuxPath = TmuxControlModeGateway.resolveTmuxExecutable() else {
+            return nil
+        }
+        let resolvedPane = paneId ?? bonsplitController.focusedPaneId
+        guard let resolvedPane else { return nil }
+        let session = TmuxControlModeGateway(
+            target: target,
+            tmuxExecutablePath: tmuxPath,
+            environment: ProcessInfo.processInfo.environment
+        )
+        return newControlModeTerminalSurface(inPane: resolvedPane, session: session, focus: focus)
     }
 
     /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.

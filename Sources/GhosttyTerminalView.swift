@@ -1,5 +1,6 @@
 import Foundation
 import CmuxTerminalCopyMode
+import CmuxTmuxControlMode
 import CmuxSocketControl
 import SwiftUI
 import AppKit
@@ -5376,6 +5377,23 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var surface: ghostty_surface_t?
     private weak var attachedView: GhosttyNSView?
 
+    /// When set, this surface renders a control-mode session (local `tmux -CC`
+    /// today; Mac-host / cmuxd-remote later) via the manual-IO Ghostty backend
+    /// instead of spawning a local PTY. Session bytes flow in through
+    /// `ghostty_surface_process_output`; the user's keystrokes flow out through
+    /// the surface's `io_write_cb` to `session.sendInput`. Native selection,
+    /// find, scrollbar, and scrollback all work because they operate on the
+    /// local emulator's screen. See the `CmuxTmuxControlMode` package and
+    /// `plans/feat-control-mode-terminals/DESIGN.md`.
+    let controlModeSession: (any ControlModeSessionSource)?
+
+    /// Invoked on the main actor when the control-mode session ends (detach,
+    /// exit, or gateway death) so the owner can close/revert this surface.
+    var onControlModeSessionEnded: (@MainActor (String?) -> Void)?
+
+    private var controlModeSessionStarted = false
+    private var controlModeBridge: ControlModeSurfaceBridge?
+
     /// Whether the runtime Ghostty surface exists and has not begun teardown.
     ///
     /// Use this as a quick availability check. Before passing `surface` to
@@ -5596,8 +5614,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        controlModeSession: (any ControlModeSessionSource)? = nil
     ) {
+        self.controlModeSession = controlModeSession
         #if DEBUG
         dispatchPrecondition(condition: .onQueue(.main))
         #endif
@@ -6699,7 +6719,22 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        createWithCommandAndWorkingDirectory()
+        if controlModeSession != nil {
+            // Manual-IO backend: no PTY/subprocess. The control-mode session
+            // owns the data; bytes flow in via ghostty_surface_process_output
+            // and the user's keystrokes flow out via io_write_cb.
+            surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
+            surfaceConfig.io_write_cb = { userdata, buf, len in
+                guard let userdata, let buf, len > 0 else { return }
+                let data = Data(bytes: buf, count: Int(len))
+                let ctx = Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
+                ctx.terminalSurface?.handleControlModeOutboundBytes(data)
+            }
+            surfaceConfig.io_write_userdata = callbackContext.toOpaque()
+            createSurface()
+        } else {
+            createWithCommandAndWorkingDirectory()
+        }
 
         if surface == nil {
             surfaceCallbackContext?.release()
@@ -6732,14 +6767,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // and feed them into their own libghostty surface, guaranteeing
         // grid parity by construction. The userdata box is released
         // alongside `surfaceCallbackContext` when the surface tears down.
-        mobileByteTeeContext?.release()
-        let teeContext = Unmanaged.passRetained(MobileTerminalByteTeeUserdata(surfaceID: id))
-        ghostty_surface_set_pty_tee_cb(
-            createdSurface,
-            cmuxMobileTerminalByteTeeCallback,
-            teeContext.toOpaque()
-        )
-        mobileByteTeeContext = teeContext
+        // The PTY tee mirrors an exec surface's read-thread bytes to paired
+        // iPhones. A manual-IO control-mode surface has no PTY read thread, so
+        // skip it.
+        if controlModeSession == nil {
+            mobileByteTeeContext?.release()
+            let teeContext = Unmanaged.passRetained(MobileTerminalByteTeeUserdata(surfaceID: id))
+            ghostty_surface_set_pty_tee_cb(
+                createdSurface,
+                cmuxMobileTerminalByteTeeCallback,
+                teeContext.toOpaque()
+            )
+            mobileByteTeeContext = teeContext
+        }
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }
@@ -6773,6 +6813,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
             lastUncappedPixelHeight = hpx
             lastXScale = scaleFactors.x
             lastYScale = scaleFactors.y
+        }
+
+        // Start the control-mode session now that the surface exists and has a
+        // real grid size to negotiate with the source.
+        if let session = controlModeSession, !controlModeSessionStarted {
+            startControlModeSession(session, surface: createdSurface)
         }
 
         // Some GhosttyKit builds can drop inherited font_size during post-create
@@ -6884,6 +6930,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             ghostty_surface_set_size(surface, wpx, hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
+            if controlModeSession != nil {
+                notifyControlModeResize(surface)
+            }
         }
 
         // Let Ghostty continue rendering on its own wakeups for steady-state frames.
@@ -16443,5 +16492,75 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.hostedView = nil
 
         nsView.subviews.forEach { $0.removeFromSuperview() }
+    }
+}
+
+// MARK: - Control-mode (manual IO) surface glue
+
+extension TerminalSurface {
+    /// Begin the control-mode session once the surface exists and has a grid
+    /// size. Wires the session's snapshot/output back into this surface and
+    /// keeps the delegate bridge alive for the session's lifetime.
+    @MainActor
+    func startControlModeSession(_ session: any ControlModeSessionSource, surface: ghostty_surface_t) {
+        guard !controlModeSessionStarted else { return }
+        controlModeSessionStarted = true
+        let bridge = ControlModeSurfaceBridge(surface: self)
+        controlModeBridge = bridge
+        session.start(initialSize: currentControlModeSize(surface), delegate: bridge)
+    }
+
+    @MainActor
+    func notifyControlModeResize(_ surface: ghostty_surface_t) {
+        controlModeSession?.resize(currentControlModeSize(surface))
+    }
+
+    private func currentControlModeSize(_ surface: ghostty_surface_t) -> TerminalSize {
+        let size = ghostty_surface_size(surface)
+        return TerminalSize(columns: Int(size.columns), rows: Int(size.rows))
+    }
+
+    /// Bytes Ghostty encoded from the user's keystrokes (delivered via the
+    /// surface's `io_write_cb` on an arbitrary thread). Forward them to the
+    /// session, which is `Sendable` and serializes internally.
+    nonisolated func handleControlModeOutboundBytes(_ data: Data) {
+        guard !data.isEmpty else { return }
+        controlModeSession?.sendInput([UInt8](data))
+    }
+
+    /// Feed session bytes (snapshot or live output) into the local emulator.
+    @MainActor
+    func feedControlModeBytes(_ bytes: [UInt8]) {
+        guard !bytes.isEmpty, let surface else { return }
+        writeProcessOutputData(Data(bytes), to: surface)
+    }
+
+    @MainActor
+    func handleControlModeEnded(_ reason: String?) {
+        controlModeSession?.stop()
+        onControlModeSessionEnded?(reason)
+    }
+}
+
+/// Delegate bridge between a `ControlModeSessionSource` (which calls back on the
+/// main queue) and a `TerminalSurface` (which is not `Sendable`). The gateway
+/// guarantees main-thread delivery, so `MainActor.assumeIsolated` is safe here.
+final class ControlModeSurfaceBridge: ControlModeSessionDelegate, @unchecked Sendable {
+    weak var surface: TerminalSurface?
+
+    init(surface: TerminalSurface) {
+        self.surface = surface
+    }
+
+    func controlModeSession(didProduceSnapshot bytes: [UInt8]) {
+        MainActor.assumeIsolated { surface?.feedControlModeBytes(bytes) }
+    }
+
+    func controlModeSession(didProduceOutput bytes: [UInt8]) {
+        MainActor.assumeIsolated { surface?.feedControlModeBytes(bytes) }
+    }
+
+    func controlModeSession(didEndWithReason reason: String?) {
+        MainActor.assumeIsolated { surface?.handleControlModeEnded(reason) }
     }
 }

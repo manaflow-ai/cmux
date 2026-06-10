@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import AppKit
 import Bonsplit
+import CmuxTmuxControlMode
 
 struct AgentHibernationPanelState {
     let agent: SessionRestorableAgentSnapshot
@@ -166,7 +167,8 @@ final class TerminalPanel: Panel, ObservableObject {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        controlModeSession: (any ControlModeSessionSource)? = nil
     ) {
         let surface = TerminalSurface(
             id: id,
@@ -180,7 +182,8 @@ final class TerminalPanel: Panel, ObservableObject {
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement
+            focusPlacement: focusPlacement,
+            controlModeSession: controlModeSession
         )
         self.init(workspaceId: workspaceId, surface: surface)
     }

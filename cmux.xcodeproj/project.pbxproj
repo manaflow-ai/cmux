@@ -224,6 +224,8 @@
 		C5A1FED100000000000000D2 /* CmuxSwiftRenderUI in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */; };
 		C52830000000000000000001 /* CmuxTerminalCopyMode in Frameworks */ = {isa = PBXBuildFile; productRef = C52830000000000000000004 /* CmuxTerminalCopyMode */; };
 		C52830000000000000000002 /* CmuxTerminalCopyMode in Frameworks */ = {isa = PBXBuildFile; productRef = C52830000000000000000004 /* CmuxTerminalCopyMode */; };
+		C7B1100000000000000000A1 /* CmuxTmuxControlMode in Frameworks */ = {isa = PBXBuildFile; productRef = C7B1100000000000000000A4 /* CmuxTmuxControlMode */; };
+		C7B1100000000000000000A2 /* CmuxTmuxControlMode in Frameworks */ = {isa = PBXBuildFile; productRef = C7B1100000000000000000A4 /* CmuxTmuxControlMode */; };
 		C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */; };
 		B35750000000000000000004 /* CmuxTopProcessArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000003 /* CmuxTopProcessArguments.swift */; };
 		C7A50C000000000000000002 /* CmuxTopProcessCPUTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50C000000000000000001 /* CmuxTopProcessCPUTests.swift */; };
@@ -1468,6 +1470,7 @@
 				C5A1FED000000000000000C1 /* CmuxSwiftRender in Frameworks */,
 				C5A1FED100000000000000D1 /* CmuxSwiftRenderUI in Frameworks */,
 				C52830000000000000000001 /* CmuxTerminalCopyMode in Frameworks */,
+				C7B1100000000000000000A1 /* CmuxTmuxControlMode in Frameworks */,
 				CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */,
 				CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */,
 				AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */,
@@ -1518,6 +1521,7 @@
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
 				C52830000000000000000002 /* CmuxTerminalCopyMode in Frameworks */,
+				C7B1100000000000000000A2 /* CmuxTmuxControlMode in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -2316,6 +2320,7 @@
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A5354305A5354305A5354305 /* CmuxSocketControl */,
 				C52830000000000000000004 /* CmuxTerminalCopyMode */,
+				C7B1100000000000000000A4 /* CmuxTmuxControlMode */,
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
 				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
@@ -2416,6 +2421,7 @@
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
 				C52830000000000000000004 /* CmuxTerminalCopyMode */,
+				C7B1100000000000000000A4 /* CmuxTmuxControlMode */,
 				5E2701040000000000000001 /* Sentry */,
 				5E2701040000000000000002 /* CmuxFoundation */,
 			);
@@ -2479,6 +2485,7 @@
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
 				A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CmuxSocketControl" */,
 				C52830000000000000000003 /* XCLocalSwiftPackageReference "CmuxTerminalCopyMode" */,
+				C7B1100000000000000000A3 /* XCLocalSwiftPackageReference "CmuxTmuxControlMode" */,
 				C5A1FED000000000000000C4 /* XCLocalSwiftPackageReference "CmuxSwiftRender" */,
 				C5A1FED100000000000000D4 /* XCLocalSwiftPackageReference "CmuxSwiftRenderUI" */,
 				C5A1FED200000000000000E4 /* XCLocalSwiftPackageReference "CmuxSidebarInterpreterService" */,
@@ -3790,6 +3797,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxTerminalCopyMode;
 		};
+		C7B1100000000000000000A3 /* XCLocalSwiftPackageReference "CmuxTmuxControlMode" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxTmuxControlMode;
+		};
 		C5A1FED100000000000000D4 /* XCLocalSwiftPackageReference "CmuxSwiftRenderUI" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxSwiftRenderUI;
@@ -3949,6 +3960,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C52830000000000000000003 /* XCLocalSwiftPackageReference "CmuxTerminalCopyMode" */;
 			productName = CmuxTerminalCopyMode;
+		};
+		C7B1100000000000000000A4 /* CmuxTmuxControlMode */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C7B1100000000000000000A3 /* XCLocalSwiftPackageReference "CmuxTmuxControlMode" */;
+			productName = CmuxTmuxControlMode;
 		};
 		C5A1FED000000000000000C3 /* CmuxSwiftRender */ = {
 			isa = XCSwiftPackageProductDependency;

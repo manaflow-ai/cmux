@@ -4,6 +4,7 @@ import CmuxControlSocket
 import CmuxSettings
 import CmuxSocketControl
 import CmuxSwiftRenderUI
+import CmuxTmuxControlMode
 import Carbon.HIToolbox
 import CMUXMobileCore
 import CMUXWorkstream
@@ -2042,6 +2043,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceSplit(params: params))
         case "surface.respawn":
             return v2Result(id: id, self.v2SurfaceRespawn(params: params))
+        case "tmux.attach":
+            return v2Result(id: id, self.v2TmuxAttach(params: params))
         case "surface.create":
             return v2Result(id: id, self.v2SurfaceCreate(params: params))
         case "surface.close":
@@ -2510,6 +2513,7 @@ class TerminalController {
             "surface.focus",
             "surface.split",
             "surface.respawn",
+            "tmux.attach",
             "surface.create",
             "surface.close",
             "surface.drag_to_split",
@@ -7926,6 +7930,80 @@ class TerminalController {
             } else {
                 result = .err(code: "internal_error", message: "Failed to create split", data: nil)
             }
+        }
+        return result
+    }
+
+    /// `tmux.attach`: take over the focused pane with a local tmux control-mode
+    /// session rendered natively (manual-IO Ghostty). Optional `target` names a
+    /// session to attach or create; otherwise the most-recent session.
+    private func v2TmuxAttach(params: [String: Any]) -> V2CallResult {
+        let target: TmuxAttachTarget
+        if let name = v2OptionalTrimmedRawString(params, "target"), !name.isEmpty {
+            target = .session(name)
+        } else {
+            target = .mostRecent
+        }
+        let focus: Bool?
+        if v2HasNonNullParam(params, "focus") {
+            focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+        } else {
+            focus = nil
+        }
+        let fallbackTabManager = v2ResolveTabManager(params: params)
+
+        var result: V2CallResult = .err(
+            code: "internal_error",
+            message: String(localized: "rpc.v2.tmux.attach.failed", defaultValue: "Failed to attach tmux session"),
+            data: nil
+        )
+        v2MainSync {
+            guard let tabManager = fallbackTabManager else {
+                result = .err(
+                    code: "unavailable",
+                    message: String(localized: "rpc.v2.tmux.attach.tabManagerUnavailable", defaultValue: "Unable to access the target workspace"),
+                    data: nil
+                )
+                return
+            }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(
+                    code: "not_found",
+                    message: String(localized: "rpc.v2.tmux.attach.workspaceNotFound", defaultValue: "Workspace not found"),
+                    data: nil
+                )
+                return
+            }
+            guard TmuxControlModeGateway.resolveTmuxExecutable() != nil else {
+                result = .err(
+                    code: "unavailable",
+                    message: String(localized: "rpc.v2.tmux.attach.tmuxMissing", defaultValue: "tmux is not installed"),
+                    data: nil
+                )
+                return
+            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+            guard let panel = ws.attachLocalTmuxControlMode(target: target, focus: focus) else {
+                result = .err(
+                    code: "internal_error",
+                    message: String(localized: "rpc.v2.tmux.attach.failed", defaultValue: "Failed to attach tmux session"),
+                    data: nil
+                )
+                return
+            }
+
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": panel.id.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
+                "type": panel.panelType.rawValue,
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId)
+            ])
         }
         return result
     }
