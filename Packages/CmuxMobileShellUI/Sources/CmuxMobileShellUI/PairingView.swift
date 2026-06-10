@@ -14,14 +14,14 @@ import AppKit
 struct PairingView: View {
     @Binding var pairingCode: String
     let connectionError: String?
+    /// A shorter, actionable next-step line shown beneath ``connectionError``
+    /// (for example "Check that both devices are on the same Tailscale"). `nil`
+    /// when the headline is already the full instruction.
+    let connectionErrorGuidance: String?
     let connectPairingCode: () async -> Void
     let connectManualHost: (String, String, Int) async -> Void
     let cancelPairing: () -> Void
     let cancel: () -> Void
-
-    /// The Founders Edition page (Mac download + TestFlight enrollment) the
-    /// "Download via TestFlight" link points at while TestFlight is private.
-    private static let testFlightURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
 
     @State private var isShowingScanner = false
     @State private var deviceName = UITestConfig.addDeviceName
@@ -130,19 +130,6 @@ struct PairingView: View {
                 }
                 #endif
 
-                Section {
-                    Link(destination: Self.testFlightURL) {
-                        Label(
-                            L10n.string("mobile.testflight.link", defaultValue: "Download via TestFlight"),
-                            systemImage: "arrow.down.circle"
-                        )
-                        .frame(maxWidth: .infinity)
-                    }
-                    .accessibilityIdentifier("MobileTestFlightLink")
-                } footer: {
-                    Text(L10n.string("mobile.testflight.help", defaultValue: "TestFlight is invite-only for now. Get the Founders Edition to enroll and to download cmux for Mac."))
-                }
-
                 if let manualRouteWarningText {
                     Section {
                         Label {
@@ -161,6 +148,12 @@ struct PairingView: View {
                             Text(errorText)
                                 .foregroundStyle(.red)
                                 .accessibilityIdentifier("MobilePairingError")
+                            if let guidanceText = errorGuidanceText {
+                                Text(guidanceText)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityIdentifier("MobilePairingErrorGuidance")
+                            }
                             Text(signedInAccountText)
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
@@ -242,6 +235,14 @@ struct PairingView: View {
 
     private var errorText: String? {
         validationError ?? connectionError
+    }
+
+    /// The guidance line only belongs to a connection error. A local validation
+    /// error (bad host/port) is self-explanatory and has no store-side guidance,
+    /// so suppress the connection guidance while a validation error is showing.
+    private var errorGuidanceText: String? {
+        guard validationError == nil else { return nil }
+        return connectionErrorGuidance
     }
 
     private var manualRouteWarningText: String? {

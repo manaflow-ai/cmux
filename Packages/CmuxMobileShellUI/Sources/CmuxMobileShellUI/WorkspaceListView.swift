@@ -20,6 +20,13 @@ struct WorkspaceListView: View {
     let wrapWorkspaceTitles: Bool
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
+    /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
+    /// paired Mac so the system refresh spinner reflects actual completion (and
+    /// ends gracefully, leaving the list intact, when the Mac is offline). Passed
+    /// as a closure so no `@Observable` store crosses the `List` boundary. `nil`
+    /// in previews, where pull-to-refresh is hidden. `@Sendable` to match
+    /// SwiftUI's `refreshable(action:)` action type under Swift 6.
+    var refresh: (@Sendable () async -> Void)?
     /// Optional: when present, the toolbar shows a "settings" menu offering
     /// "Rescan QR" (disconnect + re-pair) and "Sign out". When nil (e.g.
     /// previews), the menu is hidden.
@@ -90,6 +97,7 @@ struct WorkspaceListView: View {
             }
         }
         .listStyle(.plain)
+        .workspaceListRefreshable(refresh)
         .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
         .mobileInlineNavigationTitle()
         .searchable(text: $searchText)

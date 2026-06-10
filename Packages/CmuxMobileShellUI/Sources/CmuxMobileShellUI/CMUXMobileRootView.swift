@@ -1,6 +1,7 @@
 import Foundation
 import CmuxAuthRuntime
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
@@ -16,6 +17,15 @@ struct CMUXMobileRootView: View {
     @Environment(AuthCoordinator.self) private var authManager
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
+    /// The persisted first-run onboarding "seen" flag store. The one-time
+    /// onboarding screen gates ahead of the never-paired add-device state.
+    private let onboardingStore: MobileOnboardingStore
+    /// Mirrors ``MobileOnboardingStore/hasSeenOnboarding`` so completing
+    /// onboarding (which calls `markSeen()` in the button action) re-renders the
+    /// root and falls through to the pairing flow. Seeded synchronously from the
+    /// store so the very first frame already reflects a prior install's state and
+    /// never flashes onboarding for a returning user.
+    @State private var hasSeenOnboarding: Bool
     #endif
     @State private var pendingAttachURL: String?
     @State private var didConsumeUITestAttachURL = false
@@ -31,6 +41,18 @@ struct CMUXMobileRootView: View {
     /// foreground returns. `nil` when unwired (previews), which shows no
     /// Tailscale guidance.
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
+
+    #if os(iOS)
+    init(store: CMUXMobileShellStore, onboardingStore: MobileOnboardingStore) {
+        self.store = store
+        self.onboardingStore = onboardingStore
+        _hasSeenOnboarding = State(initialValue: onboardingStore.hasSeenOnboarding)
+    }
+    #else
+    init(store: CMUXMobileShellStore) {
+        self.store = store
+    }
+    #endif
 
     private var shouldShowTerminalLayoutPreview: Bool {
         #if os(iOS) && DEBUG
@@ -139,16 +161,25 @@ struct CMUXMobileRootView: View {
                 // yet know if there is a session to restore.
                 MobilePairedMacDeterminingView()
             }
+        } else if shouldShowOnboarding {
+            // Placed after the reconnect-determining branch so `hasKnownPairedMac`
+            // has resolved: a genuine first run (never onboarded, never paired)
+            // sees the one-time explainer before the add-device flow; a returning
+            // paired-but-offline user (who can reach here after a failed
+            // reconnect) is excluded by the gate and falls through to pairing.
+            onboardingFlow
         } else if store.connectionState != .connected {
             DisconnectedWorkspaceShellView(
                 hasKnownPairedMac: store.hasKnownPairedMac,
                 showAddDevice: showAddDevice,
-                signOut: signOut
+                signOut: signOut,
+                store: store
             )
             .sheet(isPresented: $isShowingAddDeviceSheet) {
                 PairingView(
                     pairingCode: $store.pairingCode,
                     connectionError: store.connectionError,
+                    connectionErrorGuidance: store.connectionErrorGuidance,
                     connectPairingCode: {
                         await store.connectPairingInput()
                     },
@@ -170,6 +201,38 @@ struct CMUXMobileRootView: View {
             WorkspaceShellView(store: store, signOut: signOut)
         }
     }
+
+    /// Whether the one-time first-run onboarding should be presented. Always
+    /// `false` off iOS (onboarding is iOS-only).
+    private var shouldShowOnboarding: Bool {
+        #if os(iOS)
+        return MobileOnboardingGate.shouldShowOnboarding(
+            hasSeenOnboarding: hasSeenOnboarding,
+            hasKnownPairedMac: store.hasKnownPairedMac
+        )
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder
+    private var onboardingFlow: some View {
+        #if os(iOS)
+        OnboardingFlowView(onComplete: completeOnboarding)
+        #else
+        EmptyView()
+        #endif
+    }
+
+    #if os(iOS)
+    /// Persists the onboarding "seen" flag and re-renders so the root falls
+    /// through to the pairing flow. Called from the onboarding button actions
+    /// (Skip / Get started), not a view-lifecycle callback.
+    private func completeOnboarding() {
+        onboardingStore.markSeen()
+        hasSeenOnboarding = true
+    }
+    #endif
 
     private var isAuthenticated: Bool {
         MobileRootAuthGate.isAuthenticated(
