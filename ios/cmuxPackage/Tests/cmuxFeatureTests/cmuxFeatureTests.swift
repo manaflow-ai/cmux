@@ -1038,6 +1038,12 @@ final class TerminalOutputCollector {
     #expect(workspaceLists[0].terminalID == nil)
     #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
     #expect(workspaceLists.allSatisfy { $0.stackAccessToken == "test-stack-token" })
+    // The race's credential-free probe ran first and carried no credential:
+    // neither the Stack bearer token nor the ticket's attach token may reach
+    // an endpoint before it proves it speaks the cmux mobile protocol.
+    let probes = try await responses.probeRequests()
+    #expect(probes.isEmpty == false)
+    #expect(probes.allSatisfy { $0.hasAuth == false })
     let workspaceIDs = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, docsWorkspaceID])
     #expect(workspaceIDs == [workspaceID, docsWorkspaceID])
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
@@ -2818,25 +2824,48 @@ private actor RouteAttemptRecorder {
 private actor ScriptedTransportResponses {
     private var frames: [Data]
     private var sentPayloads: [Data] = []
+    private var probePayloads: [Data] = []
 
     init(_ frames: [Data]) {
         self.frames = frames
     }
 
-    func recordSend(_ data: Data) throws -> [Data] {
+    /// Answers one transport send against the positional frame script.
+    ///
+    /// The pairing race's credential-free `mobile.host.status` probe (always
+    /// the first request on a freshly dialed connection) is answered here by
+    /// the mock host itself instead of consuming a scripted frame, exactly as
+    /// every real host answers the status probe before auth. This keeps the
+    /// positional scripts and the credentialed request-sequence assertions
+    /// describing the credentialed flow; probes are recorded separately in
+    /// ``probeRequests()``.
+    func recordSend(_ data: Data, isFirstRequestOnConnection: Bool = false) throws -> [Data] {
         var buffer = data
         let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
         var responses: [Data] = []
+        var isFirst = isFirstRequestOnConnection
         for payload in payloads {
+            let request = try recordedRPCRequest(from: payload)
+            if isFirst, request.method == "mobile.host.status" {
+                isFirst = false
+                probePayloads.append(payload)
+                responses.append(try responseFrame(rpcHostStatusFrame(renderGrid: false), matching: request))
+                continue
+            }
+            isFirst = false
             sentPayloads.append(payload)
             guard !frames.isEmpty else {
                 continue
             }
-            let request = try recordedRPCRequest(from: payload)
-            let response = try responseFrame(frames.removeFirst(), matching: request)
-            responses.append(response)
+            responses.append(try responseFrame(frames.removeFirst(), matching: request))
         }
         return responses
+    }
+
+    /// The credential-free probes answered by the mock host (not part of the
+    /// scripted credentialed sequence in ``sentRequests()``).
+    func probeRequests() throws -> [RecordedRPCRequest] {
+        try probePayloads.map { try recordedRPCRequest(from: $0) }
     }
 
     func hasRemainingFrames() -> Bool {
@@ -2912,6 +2941,7 @@ private actor ScriptedTransport: CmxByteTransport {
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
     private var inFlightSends = 0
     private var isClosed = false
+    private var sentAnyRequest = false
 
     init(responses: ScriptedTransportResponses) {
         self.responses = responses
@@ -2925,9 +2955,11 @@ private actor ScriptedTransport: CmxByteTransport {
 
     func send(_ data: Data) async throws {
         inFlightSends += 1
+        let isFirstRequest = !sentAnyRequest
+        sentAnyRequest = true
         let responseFrames: [Data]
         do {
-            responseFrames = try await responses.recordSend(data)
+            responseFrames = try await responses.recordSend(data, isFirstRequestOnConnection: isFirstRequest)
         } catch {
             inFlightSends -= 1
             await finishExhaustedReceiversIfIdle()
@@ -3009,6 +3041,7 @@ private actor FailingRouteTransport: CmxByteTransport {
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
     private var inFlightSends = 0
     private var isClosed = false
+    private var sentAnyRequest = false
 
     init(
         routeID: String,
@@ -3035,9 +3068,11 @@ private actor FailingRouteTransport: CmxByteTransport {
 
     func send(_ data: Data) async throws {
         inFlightSends += 1
+        let isFirstRequest = !sentAnyRequest
+        sentAnyRequest = true
         let responseFrames: [Data]
         do {
-            responseFrames = try await responses.recordSend(data)
+            responseFrames = try await responses.recordSend(data, isFirstRequestOnConnection: isFirstRequest)
         } catch {
             inFlightSends -= 1
             await finishExhaustedReceiversIfIdle()
