@@ -44,10 +44,18 @@ struct WorkspaceCIStatusGraphQLResponse: Decodable, Sendable {
 
     /// The GraphQL query string (uses `$owner`/`$name` variables — never string
     /// interpolation — so a slug can't inject into the query).
+    ///
+    /// Ordered by most-recently-updated so that in a repo with more than 100
+    /// open PRs the fetched window covers the active branches workspaces map to
+    /// (mirroring the REST `sort=updated&direction=desc` path). The bound is
+    /// intentional: one request per repo per cache window must not scale with
+    /// open-PR count, so older PRs beyond the window stay neutral until they
+    /// re-enter it. A workspace branch outside the window still gets its PR via
+    /// the REST per-branch lookup; only its CI glyph degrades to neutral.
     static let query = """
     query($owner: String!, $name: String!) { \
     repository(owner: $owner, name: $name) { \
-    pullRequests(states: OPEN, first: 100) { nodes { \
+    pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { \
     number headRefName \
     commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } \
     } } } }
