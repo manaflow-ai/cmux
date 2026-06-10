@@ -68,7 +68,8 @@ struct ControlCommandCoordinatorWindowTests {
 
     @Test func unownedMethodFallsThrough() {
         let (coordinator, _) = makeCoordinator()
-        #expect(coordinator.handle(request("workspace.list")) == nil)
+        // A method no coordinator domain owns yet (browser is not extracted).
+        #expect(coordinator.handle(request("browser.navigate")) == nil)
     }
 
     @Test func windowListBuildsRowsWithMintedRefs() {

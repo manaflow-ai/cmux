@@ -165,6 +165,267 @@ extension ControlWorkspaceGroupContext {
     ) -> ControlWorkspaceGroupFocusResolution { .tabManagerUnavailable }
 }
 
+extension ControlWorkspaceContext {
+    func controlWorkspaceStrings() -> ControlWorkspaceStrings {
+        ControlWorkspaceStrings(
+            closeProtected: "",
+            reorderManyMissingOrder: "",
+            reorderManyDuplicateWorkspace: "",
+            reorderManyWorkspaceNotFound: "",
+            reorderManyInvalidWorkspace: "",
+            reorderManyTabManagerUnavailable: ""
+        )
+    }
+
+    func controlWorkspaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { false }
+
+    func controlWorkspaceList(routing: ControlRoutingSelectors) -> ControlWorkspaceListResolution {
+        .tabManagerUnavailable
+    }
+
+    func controlWorkspaceCurrent(routing: ControlRoutingSelectors) -> ControlWorkspaceCurrentResolution {
+        .tabManagerUnavailable
+    }
+
+    func controlCreateWorkspace(
+        routing: ControlRoutingSelectors,
+        inputs: ControlWorkspaceCreateInputs
+    ) -> ControlWorkspaceCreateResolution { .tabManagerUnavailable }
+
+    func controlSelectWorkspace(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID
+    ) -> ControlWorkspaceRoutedResolution { .tabManagerUnavailable }
+
+    func controlCloseWorkspace(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID
+    ) -> ControlWorkspaceCloseResolution { .tabManagerUnavailable }
+
+    func controlMoveWorkspaceToWindow(
+        workspaceID: UUID,
+        windowID: UUID,
+        focusRequested: Bool
+    ) -> ControlWorkspaceMoveToWindowResolution { .workspaceNotFound }
+
+    func controlReorderWorkspace(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        toIndex: Int?,
+        beforeWorkspaceID: UUID?,
+        afterWorkspaceID: UUID?,
+        dryRun: Bool
+    ) -> ControlWorkspaceReorderResolution { .notFound }
+
+    func controlReorderWorkspacesMany(
+        routing: ControlRoutingSelectors,
+        workspaceIDs: [UUID],
+        dryRun: Bool
+    ) -> ControlWorkspaceReorderManyResolution { .tabManagerUnavailable }
+
+    func controlSubmitWorkspacePrompt(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        message: String?
+    ) -> ControlWorkspacePromptSubmitResolution { .tabManagerUnavailable }
+
+    func controlRenameWorkspace(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        title: String
+    ) -> ControlWorkspaceRoutedResolution { .tabManagerUnavailable }
+
+    func controlSelectNextWorkspace(routing: ControlRoutingSelectors) -> ControlWorkspaceNavigationResolution {
+        .tabManagerUnavailable
+    }
+
+    func controlSelectPreviousWorkspace(routing: ControlRoutingSelectors) -> ControlWorkspaceNavigationResolution {
+        .tabManagerUnavailable
+    }
+
+    func controlSelectLastWorkspace(routing: ControlRoutingSelectors) -> ControlWorkspaceNavigationResolution {
+        .tabManagerUnavailable
+    }
+
+    func controlEqualizeWorkspaceSplits(
+        routing: ControlRoutingSelectors,
+        orientationFilter: String?
+    ) -> ControlWorkspaceEqualizeResolution { .tabManagerUnavailable }
+
+    func controlConfigureWorkspaceRemote(
+        params: [String: JSONValue],
+        workspaceID: UUID
+    ) -> ControlCallResult { .err(code: "unavailable", message: "", data: nil) }
+
+    func controlDisconnectWorkspaceRemote(
+        workspaceID: UUID,
+        clearConfiguration: Bool
+    ) -> ControlWorkspaceRemoteResolution { .notFound(workspaceID: workspaceID) }
+
+    func controlReconnectWorkspaceRemote(workspaceID: UUID) -> ControlWorkspaceRemoteResolution {
+        .notFound(workspaceID: workspaceID)
+    }
+
+    func controlWorkspaceRemoteForegroundAuthReady(
+        workspaceID: UUID,
+        foregroundAuthToken: String?
+    ) -> ControlWorkspaceRemoteResolution { .notFound(workspaceID: workspaceID) }
+
+    func controlWorkspaceRemoteStatus(workspaceID: UUID) -> ControlWorkspaceRemoteResolution {
+        .notFound(workspaceID: workspaceID)
+    }
+
+    func controlResolveRemoteWorkspaceID(
+        routing: ControlRoutingSelectors,
+        requestedWorkspaceID: UUID?
+    ) -> UUID? { requestedWorkspaceID }
+
+    func controlWorkspaceRemotePTYAttachEnd(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        sessionID: String
+    ) -> ControlWorkspaceRemotePTYAttachEndResolution { .notFound }
+
+    func controlWorkspaceRemoteTerminalSessionEnd(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        relayPort: Int
+    ) -> ControlWorkspaceRemoteTerminalSessionEndResolution { .notFound }
+}
+
+extension ControlSurfaceContext {
+    func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { false }
+
+    func controlSurfaceList(routing: ControlRoutingSelectors) -> ControlSurfaceListSnapshot? { nil }
+    func controlSurfaceCurrent(routing: ControlRoutingSelectors) -> ControlSurfaceCurrentSnapshot? { nil }
+    func controlSurfaceHealth(routing: ControlRoutingSelectors) -> ControlSurfaceHealthSnapshot? { nil }
+
+    func controlSurfaceFocus(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlSurfaceFocusResolution { .tabManagerUnavailable }
+
+    func controlSurfaceRespawnStrings() -> ControlSurfaceRespawnStrings {
+        ControlSurfaceRespawnStrings(
+            invalidFocus: "",
+            failed: "",
+            surfaceNotFoundForID: "",
+            tabManagerUnavailable: "",
+            workspaceNotFound: "",
+            noFocusedSurface: "",
+            surfaceNotTerminal: ""
+        )
+    }
+
+    func controlSurfaceSplit(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceSplitInputs
+    ) -> ControlSurfaceSplitResolution { .tabManagerUnavailable }
+
+    func controlSurfaceRespawn(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceRespawnInputs
+    ) -> ControlSurfaceRespawnResolution { .tabManagerUnavailable }
+
+    func controlSurfaceCreate(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceCreateInputs
+    ) -> ControlSurfaceCreateResolution { .tabManagerUnavailable }
+
+    func controlSurfaceClose(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?
+    ) -> ControlSurfaceCloseResolution { .tabManagerUnavailable }
+
+    func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {
+        .err(code: "internal_error", message: "", data: nil)
+    }
+
+    func controlSurfaceReorder(
+        surfaceID: UUID,
+        inputs: ControlSurfaceReorderInputs,
+        requestedFocus: Bool
+    ) -> ControlSurfaceReorderResolution { .surfaceNotFound(surfaceID) }
+
+    func controlSurfaceRefresh(
+        routing: ControlRoutingSelectors
+    ) -> ControlSurfaceRefreshResolution { .tabManagerUnavailable }
+
+    func controlSurfaceClearHistory(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?
+    ) -> ControlSurfaceClearHistoryResolution { .tabManagerUnavailable }
+
+    func controlSurfaceTriggerFlash(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?
+    ) -> ControlSurfaceTriggerFlashResolution { .tabManagerUnavailable }
+
+    func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
+        ControlSurfaceInputStrings(inputQueueFull: "", surfaceUnavailable: "", processExited: "")
+    }
+
+    func controlSurfaceSendText(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        text: String
+    ) -> ControlSurfaceSendResolution { .tabManagerUnavailable }
+
+    func controlSurfaceSendKey(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        key: String
+    ) -> ControlSurfaceSendResolution { .tabManagerUnavailable }
+
+    func controlSurfaceReadText(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        includeScrollback: Bool,
+        lineLimit: Int?
+    ) -> ControlSurfaceReadTextResolution { .tabManagerUnavailable }
+
+    func controlSurfaceResumeSet(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceResumeSetInputs
+    ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
+
+    func controlSurfaceResumeGet(
+        routing: ControlRoutingSelectors
+    ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
+
+    func controlSurfaceResumeClear(
+        routing: ControlRoutingSelectors,
+        expectedCheckpointID: String?,
+        expectedSource: String?
+    ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
+
+    func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }
+    func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? { nil }
+
+    func controlSurfaceReportTTY(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        ttyName: String
+    ) -> ControlSurfaceReportTTYResolution { .workspaceNotFound }
+
+    func controlSurfaceReportShellState(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        stateRawValue: String
+    ) -> ControlSurfaceReportShellStateResolution { .pending }
+
+    func controlSurfacePortsKick(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        reasonRawValue: String
+    ) -> ControlSurfacePortsKickResolution { .workspaceNotFound }
+
+    func controlDebugTerminals() -> JSONValue? { nil }
+}
+
 extension ControlMobileHostContext {
     private var mobileHostStubResult: ControlCallResult {
         .err(code: "unavailable", message: "", data: nil)

@@ -70,6 +70,8 @@ public final class ControlCommandCoordinator {
         if let result = handleWorkspaceGroup(request) { return result }
         if let result = handlePane(request) { return result }
         if let result = handleMobileHost(request) { return result }
+        if let result = handleWorkspace(request) { return result }
+        if let result = handleSurface(request) { return result }
         return nil
     }
 
