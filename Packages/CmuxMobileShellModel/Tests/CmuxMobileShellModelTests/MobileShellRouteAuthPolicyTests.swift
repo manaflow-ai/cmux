@@ -43,6 +43,30 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(irohPeer))
     }
 
+    @Test func routeRequiresTailnetOnlyForTailscaleHostsOnTailscaleRoutes() throws {
+        let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+        let tailscaleMagicDNS = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+        // A `.tailscale`-kind route to a plain LAN/loopback host does not need
+        // the tailnet, and a tailnet host on the loopback kind is not trusted
+        // as a tailnet route either: both the kind and the host must agree.
+        let lanOnTailscaleKind = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
+        let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+        let tailnetHostOnLoopbackKind = try hostPortRoute(kind: .debugLoopback, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+        let irohPeer = try CmxAttachRoute(
+            id: CmxAttachTransportKind.iroh.rawValue,
+            kind: .iroh,
+            endpoint: .peer(id: "peer-1", relayHint: nil, directAddrs: [], relayURL: nil),
+            priority: 0
+        )
+
+        #expect(MobileShellRouteAuthPolicy.routeRequiresTailnet(tailscaleIP))
+        #expect(MobileShellRouteAuthPolicy.routeRequiresTailnet(tailscaleMagicDNS))
+        #expect(!MobileShellRouteAuthPolicy.routeRequiresTailnet(lanOnTailscaleKind))
+        #expect(!MobileShellRouteAuthPolicy.routeRequiresTailnet(loopback))
+        #expect(!MobileShellRouteAuthPolicy.routeRequiresTailnet(tailnetHostOnLoopbackKind))
+        #expect(!MobileShellRouteAuthPolicy.routeRequiresTailnet(irohPeer))
+    }
+
     @Test func allowsStackAuthOnlyForEncryptedOrLoopbackRoutes() throws {
         let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)

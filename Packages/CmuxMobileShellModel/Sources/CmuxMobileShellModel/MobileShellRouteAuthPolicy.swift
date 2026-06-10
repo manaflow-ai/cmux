@@ -118,6 +118,20 @@ public struct MobileShellRouteAuthPolicy {
         return isLoopbackHost(host)
     }
 
+    /// Whether the route only works while both devices are on the same
+    /// Tailscale tailnet: a `.tailscale`-kind route whose host is a Tailscale
+    /// CGNAT address or a `.ts.net` MagicDNS name. Loopback and plain-LAN
+    /// routes return `false`, so a phone-side "Tailscale is off" check knows
+    /// when it is not applicable.
+    /// - Parameter route: The candidate attach route.
+    /// - Returns: `true` when reaching the route requires an active tailnet.
+    public static func routeRequiresTailnet(_ route: CmxAttachRoute) -> Bool {
+        guard case let .hostPort(host, _) = route.endpoint else {
+            return false
+        }
+        return route.kind == .tailscale && isTailscaleHost(host)
+    }
+
     /// Whether a manual host should warn the user that it is neither loopback nor Tailscale.
     /// - Parameter host: The manually typed host.
     /// - Returns: `true` when the host is valid but outside the loopback/Tailscale trust set.

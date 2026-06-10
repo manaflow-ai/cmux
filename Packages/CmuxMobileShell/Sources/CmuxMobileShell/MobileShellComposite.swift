@@ -122,6 +122,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
     public private(set) var connectionErrorGuidance: String?
+    /// The classified category behind ``connectionError``: the connection doctor's evidence.
+    public private(set) var lastPairingFailureCategory: MobilePairingFailureCategory?
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
 
@@ -203,19 +205,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
 
     private let runtime: (any MobileSyncRuntime)?
-    private let pairedMacStore: (any MobilePairedMacStoring)?
+    // Doctor-probe seams: internal only for `MobileShellComposite+ConnectionDoctor.swift`.
+    let pairedMacStore: (any MobilePairedMacStoring)?
     /// Best-effort, team-scoped lookup of fresher attach routes from the device
     /// registry. Optional and failure-tolerant: when `nil` or unreachable,
     /// reconnect uses the locally persisted paired-Mac routes, so pairing
     /// survives the cloud registry being down.
-    private let deviceRegistry: (any DeviceRegistryRefreshing)?
-    private let identityProvider: (any MobileIdentityProviding)?
-    private let reachability: any ReachabilityProviding
+    let deviceRegistry: (any DeviceRegistryRefreshing)?
+    let identityProvider: (any MobileIdentityProviding)?
+    let reachability: any ReachabilityProviding
     private let pairingHintDefaults: UserDefaults
     private let clientID: String
     /// The injected, fire-and-forget product-analytics emitter. Defaults to
     /// ``NoopAnalytics`` so previews/tests inject nothing.
-    private let analytics: any AnalyticsEmitting
+    let analytics: any AnalyticsEmitting
     /// Collapses connection-state edges into one-per-outage lost/recovered events.
     private var connectionOutageThrottle = ConnectionOutageThrottle()
     /// When the current outage began, for the recovered event's duration.
@@ -820,8 +823,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func connectManualHost(name: String, host: String, port: Int) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
+            clearPairingError()
             connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
-            connectionErrorGuidance = nil
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -834,8 +837,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         guard (1...65535).contains(port) else {
+            clearPairingError()
             connectionError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
-            connectionErrorGuidance = nil
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -1623,11 +1626,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "pending_byte_count": .int(rawTerminalInputBuffer.pendingByteCount),
                 "reason": .string("queue_full"),
             ])
+            clearPairingError()
             connectionError = L10n.string(
                 "mobile.terminal.inputQueueFull",
                 defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
             )
-            connectionErrorGuidance = nil
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -1702,16 +1705,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let firstRoute = supportedRoutes.first else {
             // No route kind this build can dial: set the specific category;
             // the caller records the matching analytics reason from it.
-            connectionError = MobilePairingFailureCategory.noSupportedRoute.message
-            connectionErrorGuidance = MobilePairingFailureCategory.noSupportedRoute.guidance
+            setPairingFailureSurface(.noSupportedRoute)
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
             return .noSupportedRoute
         }
         guard Self.attachTicketIsUnexpired(ticket, now: runtime?.now() ?? Date()) else {
-            connectionError = MobilePairingFailureCategory.ticketExpired.message
-            connectionErrorGuidance = MobilePairingFailureCategory.ticketExpired.guidance
+            setPairingFailureSurface(.ticketExpired)
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -2052,20 +2053,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Apply a classified pairing failure to the user-visible error surface and
     /// emit its analytics reason in one place: the single failure sink for every
-    /// non-cancelled, non-superseded failure, so a failed attempt always ends
-    /// with a non-empty ``connectionError`` plus its ``connectionErrorGuidance``
-    /// line and one `ios_pairing_failed` whose `reason` matches the message.
-    /// ``connectionState``/``macConnectionStatus`` teardown stays at the call
-    /// sites because some paths (auth re-auth) also flip ``connectionRequiresReauth``.
+    /// non-cancelled, non-superseded failure. ``connectionState``/``macConnectionStatus``
+    /// teardown stays at the call sites (auth paths also flip ``connectionRequiresReauth``).
     private func applyPairingFailure(_ category: MobilePairingFailureCategory, phase: String) {
         // `.cancelled` (the only empty-message category) must be handled by
         // `catch is CancellationError` branches before classification.
         assert(!category.message.isEmpty, "applyPairingFailure must not receive .cancelled")
-        if !category.message.isEmpty {
-            connectionError = category.message
-        }
-        connectionErrorGuidance = category.guidance
+        setPairingFailureSurface(category)
         recordPairingFailed(reason: category.analyticsReason, phase: phase)
+    }
+
+    /// Applies a classified category to the whole failure surface (headline, guidance,
+    /// doctor evidence); falls back to the generic headline on an empty message.
+    private func setPairingFailureSurface(_ category: MobilePairingFailureCategory) {
+        connectionError = category.message.isEmpty
+            ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
+            : category.message
+        connectionErrorGuidance = category.guidance
+        lastPairingFailureCategory = category
     }
 
     /// Clear the error and its guidance together (never bare `connectionError
@@ -2073,6 +2078,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func clearPairingError() {
         connectionError = nil
         connectionErrorGuidance = nil
+        lastPairingFailureCategory = nil
     }
 
     /// Record an `ios_pairing_failed` for a `connect()` that returned without
@@ -2095,11 +2101,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// connection, e.g. create-workspace) through the same classifier as
     /// pairing. Does NOT emit `ios_pairing_failed` (no attempt is in flight).
     private func applyOperationalError(_ error: any Error) {
-        let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
-        connectionError = category.message.isEmpty
-            ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
-            : category.message
-        connectionErrorGuidance = category.guidance
+        setPairingFailureSurface(MobilePairingFailureCategory.classify(error: error, route: activeRoute))
     }
 
     /// How the preflight resolved: proceed, ``.offline`` applied, or superseded.
@@ -3139,13 +3141,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
-        // Not `applyPairingFailure`: this path also sets `connectionRequiresReauth`,
-        // uses fallback-if-empty, and gates analytics on `pairingAttemptMethod` so
-        // live-connection auth evictions never emit `ios_pairing_failed`.
-        connectionError = category.message.isEmpty
-            ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
-            : category.message
-        connectionErrorGuidance = category.guidance
+        // Not `applyPairingFailure`: this path also sets `connectionRequiresReauth`
+        // and gates analytics on `pairingAttemptMethod` so live-connection auth
+        // evictions never emit `ios_pairing_failed`.
+        setPairingFailureSurface(category)
         connectionRequiresReauth = true
         connectionState = .disconnected
         macConnectionStatus = .unavailable
