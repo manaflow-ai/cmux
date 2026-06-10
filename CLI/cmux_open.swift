@@ -997,9 +997,16 @@ extension CMUXCLI {
         let appearance = diffViewerAppearance(socketPath: socketPath, fontSizeOverride: nil)
         let runtime = diffViewerRuntime(socketPath: socketPath)
         let writable = FileManager.default.isWritableFile(atPath: fileURL.path)
-        let contentSha256 = SHA256.hash(data: fileData)
-            .map { String(format: "%02x", $0) }
-            .joined()
+        // Pure Swift nibble encoding: String(format:) in hash paths is the
+        // known unbounded-memory P0 class in this repo.
+        let hexDigits = Array("0123456789abcdef".utf8)
+        var contentShaBytes = [UInt8]()
+        contentShaBytes.reserveCapacity(64)
+        for byte in SHA256.hash(data: fileData) {
+            contentShaBytes.append(hexDigits[Int(byte >> 4)])
+            contentShaBytes.append(hexDigits[Int(byte & 0x0f)])
+        }
+        let contentSha256 = String(decoding: contentShaBytes, as: UTF8.self)
         let editor = try writeEditor(
             filePath: fileURL.path,
             content: content,

@@ -95,11 +95,16 @@ final class CmuxEditorSaveRegistry: @unchecked Sendable {
     func fileURL(forToken token: String, requestOrigin: String) -> URL? {
         lock.lock()
         defer { lock.unlock() }
+        let now = Date()
         guard let entry = entries[token],
-              Date().timeIntervalSince(entry.createdAt) < maxEntryAge,
+              now.timeIntervalSince(entry.createdAt) < maxEntryAge,
               entry.expectedOrigin == requestOrigin else {
             return nil
         }
+        // Sliding expiry: every authorized access (probe, dirty report, save)
+        // renews the entry, so the TTL only reaps abandoned registrations and
+        // a long-lived open editor never silently loses its save capability.
+        entries[token] = Entry(fileURL: entry.fileURL, expectedOrigin: entry.expectedOrigin, createdAt: now)
         return entry.fileURL
     }
 }
@@ -283,8 +288,18 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
         return ["error": error]
     }
 
+    private static let hexDigits = Array("0123456789abcdef".utf8)
+
     private static func sha256Hex(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        // Pure Swift nibble encoding: String(format:) in hash paths is the
+        // known unbounded-memory P0 class in this repo.
+        var out = [UInt8]()
+        out.reserveCapacity(64)
+        for byte in SHA256.hash(data: data) {
+            out.append(hexDigits[Int(byte >> 4)])
+            out.append(hexDigits[Int(byte & 0x0f)])
+        }
+        return String(decoding: out, as: UTF8.self)
     }
 }
 
