@@ -32,14 +32,6 @@ final class NotesTreeStore: ObservableObject {
     /// flat-note filter, and session records are keyed by, so same-cwd
     /// workspaces never blend together.
     private var workspaceAnchorId: String?
-    /// Whether another open workspace shares this cwd. When the workspace owns
-    /// its directory alone (the common worktree-per-agent layout), the cwd's
-    /// sessions ARE the workspace's sessions and the tab lists them all, Vault
-    /// style. With siblings, only sessions observed in this workspace's panes
-    /// are shown so same-cwd workspaces don't blend.
-    private var hasCwdSiblings = false
-    /// Latest cwd-scoped live scan, kept in memory for the sibling-free merge.
-    private var lastCwdScan: [NotesSessionDescriptor] = []
     /// Supplies the agent sessions currently known to run in this workspace's
     /// panes (live snapshots + the shared restorable-agent index). Injected by
     /// the composition root; called on the main thread.
@@ -88,7 +80,6 @@ final class NotesTreeStore: ObservableObject {
         projectRoot: String?,
         currentDirectory: String?,
         anchorId: String? = nil,
-        hasCwdSiblings: Bool = false,
         observedSessions: (() -> [NotesTreeObservedSession])? = nil
     ) {
         let cwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -103,13 +94,11 @@ final class NotesTreeStore: ObservableObject {
             && self.projectRoot == projectRoot
             && self.cwd == cwd
             && self.workspaceAnchorId == anchorId
-            && self.hasCwdSiblings == hasCwdSiblings
             && resolvedRootPath == newRoot
         self.projectRoot = projectRoot
         self.workspaceTitle = title
         self.cwd = cwd
         self.workspaceAnchorId = anchorId
-        self.hasCwdSiblings = hasCwdSiblings
         self.observedSessionsProvider = observedSessions
         self.resolvedRootPath = newRoot
         self.notesDirPath = NoteSupport.notesDirectory(forProjectRoot: projectRoot)
@@ -121,7 +110,6 @@ final class NotesTreeStore: ObservableObject {
         markerRefreshTask?.cancel()
         markerRefreshTask = nil
         lastMarkerRefresh = nil
-        lastCwdScan = []
         emptyObservationRetries = 0
         reload()
         refreshSessions()
@@ -140,12 +128,10 @@ final class NotesTreeStore: ObservableObject {
         projectRoot = nil
         cwd = nil
         workspaceAnchorId = nil
-        hasCwdSiblings = false
         observedSessionsProvider = nil
         resolvedRootPath = nil
         notesDirPath = nil
         rootNodes = []
-        lastCwdScan = []
         headerDisplayPath = ""
         contentRevision &+= 1
     }
@@ -185,24 +171,7 @@ final class NotesTreeStore: ObservableObject {
         }
         var budget = nodeBudget
         var nodes = buildChildren(ofDirectory: root, depth: 0, budget: &budget)
-        var records = NotesTreeStorage.readWorkspaceSessions(inRoot: root)
-        if !hasCwdSiblings, !lastCwdScan.isEmpty {
-            // Sole owner of the cwd: the directory's sessions are this
-            // workspace's sessions — list them all, Vault style.
-            var seen = Set(records.map { "\($0.agent)\n\($0.sessionId)" })
-            for descriptor in lastCwdScan where seen.insert("\(descriptor.agent)\n\(descriptor.sessionId)").inserted {
-                records.append(NotesWorkspaceSessionRecord(
-                    agent: descriptor.agent,
-                    sessionId: descriptor.sessionId,
-                    surfaceAnchorId: nil,
-                    title: descriptor.title,
-                    cwd: descriptor.cwd,
-                    modified: descriptor.modified,
-                    lastSeen: descriptor.modified
-                ))
-            }
-            records.sort { $0.modified > $1.modified }
-        }
+        let records = NotesTreeStorage.readWorkspaceSessions(inRoot: root)
         nodes.append(contentsOf: sessionRowNodes(records: records, materializedInto: nodes))
 
         // Session lookup for nesting (virtual rows + materialized folders).
@@ -391,11 +360,10 @@ final class NotesTreeStore: ObservableObject {
                 if !recordCwd.isEmpty { cwds.insert(recordCwd) }
             }
             var live: [NotesSessionDescriptor] = []
-            var workspaceCwdScan: [NotesSessionDescriptor] = []
             for scanCwd in cwds.sorted() {
                 guard !Task.isCancelled else { return }
                 let entries = await SessionIndexStore.loadLiveSessionEntries(cwdFilter: scanCwd)
-                let descriptors = entries.map { entry in
+                live.append(contentsOf: entries.map { entry in
                     NotesSessionDescriptor(
                         agent: entry.agent.rawValue,
                         sessionId: entry.sessionId,
@@ -403,11 +371,7 @@ final class NotesTreeStore: ObservableObject {
                         cwd: entry.cwd ?? scanCwd,
                         modified: entry.modified.timeIntervalSince1970
                     )
-                }
-                live.append(contentsOf: descriptors)
-                if scanCwd == workspaceCwd {
-                    workspaceCwdScan = descriptors.sorted { $0.modified > $1.modified }
-                }
+                })
             }
             let now = Date().timeIntervalSince1970
             let liveSnapshot = live
@@ -434,9 +398,7 @@ final class NotesTreeStore: ObservableObject {
             guard !Task.isCancelled, let self, self.hasWorkspace,
                   self.resolvedRootPath == root
             else { return }
-            let scanChanged = workspaceCwdScan != self.lastCwdScan
-            if scanChanged { self.lastCwdScan = workspaceCwdScan }
-            if changed || scanChanged { self.reload() }
+            if changed { self.reload() }
             if allObserved.isEmpty, self.emptyObservationRetries < self.maxEmptyObservationRetries {
                 self.emptyObservationRetries += 1
                 Task { @MainActor [weak self] in

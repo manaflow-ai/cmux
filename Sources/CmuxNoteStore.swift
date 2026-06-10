@@ -94,9 +94,15 @@ enum CmuxNoteStore {
         // Propagate a corrupt/unreadable index instead of returning an empty list,
         // so `cmux note list` surfaces the error rather than making notes look gone.
         try storageQueue.sync {
-            try loadIndex(projectRoot: projectRoot).notes.sorted(by: { lhs, rhs in
-                noteMTime(lhs, projectRoot: projectRoot) > noteMTime(rhs, projectRoot: projectRoot)
-            })
+            let notes = try loadIndex(projectRoot: projectRoot).notes
+            // Stat each body once up front; a comparator that stats on every
+            // comparison re-reads the filesystem O(n log n) times.
+            // Tolerate duplicate ids (the index is a project-controlled file).
+            let mtimes = Dictionary(
+                notes.map { ($0.id, noteMTime($0, projectRoot: projectRoot)) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            return notes.sorted { (mtimes[$0.id] ?? .distantPast) > (mtimes[$1.id] ?? .distantPast) }
         }
     }
 

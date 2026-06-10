@@ -511,9 +511,14 @@ extension TerminalController {
         do {
             notes = try CmuxNoteStore.list(projectRoot: projectRoot)
         } catch {
-            // A corrupt/unreadable index must surface as a list failure, not an
-            // empty list that looks like the user's notes vanished.
-            return result
+            // A corrupt/unreadable index must surface as a list failure — with
+            // the underlying reason — not an empty list that looks like the
+            // user's notes vanished.
+            return .err(
+                code: "internal_error",
+                message: "\(NoteRPCMessage.listFailed): \(error.localizedDescription)",
+                data: nil
+            )
         }
         let resolution = CmuxNoteContextResolver.resolve(
             notes: notes,
