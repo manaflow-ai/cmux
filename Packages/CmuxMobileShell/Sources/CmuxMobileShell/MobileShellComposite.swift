@@ -1182,9 +1182,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               !ticket.macDeviceID.hasPrefix("manual-") else { return }
         let stackUserID = identityProvider?.currentUserID
         do {
+            // The compact pairing QR carries no display name; the name arrives
+            // post-handshake via `mobile.host.status`. Until it does, keep any
+            // name we already know for this Mac instead of clobbering it with
+            // nil (the store's upsert overwrites the column unconditionally).
+            var displayName = ticket.macDisplayName
+            if displayName == nil {
+                let knownMacs = try? await pairedMacStore.loadAll(stackUserID: nil)
+                displayName = knownMacs?.first { $0.macDeviceID == ticket.macDeviceID }?.displayName
+            }
             try await pairedMacStore.upsert(
                 macDeviceID: ticket.macDeviceID,
-                displayName: ticket.macDisplayName,
+                displayName: displayName,
                 routes: ticket.routes,
                 markActive: true,
                 stackUserID: stackUserID
@@ -1195,6 +1204,39 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             hasKnownPairedMac = true
         } catch {
             mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Adopts the Mac name reported by `mobile.host.status`. The compact
+    /// pairing QR no longer carries the name, so this post-handshake report is
+    /// what replaces the device-id placeholder in the UI and fills in the
+    /// paired-Mac store for freshly paired Macs.
+    private func applyHostReportedDisplayName(_ reportedName: String?) async {
+        guard let name = reportedName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty,
+              let ticket = activeTicket else {
+            return
+        }
+        // The host's report is fresher than whatever the ticket carried (it
+        // reflects the Mac-side pairing-name setting, including renames), so
+        // it always wins over the device-id placeholder or a stale name.
+        connectedHostName = name
+        guard let pairedMacStore,
+              !ticket.macDeviceID.isEmpty,
+              ticket.macDeviceID != "manual-ticket-request",
+              !ticket.macDeviceID.hasPrefix("manual-") else {
+            return
+        }
+        do {
+            try await pairedMacStore.upsert(
+                macDeviceID: ticket.macDeviceID,
+                displayName: name,
+                routes: ticket.routes,
+                markActive: true,
+                stackUserID: identityProvider?.currentUserID
+            )
+        } catch {
+            mobileShellLog.error("paired mac display-name upsert failed: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -1676,14 +1718,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             clearRemoteConnectionContext()
             return
         }
-        guard Self.attachTicketIsUnexpired(ticket, now: runtime?.now() ?? Date()) else {
-            connectionError = Self.localizedConnectionError(for: MobileShellConnectionError.attachTicketExpired, route: firstRoute)
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
-            throw MobileShellConnectionError.attachTicketExpired
-        }
-
+        // No connect-time expiry gate: a pairing QR never expires (new QRs
+        // carry no expiry at all), and the host authorizes by Stack account,
+        // not ticket age. Expiry still gates the RPC-minted attach token at
+        // its point of use (`MobileCoreRPCClient.requestDataWithAuth`).
         activeTicket = ticket
         activeRoute = firstRoute
         connectedHostName = ticket.macDisplayName ?? ticket.macDeviceID
@@ -1776,7 +1814,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private static func attachTicketIsUnexpired(_ ticket: CmxAttachTicket, now: Date) -> Bool {
-        ticket.expiresAt > now
+        !ticket.isExpired(at: now)
     }
 
     private static func initialWorkspaceListParams(for ticket: CmxAttachTicket) -> [String: Any] {
@@ -2338,6 +2376,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return fallback
             }
             supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
+            await applyHostReportedDisplayName(payload.macDisplayName)
             let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
                 payload.terminalFidelity == "render_grid" ? .renderGrid : .rawBytes
             terminalOutputTransport = transport

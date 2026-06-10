@@ -12,16 +12,22 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     public let capabilities: [String]
     /// The host's reported terminal fidelity (for example `render_grid`), if any.
     public let terminalFidelity: String?
+    /// The Mac's user-facing name. The pairing QR no longer carries the name,
+    /// so this is where a freshly paired phone learns what to call the Mac.
+    /// `nil` from older Macs that predate the field.
+    public let macDisplayName: String?
 
     private enum CodingKeys: String, CodingKey {
         case capabilities
         case terminalFidelity = "terminal_fidelity"
+        case macDisplayName = "mac_display_name"
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         capabilities = (try container.decodeIfPresent([String].self, forKey: .capabilities)) ?? []
         terminalFidelity = try container.decodeIfPresent(String.self, forKey: .terminalFidelity)
+        macDisplayName = try container.decodeIfPresent(String.self, forKey: .macDisplayName)
     }
 
     /// Decode a host-status response from raw JSON data.

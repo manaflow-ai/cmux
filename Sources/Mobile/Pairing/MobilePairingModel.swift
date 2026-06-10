@@ -56,8 +56,10 @@ final class MobilePairingModel {
 
     private let host: MobileHostService
     private let ticketTTL: TimeInterval
-    /// Re-mints the ticket shortly before it expires so the displayed QR is
-    /// never stale. Cancelled on every refresh and when the window closes.
+    /// Periodically re-mints the ticket so the displayed QR always carries
+    /// fresh routes (Tailscale addresses can change while the window sits
+    /// open). The QR itself never expires; this is route freshness, not an
+    /// expiry countdown. Cancelled on every refresh and when the window closes.
     private var autoRefreshTask: Task<Void, Never>?
     /// Observes the host's connection status while a code is shown, flipping the
     /// render state between `.ready` and `.connected`. Cancelled on each refresh.
@@ -180,12 +182,13 @@ final class MobilePairingModel {
         connectionObservationTask = nil
     }
 
-    /// Schedules a re-mint shortly before the current ticket's TTL elapses, so a
-    /// delayed scan never hits an expired code.
+    /// Schedules a periodic re-mint so long-open windows keep showing current
+    /// routes. The code itself never expires; a phone can scan a stale window
+    /// and still pair as long as the routes in it remain reachable.
     private func scheduleExpiryRefresh() {
         autoRefreshTask?.cancel()
-        // Bounded, cancellable, duration-driven deadline (re-mint ~30s before
-        // expiry). Not a poll; cancelled on the next refresh or on window close.
+        // Bounded, cancellable, duration-driven deadline. Not a poll; cancelled
+        // on the next refresh or on window close.
         let delay = max(1, ticketTTL - 30)
         autoRefreshTask = Task { [weak self] in
             try? await ContinuousClock().sleep(for: .seconds(delay))

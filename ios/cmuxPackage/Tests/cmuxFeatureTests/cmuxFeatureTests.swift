@@ -1177,6 +1177,54 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func qrPairingURLStillConnectsTenMinutesAfterMint() async throws {
+    // The pairing QR encodes no expiry: a code that sat on the Mac's screen
+    // for 10+ minutes (longer than the minted ticket's whole attach-token
+    // TTL) must still pair. Before this grammar revision the phone refused
+    // such a scan at connect time with "This pairing link expired".
+    let mintedAt = Date()
+    let route = try hostPortRoute(
+        kind: .tailscale,
+        host: "100.71.210.41",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "qr-workspace",
+        terminalID: nil,
+        macDeviceID: "qr-mac",
+        macDisplayName: "QR Mac",
+        routes: [route],
+        expiresAt: mintedAt.addingTimeInterval(600),
+        authToken: "minted-but-never-in-the-qr"
+    )
+    // Encode exactly what the Mac's pairing window renders: the compact QR
+    // grammar, which drops the token, the display name, and the expiry.
+    let payload = try CmxAttachTicketCompactCoder().encode(ticket)
+    let url = "cmux-ios://attach?v=\(ticket.version)&payload=\(base64URLEncode(payload))"
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-outlives-the-qr",
+        now: { mintedAt.addingTimeInterval(660) }
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(url)
+
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == "qr-workspace")
+    // The QR carries no display name, so until `mobile.host.status` reports
+    // one the device id stands in.
+    #expect(store.connectedHostName == "qr-mac")
+}
+
+@MainActor
 @Test func pairLinkWithoutAttachTokenRejectsArbitraryHostBeforeSendingAuth() async throws {
     let route = try hostPortRoute(kind: .tailscale, host: "attacker.example", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(

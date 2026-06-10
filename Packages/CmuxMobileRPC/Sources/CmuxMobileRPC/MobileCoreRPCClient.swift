@@ -174,7 +174,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
            requestNeedsAuth,
            hasAttachToken,
            requestIsCoveredByAttachTicket {
-            if ticket.expiresAt > runtime.now() {
+            // Expiry is enforced only here, where the RPC-minted attach token
+            // is actually used. QR-decoded tickets carry no token (and no
+            // expiry), so they never reach this branch.
+            if !ticket.isExpired(at: runtime.now()) {
                 auth["attach_token"] = attachToken
             } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
                 throw MobileShellConnectionError.attachTicketExpired
