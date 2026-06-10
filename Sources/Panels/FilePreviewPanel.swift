@@ -563,11 +563,13 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
         FilePreviewDragRegistry.shared.discardExpired()
     }
 
-    private func transferDataForDrag() -> Data {
-        if let transferData {
-            return transferData
-        }
-
+    /// Registry-backed tab-transfer payload for dragging `filePath` as a
+    /// pane-droppable preview tab. Carries only the bonsplit transfer encoding
+    /// — callers decide which pasteboard types to declare. The Notes tree
+    /// writes this under the plain tab-transfer type WITHOUT `.fileURL` or the
+    /// filePreview routing type, since either of those makes the window
+    /// file-drop overlay capture the drag and in-sidebar moves stop working.
+    static func registeredTransferData(filePath: String, displayTitle: String) -> Data? {
         let dragId = FilePreviewDragRegistry.shared.register(
             FilePreviewDragEntry(filePath: filePath, displayTitle: displayTitle)
         )
@@ -587,7 +589,14 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
             sourcePaneId: UUID(),
             sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
         )
-        let data = (try? JSONEncoder().encode(transfer)) ?? Data()
+        return try? JSONEncoder().encode(transfer)
+    }
+
+    private func transferDataForDrag() -> Data {
+        if let transferData {
+            return transferData
+        }
+        let data = Self.registeredTransferData(filePath: filePath, displayTitle: displayTitle) ?? Data()
         transferData = data
         return data
     }

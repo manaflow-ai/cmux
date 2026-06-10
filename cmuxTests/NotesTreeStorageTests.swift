@@ -442,4 +442,52 @@ import Testing
         #expect(fm.fileExists(atPath: (folder as NSString).appendingPathComponent("plan.md")))
         #expect(fm.fileExists(atPath: (folder as NSString).appendingPathComponent(NotesTreeStorage.sessionMarkerName)))
     }
+
+    /// An open markdown panel must follow a Notes-tree relocation (exact file
+    /// move, or a folder move above it) instead of flipping to
+    /// "File unavailable" — regression for moved notes orphaning open viewers.
+    @Test @MainActor func openMarkdownPanelsFollowNoteRelocations() async throws {
+        let notesDir = (projectRoot as NSString).appendingPathComponent(".cmux/notes")
+        let destDir = (notesDir as NSString).appendingPathComponent("dest")
+        try fm.createDirectory(atPath: destDir, withIntermediateDirectories: true)
+        let oldPath = (notesDir as NSString).appendingPathComponent("a.md")
+        try write("hello body", to: oldPath)
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: oldPath)
+        defer { panel.close() }
+        #expect(panel.content == "hello body")
+
+        // Mirror NotesTreeStore.move: relocate on disk, then announce it.
+        let newPath = (destDir as NSString).appendingPathComponent("a.md")
+        try fm.moveItem(atPath: oldPath, toPath: newPath)
+        func postRelocation(from old: String, to new: String) {
+            NotificationCenter.default.post(
+                name: .cmuxNoteFileRelocated,
+                object: nil,
+                userInfo: [
+                    "oldPath": (old as NSString).standardizingPath,
+                    "newPath": (new as NSString).standardizingPath,
+                ]
+            )
+        }
+        postRelocation(from: oldPath, to: newPath)
+        let expected = (newPath as NSString).standardizingPath
+        for _ in 0..<200 where panel.filePath != expected {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(panel.filePath == expected)
+        #expect(!panel.isFileUnavailable)
+        #expect(panel.content == "hello body")
+
+        // Folder rename above the file: the panel's path remaps by prefix.
+        let renamedDir = (notesDir as NSString).appendingPathComponent("dest2")
+        try fm.moveItem(atPath: destDir, toPath: renamedDir)
+        postRelocation(from: destDir, to: renamedDir)
+        let remapped = ((renamedDir as NSString).appendingPathComponent("a.md") as NSString).standardizingPath
+        for _ in 0..<200 where panel.filePath != remapped {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(panel.filePath == remapped)
+        #expect(!panel.isFileUnavailable)
+    }
 }

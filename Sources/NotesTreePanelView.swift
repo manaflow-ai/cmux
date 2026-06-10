@@ -372,17 +372,27 @@ struct NotesTreePanelView: NSViewRepresentable {
             )
             #endif
             guard let node = item as? NotesTreeNode, !node.path.isEmpty else { return nil }
-            // Every row drags with cmux-private types only. Adding .fileURL
-            // (Finder export) hands the drag to the window-spanning terminal
-            // host — it registers for file URLs (drop-on-terminal pastes the
-            // path) and sits above the sidebar, so the outline never sees the
-            // drag and in-tree note moves silently stop working.
+            // Every row drags with cmux-private types only. Declaring .fileURL
+            // or the filePreview routing type makes the window file-drop
+            // overlay capture the drag (DragOverlayRoutingPolicy
+            // .hasFileDropPayload), so the outline never sees it and in-tree
+            // moves silently stop working.
             let pbItem = NSPasteboardItem()
             // Virtual session rows have nothing on disk to move; they drag as
             // pure session pointers (still resumable on a pane / droppable in
             // another Notes tree, where they materialize).
             if !node.isVirtual {
                 pbItem.setString(node.path, forType: NotesTreePanelView.movePasteboardType)
+            }
+            // Note rows also carry the registry-backed preview payload under
+            // bonsplit's plain tab-transfer type (the session-row pattern):
+            // dropping on a pane opens the note through the Files-tab preview
+            // pipeline, while in-sidebar drags still reach the outline.
+            if case .note = node.kind,
+               let transferData = FilePreviewDragPasteboardWriter.registeredTransferData(
+                   filePath: node.path, displayTitle: node.displayName
+               ) {
+                pbItem.setData(transferData, forType: NotesTreePanelView.tabTransferPasteboardType)
             }
             // Session rows also carry the shared session pointer (drag into
             // another Notes tree / window) and bonsplit's tab-transfer payload
