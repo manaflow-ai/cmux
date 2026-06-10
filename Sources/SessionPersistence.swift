@@ -1984,10 +1984,21 @@ enum SessionScrollbackReplayStore {
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
 
+    /// Replay files from a previous process are dead weight: restores write
+    /// fresh ones and the shell integration deletes them after replaying, but
+    /// quitting with hibernated panels leaves theirs behind. Purge leftovers
+    /// once per process before the first write of this session.
+    private static let purgeStaleReplayFilesOnce: Void = {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(directoryName, isDirectory: true)
+        try? FileManager.default.removeItem(at: directory)
+    }()
+
     static func replayEnvironment(
         for scrollback: String?,
         tempDirectory: URL = FileManager.default.temporaryDirectory
     ) -> [String: String] {
+        _ = purgeStaleReplayFilesOnce
         guard let replayText = normalizedScrollback(scrollback) else { return [:] }
         guard let replayFileURL = writeReplayFile(
             contents: replayText,
