@@ -31,6 +31,12 @@ reviews:
     - path: "**/*.{swift,ts,tsx,js,jsx,mjs,cjs,sh,zsh}"
       instructions: |
         Apply `.github/review-bot-rules/algorithmic-complexity.md` during review. For production code over scalable user data, flag nested full-collection scans, per-target rescans for batch actions, repeated sort/filter/map work in hot paths, in-memory joins that belong in the data store, and unbenchmarked algorithm choices for paths expected to handle roughly 1000 workspaces or similar records. Pass for tiny fixed-size collections, tests and benchmark harnesses, existing inefficient code not worsened, and documented bounds with measurements.
+    - path: "**/*.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/swift-expensive-sync-load.md` during review. Flag heavy synchronous loaders (the canonical case is `RestorableAgentSessionIndex.load()`: per-record `sysctl` plus disk reads, 350ms-1.8s) added to or moved onto the main actor or interactive paths (workspace/panel/tab/window close, SwiftUI body, didSet, menu evaluation, socket handlers). Require routing through the off-main cached accessor `SharedLiveAgentIndex.shared`. Pass for the cache's own background loader and explicit cold-cache fallbacks guarded by a nil check.
+    - path: "**/*.{swift,ts,tsx,js,jsx,mjs,cjs}"
+      instructions: |
+        Apply `.github/review-bot-rules/cache-substitution-correctness.md` during review. When the diff replaces a fresh authoritative read with a cached value in a persistence, history, undo, or snapshot path, require explicit handling of cold (never-loaded) and stale (older-than-source) caches, or a documented graceful-degradation rationale. Pass for transient non-persisted UI hints and documented staleness tolerance.
     - path: "**/*.{swift,ts,tsx,js,jsx,mjs,cjs}"
       instructions: |
         Apply `.github/review-bot-rules/user-facing-errors.md` during review. For production user-facing errors, alerts, command output, API error bodies, and recovery copy, flag implementation leaks such as upstream vendor names, internal provider names, environment variables, database or migration details, raw upstream messages, internal billing ids, or unredacted payloads.
@@ -60,6 +66,14 @@ reviews:
         mode: error
         instructions: |
           For production Swift changes, fail when the diff introduces or materially expands blocking or timing-based synchronization from `.github/review-bot-rules/swift-blocking-runtime.md`: semaphores, blocking waits, sleeps, delayed dispatch, polling, main-queue sync, or manual locks where an actor or explicit signal should own synchronization. Pass for deterministic test-only scaffolding and short user-visible UI animation delays that do not use `Task.sleep`.
+      - name: "cmux expensive synchronous load"
+        mode: error
+        instructions: |
+          For production Swift changes, fail when the diff adds or moves an expensive synchronous loader onto the main actor or an interactive path per `.github/review-bot-rules/swift-expensive-sync-load.md`: the canonical case is `RestorableAgentSessionIndex.load()` (per-record `sysctl` plus disk reads) on workspace/panel/tab/window close, SwiftUI body/didSet, menu or command-palette evaluation, or socket handlers. Require the off-main cached accessor `SharedLiveAgentIndex.shared`. Pass for the cache's own `Task.detached` loader, explicit cold-cache fallbacks guarded by a nil check, and existing call sites not worsened.
+      - name: "cmux cache substitution correctness"
+        mode: error
+        instructions: |
+          For production Swift, TypeScript, and JavaScript changes, fail when the diff swaps a fresh authoritative read for a cached or opportunistic value in a persistence, history, undo, or snapshot path without handling cold (never-loaded) and stale (older-than-source) caches per `.github/review-bot-rules/cache-substitution-correctness.md`. Pass for transient non-persisted UI hints, a cold-cache fallback plus an event-driven or freshness-checked cache, or a documented graceful-degradation rationale at the call site.
       - name: "cmux no hacky sleeps"
         mode: error
         instructions: |

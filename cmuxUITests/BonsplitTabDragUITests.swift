@@ -12,14 +12,14 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         let cleanup = XCUIApplication()
         cleanup.terminate()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        _ = cleanup.wait(for: .notRunning, timeout: 2.0)
     }
 
     func testMinimalModeKeepsTabReorderWorking() {
         let (app, dataPath) = launchConfiguredApp()
 
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
             "Expected app to launch for minimal-mode Bonsplit tab drag UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
@@ -69,7 +69,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         let (app, dataPath) = launchConfiguredApp()
 
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
             "Expected app to launch for minimal-mode top-gap UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
@@ -109,7 +109,7 @@ final class BonsplitTabDragUITests: XCTestCase {
             defer { app.terminate() }
 
             XCTAssertTrue(
-                ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+                ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
                 "Expected app to launch for \(presentationMode.rawValue)-mode right-sidebar alignment UI test. state=\(app.state.rawValue)"
             )
             XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
@@ -183,7 +183,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         let (app, dataPath) = launchConfiguredApp(showRightSidebar: true, alwaysShowShortcutHints: true)
 
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
             "Expected app to launch for right-sidebar close button UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
@@ -296,6 +296,10 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected clicking the right sidebar close button to hide the sidebar."
         )
 
+        XCTAssertTrue(
+            ensureAppForegroundForKeyboardInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before toggling the right sidebar shortcut. state=\(app.state.rawValue)"
+        )
         app.typeKey("b", modifierFlags: [.command, .option])
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
@@ -317,7 +321,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         let (app, dataPath) = launchConfiguredApp(alwaysShowShortcutHints: true)
 
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
             "Expected app to launch for titlebar shortcut hint geometry test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected titlebar geometry data at \(dataPath)")
@@ -396,7 +400,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         let (app, dataPath) = launchConfiguredApp(windowSize: "640x420")
 
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
             "Expected app to launch for minimal-mode titlebar double-click UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
@@ -441,7 +445,7 @@ final class BonsplitTabDragUITests: XCTestCase {
             defer { app.terminate() }
 
             XCTAssertTrue(
-                ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+                ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
                 "Expected app to launch for \(presentationMode.rawValue)-mode sidebar inset UI test. state=\(app.state.rawValue)"
             )
             XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
@@ -477,7 +481,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         let (app, dataPath) = launchConfiguredApp(presentationMode: .standard)
 
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
             "Expected app to launch for standard-mode sidebar control placement UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
@@ -526,7 +530,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         let (app, dataPath) = launchConfiguredApp()
 
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
             "Expected app to launch for minimal-mode sidebar hover UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
@@ -604,7 +608,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         let (app, dataPath) = launchConfiguredApp(startWithHiddenSidebar: true)
 
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
             "Expected app to launch for collapsed-sidebar minimal-mode controls UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
@@ -653,7 +657,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         let (app, dataPath) = launchConfiguredApp()
 
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
             "Expected app to launch for minimal-mode notifications-popover pinning UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
@@ -682,6 +686,10 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected minimal-mode sidebar controls to start hidden away from hover."
         )
 
+        XCTAssertTrue(
+            ensureAppForegroundForKeyboardInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before opening notifications shortcut. state=\(app.state.rawValue)"
+        )
         app.typeKey("i", modifierFlags: [.command])
         XCTAssertTrue(
             app.buttons["notificationsPopover.jumpToLatest"].waitForExistence(timeout: 6.0)
@@ -704,7 +712,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         let (app, dataPath) = launchConfiguredApp(startWithHiddenSidebar: true)
 
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
             "Expected app to launch for collapsed-sidebar minimal-mode Bonsplit controls hover UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
@@ -770,7 +778,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
 
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
             "Expected app to launch for narrow action-lane UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
@@ -872,18 +880,48 @@ final class BonsplitTabDragUITests: XCTestCase {
         return (app, dataPath)
     }
 
-    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        if app.wait(for: .runningForeground, timeout: timeout) {
+    private func ensureAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let launched = waitForCondition(timeout: timeout) {
+            app.state == .runningForeground ||
+                app.state == .runningBackground ||
+                app.windows.firstMatch.exists
+        }
+        guard launched else { return false }
+        return ensureAppReadyForBonsplitInteraction(app, timeout: 6.0)
+    }
+
+    private func ensureAppReadyForBonsplitInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.state == .runningForeground {
             return true
         }
-        if app.state == .runningBackground {
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App foreground activation may fail on headless CI runners", options: options) {
             app.activate()
-            if app.wait(for: .runningForeground, timeout: 6.0) {
-                return true
-            }
-            return app.windows.firstMatch.waitForExistence(timeout: 6.0)
         }
-        return app.windows.firstMatch.exists
+        let reachedForeground = waitForCondition(timeout: timeout) {
+            app.state == .runningForeground
+        }
+        if reachedForeground {
+            return true
+        }
+        // Bonsplit gestures target realized windows; headless runners can keep reporting
+        // .unknown after launch even when the window is queryable and ready for coordinates.
+        return app.windows.firstMatch.waitForExistence(timeout: timeout)
+    }
+
+    private func ensureAppForegroundForKeyboardInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.state == .runningForeground {
+            return true
+        }
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App foreground activation may fail on headless CI runners", options: options) {
+            app.activate()
+        }
+        return waitForCondition(timeout: timeout) {
+            app.state == .runningForeground
+        }
     }
 
     private func waitForAnyJSON(atPath path: String, timeout: TimeInterval) -> Bool {
