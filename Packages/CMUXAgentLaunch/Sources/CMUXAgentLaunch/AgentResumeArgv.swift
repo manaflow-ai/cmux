@@ -38,7 +38,58 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// `"${CMUX_CLAUDE_WRAPPER_SHIM:-claude}"` makes the executed resume command route
     /// through the wrapper (hooks fire) inside the `-lic` launcher, and falls back to
     /// bare `claude` outside cmux. https://github.com/manaflow-ai/cmux/issues/5639
+    ///
+    /// The token is POSIX parameter expansion, which fish (`${…}` is a parse error) and
+    /// csh/tcsh (no `:-` modifier) reject, so any command containing it must reach those
+    /// shells wrapped via ``portableClaudeResumeShellCommand(posixCommand:)``.
     public static let claudeWrapperShellExecutableToken = "\"${CMUX_CLAUDE_WRAPPER_SHIM:-claude}\""
+
+    /// Wraps a rendered claude resume/fork command so it parses in any login shell.
+    ///
+    /// ``claudeWrapperShellExecutableToken`` is POSIX-only syntax, but the rendered
+    /// command is not always parsed by a POSIX shell: the restore launcher dispatches it
+    /// through the user's `$SHELL` (`TerminalStartupReturnShellScript` runs
+    /// `"$_cmux_resume_shell" -c <command>` for its `csh|tcsh` and `*` branches), and the
+    /// session-index resume command is typed into — and copy-pasted into — the user's
+    /// interactive shell. fish rejects `${…}` outright and csh/tcsh have no `:-` modifier,
+    /// so the raw token turns claude resume into a hard parse error there, even though the
+    /// pre-token command was valid in those shells.
+    ///
+    /// `/bin/sh -c '<command>'` is the one spelling every dispatching shell parses
+    /// identically (plain words plus single-quote escaping, which zsh, bash, fish, csh,
+    /// and tcsh all accept): the user's shell still sources its own config (env exports
+    /// apply), `sh` inherits `CMUX_CLAUDE_WRAPPER_SHIM` from the managed terminal
+    /// environment and resolves the token, and outside cmux the unset variable still
+    /// falls back to bare `claude`. Callers wrap the fully rendered POSIX command
+    /// *before* prepending any working-directory guard, so cd-prefix rewriting keeps
+    /// composing on the outside. https://github.com/manaflow-ai/cmux/issues/5639
+    public static func portableClaudeResumeShellCommand(posixCommand: String) -> String {
+        "/bin/sh -c " + posixSingleQuoted(posixCommand)
+    }
+
+    /// Renders claude command `parts` through ``renderingClaudeWrapperExecutable(parts:quote:)``
+    /// and joins them, wrapping via ``portableClaudeResumeShellCommand(posixCommand:)`` only
+    /// when the wrapper token was actually substituted.
+    ///
+    /// Claude-launcher resumes that resolve to cmux's own CLI (`cmux claude-teams --resume …`)
+    /// emit no bare `claude` executable: they were already portable quoted words, the cmux
+    /// binary re-injects hooks itself, and wrapping them would only obscure the command. The
+    /// `/bin/sh -c` layer exists solely to make the POSIX-only token parse in non-POSIX
+    /// shells, so it is applied exactly when the token is present.
+    public static func renderedPortableClaudeResumeShellCommand(
+        parts: [String],
+        quote: (String) -> String
+    ) -> String {
+        let rendered = renderingClaudeWrapperExecutable(parts: parts, quote: quote)
+        let joined = rendered.joined(separator: " ")
+        guard rendered.contains(claudeWrapperShellExecutableToken) else { return joined }
+        return portableClaudeResumeShellCommand(posixCommand: joined)
+    }
+
+    /// Single-quotes `value` as one POSIX `sh` word, escaping embedded quotes as `'\''`.
+    private static func posixSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
 
     /// Renders shell command `parts` to quoted tokens, substituting
     /// ``claudeWrapperShellExecutableToken`` for the first bare `claude` executable token.

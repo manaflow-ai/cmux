@@ -374,11 +374,14 @@ enum AgentResumeCommandBuilder {
         // --settings) even inside the `$SHELL -lic` restore launcher, where the
         // shell integration's PATH shim / `claude()` function are not active and an
         // `env`-prefixed invocation would otherwise hit the user's real binary.
+        // The token is POSIX-only, and the launcher dispatches through the user's
+        // shell (fish/csh/tcsh included), so token-bearing commands are wrapped in
+        // `/bin/sh -c '…'` to parse everywhere; the cwd guard stays outside so
+        // cd-prefix rewriting keeps composing.
         // https://github.com/manaflow-ai/cmux/issues/5639
-        let quotedCommandParts = kind == .claude
-            ? AgentResumeArgv.renderingClaudeWrapperExecutable(parts: sanitizedCommandParts, quote: shellSingleQuoted)
-            : sanitizedCommandParts.map(shellSingleQuoted)
-        let shellCommand = quotedCommandParts.joined(separator: " ")
+        let shellCommand = kind == .claude
+            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: sanitizedCommandParts, quote: shellSingleQuoted)
+            : sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }
 

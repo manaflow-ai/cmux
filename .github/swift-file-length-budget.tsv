@@ -1,7 +1,7 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-32560	CLI/cmux.swift
+32568	CLI/cmux.swift
 21996	Sources/TerminalController.swift
 19875	Sources/Workspace.swift
 19052	Sources/ContentView.swift
@@ -17,7 +17,7 @@
 6489	cmuxTests/GhosttyConfigTests.swift
 6299	cmuxTests/TerminalAndGhosttyTests.swift
 6119	CLI/cmux_open.swift
-6104	cmuxTests/SessionPersistenceTests.swift
+6143	cmuxTests/SessionPersistenceTests.swift
 5948	Sources/TextBoxInput.swift
 5482	cmuxTests/BrowserConfigTests.swift
 5431	Sources/cmuxApp.swift
@@ -53,7 +53,7 @@
 1793	Sources/SessionIndexStore.swift
 1751	Sources/WindowDragHandleView.swift
 1721	cmuxTests/TerminalControllerSocketSecurityTests.swift
-1717	Sources/RestorableAgentSession.swift
+1726	Sources/RestorableAgentSession.swift
 1693	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1668	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
 1654	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
@@ -140,7 +140,7 @@
 620	cmuxTests/TerminalNotificationQueueTests.swift
 619	cmuxTests/FinderFileDropRegressionTests.swift
 613	Sources/PortScanner.swift
-607	cmuxTests/SessionIndexViewTests.swift
+614	cmuxTests/SessionIndexViewTests.swift
 599	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
 596	cmuxTests/CmuxEventBusTests.swift
 594	cmuxTests/PortalTabDragRoutingTests.swift
@@ -148,7 +148,7 @@
 588	cmuxTests/CommandPaletteShortcutCustomizationTests.swift
 586	Sources/JSONCParser.swift
 585	Sources/Cloud/VMClient.swift
-588	Sources/SessionIndexModels.swift
+594	Sources/SessionIndexModels.swift
 580	Packages/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
 578	cmuxUITests/FeedSidebarUITests.swift
