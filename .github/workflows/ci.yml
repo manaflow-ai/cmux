@@ -428,6 +428,7 @@ jobs:
             CmuxSettings
             CmuxSettingsUI
             CmuxSocketControl
+            CmuxUpdater
             CMUXAgentLaunch
           )
           for pkg in "${PACKAGES[@]}"; do
