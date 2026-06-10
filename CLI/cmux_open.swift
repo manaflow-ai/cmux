@@ -910,6 +910,7 @@ extension CMUXCLI {
         var fileURL: URL
         var url: URL
         var title: String
+        var token: String
         var allowedFiles: [DiffViewerAllowedFile]
     }
 
@@ -1031,12 +1032,13 @@ extension CMUXCLI {
         if editor.url.scheme == DiffViewerURLMapper.scheme {
             params["diff_viewer_token"] = editor.url.host ?? ""
             params["diff_viewer_files"] = editor.allowedFiles.map(\.jsonObject)
-            // Register the source file as this token's write target so the
-            // page's Cmd+S save bridge can write it back. Only for writable
-            // files; read-only opens never mint a write capability.
-            if writable {
-                params["editor_file"] = ["path": fileURL.path]
-            }
+        }
+        // Register the source file as the page token's write target so the
+        // page's Cmd+S save bridge can write it back, in both serving modes
+        // (custom scheme and the localhost HTTP server). Only for writable
+        // files; read-only opens never mint a write capability.
+        if writable {
+            params["editor_file"] = ["path": fileURL.path, "token": editor.token]
         }
         if let windowHandle { params["window_id"] = windowHandle }
         if let workspaceHandle { params["workspace_id"] = workspaceHandle }
@@ -1086,10 +1088,7 @@ extension CMUXCLI {
             content: content,
             title: title,
             appearance: appearance,
-            // The save bridge authorizes by custom-scheme frame origin; pages
-            // served over the localhost HTTP origin cannot save, so they open
-            // read-only instead of failing on the first Cmd+S.
-            readOnly: readOnly || origin != nil,
+            readOnly: readOnly,
             contentSha256: contentSha256
         )
         let allowedFiles = try diffViewerAllowedFiles(
@@ -1106,6 +1105,7 @@ extension CMUXCLI {
             fileURL: viewerFileURL,
             url: try mapper.viewerURL(for: viewerFileURL),
             title: title,
+            token: mapper.token,
             allowedFiles: allowedFiles
         )
     }

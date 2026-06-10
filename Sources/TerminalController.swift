@@ -11530,6 +11530,9 @@ class TerminalController {
         if let error = v2RegisterDiffViewerURLIfNeeded(params: params, url: url) {
             return error
         }
+        if let error = v2RegisterEditorFileIfNeeded(params: params, url: url) {
+            return error
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
         v2MainSync {
@@ -11675,6 +11678,7 @@ class TerminalController {
 
         do {
             try CmuxDiffViewerURLSchemeHandler.shared.register(token: token, files: files)
+            return nil
         } catch {
             return .err(
                 code: "invalid_params",
@@ -11682,28 +11686,34 @@ class TerminalController {
                 data: ["details": error.localizedDescription]
             )
         }
+    }
 
-        // `cmux edit` additionally registers the edited file as the token's
-        // write target; the page's save bridge resolves the path from this
-        // registry by frame origin, never from page JavaScript.
-        if let editorFile = params["editor_file"] as? [String: Any] {
-            guard let path = editorFile["path"] as? String, path.hasPrefix("/") else {
-                return .err(code: "invalid_params", message: "Invalid editor file registration", data: nil)
-            }
-            do {
-                try CmuxEditorSaveRegistry.shared.register(
-                    token: token,
-                    fileURL: URL(fileURLWithPath: path)
-                )
-            } catch {
-                return .err(
-                    code: "invalid_params",
-                    message: "Invalid editor file registration",
-                    data: ["details": error.localizedDescription]
-                )
-            }
+    /// `cmux edit` registers the edited file as the page token's write
+    /// target; the page's save bridge resolves the path from this registry by
+    /// the WebKit-reported frame identity, never from page JavaScript. Runs
+    /// for both diff-viewer serving modes (custom scheme and localhost HTTP).
+    private func v2RegisterEditorFileIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {
+        guard let editorFile = params["editor_file"] as? [String: Any] else {
+            return nil
         }
-        return nil
+        guard v2IsDiffViewerURL(url),
+              let token = editorFile["token"] as? String,
+              let path = editorFile["path"] as? String, path.hasPrefix("/") else {
+            return .err(code: "invalid_params", message: "Invalid editor file registration", data: nil)
+        }
+        do {
+            try CmuxEditorSaveRegistry.shared.register(
+                token: token,
+                fileURL: URL(fileURLWithPath: path)
+            )
+            return nil
+        } catch {
+            return .err(
+                code: "invalid_params",
+                message: "Invalid editor file registration",
+                data: ["details": error.localizedDescription]
+            )
+        }
     }
 
     private func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {
