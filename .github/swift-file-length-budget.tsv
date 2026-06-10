@@ -105,7 +105,7 @@
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 787	Sources/ClosedItemHistory.swift
 768	Sources/MainWindowFocusController.swift
-768	cmuxTests/SurfaceHibernationPolicyTests.swift
+792	cmuxTests/SurfaceHibernationPolicyTests.swift
 760	Packages/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift

@@ -143,7 +143,7 @@ final class AgentHibernationController {
     func recordShellActivityTransition(
         workspaceId: UUID,
         panelId: UUID,
-        state: PanelShellActivityState,
+        state: Workspace.PanelShellActivityState,
         recordedAt: Date? = nil
     ) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }

@@ -446,18 +446,25 @@ struct SurfaceHibernationPolicyTests {
     @MainActor
     @Test
     func surfaceHibernationRoundTripStagesScrollbackAndWorkingDirectory() throws {
+        // Restore staging validates the captured directory on disk, so the
+        // test must use one that actually exists.
+        let capturedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-hibernation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: capturedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: capturedDirectory) }
+
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
 
         panel.enterSurfaceHibernation(
             scrollback: "hibernated-shell-content",
-            workingDirectory: "/tmp/cmux-surface-hibernation",
+            workingDirectory: capturedDirectory.path,
             lastActivityAt: Date(timeIntervalSince1970: 100)
         )
         #expect(panel.isSurfaceHibernated)
         #expect(panel.surfaceHibernationState?.scrollback == "hibernated-shell-content")
-        #expect(panel.surfaceHibernationState?.workingDirectory == "/tmp/cmux-surface-hibernation")
+        #expect(panel.surfaceHibernationState?.workingDirectory == capturedDirectory.path)
 
         #expect(workspace.restoreSurfaceHibernation(panelId: panelId, focus: false))
         #expect(!(panel.isSurfaceHibernated))
@@ -466,7 +473,24 @@ struct SurfaceHibernationPolicyTests {
         let replayPath = try #require(environment[SessionScrollbackReplayStore.environmentKey])
         let replayContents = try String(contentsOfFile: replayPath, encoding: .utf8)
         #expect(replayContents.contains("hibernated-shell-content"))
-        #expect(panel.surface.debugNextRuntimeWorkingDirectoryForTesting() == "/tmp/cmux-surface-hibernation")
+        #expect(panel.surface.debugNextRuntimeWorkingDirectoryForTesting() == capturedDirectory.path)
+    }
+
+    @MainActor
+    @Test
+    func surfaceHibernationRestoreSkipsStagingDeletedWorkingDirectory() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
+
+        panel.enterSurfaceHibernation(
+            scrollback: nil,
+            workingDirectory: "/tmp/cmux-surface-hibernation-missing-\(UUID().uuidString)",
+            lastActivityAt: Date(timeIntervalSince1970: 100)
+        )
+
+        #expect(workspace.restoreSurfaceHibernation(panelId: panelId, focus: false))
+        #expect(panel.surface.debugNextRuntimeWorkingDirectoryForTesting() == nil)
     }
 
     @MainActor
