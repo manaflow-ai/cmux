@@ -2011,7 +2011,6 @@ struct CustomTitlebarLeadingPaddingTests {
     @Test func hiddenSidebarUsesMinimumSidebarTitleInset() {
         #expect(
             ContentView.customTitlebarLeadingPadding(
-                isFullScreen: false,
                 isSidebarVisible: false,
                 sidebarWidth: 216,
                 minimumSidebarWidth: 216,
@@ -2022,14 +2021,12 @@ struct CustomTitlebarLeadingPaddingTests {
 
     @Test func minimumWidthVisibleSidebarMatchesHiddenSidebarTitleInset() {
         let hidden = ContentView.customTitlebarLeadingPadding(
-            isFullScreen: false,
             isSidebarVisible: false,
             sidebarWidth: 216,
             minimumSidebarWidth: 216,
             titlebarLeadingInset: 82
         )
         let visible = ContentView.customTitlebarLeadingPadding(
-            isFullScreen: false,
             isSidebarVisible: true,
             sidebarWidth: 216,
             minimumSidebarWidth: 216,
@@ -2041,14 +2038,12 @@ struct CustomTitlebarLeadingPaddingTests {
 
     @Test func widerSidebarPushesTitlebarContentRight() {
         let hidden = ContentView.customTitlebarLeadingPadding(
-            isFullScreen: false,
             isSidebarVisible: false,
             sidebarWidth: 216,
             minimumSidebarWidth: 216,
             titlebarLeadingInset: 82
         )
         let visible = ContentView.customTitlebarLeadingPadding(
-            isFullScreen: false,
             isSidebarVisible: true,
             sidebarWidth: 320,
             minimumSidebarWidth: 216,
@@ -2059,18 +2054,6 @@ struct CustomTitlebarLeadingPaddingTests {
         #expect(visible == 332)
     }
 
-    @Test func fullscreenHiddenSidebarKeepsCompactInset() {
-        #expect(
-            ContentView.customTitlebarLeadingPadding(
-                isFullScreen: true,
-                isSidebarVisible: false,
-                sidebarWidth: 216,
-                minimumSidebarWidth: 216,
-                titlebarLeadingInset: 82
-            ) == 8
-        )
-    }
-
     // Regression: at the default (== minimum) sidebar width, toggling the sidebar
     // must not move the folder/title. The title tracks the actual width only when
     // the sidebar is wider than the minimum, so the default width must equal the
@@ -2079,14 +2062,12 @@ struct CustomTitlebarLeadingPaddingTests {
         let width = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
         let minimum = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
         let visible = ContentView.customTitlebarLeadingPadding(
-            isFullScreen: false,
             isSidebarVisible: true,
             sidebarWidth: width,
             minimumSidebarWidth: minimum,
             titlebarLeadingInset: 82
         )
         let hidden = ContentView.customTitlebarLeadingPadding(
-            isFullScreen: false,
             isSidebarVisible: false,
             sidebarWidth: width,
             minimumSidebarWidth: minimum,
@@ -2095,26 +2076,19 @@ struct CustomTitlebarLeadingPaddingTests {
         #expect(visible == hidden)
     }
 
-    // Regression: fullscreen must behave like windowed mode. At the minimum
-    // sidebar width, toggling the sidebar in fullscreen used to jump the
-    // folder/title to a compact 8pt inset when hidden instead of keeping the
-    // sidebar-edge inset it has when visible.
+    // Regression: fullscreen must behave like windowed mode. The hidden-sidebar
+    // inset used to special-case fullscreen to a compact 8pt, jumping the
+    // folder/title left on toggle-off. The function no longer takes a fullscreen
+    // input at all, so windowed/fullscreen parity is structural; this pins the
+    // hidden inset that replaced the compact one.
     @Test func fullscreenToggleAtMinimumWidthDoesNotMoveTitle() {
-        let visible = ContentView.customTitlebarLeadingPadding(
-            isFullScreen: true,
-            isSidebarVisible: true,
-            sidebarWidth: 216,
-            minimumSidebarWidth: 216,
-            titlebarLeadingInset: 82
-        )
         let hidden = ContentView.customTitlebarLeadingPadding(
-            isFullScreen: true,
             isSidebarVisible: false,
             sidebarWidth: 216,
             minimumSidebarWidth: 216,
             titlebarLeadingInset: 82
         )
-        #expect(visible == hidden)
+        #expect(hidden == 228)
     }
 }
 

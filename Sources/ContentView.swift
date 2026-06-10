@@ -2067,17 +2067,16 @@ struct ContentView: View {
         return -max(0, min(titlebarPadding, hostingSafeAreaTop))
     }
 
+    // Fullscreen intentionally has no special case: the title keeps the same
+    // sidebar-edge inset whether or not the window is fullscreen, so toggling the
+    // sidebar at the minimum width never moves the folder/title in either mode.
+    // The fullscreen controls overlay ends well left of the minimum inset.
     nonisolated static func customTitlebarLeadingPadding(
-        isFullScreen: Bool,
         isSidebarVisible: Bool,
         sidebarWidth: CGFloat,
         minimumSidebarWidth: CGFloat,
         titlebarLeadingInset: CGFloat
     ) -> CGFloat {
-        if isFullScreen && !isSidebarVisible {
-            return 8
-        }
-
         let minimumSidebarTitleInset = max(titlebarLeadingInset, minimumSidebarWidth + 12)
         guard isSidebarVisible else {
             return minimumSidebarTitleInset
@@ -2370,14 +2369,6 @@ struct ContentView: View {
         .offset(y: -TitlebarControlsVisualMetrics.verticalLift)
     }
 
-    /// Intrinsic width of ``fullscreenControls`` for the current controls style.
-    /// Used to reserve space in the title row so the title flows to the right of
-    /// the controls, which are themselves mounted once in the band overlay.
-    private var fullscreenControlsWidth: CGFloat {
-        let style = TitlebarControlsStyle(rawValue: titlebarControlsStyleRawValue) ?? .classic
-        return TitlebarControlsLayoutMetrics.contentSize(config: style.config).width
-    }
-
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
         MinimalModeTitlebarDebugSnapshot(
             leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
@@ -2402,7 +2393,6 @@ struct ContentView: View {
     private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
         let titlebarContentHeight = max(1, WindowChromeMetrics.appTitlebarHeight - 2)
         let leadingPadding = Self.customTitlebarLeadingPadding(
-            isFullScreen: isFullScreen,
             isSidebarVisible: sidebarState.isVisible,
             sidebarWidth: sidebarWidth,
             minimumSidebarWidth: minimumSidebarWidth,
@@ -2417,16 +2407,6 @@ struct ContentView: View {
                 .allowsHitTesting(false)
 
             HStack(spacing: 8) {
-                if isFullScreen && !sidebarState.isVisible {
-                    // Reserve the controls' width so the title flows to their right.
-                    // The visible controls are rendered once in the band overlay (see
-                    // `workspaceTitlebarBand`) so their position never depends on
-                    // sidebar visibility.
-                    Color.clear
-                        .frame(width: fullscreenControlsWidth, height: titlebarContentHeight)
-                        .allowsHitTesting(false)
-                }
-
                 // Draggable folder icon + focused command name
                 if let directory = focusedDirectory {
                     DetachedFolderDragIcon(directory: directory)
