@@ -1679,7 +1679,6 @@ final class SocketClient {
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private var reconnectAuthCommand: String?
-    private var isReplayingReconnectAuth = false
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
     private static let maxSocketTimeoutSeconds: TimeInterval = 9_007_199_254_740_991
@@ -1836,14 +1835,14 @@ final class SocketClient {
     /// Re-establish the connection — and replay password auth when configured
     /// — before sending instead of failing the request on a dead socket.
     /// Clients that were never connected still surface "Not connected".
-    private func reestablishConnectionIfPeerClosed() throws {
+    /// The auth replay goes through `performSend` directly (not `send`), so
+    /// this never re-enters itself and needs no reentrancy sentinel.
+    private func reestablishConnectionIfPeerClosed(responseTimeout: TimeInterval? = nil) throws {
         guard socketFD >= 0, !connectionAppearsOpen() else { return }
         close()
         try connect()
-        guard let authCommand = reconnectAuthCommand, !isReplayingReconnectAuth else { return }
-        isReplayingReconnectAuth = true
-        defer { isReplayingReconnectAuth = false }
-        let response = try send(command: authCommand)
+        guard let authCommand = reconnectAuthCommand else { return }
+        let response = try performSend(command: authCommand, responseTimeout: responseTimeout)
         if response.hasPrefix("ERROR:") {
             throw CLIError(message: response)
         }
@@ -1853,7 +1852,12 @@ final class SocketClient {
         if relayEndpoint != nil, socketFD < 0 {
             try connect()
         }
-        try reestablishConnectionIfPeerClosed()
+        try reestablishConnectionIfPeerClosed(responseTimeout: responseTimeout)
+        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        return try performSend(command: command, responseTimeout: responseTimeout)
+    }
+
+    private func performSend(command: String, responseTimeout: TimeInterval? = nil) throws -> String {
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
         let shouldCloseAfterSend = relayEndpoint != nil
         defer {

@@ -4609,6 +4609,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             targetResizes,
             "Each SIGWINCH must reconnect and issue a resize RPC; reusing one connection froze resizes after the first (delivered=\(delivered))"
         )
+
+        // The bridge close must also complete cleanly end-to-end: the EOF
+        // cleanup path runs on the same cached client, so a stale connection
+        // there would surface as a non-zero exit.
+        let exited = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exited.signal()
+        }
+        XCTAssertEqual(exited.wait(timeout: .now() + 5), .success, "ssh-pty-attach did not exit after bridge close")
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        XCTAssertEqual(process.terminationStatus, 0, stderr)
+        XCTAssertTrue(stdout.isEmpty, stdout)
+        XCTAssertTrue(stderr.isEmpty, stderr)
     }
 
     func testSSHSessionAttachCreatesSurfaceWithPersistedPTYSessionID() throws {
