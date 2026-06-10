@@ -153,8 +153,15 @@ enum SurfaceHibernationPlanner {
         return Set(eligible.prefix(excess).map(\.key))
     }
 
+    /// Hibernating a panel synchronously captures scrollback and frees the
+    /// runtime surface on the main actor, so when many hidden terminals cross
+    /// the idle window together the rule drains them a few per evaluation
+    /// instead of in one unbounded batch.
+    static let maxUnmountedSelectionsPerEvaluation = 4
+
     /// Surfaces whose workspace has been unmounted — and which have been quiet
     /// — for at least `unmountedIdleSeconds`, regardless of cap pressure.
+    /// Oldest first, bounded per evaluation.
     private static func unmountedIdleSelection(
         inputs: [SurfaceHibernationPlannerInput],
         agentSettings: AgentHibernationSettings.Values,
@@ -162,16 +169,18 @@ enum SurfaceHibernationPlanner {
         now: TimeInterval
     ) -> Set<AgentHibernationPanelKey> {
         guard surfaceSettings.enabled else { return [] }
-        let eligible = inputs.filter { input in
-            guard input.isLive,
-                  isEvictable(input, agentSettings: agentSettings),
-                  let workspaceUnmountedAt = input.workspaceUnmountedAt else {
-                return false
+        let eligible = inputs
+            .filter { input in
+                guard input.isLive,
+                      isEvictable(input, agentSettings: agentSettings),
+                      let workspaceUnmountedAt = input.workspaceUnmountedAt else {
+                    return false
+                }
+                let quietSince = max(input.lastActivityAt, workspaceUnmountedAt)
+                return now - quietSince >= surfaceSettings.unmountedIdleSeconds
             }
-            let quietSince = max(input.lastActivityAt, workspaceUnmountedAt)
-            return now - quietSince >= surfaceSettings.unmountedIdleSeconds
-        }
-        return Set(eligible.map(\.key))
+            .sorted(by: leastRecentlyUsedFirst)
+        return Set(eligible.prefix(maxUnmountedSelectionsPerEvaluation).map(\.key))
     }
 
     static func isEvictable(

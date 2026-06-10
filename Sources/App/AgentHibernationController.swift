@@ -303,7 +303,8 @@ final class AgentHibernationController {
         let agentCapPressure = agentSettings.enabled && liveRestorableCount >= agentSettings.maxLiveTerminals
         let surfaceCapPressure = surfaceSettings.enabled && liveCount >= surfaceSettings.maxLiveSurfaces
         let unmountedPressure = surfaceSettings.enabled && records.contains { record in
-            guard let workspaceUnmountedAt = record.workspaceUnmountedAt else { return false }
+            guard isLiveByKey[record.key] ?? false,
+                  let workspaceUnmountedAt = record.workspaceUnmountedAt else { return false }
             return nowTime - workspaceUnmountedAt >= surfaceSettings.unmountedIdleSeconds
         }
         let shouldMaintainTailSamples = agentCapPressure || surfaceCapPressure || unmountedPressure

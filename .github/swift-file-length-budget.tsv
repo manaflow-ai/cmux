@@ -97,11 +97,11 @@
 894	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 878	Sources/WorkspaceContentView.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
+859	cmuxTests/SurfaceHibernationPolicyTests.swift
 856	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 846	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 842	Sources/Panels/MarkdownWebRenderer.swift
-833	cmuxTests/SurfaceHibernationPolicyTests.swift
 830	Sources/TaskManagerTypes.swift
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 787	Sources/ClosedItemHistory.swift
@@ -131,7 +131,7 @@
 669	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 668	cmuxTests/FeedCoordinatorTests.swift
 668	cmuxTests/KeyboardShortcutContextTests.swift
-657	Sources/App/AgentHibernationController.swift
+658	Sources/App/AgentHibernationController.swift
 654	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 653	Sources/CmuxTopSnapshot.swift
 650	Sources/Panels/MarkdownRemoteImageLoader.swift

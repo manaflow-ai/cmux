@@ -197,6 +197,32 @@ struct SurfaceHibernationPolicyTests {
     }
 
     @Test
+    func unmountedRuleDrainsOldestFirstBoundedPerEvaluation() {
+        // Hibernation work runs synchronously on the main actor, so a large
+        // cohort crossing the idle window together drains a few per pass.
+        let keys = (0..<6).map { _ in panelKey() }
+        let inputs = keys.enumerated().map { index, key in
+            plainShell(
+                key,
+                lastActivityAt: now - 7_200 - TimeInterval(index),
+                workspaceUnmountedAt: now - 7_200 - TimeInterval(index)
+            )
+        }
+
+        let selected = SurfaceHibernationPlanner.selectedPanelKeys(
+            inputs: inputs,
+            agentSettings: agentSettings(enabled: false),
+            surfaceSettings: surfaceSettings(unmountedIdleSeconds: 1_800, maxLiveSurfaces: 12),
+            now: now
+        )
+
+        #expect(selected.count == SurfaceHibernationPlanner.maxUnmountedSelectionsPerEvaluation)
+        // Oldest first: the last inputs have the oldest activity timestamps.
+        let expected = Set(keys.suffix(SurfaceHibernationPlanner.maxUnmountedSelectionsPerEvaluation))
+        #expect(selected == expected)
+    }
+
+    @Test
     func mountedWorkspaceQuietSurfaceIsNotSelectedWithoutCapPressure() {
         let mounted = panelKey()
 
