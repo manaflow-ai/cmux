@@ -95,6 +95,105 @@ describe("applyAgentEvent", () => {
     });
     expect(next.session?.title).toBe("Fix the parser");
   });
+
+  test("turn.started sets the active turn and records a real boundary", () => {
+    const started = applyAgentEvent(snapshotted([item("a"), item("b")]), {
+      type: "turn.started",
+      seq: 2,
+      turn_id: "turn-1",
+      prompt: "fix the bug",
+    });
+    expect(started.activeTurn).toEqual({ id: "turn-1", prompt: "fix the bug" });
+    // The boundary sits before the next item to arrive (index 2).
+    expect(started.turnStarts).toEqual([2]);
+
+    const completed = applyAgentEvent(started, {
+      type: "turn.completed",
+      seq: 3,
+      turn_id: "turn-1",
+    });
+    expect(completed.activeTurn).toBeNull();
+    // Boundaries persist for rendering after the turn ends.
+    expect(completed.turnStarts).toEqual([2]);
+  });
+
+  test("duplicate turn boundaries at one index are not recorded twice", () => {
+    const first = applyAgentEvent(snapshotted([item("a")]), {
+      type: "turn.started",
+      seq: 2,
+      turn_id: "turn-1",
+    });
+    const second = applyAgentEvent(first, {
+      type: "turn.started",
+      seq: 3,
+      turn_id: "turn-2",
+    });
+    expect(second.turnStarts).toEqual([1]);
+    expect(second.activeTurn?.id).toBe("turn-2");
+  });
+
+  test("request.opened adds a pending request and request.resolved removes it", () => {
+    const opened = applyAgentEvent(snapshotted([item("a")]), {
+      type: "request.opened",
+      seq: 2,
+      request_id: "req-1",
+      request_type: "tool_approval",
+      detail: "Bash: rm -rf node_modules",
+    });
+    expect(opened.pendingRequests).toEqual([
+      { id: "req-1", request_type: "tool_approval", detail: "Bash: rm -rf node_modules" },
+    ]);
+
+    // Duplicate open for the same id is a no-op (seq still advances).
+    const duplicate = applyAgentEvent(opened, {
+      type: "request.opened",
+      seq: 3,
+      request_id: "req-1",
+      request_type: "tool_approval",
+    });
+    expect(duplicate.pendingRequests).toHaveLength(1);
+    expect(duplicate.lastSeq).toBe(3);
+
+    const resolved = applyAgentEvent(duplicate, {
+      type: "request.resolved",
+      seq: 4,
+      request_id: "req-1",
+      decision: "approved",
+    });
+    expect(resolved.pendingRequests).toEqual([]);
+  });
+
+  test("request.resolved for an unknown id is harmless", () => {
+    const state = snapshotted([item("a")]);
+    const next = applyAgentEvent(state, {
+      type: "request.resolved",
+      seq: 2,
+      request_id: "never-opened",
+    });
+    expect(next.pendingRequests).toEqual([]);
+    expect(next.lastSeq).toBe(2);
+  });
+
+  test("a snapshot clears pending requests, the active turn, and boundaries", () => {
+    let state = applyAgentEvent(snapshotted([item("a")]), {
+      type: "turn.started",
+      seq: 2,
+      turn_id: "turn-1",
+    });
+    state = applyAgentEvent(state, {
+      type: "request.opened",
+      seq: 3,
+      request_id: "req-1",
+      request_type: "user_input",
+    });
+    expect(state.pendingRequests).toHaveLength(1);
+    expect(state.activeTurn).not.toBeNull();
+
+    const resynced = applyAgentEvent(state, { type: "snapshot", seq: 1, session, items: [] });
+    expect(resynced.pendingRequests).toEqual([]);
+    expect(resynced.activeTurn).toBeNull();
+    expect(resynced.turnStarts).toEqual([]);
+  });
 });
 
 describe("reduceConversation", () => {

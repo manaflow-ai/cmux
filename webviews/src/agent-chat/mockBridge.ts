@@ -2,9 +2,10 @@
 //
 // Used whenever `window.webkit.messageHandlers.agentChat` is absent. Replays a
 // realistic fixture conversation: `chat.subscribe` delivers a snapshot with a
-// mixed item list, then a short scripted sequence of item.started /
-// item.updated / item.completed ticks on a timer, all through the real inbound
-// path (`window.cmuxAgentChatBridge.receive`).
+// mixed item list, then a short scripted sequence of hook-sourced turn.* and
+// request.* events plus item.started / item.updated / item.completed ticks on
+// a timer, all through the real inbound path
+// (`window.cmuxAgentChatBridge.receive`).
 
 import type { AgentChatBridgeClient } from "./bridge";
 import type {
@@ -168,9 +169,30 @@ export function mockSnapshotItems(): ConversationItem[] {
 
 export function mockLiveEvents(startSeq: number): AgentEvent[] {
   return [
+    // Hook-sourced live phase: a real turn bracket plus a request that opens
+    // (banner shows) and resolves one tick later.
+    {
+      type: "turn.started",
+      seq: startSeq,
+      turn_id: "turn-mock-1",
+      prompt: "Now run the verify gates and show me the summary.",
+    },
+    {
+      type: "request.opened",
+      seq: startSeq + 1,
+      request_id: "req-mock-1",
+      request_type: "tool_approval",
+      detail: "Bash: bun run typecheck && bun run lint:ci",
+    },
+    {
+      type: "request.resolved",
+      seq: startSeq + 2,
+      request_id: "req-mock-1",
+      decision: "approved",
+    },
     {
       type: "item.updated",
-      seq: startSeq,
+      seq: startSeq + 3,
       item: {
         id: "tool-6",
         type: "command_execution",
@@ -185,7 +207,7 @@ export function mockLiveEvents(startSeq: number): AgentEvent[] {
     },
     {
       type: "item.completed",
-      seq: startSeq + 1,
+      seq: startSeq + 4,
       item: {
         id: "tool-6",
         type: "command_execution",
@@ -202,7 +224,7 @@ export function mockLiveEvents(startSeq: number): AgentEvent[] {
     },
     {
       type: "item.started",
-      seq: startSeq + 2,
+      seq: startSeq + 5,
       item: {
         id: "reasoning-2",
         type: "reasoning",
@@ -213,7 +235,7 @@ export function mockLiveEvents(startSeq: number): AgentEvent[] {
     },
     {
       type: "item.completed",
-      seq: startSeq + 3,
+      seq: startSeq + 6,
       item: {
         id: "reasoning-2",
         type: "reasoning",
@@ -224,7 +246,7 @@ export function mockLiveEvents(startSeq: number): AgentEvent[] {
     },
     {
       type: "item.completed",
-      seq: startSeq + 4,
+      seq: startSeq + 7,
       item: {
         id: "msg-5",
         type: "assistant_message",
@@ -232,6 +254,11 @@ export function mockLiveEvents(startSeq: number): AgentEvent[] {
         text: "Verify gates are green:\n\n- `bun run typecheck` — no errors\n- `bun run lint:ci` — 0 warnings\n\nThe `/agent-chat` surface is registered and renders this mock stream in dev.",
         created_at: "2026-06-09T17:03:20Z",
       },
+    },
+    {
+      type: "turn.completed",
+      seq: startSeq + 8,
+      turn_id: "turn-mock-1",
     },
   ];
 }

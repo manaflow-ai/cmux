@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import { renderMarkdownHTML } from "../../agent-session/shared/markdown";
+import type { PendingRequest } from "../conversationStore";
 import type { ConversationItem } from "../protocol";
 import {
   formatToolInput,
@@ -193,4 +194,29 @@ export function StatusIndicator({ status }: { status: ConversationItem["status"]
 
 export function TurnSeparator() {
   return <div className="agent-chat-turn-separator" aria-hidden="true" />;
+}
+
+/**
+ * Prominent banner shown while the agent is blocked on the user (P1: display
+ * only, no answer buttons yet).
+ */
+export function PendingRequestBanner({ request }: { request: PendingRequest }) {
+  const label =
+    request.request_type === "user_input"
+      ? "Agent is waiting for your input"
+      : request.request_type === "tool_approval"
+        ? "Agent is waiting for permission"
+        : "Agent is waiting";
+  return (
+    <output
+      className="agent-chat-request-banner"
+      data-request-id={request.id}
+      data-request-type={request.request_type}
+    >
+      <span className="agent-chat-request-banner-label">{label}</span>
+      {request.detail ? (
+        <span className="agent-chat-request-banner-detail">: {request.detail}</span>
+      ) : null}
+    </output>
+  );
 }

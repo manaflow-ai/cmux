@@ -75,22 +75,40 @@ type Item struct {
 	CreatedAt string      `json:"created_at,omitempty"`
 }
 
-// EventType discriminates Event. The names content.delta, request.opened,
-// request.resolved, turn.started, and turn.completed are reserved for later
-// live phases.
+// EventType discriminates Event. The name content.delta remains reserved for
+// the token-streaming phase. turn.* and request.* events are produced only by
+// the live hook ingest source (hook.go); transcripts cannot observe them.
 type EventType string
 
 const (
-	EventSnapshot      EventType = "snapshot"
-	EventItemStarted   EventType = "item.started"
-	EventItemUpdated   EventType = "item.updated"
-	EventItemCompleted EventType = "item.completed"
-	EventSessionMeta   EventType = "session.meta"
-	EventError         EventType = "error"
+	EventSnapshot        EventType = "snapshot"
+	EventItemStarted     EventType = "item.started"
+	EventItemUpdated     EventType = "item.updated"
+	EventItemCompleted   EventType = "item.completed"
+	EventSessionMeta     EventType = "session.meta"
+	EventError           EventType = "error"
+	EventTurnStarted     EventType = "turn.started"
+	EventTurnCompleted   EventType = "turn.completed"
+	EventRequestOpened   EventType = "request.opened"
+	EventRequestResolved EventType = "request.resolved"
+)
+
+// RequestType classifies a pending request surfaced by request.opened.
+type RequestType string
+
+const (
+	RequestToolApproval RequestType = "tool_approval"
+	RequestUserInput    RequestType = "user_input"
+	RequestUnknown      RequestType = "unknown"
 )
 
 // Event is one canonical conversation event. Exactly the fields relevant to
 // its Type are set; Seq is monotonically increasing per subscription.
+//
+// Content optionality: items first emitted from a hook frame carry only what
+// the hook saw (tool name, a short title, maybe a detail string). The full
+// content (input, output, text) arrives later as item.updated when the
+// transcript line for the same tool_use_id lands.
 type Event struct {
 	Type    EventType   `json:"type"`
 	Seq     uint64      `json:"seq"`
@@ -100,4 +118,14 @@ type Event struct {
 	Message string      `json:"message,omitempty"`
 	// Recoverable is meaningful only for EventError.
 	Recoverable bool `json:"recoverable,omitempty"`
+	// TurnID and Prompt are set for turn.started; TurnID alone for
+	// turn.completed.
+	TurnID string `json:"turn_id,omitempty"`
+	Prompt string `json:"prompt,omitempty"`
+	// RequestID/RequestType/Detail are set for request.opened; RequestID and
+	// (when known) Decision for request.resolved.
+	RequestID   string      `json:"request_id,omitempty"`
+	RequestType RequestType `json:"request_type,omitempty"`
+	Detail      string      `json:"detail,omitempty"`
+	Decision    string      `json:"decision,omitempty"`
 }

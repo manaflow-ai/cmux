@@ -246,6 +246,13 @@ func classifyClaudeTool(name string) ItemType {
 	return ItemDynamicToolCall
 }
 
+// ToolCallTitle extracts a one-line label from a provider-shaped tool input.
+// The hook emit verb uses it so hook frames carry the same short labels the
+// transcript parser derives for tool items.
+func ToolCallTitle(name string, rawInput json.RawMessage) string {
+	return claudeToolTitle(name, rawInput)
+}
+
 // claudeToolTitle extracts a one-line label from the tool input without
 // caring about the full input schema.
 func claudeToolTitle(name string, rawInput json.RawMessage) string {

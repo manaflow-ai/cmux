@@ -41,9 +41,27 @@ type Subscription struct {
 	Events <-chan Event
 
 	events   chan Event
+	hooks    chan HookFrame
 	stop     chan struct{}
 	stopOnce sync.Once
 	done     chan struct{}
+}
+
+// InjectHookFrame hands a live hook frame to the subscription's merge loop.
+// Hooks are advisory: frames are dropped (returning false) when the
+// subscription is stopping or its buffer is full.
+func (s *Subscription) InjectHookFrame(frame HookFrame) bool {
+	select {
+	case <-s.stop:
+		return false
+	default:
+	}
+	select {
+	case s.hooks <- frame:
+		return true
+	default:
+		return false
+	}
 }
 
 // Session returns the session reference resolved at open time.
@@ -72,6 +90,7 @@ func Open(config Config) (*Subscription, SessionRef, error) {
 	subscription := &Subscription{
 		Events: events,
 		events: events,
+		hooks:  make(chan HookFrame, 64),
 		stop:   make(chan struct{}),
 		done:   make(chan struct{}),
 	}
@@ -108,12 +127,24 @@ func (s *Subscription) run(config Config, parser transcriptParser, reader *trans
 		return
 	}
 
+	// merger is where the hook source and the transcript source meet; it owns
+	// the dedup state (see hook.go). Rebuilt whenever the conversation is.
+	merger := newHookMerger(conversation)
+
 	ticker := time.NewTicker(config.PollInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-s.stop:
 			return
+		case frame := <-s.hooks:
+			for _, event := range merger.consumeHookFrame(frame) {
+				event.Seq = nextSeq()
+				if !emit(event) {
+					return
+				}
+			}
+			continue
 		case <-ticker.C:
 		}
 		lines, truncated, err := reader.readNewLines()
@@ -132,9 +163,11 @@ func (s *Subscription) run(config Config, parser transcriptParser, reader *trans
 		}
 		if truncated {
 			// The file shrank or was replaced: re-parse from scratch and
-			// resynchronize the client with a fresh snapshot.
+			// resynchronize the client with a fresh snapshot. Hook merge state
+			// resets with it (pending requests and turn state are ephemeral).
 			parser = newTranscriptParser(config.Provider, config.TranscriptPath)
 			conversation = parser.conv()
+			merger = newHookMerger(conversation)
 			lines, _, err = reader.readNewLines()
 			if err != nil {
 				if !emit(Event{Type: EventError, Seq: nextSeq(), Message: err.Error(), Recoverable: true}) {
@@ -156,15 +189,9 @@ func (s *Subscription) run(config Config, parser transcriptParser, reader *trans
 		}
 		for _, line := range lines {
 			for _, lineChange := range parser.consumeLine(line) {
-				item := conversation.items[lineChange.itemIndex]
-				eventType := EventItemUpdated
-				switch lineChange.kind {
-				case changeStarted:
-					eventType = EventItemStarted
-				case changeCompleted:
-					eventType = EventItemCompleted
-				}
-				if !emit(Event{Type: eventType, Seq: nextSeq(), Item: &item}) {
+				event := merger.transcriptChange(lineChange)
+				event.Seq = nextSeq()
+				if !emit(event) {
 					return
 				}
 			}

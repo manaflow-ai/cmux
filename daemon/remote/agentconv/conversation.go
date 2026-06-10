@@ -38,8 +38,21 @@ func newConversation(provider ProviderID, transcriptPath string) *conversation {
 }
 
 // appendItem adds a new item and reports it as started (in progress) or
-// completed (items that arrive whole in the transcript).
+// completed (items that arrive whole in the transcript). When an item with
+// the same tool_use_id (or id) already exists — a hook frame raced the
+// transcript line, or vice versa — the incoming content merges into the
+// existing item instead of duplicating it, reported as updated.
 func (c *conversation) appendItem(item Item) change {
+	if item.ToolUseID != "" {
+		if index, ok := c.byToolUseID[item.ToolUseID]; ok {
+			return c.mergeItem(index, item)
+		}
+	}
+	if item.ID != "" {
+		if index, ok := c.byID[item.ID]; ok {
+			return c.mergeItem(index, item)
+		}
+	}
 	index := len(c.items)
 	c.items = append(c.items, item)
 	if item.ID != "" {
@@ -51,6 +64,43 @@ func (c *conversation) appendItem(item Item) change {
 	kind := changeCompleted
 	if item.Status == StatusInProgress {
 		kind = changeStarted
+	}
+	return change{itemIndex: index, kind: kind}
+}
+
+// mergeItem folds incoming content into an existing item (same logical item
+// seen by two sources). Incoming fields win where set, except status never
+// regresses from a terminal state back to in_progress.
+func (c *conversation) mergeItem(index int, incoming Item) change {
+	existing := &c.items[index]
+	if incoming.Type != "" && incoming.Type != ItemUnknown {
+		existing.Type = incoming.Type
+	}
+	if incoming.Text != "" {
+		existing.Text = incoming.Text
+	}
+	if incoming.ToolName != "" {
+		existing.ToolName = incoming.ToolName
+	}
+	if incoming.Input != nil {
+		existing.Input = incoming.Input
+	}
+	if incoming.Output != nil {
+		existing.Output = incoming.Output
+	}
+	if incoming.Title != "" {
+		existing.Title = incoming.Title
+	}
+	if incoming.CreatedAt != "" && existing.CreatedAt == "" {
+		existing.CreatedAt = incoming.CreatedAt
+	}
+	wasTerminal := existing.Status != StatusInProgress
+	if incoming.Status != "" && incoming.Status != StatusInProgress {
+		existing.Status = incoming.Status
+	}
+	kind := changeUpdated
+	if !wasTerminal && existing.Status != StatusInProgress {
+		kind = changeCompleted
 	}
 	return change{itemIndex: index, kind: kind}
 }

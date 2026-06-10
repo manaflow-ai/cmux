@@ -6,6 +6,9 @@
 // replaces the item list and resets the sequence cursor, `item.*` events
 // upsert by item id while preserving first-appearance order, and stale events
 // (`seq` at or below the cursor) are ignored except for fresh snapshots.
+// Hook-sourced events maintain `pendingRequests` (request.opened minus
+// request.resolved), `activeTurn`, and `turnStarts` (real turn boundaries by
+// item index); all three reset on snapshot.
 
 import type {
   AgentChatBridgeInbound,
@@ -13,11 +16,25 @@ import type {
   AgentEvent,
   AgentSessionRef,
   ConversationItem,
+  RequestType,
 } from "./protocol";
 
 export type DaemonStatus = "ready" | "unavailable";
 
 export type ConversationPhase = "connecting" | "failed" | "ready";
+
+/** A `request.opened` not yet matched by its `request.resolved`. */
+export type PendingRequest = {
+  id: string;
+  request_type: RequestType;
+  detail?: string;
+};
+
+/** The live turn opened by `turn.started` and not yet completed. */
+export type ActiveTurn = {
+  id: string;
+  prompt?: string;
+};
 
 export type ConversationState = {
   /** Bridge lifecycle: init pending, init replied, or init threw. */
@@ -33,6 +50,16 @@ export type ConversationState = {
   hasSnapshot: boolean;
   /** Last stream-level `error` event, cleared by the next snapshot. */
   streamError: { message: string; recoverable: boolean } | null;
+  /** Open requests (opened minus resolved), in open order. */
+  pendingRequests: PendingRequest[];
+  /** Non-null while a hook-observed turn is running. */
+  activeTurn: ActiveTurn | null;
+  /**
+   * Item indexes at which a real (hook-observed) turn started. Non-empty means
+   * the timeline can draw real turn boundaries instead of deriving them from
+   * user_message items.
+   */
+  turnStarts: number[];
 };
 
 export type ConversationAction =
@@ -50,6 +77,9 @@ export function initialConversationState(): ConversationState {
     lastSeq: 0,
     hasSnapshot: false,
     streamError: null,
+    pendingRequests: [],
+    activeTurn: null,
+    turnStarts: [],
   };
 }
 
@@ -88,6 +118,7 @@ export function reduceConversation(
 export function applyAgentEvent(state: ConversationState, event: AgentEvent): ConversationState {
   // A fresh snapshot always applies: it is the reconnect/replace point and
   // resets the sequence cursor (the daemon restarts seq per subscription).
+  // Hook-derived state (requests, turns) is ephemeral and resets with it.
   if (event.type === "snapshot") {
     return {
       ...state,
@@ -96,6 +127,9 @@ export function applyAgentEvent(state: ConversationState, event: AgentEvent): Co
       session: event.session,
       items: [...event.items],
       streamError: null,
+      pendingRequests: [],
+      activeTurn: null,
+      turnStarts: [],
     };
   }
   // Seq regression guard: drop stale or duplicate frames.
@@ -114,6 +148,41 @@ export function applyAgentEvent(state: ConversationState, event: AgentEvent): Co
         ...state,
         lastSeq: event.seq,
         streamError: { message: event.message, recoverable: event.recoverable },
+      };
+    case "turn.started": {
+      // The boundary sits before the next item to arrive.
+      const boundary = state.items.length;
+      return {
+        ...state,
+        lastSeq: event.seq,
+        activeTurn: { id: event.turn_id, prompt: event.prompt },
+        turnStarts: state.turnStarts.includes(boundary)
+          ? state.turnStarts
+          : [...state.turnStarts, boundary],
+      };
+    }
+    case "turn.completed":
+      return { ...state, lastSeq: event.seq, activeTurn: null };
+    case "request.opened": {
+      if (state.pendingRequests.some((request) => request.id === event.request_id)) {
+        return { ...state, lastSeq: event.seq };
+      }
+      return {
+        ...state,
+        lastSeq: event.seq,
+        pendingRequests: [
+          ...state.pendingRequests,
+          { id: event.request_id, request_type: event.request_type, detail: event.detail },
+        ],
+      };
+    }
+    case "request.resolved":
+      return {
+        ...state,
+        lastSeq: event.seq,
+        pendingRequests: state.pendingRequests.filter(
+          (request) => request.id !== event.request_id,
+        ),
       };
   }
 }

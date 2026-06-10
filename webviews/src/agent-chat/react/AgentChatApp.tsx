@@ -16,7 +16,7 @@ import {
   type ConversationState,
 } from "../conversationStore";
 import { providerDisplayName, sessionDisplayTitle } from "./display";
-import { ItemRow, TurnSeparator } from "./rows";
+import { ItemRow, PendingRequestBanner, TurnSeparator } from "./rows";
 
 /** Distance from the bottom (px) still treated as "at the bottom". */
 const FOLLOW_THRESHOLD_PX = 24;
@@ -79,6 +79,9 @@ export function AgentChatApp({ createBridge }: { createBridge?: BridgeFactory })
       {state.daemonStatus === "unavailable" && state.items.length > 0 ? (
         <DaemonBanner detail={state.daemonDetail} />
       ) : null}
+      {state.pendingRequests.map((request) => (
+        <PendingRequestBanner key={request.id} request={request} />
+      ))}
       <TimelineBody state={state} />
     </div>
   );
@@ -196,9 +199,17 @@ function Timeline({ state }: { state: ConversationState }) {
     }
   };
 
+  // Turn boundaries: real (hook-observed turn.started indexes) once hooks are
+  // live; items that predate the first real boundary (snapshot history) keep
+  // the user_message-derived fallback.
+  const realBoundaries = new Set(state.turnStarts);
+  const firstRealBoundary =
+    state.turnStarts.length > 0 ? Math.min(...state.turnStarts) : Number.POSITIVE_INFINITY;
   const rows: ReactNode[] = [];
   state.items.forEach((item, index) => {
-    if (item.type === "user_message" && index > 0) {
+    const isBoundary =
+      index >= firstRealBoundary ? realBoundaries.has(index) : item.type === "user_message";
+    if (isBoundary && index > 0) {
       rows.push(<TurnSeparator key={`turn-${item.id}`} />);
     }
     rows.push(<ItemRow key={item.id} item={item} />);

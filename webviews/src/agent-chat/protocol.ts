@@ -9,10 +9,14 @@
 // - Everything in a conversation is an "item" with a lifecycle
 //   (started -> updated -> completed). Messages, reasoning, and tool calls
 //   are all items; tool results fold into their tool item by tool_use_id.
-// - Transcript replay cannot observe token-level streaming, so P1 has no
-//   content.delta event. The names `content.delta`, `request.opened`,
-//   `request.resolved`, `turn.started`, and `turn.completed` are reserved
-//   for the live phases and must not be reused for anything else.
+// - Transcript replay cannot observe token-level streaming, so there is no
+//   content.delta event yet; that name stays reserved.
+// - `turn.started`/`turn.completed` and `request.opened`/`request.resolved`
+//   are produced only by the live hook ingest source (see the "Hook ingest"
+//   section of the doc). Content optionality: an item first emitted from a
+//   hook frame is sparse (tool name + short title, no input/output); the full
+//   content arrives as `item.updated` when the transcript line for the same
+//   tool_use_id lands.
 
 export type AgentProviderId = "claude" | "codex" | (string & {});
 
@@ -70,6 +74,9 @@ export interface ConversationItem {
   created_at?: string;
 }
 
+/** Classifies what a pending `request.opened` is waiting on. */
+export type RequestType = "tool_approval" | "user_input" | "unknown";
+
 export type AgentEvent =
   | {
       type: "snapshot";
@@ -81,7 +88,23 @@ export type AgentEvent =
   | { type: "item.updated"; seq: number; item: ConversationItem }
   | { type: "item.completed"; seq: number; item: ConversationItem }
   | { type: "session.meta"; seq: number; session: AgentSessionRef }
-  | { type: "error"; seq: number; message: string; recoverable: boolean };
+  | { type: "error"; seq: number; message: string; recoverable: boolean }
+  // Live hook-sourced events. Turns bracket agent activity between a user
+  // prompt and the agent stopping; requests are open while the agent waits on
+  // the user (permission prompt, input request).
+  | { type: "turn.started"; seq: number; turn_id: string; prompt?: string }
+  | { type: "turn.completed"; seq: number; turn_id: string }
+  | {
+      type: "request.opened";
+      seq: number;
+      request_id: string;
+      request_type: RequestType;
+      detail?: string;
+    }
+  // `decision` is present when the resolution outcome is known (for example
+  // "approved"/"denied"); absent when the request was implicitly cleared by
+  // the agent making progress.
+  | { type: "request.resolved"; seq: number; request_id: string; decision?: string };
 
 // ---------------------------------------------------------------------------
 // RPC surface exposed by cmuxd-remote (newline-delimited JSON, same envelope

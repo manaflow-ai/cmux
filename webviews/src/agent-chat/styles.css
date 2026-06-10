@@ -98,6 +98,25 @@
   border-bottom: 1px solid var(--agent-border, rgba(127, 127, 127, 0.25));
 }
 
+/* Pending request banner (agent blocked on the user) */
+
+.agent-chat-request-banner {
+  display: block;
+  flex: none;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--agent-warning, #f5a623);
+  background: color-mix(in srgb, var(--agent-warning, #f5a623) 12%, transparent);
+  border-bottom: 1px solid var(--agent-border, rgba(127, 127, 127, 0.25));
+}
+
+.agent-chat-request-banner-detail {
+  font-weight: 400;
+  color: var(--agent-soft, #b8b8b8);
+  overflow-wrap: anywhere;
+}
+
 /* Timeline */
 
 .agent-chat-timeline {

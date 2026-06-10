@@ -149,7 +149,7 @@ func shouldRunCLIForInvocation(argv0 string, args []string) bool {
 
 func isDaemonEntryCommand(arg string) bool {
 	switch arg {
-	case "version", "serve", "cli":
+	case "version", "serve", "cli", "agent-hook-emit":
 		return true
 	default:
 		return false
@@ -242,6 +242,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	case "cli":
 		return runCLI(args[1:])
+	case "agent-hook-emit":
+		return runAgentHookEmit(args[1:], stdin)
 	default:
 		usage(stderr)
 		return 2
@@ -255,6 +257,7 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio --persistent --slot <slot>")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote cli <command> [args...]")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote agent-hook-emit --socket <path> [--provider <id>] [frame-json]")
 }
 
 func runStdioServer(stdin io.Reader, stdout io.Writer) error {
@@ -1317,6 +1320,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"pty.session.persistent_daemon",
 					"pty.write.notification",
 					"agent.conversation",
+					"agent.conversation.hooks",
 				},
 			},
 		}

@@ -16,6 +16,14 @@ import (
 
 type agentSubscriptionState struct {
 	subscription *agentconv.Subscription
+	// provider/sessionID key the subscription in the hook ingest registry.
+	provider  agentconv.ProviderID
+	sessionID string
+}
+
+func (state *agentSubscriptionState) teardown() {
+	agentHookIngest.unregister(state.provider, state.sessionID, state.subscription)
+	state.subscription.Close()
 }
 
 func (s *rpcServer) handleAgentSessionsList(req rpcRequest) rpcResponse {
@@ -65,16 +73,25 @@ func (s *rpcServer) handleAgentSessionOpen(req rpcRequest) rpcResponse {
 		}}
 	}
 
+	state := &agentSubscriptionState{
+		subscription: subscription,
+		provider:     provider,
+		sessionID:    session.SessionID,
+	}
 	s.mu.Lock()
 	subscriptionID := fmt.Sprintf("agent-%d", s.nextAgentSubID)
 	s.nextAgentSubID++
 	if s.agentSubs == nil {
 		s.agentSubs = map[string]*agentSubscriptionState{}
 	}
-	s.agentSubs[subscriptionID] = &agentSubscriptionState{subscription: subscription}
+	s.agentSubs[subscriptionID] = state
 	s.mu.Unlock()
 
-	go s.pumpAgentEvents(subscriptionID, subscription)
+	// Live hook frames for this (provider, session) route into the same
+	// canonical stream while the subscription is open.
+	agentHookIngest.register(state.provider, state.sessionID, subscription)
+
+	go s.pumpAgentEvents(subscriptionID, state)
 
 	return rpcResponse{ID: req.ID, OK: true, Result: map[string]any{
 		"subscription_id": subscriptionID,
@@ -97,12 +114,12 @@ func (s *rpcServer) handleAgentSessionClose(req rpcRequest) rpcResponse {
 			Message: "unknown subscription",
 		}}
 	}
-	state.subscription.Close()
+	state.teardown()
 	return rpcResponse{ID: req.ID, OK: true, Result: map[string]any{"closed": true}}
 }
 
-func (s *rpcServer) pumpAgentEvents(subscriptionID string, subscription *agentconv.Subscription) {
-	for event := range subscription.Events {
+func (s *rpcServer) pumpAgentEvents(subscriptionID string, state *agentSubscriptionState) {
+	for event := range state.subscription.Events {
 		payload, err := json.Marshal(event)
 		if err != nil {
 			continue
@@ -116,7 +133,7 @@ func (s *rpcServer) pumpAgentEvents(subscriptionID string, subscription *agentco
 			s.mu.Lock()
 			delete(s.agentSubs, subscriptionID)
 			s.mu.Unlock()
-			subscription.Close()
+			state.teardown()
 			return
 		}
 	}
@@ -131,7 +148,7 @@ func (s *rpcServer) closeAgentSubscriptions() {
 	}
 	s.mu.Unlock()
 	for _, state := range subscriptions {
-		state.subscription.Close()
+		state.teardown()
 	}
 }
 
