@@ -16,6 +16,8 @@ public struct SystemSocketRecoveryClock: SocketRecoveryClock {
     /// Creates the system clock.
     public init() {}
 
+    /// Sleeps on the continuous clock; cancellation propagates as
+    /// `CancellationError`.
     public func sleep(forMilliseconds milliseconds: Int) async throws {
         try await ContinuousClock().sleep(for: .milliseconds(milliseconds))
     }

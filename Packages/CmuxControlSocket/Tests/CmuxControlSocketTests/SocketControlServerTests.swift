@@ -416,6 +416,14 @@ struct SocketControlServerPathMonitorTests {
     }
 }
 
+// Deliberate test gap, stated per repo policy: the accept-failure
+// suspend/backoff/resume path (SocketRecoveryClock consumer, AcceptRecoveryState
+// latch) needs accept(2) to fail with a hot errno. Forcing EMFILE requires
+// lowering RLIMIT_NOFILE process-wide, which races the other suites running
+// in-process under Swift Testing's parallel executor, so a deterministic
+// behavior test is not practical here. The nearest contracts are pinned
+// instead: claim-after-stop rejection below, and stop()'s resume-before-cancel
+// is exercised by every harness shutdown.
 @MainActor
 @Suite("SocketControlServer rearm")
 struct SocketControlServerRearmTests {

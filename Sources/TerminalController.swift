@@ -272,9 +272,10 @@ class TerminalController {
             events: Self.makeSocketServerEvents(target: serverEventTarget)
         )
         self.socketServer = socketServer
-        // Single consumer of the accepted-connection stream. Each connection
-        // still gets a dedicated thread: command bodies block (main-thread
-        // sync hops, semaphore waits), so never the cooperative pool.
+        // Single consumer of the accepted-connection stream, detached so
+        // accepts never funnel through the main actor. Each connection still
+        // gets a dedicated thread: command bodies block (main-thread sync
+        // hops, semaphore waits), so never the cooperative pool.
         self.socketConnectionsTask = Task.detached {
             for await connection in socketServer.connections {
                 guard let controller = serverEventTarget.controller else {
