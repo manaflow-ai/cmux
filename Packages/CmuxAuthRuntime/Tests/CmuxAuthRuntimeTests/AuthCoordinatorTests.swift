@@ -98,6 +98,59 @@ import Testing
         #expect(await ranHook.fired)
     }
 
+    @Test func signOutRunsHookWhileTokensStillValid() async throws {
+        // The push-token DELETE runs as the onSignedOut hook and needs a valid
+        // access token. Regression: the hook used to run after client.signOut()
+        // revoked the session, so the DELETE was silently skipped.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let (coordinator, _) = makeCoordinator(client: client)
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        let probe = TokenProbe()
+        await coordinator.signOut(onSignedOut: {
+            let token = try? await coordinator.accessToken()
+            await probe.set(token)
+        })
+
+        #expect(await probe.value != nil)  // hook saw a valid token (ran before revoke)
+        #expect(coordinator.isAuthenticated == false)  // session revoked afterward
+    }
+
+    @Test func signOutJoinsAndCancelsSlowTeardownAtDeadline() async throws {
+        // Regression: the teardown must be STRUCTURED (joined), not detached. A
+        // detached hook could outlive signOut() and, after a later sign-in,
+        // rebuild its push-token DELETE from the new account's tokens. With a
+        // short deadline the task group cancels the slow hook and joins it before
+        // signOut returns, so by the time signOut returns the hook has already
+        // been cancelled (never left running) and sign-out wasn't blocked for the
+        // hook's full duration.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let (coordinator, _) = makeCoordinator(client: client)
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        let outcome = TeardownOutcomeProbe()
+        await coordinator.signOut(
+            onSignedOut: {
+                await outcome.markStarted()
+                do {
+                    // Cancellation-aware slow work, like the URLSession DELETE.
+                    try await Task.sleep(for: .seconds(60))
+                    await outcome.markFinished()
+                } catch {
+                    await outcome.markCancelled()
+                }
+            },
+            teardownTimeout: .milliseconds(50)
+        )
+
+        #expect(await outcome.started)
+        #expect(await outcome.cancelled)          // joined + cancelled before return
+        #expect(await outcome.finished == false)  // the 60s path never completed
+        #expect(coordinator.isAuthenticated == false)
+    }
+
     @Test func devAuthFortyTwoShortcutSignsIn() async throws {
         let user = CMUXAuthUser(id: "debug", primaryEmail: "l@l.com", displayName: "L")
         let client = FakeAuthClient(user: user)

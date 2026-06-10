@@ -9,7 +9,8 @@ extension TabItemView {
         let targetWorkspaces = targetIds.compactMap { id in
             tabManager.tabs.first(where: { $0.id == id })
         }
-        let eligibleTargets = targetWorkspaces.filter { !$0.isPinned }
+        let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+        let eligibleTargets = targetWorkspaces.filter { !existingAnchorIds.contains($0.id) }
         let eligibleTargetIds = eligibleTargets.map(\.id)
         if !eligibleTargetIds.isEmpty {
             let groups = workspaceGroupMenuSnapshot.items

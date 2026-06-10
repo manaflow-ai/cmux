@@ -52,11 +52,21 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// The Mac's libghostty self-gates: a normal screen treats it as a harmless
     /// empty selection. Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int)
+    /// The user tapped the "customize" button at the end of the input-accessory
+    /// bar; the host should present the toolbar shortcuts editor. Optional.
+    func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView)
+    /// Forward an image the user pasted from the system clipboard. The host
+    /// uploads `data` to the Mac, which materializes a temp file and injects its
+    /// path into the terminal so a running TUI (e.g. Claude Code) attaches it.
+    /// `format` is a lowercase file-extension hint (e.g. `"png"`). Optional.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String)
 }
 
 public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
+    func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
 }
 
 @MainActor
@@ -144,19 +154,6 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
     }
 }
 
-// lint:allow namespace-enum — surface-teardown helper on the off-limits render path; its serial DispatchQueue is the sanctioned libghostty free-after-detach carve-out. Reshape deferred to the GhosttySurfaceView split wave.
-private enum GhosttySurfaceDisposer {
-    static let queue = DispatchQueue(label: "GhosttySurfaceDisposer.queue")
-
-    static func dispose(surface: ghostty_surface_t, bridge: GhosttySurfaceBridge) {
-        let retainedBridge = Unmanaged.passRetained(bridge)
-        queue.async {
-            ghostty_surface_free(surface)
-            retainedBridge.release()
-        }
-    }
-}
-
 struct TerminalHardwareKeyCommand: Sendable {
     let input: String
     let modifierFlags: UIKeyModifierFlags
@@ -238,7 +235,7 @@ struct TerminalHardwareKeyResolver {
     }
 }
 
-public enum TerminalInputAccessoryAction: Int, CaseIterable {
+public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     case control
     case alternate
     case command
@@ -266,6 +263,11 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
     case end
     case pageUp
     case pageDown
+    /// Paste the system clipboard into the terminal: an image is forwarded to
+    /// the Mac as `terminal.paste_image`, plain text rides the normal input
+    /// path. Unlike the other actions it carries no fixed byte ``output``; the
+    /// host reads the pasteboard when it is tapped.
+    case paste
     var title: String {
         title(isMacRemote: false)
     }
@@ -295,7 +297,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         case .ctrlZ:
             return "^Z"
         case .ctrlL:
-            return "^L"
+            return String(localized: "terminal.input_accessory.title.clear", defaultValue: "Clear")
         case .upArrow:
             return "↑"
         case .downArrow:
@@ -326,6 +328,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
             return "@"
         case .pageDown:
             return String(localized: "terminal.input_accessory.title.pageDown", defaultValue: "PgDn")
+        case .paste:
+            return ""
         }
     }
 
@@ -358,6 +362,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         case .end: return "terminal.inputAccessory.end"
         case .pageUp: return "terminal.inputAccessory.pageUp"
         case .pageDown: return "terminal.inputAccessory.pageDown"
+        case .paste: return "terminal.inputAccessory.paste"
         }
     }
 
@@ -367,6 +372,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
             return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
         case .zoomIn:
             return String(localized: "terminal.input_accessory.zoom_in", defaultValue: "Zoom In")
+        case .paste:
+            return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
         default:
             return nil
         }
@@ -378,6 +385,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
             return "minus.magnifyingglass"
         case .zoomIn:
             return "plus.magnifyingglass"
+        case .paste:
+            return "doc.on.clipboard"
         default:
             return nil
         }
@@ -404,7 +413,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
 
     var output: Data? {
         switch self {
-        case .control, .alternate, .command, .shift, .zoomOut, .zoomIn:
+        case .control, .alternate, .command, .shift, .zoomOut, .zoomIn, .paste:
             return nil
         case .escape:
             return Data([0x1B])
@@ -451,17 +460,69 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         }
     }
 
-    /// Whether the user can show/hide/reorder this action. The modifier keys
-    /// (⌃ ⌥ ⌘ ⇧) and zoom controls are structural and stay pinned, so only the
-    /// insertable shortcuts (those with an `output`) are configurable.
+    /// Whether the user can show/hide/reorder this action.
+    ///
+    /// Every button on the bar is configurable except ``shift``, which has armed
+    /// machinery but is intentionally not surfaced as a bar button. The leading
+    /// modifier keys (⌃ ⌥ ⌘), zoom controls, and paste used to be structurally
+    /// pinned; they are now part of the user-configurable region too, so their
+    /// position can be moved alongside the insertable shortcuts.
     public var isUserConfigurable: Bool {
-        output != nil && !isModifier
+        switch self {
+        case .shift:
+            return false
+        default:
+            return true
+        }
     }
 
-    /// Every user-configurable action in canonical (enum) order. This is both
-    /// the default arrangement and the full set the settings editor lists.
+    /// Every user-configurable action in canonical (enum) order. This is the full
+    /// set the settings editor lists and the valid identifier set; it is *not* the
+    /// default on-bar arrangement (see ``defaultConfigurableOrder``).
     public static var configurableActions: [TerminalInputAccessoryAction] {
         allCases.filter { $0.isUserConfigurable }
+    }
+
+    /// The configurable actions that previously sat in the bar's fixed leading
+    /// region, in their shipped left-to-right order. They lead ``defaultConfigurableOrder``
+    /// on a fresh install, and the v1/v2→v3 migration force-enables and inserts
+    /// them at the front so an upgrading user's bar looks unchanged.
+    public static var defaultLeadingActions: [TerminalInputAccessoryAction] {
+        [.control, .alternate, .command, .paste]
+    }
+
+    /// The configurable actions that previously sat in the bar's fixed trailing
+    /// region (the zoom controls). They tail ``defaultConfigurableOrder`` on a
+    /// fresh install, and the migration force-enables and appends them so an
+    /// upgrading user's bar looks unchanged.
+    public static var defaultTrailingActions: [TerminalInputAccessoryAction] {
+        [.zoomOut, .zoomIn]
+    }
+
+    /// The default on-bar arrangement of the configurable shortcuts: the leading
+    /// modifier/paste controls, then the high-traffic agent and control keys (Tab,
+    /// Esc, ^C/^D, the Claude/Codex launchers, the arrow keys, Clear), then the
+    /// punctuation and navigation keys, then the trailing zoom controls. Esc sits
+    /// immediately to the right of Tab so the two most common terminal keys are
+    /// adjacent. Curated independently of the enum's `rawValue` order so the
+    /// default bar can be arranged without perturbing the persisted identifiers,
+    /// which are the `rawValue`s.
+    ///
+    /// Must stay a permutation of ``configurableActions``;
+    /// ``TerminalAccessoryLayoutReducer`` defensively appends any omission, so a
+    /// gap here can never drop an action from the bar.
+    public static var defaultConfigurableOrder: [TerminalInputAccessoryAction] {
+        defaultLeadingActions + [
+            .tab,
+            .escape,
+            .ctrlC, .ctrlD,
+            .claude, .codex,
+            .upArrow, .downArrow, .leftArrow, .rightArrow,
+            .ctrlL,
+            .tilde, .dollar, .slash, .atSign, .pipe,
+            .ctrlZ,
+            .home, .end, .pageUp, .pageDown,
+        ] + defaultTrailingActions
     }
 
     /// Human-readable name for the shortcuts settings editor (the bar itself
@@ -484,18 +545,30 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         case .ctrlC: return String(localized: "terminal.shortcut.name.ctrlC", defaultValue: "Control-C")
         case .ctrlD: return String(localized: "terminal.shortcut.name.ctrlD", defaultValue: "Control-D")
         case .ctrlZ: return String(localized: "terminal.shortcut.name.ctrlZ", defaultValue: "Control-Z")
-        case .ctrlL: return String(localized: "terminal.shortcut.name.ctrlL", defaultValue: "Control-L")
+        case .ctrlL: return String(localized: "terminal.shortcut.name.ctrlL", defaultValue: "Clear (Control-L)")
         case .home: return String(localized: "terminal.shortcut.name.home", defaultValue: "Home")
         case .end: return String(localized: "terminal.shortcut.name.end", defaultValue: "End")
         case .pageUp: return String(localized: "terminal.shortcut.name.pageUp", defaultValue: "Page Up")
         case .pageDown: return String(localized: "terminal.shortcut.name.pageDown", defaultValue: "Page Down")
-        case .control, .alternate, .command, .shift, .zoomIn, .zoomOut:
+        case .paste: return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
+        case .control: return String(localized: "terminal.shortcut.name.control", defaultValue: "Control")
+        case .alternate: return String(localized: "terminal.shortcut.name.alternate", defaultValue: "Option")
+        case .command: return String(localized: "terminal.shortcut.name.command", defaultValue: "Command")
+        case .zoomIn: return String(localized: "terminal.input_accessory.zoom_in", defaultValue: "Zoom In")
+        case .zoomOut: return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
+        case .shift:
             return title
         }
     }
 }
 
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
+    /// The surface whose hidden text input is currently first responder, if any.
+    ///
+    /// Tracked statically so chrome (SwiftUI overlays presented over the
+    /// terminal) can dismiss the live keyboard via ``resignActiveInput()``
+    /// without holding a reference to the specific surface.
+    private static weak var activeInputSurface: GhosttySurfaceView?
     private weak var runtime: GhosttyRuntime?
     private weak var delegate: GhosttySurfaceViewDelegate?
     private let fontSize: Float32
@@ -764,6 +837,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             TerminalInputDebugLog.log("surface.onEscape data=\(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
+        inputProxy.onPasteImage = { [weak self] data, format in
+            guard let self else { return }
+            TerminalInputDebugLog.log("surface.onPasteImage bytes=\(data.count) format=\(format)")
+            self.delegate?.ghosttySurfaceView(self, didPasteImage: data, format: format)
+        }
         inputProxy.onZoom = { [weak self] direction in
             self?.performFontZoom(direction)
         }
@@ -771,10 +849,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let self else { return }
             // Toggle: dismiss when the keyboard is up, bring it back when down.
             if self.inputProxy.isFirstResponder {
-                self.inputProxy.resignFirstResponder()
+                self.resignInput()
             } else {
                 self.focusInput()
             }
+        }
+        inputProxy.onOpenToolbarSettings = { [weak self] in
+            guard let self else { return }
+            self.delegate?.ghosttySurfaceViewDidRequestToolbarSettings(self)
         }
         inputProxy.accessoryLayoutInsetsProvider = { [weak self] in
             guard let self,
@@ -944,6 +1026,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// flush with the grid bottom (no gap) and its bottom rests on the keyboard
     /// edge (up) or above the home indicator (down).
     private weak var dockedToolbar: UIView?
+    /// True once SwiftUI has dismantled the hosting representable for this
+    /// surface. A dismantled surface performs no render, output, or
+    /// accessibility work so a view SwiftUI has removed cannot keep driving the
+    /// renderer or the accessibility tree.
+    private var isDismantled = false
+    /// Whether the hidden terminal input should become first responder when the
+    /// surface attaches to a window. Set to `false` to suppress autofocus after
+    /// chrome actions (create workspace/terminal, switch terminal) so the
+    /// software keyboard does not pop up unprompted.
     public var autoFocusOnWindowAttach = true
 
     @objc private func handleKeyboardWillShow(_ notification: Notification) {
@@ -1332,6 +1423,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         MobileDebugLog.anchormux("surface.didMoveToWindow window=\(window != nil)")
         syncSurfaceVisibility()
         if window != nil {
+            isDismantled = false
+            #if DEBUG
+            debugAccessibilityProxy.isAccessibilityElement = true
+            #endif
             setNeedsGeometrySync()
             setFocus(true)
             if autoFocusOnWindowAttach {
@@ -1339,15 +1434,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             startDisplayLink()
         } else {
-            stopDisplayLink()
-            setFocus(false)
+            prepareForReuseAfterDetach()
         }
     }
 
     private var lastProcessOutputLogTime: CFTimeInterval = 0
 
     public func processOutput(_ data: Data) {
-        guard let surface else { return }
+        guard let surface, !isDismantled else { return }
         #if DEBUG
         if lastInputTimestamp > 0 {
             let elapsed = (CACurrentMediaTime() - lastInputTimestamp) * 1000.0
@@ -1399,7 +1493,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             #endif
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, !self.isDismantled else { return }
                 self.needsDraw = true
                 if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
                     self.hostCursorVisible = cursorVisibilityDelta
@@ -1469,9 +1563,52 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @objc
     func focusInput() {
         onFocusInputRequestedForTesting?()
+        Self.activeInputSurface = self
         setNeedsGeometrySync()
         inputProxy.updateAccessoryLayoutInsets()
         inputProxy.becomeFirstResponder()
+    }
+
+    /// Resigns the currently focused terminal input proxy, if any.
+    ///
+    /// Use before presenting SwiftUI chrome over the terminal so UIKit releases
+    /// the hidden text input and the terminal can recalculate full-height
+    /// geometry after the keyboard leaves.
+    public static func resignActiveInput() {
+        activeInputSurface?.resignInput()
+    }
+
+    /// Resigns this surface's hidden text input and clears keyboard geometry.
+    public func resignInput() {
+        inputProxy.resignFirstResponder()
+        if Self.activeInputSurface === self {
+            Self.activeInputSurface = nil
+        }
+        // Don't zero `keyboardHeight` here. `resignFirstResponder()` triggers
+        // `keyboardWillHide`, which owns the full hide cleanup (proxy state,
+        // docked-toolbar animation, geometry). Pre-zeroing would make that
+        // handler's `keyboardHeight != 0` guard short-circuit, leaving the
+        // toolbar at the old keyboard edge with a stale glyph.
+    }
+
+    /// Stops user-visible and accessibility output from a surface SwiftUI has removed.
+    public func prepareForDismantle() {
+        isDismantled = true
+        prepareForReuseAfterDetach()
+    }
+
+    /// Quiesces the surface on window detach: resigns input, stops the display
+    /// link, drops focus, and removes the debug accessibility carrier from the
+    /// tree. Does not set ``isDismantled`` so a transient detach can re-attach
+    /// and resume; only ``prepareForDismantle()`` marks the surface dead.
+    private func prepareForReuseAfterDetach() {
+        resignInput()
+        stopDisplayLink()
+        setFocus(false)
+        #if DEBUG
+        debugAccessibilityProxy.accessibilityLabel = nil
+        debugAccessibilityProxy.isAccessibilityElement = false
+        #endif
     }
 
     func simulateTextInputForTesting(_ text: String) {
@@ -1598,7 +1735,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
         bridge.detach()
-        GhosttySurfaceDisposer.dispose(surface: surface, bridge: bridge)
+        // Free on the SAME serial `outputQueue` that runs `process_output`,
+        // `render_now`, and `binding_action` (all of which capture this C
+        // surface pointer), not a separate queue. FIFO ordering guarantees the
+        // free runs after every already-enqueued block that captured the
+        // pointer, so a dismantled/removed surface's queued libghostty work can
+        // never use-after-free against the free, and no two of them ever touch
+        // the surface concurrently. `processOutput`'s main-actor guard stops new
+        // work from being enqueued once `surface` is nil, so only the bounded
+        // backlog drains before the free. (Retain the bridge across the hop; it
+        // owns the userdata libghostty still references until the free.)
+        let retainedBridge = Unmanaged.passRetained(bridge)
+        Self.outputQueue.async {
+            ghostty_surface_free(surface)
+            retainedBridge.release()
+        }
     }
 
     private var preferredScreenScale: CGFloat {
@@ -1805,7 +1956,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // now bounded in libghostty (so a foreground stall self-heals as a
         // skipped frame the display link re-drives), but we still gate on
         // suspension; `resumeRendering` clears it on the next active transition.
-        guard !renderingSuspended, let surface else { return }
+        guard !renderingSuspended, let surface, !isDismantled else { return }
         // Coalesce: never let more than one render_now sit on the serial queue.
         // (Called on main from the display link.)
         if renderInFlight {
@@ -1823,6 +1974,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.renderInFlight = false
+                guard !self.isDismantled else {
+                    self.needsAnotherRender = false
+                    return
+                }
                 if self.needsAnotherRender {
                     self.needsAnotherRender = false
                     self.requestRender()
@@ -2327,7 +2482,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func drawForWakeup() {
-        guard surface != nil, window != nil else { return }
+        guard surface != nil, window != nil, !isDismantled else { return }
         // Don't call `ghostty_surface_refresh` here: that wakes the renderer
         // thread to present asynchronously (`setSurface` → `dispatch_async` to
         // main → size-guard discard), which both blanks frames and competes
