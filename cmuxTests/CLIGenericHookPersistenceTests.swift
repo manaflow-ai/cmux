@@ -4104,4 +4104,218 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "A Gemini SessionStart must preserve a blocked (needsInput) lifecycle so a mid-tool resumed agent is never hibernated"
         )
     }
+
+    // MARK: - P1: Claude AskUserQuestion + Notification regression
+
+    /// P1 regression: a Claude `Notification` with a generic body (no "permission/approve"
+    /// keywords) must NOT overwrite a `.needsInput` lifecycle that was set by a prior
+    /// `AskUserQuestion` `PreToolUse` hook.
+    ///
+    /// Without the fix, the notification classifier unconditionally sets `.idle` (the body
+    /// "Which approach?" has no permission keywords) and the upsert overwrites the stored
+    /// `.needsInput`, making the still-blocked agent hibernation-eligible.
+    func testClaudeAskUserQuestionNotificationPreservesNeedsInput() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("claude-ask-clobber")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-ask-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "claude-ask-session"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runClaudeHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else { return "OK" }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "surface.resume.set":
+                    return self.v2Response(id: id, ok: true, result: ["ok": true])
+                case "feed.push":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                default:
+                    return self.v2Response(id: id, ok: true, result: [:])
+                }
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "claude", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        func persistedLifecycle() throws -> String? {
+            let storeURL = root.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+            let session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+            return session["agentLifecycle"] as? String
+        }
+
+        // /clear SessionStart: establishes an active session boundary so subsequent
+        // PreToolUse and Notification pass the isCurrent guard.
+        let clearStart = runClaudeHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart","source":"clear"}"#
+        )
+        XCTAssertFalse(clearStart.timedOut, clearStart.stderr)
+        XCTAssertEqual(clearStart.status, 0, clearStart.stderr)
+
+        // AskUserQuestion PreToolUse: Claude is asking the user something, so the
+        // session must become needsInput so the hibernation controller keeps it live.
+        let preToolUse = runClaudeHook(
+            "pre-tool-use",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which approach?","options":[{"label":"Option A"},{"label":"Option B"}]}]}}"#
+        )
+        XCTAssertFalse(preToolUse.timedOut, preToolUse.stderr)
+        XCTAssertEqual(preToolUse.status, 0, preToolUse.stderr)
+        XCTAssertEqual(
+            try persistedLifecycle(), "needsInput",
+            "AskUserQuestion PreToolUse must store agentLifecycle=needsInput"
+        )
+
+        // Notification fires right after AskUserQuestion with the question text.
+        // "Which approach?" has no permission keywords, so notificationIndicatesBlocked()
+        // returns false and the naive classifier produces .idle. Without the fix this
+        // overwrites the stored needsInput with idle, making the blocked agent
+        // hibernation-eligible. With the fix, needsInput is preserved.
+        let notification = runClaudeHook(
+            "notification",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","message":"Which approach?"}"#
+        )
+        XCTAssertFalse(notification.timedOut, notification.stderr)
+        XCTAssertEqual(notification.status, 0, notification.stderr)
+        XCTAssertEqual(
+            try persistedLifecycle(), "needsInput",
+            "Claude Notification with a generic body must NOT clobber a needsInput set by AskUserQuestion PreToolUse (P1 regression)"
+        )
+    }
+
+    // MARK: - P2: Generic SessionStart live-unknown bypasses effective() fallback
+
+    /// P2 regression: when a generic agent session record has `lastNotificationStatus=idle`
+    /// but no explicit `agentLifecycle`, a `SessionStart` must not push `.unknown` to the
+    /// live per-panel map.
+    ///
+    /// Before the fix, the guard `!(mapped?.agentLifecycle.map { $0 != .unknown } ?? false)`
+    /// evaluated `nil` as `false` (no prior lifecycle → push unknown), ignoring the
+    /// `lastNotificationStatus` fallback. `Workspace.agentHibernationLifecycleState` uses
+    /// `effective()` which would return `.idle` for `lastNotificationStatus=idle`, but the
+    /// live `.unknown` entry takes precedence over the persisted fallback, making a
+    /// notification-status-only idle agent permanently un-hibernatable after any restart.
+    func testGenericSessionStartSkipsLiveUnknownWhenEffectiveLifecycleIsIdle() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("gemini-unknown-skip")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-gemini-unknown-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "gemini-fallback-idle"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        // Seed a record with only lastNotificationStatus=idle (no agentLifecycle key).
+        // This models a plugin/wrapper agent that emits a notification status but never
+        // calls set_agent_lifecycle directly.
+        let storeURL = root.appendingPathComponent("gemini-hook-sessions.json", isDirectory: false)
+        let seedStore: [String: Any] = [
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": root.path,
+                    "lastNotificationStatus": "idle",
+                    "startedAt": 1_700_000_000.0,
+                    "updatedAt": 1_700_000_000.0,
+                ]
+            ]
+        ]
+        try JSONSerialization.data(withJSONObject: seedStore, options: .prettyPrinted).write(to: storeURL)
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: true, result: [:])
+            }
+        }
+
+        let sessionStart = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "gemini", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(sessionStart.timedOut, sessionStart.stderr)
+        XCTAssertEqual(sessionStart.status, 0, sessionStart.stderr)
+
+        // Without the fix: guard checked raw agentLifecycle (nil → push unknown → defeats
+        // effective() fallback). With the fix: effective() returns .idle for
+        // lastNotificationStatus=idle → skip the live unknown write.
+        XCTAssertFalse(
+            state.commands.contains {
+                $0.hasPrefix("set_agent_lifecycle gemini unknown --tab=\(workspaceId)")
+                    && $0.contains("--panel=\(surfaceId)")
+            },
+            "SessionStart must not push live unknown when effective lifecycle is idle via lastNotificationStatus (P2 regression), commands: \(state.commands)"
+        )
+    }
 }
