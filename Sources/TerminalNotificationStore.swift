@@ -770,55 +770,116 @@ enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
     }
 }
 
-/// Deduplicates notification sounds across independent banner paths.
+/// Coordinates desktop alerts for one logical agent prompt across the two
+/// independent banner paths.
 ///
-/// A single blocking agent prompt can legitimately post two desktop banners
-/// almost at once: the agent's notification hook (`cmux hooks <agent>
-/// notification`) routes through ``TerminalNotificationStore`` while the feed
-/// decision bridge posts its own actionable banner straight to
-/// `UNUserNotificationCenter` (`FeedCoordinator.postNotificationIfStillAwaiting`).
-/// The banners carry different content, so they cannot be deduplicated by
-/// identity — but both request a sound, and the user hears a double ding for
-/// one event (manaflow-ai/cmux#2322).
+/// A blocking agent decision (PermissionRequest / ExitPlanMode /
+/// AskUserQuestion) legitimately reaches the user twice: the agent's
+/// notification hook (`cmux hooks <agent> notification`) posts through
+/// ``TerminalNotificationStore`` while the feed decision bridge posts its own
+/// actionable banner straight to `UNUserNotificationCenter`
+/// (`FeedCoordinator.postNotificationIfStillAwaiting`). Without coordination
+/// the user gets two banners and two sounds for one prompt
+/// (manaflow-ai/cmux#2322).
 ///
-/// The gate grants the sound to the first banner per surface inside a short
-/// window and silences follow-ups. Banner visibility is unaffected; denied
-/// attempts do not extend the window.
-final class TerminalNotificationSoundGate: @unchecked Sendable {
-    static let shared = TerminalNotificationSoundGate()
+/// The gate makes the feed's actionable banner the canonical desktop alert
+/// for blocking decisions, deterministically — not "whichever path wins":
+/// - While a blocking decision is pending for a surface
+///   (``beginBlockingDecision(forKey:)`` / ``endBlockingDecision(forKey:)``),
+///   the store keeps recording sidebar notifications but stands down from
+///   desktop banners, sounds, and notification commands for that surface.
+/// - If the store's banner raced ahead of the decision registration, the feed
+///   withdraws it from Notification Center when posting its own
+///   (`TerminalNotificationStore.withdrawRecentDeliveredDesktopNotifications`).
+/// - ``claimSound(forKey:now:)`` additionally guarantees at most one sound
+///   per surface inside a short window no matter which banner landed first.
+final class TerminalNotificationDeliveryGate: @unchecked Sendable {
+    static let shared = TerminalNotificationDeliveryGate()
 
-    let suppressionWindow: TimeInterval
+    let soundWindow: TimeInterval
+    let blockingClaimWindow: TimeInterval
 
     private let lock = NSLock()
-    private var lastGrantDateByKey: [String: Date] = [:]
+    private var lastSoundGrantDateByKey: [String: Date] = [:]
+    private var blockingClaimsByKey: [String: (count: Int, latestBeginDate: Date)] = [:]
     private let maxTrackedKeys = 128
 
-    init(suppressionWindow: TimeInterval = 2.0) {
-        self.suppressionWindow = suppressionWindow
+    init(soundWindow: TimeInterval = 2.0, blockingClaimWindow: TimeInterval = 5.0) {
+        self.soundWindow = soundWindow
+        self.blockingClaimWindow = blockingClaimWindow
     }
 
-    /// The dedupe key for a notification target. Keyed by surface when known
-    /// so prompts on different panes of one workspace stay independent.
+    /// The coordination key for a notification target. Keyed by surface when
+    /// known so prompts on different panes of one workspace stay independent.
     static func key(workspaceId: UUID, surfaceId: UUID?) -> String {
         (surfaceId ?? workspaceId).uuidString
     }
 
+    // MARK: Blocking decisions
+
+    /// Marks a blocking decision as pending for the surface. Refcounted, so
+    /// overlapping decisions on one surface stay claimed until the last one
+    /// concludes. `nil` keys (unresolvable targets) are ignored.
+    func beginBlockingDecision(forKey key: String?, now: Date = Date()) {
+        guard let key, !key.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        let count = blockingClaimsByKey[key]?.count ?? 0
+        blockingClaimsByKey[key] = (count: count + 1, latestBeginDate: now)
+    }
+
+    /// Concludes one pending blocking decision for the surface. Unbalanced
+    /// calls are a no-op.
+    func endBlockingDecision(forKey key: String?) {
+        guard let key, !key.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard let claim = blockingClaimsByKey[key] else { return }
+        if claim.count <= 1 {
+            blockingClaimsByKey.removeValue(forKey: key)
+        } else {
+            blockingClaimsByKey[key] = (count: claim.count - 1, latestBeginDate: claim.latestBeginDate)
+        }
+    }
+
+    /// Whether a blocking decision currently claims desktop alerts for the
+    /// surface.
+    ///
+    /// The claim is time-boxed: the agent-hook banner for the same prompt
+    /// arrives within moments of the decision event, while the decision
+    /// itself can stay pending for minutes (e.g. the user answers in the
+    /// terminal, which the app only observes as a timeout). Suppressing for
+    /// the whole pendency would swallow legitimate later alerts on the
+    /// surface — like a completion banner right after an approval — so the
+    /// claim only suppresses near its start and unrelated alerts pass
+    /// through afterwards.
+    func hasActiveBlockingDecision(forKey key: String?, now: Date = Date()) -> Bool {
+        guard let key, !key.isEmpty else { return false }
+        lock.lock()
+        defer { lock.unlock() }
+        guard let claim = blockingClaimsByKey[key] else { return false }
+        return abs(now.timeIntervalSince(claim.latestBeginDate)) < blockingClaimWindow
+    }
+
+    // MARK: Sound window
+
     /// Returns whether a sound may play for the given key, recording a grant
-    /// when it does. `nil` keys are never deduplicated.
-    func shouldPlaySound(forKey key: String?, now: Date = Date()) -> Bool {
+    /// when it does. `nil` keys are never silenced; denied attempts do not
+    /// extend the window.
+    func claimSound(forKey key: String?, now: Date = Date()) -> Bool {
         guard let key, !key.isEmpty else { return true }
         lock.lock()
         defer { lock.unlock() }
-        if let lastGrant = lastGrantDateByKey[key],
-           abs(now.timeIntervalSince(lastGrant)) < suppressionWindow {
+        if let lastGrant = lastSoundGrantDateByKey[key],
+           abs(now.timeIntervalSince(lastGrant)) < soundWindow {
             return false
         }
-        if lastGrantDateByKey.count >= maxTrackedKeys {
-            lastGrantDateByKey = lastGrantDateByKey.filter {
-                abs(now.timeIntervalSince($0.value)) < suppressionWindow
+        if lastSoundGrantDateByKey.count >= maxTrackedKeys {
+            lastSoundGrantDateByKey = lastSoundGrantDateByKey.filter {
+                abs(now.timeIntervalSince($0.value)) < soundWindow
             }
         }
-        lastGrantDateByKey[key] = now
+        lastSoundGrantDateByKey[key] = now
         return true
     }
 }
@@ -2040,6 +2101,13 @@ final class TerminalNotificationStore: ObservableObject {
         _ notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
+        // While a blocking decision is pending for this surface, the feed's
+        // actionable banner is the canonical desktop alert: keep the sidebar
+        // record but stand down from the banner, sound, and command
+        // (manaflow-ai/cmux#2322).
+        guard !TerminalNotificationDeliveryGate.shared.hasActiveBlockingDecision(
+            forKey: Self.deliveryGateKey(for: notification)
+        ) else { return }
         let effects = effectsAfterSoundGate(effects, for: notification)
         guard effects.desktop else {
             playLocalNotificationFeedback(
@@ -2111,29 +2179,60 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    nonisolated private static func deliveryGateKey(for notification: TerminalNotification) -> String {
+        TerminalNotificationDeliveryGate.key(
+            workspaceId: notification.tabId,
+            surfaceId: notification.surfaceId
+        )
+    }
+
     /// Strips the sound effect when another banner for the same surface was
-    /// granted a sound moments ago (see ``TerminalNotificationSoundGate``).
+    /// granted a sound moments ago (see ``TerminalNotificationDeliveryGate``).
     private func effectsAfterSoundGate(
         _ effects: TerminalNotificationPolicyEffects,
         for notification: TerminalNotification
     ) -> TerminalNotificationPolicyEffects {
         guard effects.sound else { return effects }
-        let key = TerminalNotificationSoundGate.key(
-            workspaceId: notification.tabId,
-            surfaceId: notification.surfaceId
-        )
-        guard !TerminalNotificationSoundGate.shared.shouldPlaySound(forKey: key) else {
-            return effects
-        }
+        guard !TerminalNotificationDeliveryGate.shared.claimSound(
+            forKey: Self.deliveryGateKey(for: notification)
+        ) else { return effects }
         var silenced = effects
         silenced.sound = false
         return silenced
+    }
+
+    /// Withdraws recently delivered desktop banners for a surface from
+    /// Notification Center without touching the sidebar record or unread
+    /// state. Called by the feed decision bridge when its actionable banner
+    /// supersedes an agent-hook banner that raced ahead of the
+    /// blocking-decision registration.
+    func withdrawRecentDeliveredDesktopNotifications(forGateKey key: String, since: Date) {
+        let ids = Self.withdrawableNotificationIds(in: notifications, gateKey: key, since: since)
+        guard !ids.isEmpty else { return }
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
+        center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
+    }
+
+    nonisolated static func withdrawableNotificationIds(
+        in notifications: [TerminalNotification],
+        gateKey: String,
+        since: Date
+    ) -> [String] {
+        notifications.compactMap { notification in
+            guard notification.createdAt >= since,
+                  deliveryGateKey(for: notification) == gateKey
+            else { return nil }
+            return notification.id.uuidString
+        }
     }
 
     private func playSuppressedNotificationFeedback(
         for notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
+        guard !TerminalNotificationDeliveryGate.shared.hasActiveBlockingDecision(
+            forKey: Self.deliveryGateKey(for: notification)
+        ) else { return }
         let effects = effectsAfterSoundGate(effects, for: notification)
         playLocalNotificationFeedback(
             title: resolvedNotificationTitle(for: notification),
