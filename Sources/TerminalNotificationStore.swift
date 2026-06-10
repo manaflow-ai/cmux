@@ -292,9 +292,21 @@ enum NotificationSoundSettings {
     }
 
     /// Live Do Not Disturb assertion store written by the Focus daemon.
-    static let defaultAssertionsFileURL = FileManager.default
-        .homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/DoNotDisturb/DB/Assertions.json", isDirectory: false)
+    ///
+    /// DEBUG builds honor `CMUX_DEBUG_DND_ASSERTIONS_PATH` so a tagged dev app
+    /// can be driven end-to-end against fixture files instead of the real
+    /// (TCC-protected) store.
+    static let defaultAssertionsFileURL: URL = {
+#if DEBUG
+        if let override = ProcessInfo.processInfo.environment["CMUX_DEBUG_DND_ASSERTIONS_PATH"],
+           !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: false)
+        }
+#endif
+        return FileManager.default
+            .homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/DoNotDisturb/DB/Assertions.json", isDirectory: false)
+    }()
 
     /// Whether a macOS Focus / Do Not Disturb mode is currently active.
     ///
@@ -344,6 +356,15 @@ enum NotificationSoundSettings {
     ) {
         dndAssertionQueue.async {
             let suppressed = isSuppressedByActiveFocus(assertionsFileURL: assertionsFileURL)
+#if DEBUG
+            // storeReadable distinguishes "no Focus active" from "assertion
+            // store unreadable (no Full Disk Access)", which look identical
+            // through the fail-open gate.
+            let storeReadable = (try? Data(contentsOf: assertionsFileURL)) != nil
+            cmuxDebugLog(
+                "notification.sound.focusGate suppressed=\(suppressed ? 1 : 0) storeReadable=\(storeReadable ? 1 : 0)"
+            )
+#endif
             DispatchQueue.main.async {
                 if !suppressed {
                     let value = defaults.string(forKey: key) ?? defaultValue
