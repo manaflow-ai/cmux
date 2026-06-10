@@ -446,6 +446,9 @@ struct cmuxApp: App {
                 Button("Show Loading State") {
                     appDelegate.showUpdatePillLoading(nil)
                 }
+                Button("Show Installer Agent Error") {
+                    appDelegate.updateViewModel.debugShowInstallerAgentError()
+                }
                 Button("Hide Update Pill") {
                     appDelegate.hideUpdatePill(nil)
                 }

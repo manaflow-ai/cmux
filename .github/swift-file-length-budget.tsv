@@ -20,7 +20,7 @@
 5948	Sources/TextBoxInput.swift
 5770	cmuxTests/SessionPersistenceTests.swift
 5482	cmuxTests/BrowserConfigTests.swift
-5431	Sources/cmuxApp.swift
+5434	Sources/cmuxApp.swift
 4460	Sources/Panels/FilePreviewPanel.swift
 4237	cmuxTests/BrowserPanelTests.swift
 4196	Sources/BrowserWindowPortal.swift
