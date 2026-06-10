@@ -160,13 +160,16 @@ private enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    static func result() -> MobileHostRPCResult {
+    static func result(includeIdentity: Bool = false) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = routes
         lock.unlock()
-        return .ok(MobileHostService.publicStatusPayload(
-            routesPayload: cachedRoutes.map(\.mobileHostJSONObject)
-        ))
+        let routesPayload = cachedRoutes.map(\.mobileHostJSONObject)
+        return .ok(
+            includeIdentity
+                ? MobileHostService.identityStatusPayload(routesPayload: routesPayload)
+                : MobileHostService.publicStatusPayload(routesPayload: routesPayload)
+        )
     }
 }
 
@@ -292,8 +295,8 @@ final class MobileHostService {
 
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
-    /// cache, the live `publicHostStatusResult`, and `TerminalController`'s
-    /// full status) reads this so the lists cannot drift; iOS gates features
+    /// cache, the network status gate, and `TerminalController`'s full
+    /// status) reads this so the lists cannot drift; iOS gates features
     /// like rename/pin on the entries present here.
     ///
     /// This also advertises `dogfood.v1`, the agent feedback round-trip
@@ -315,28 +318,61 @@ final class MobileHostService {
     }
 
     /// The single shape every public `mobile.host.status` reply uses (the
-    /// public-status cache, the live `publicHostStatusResult`, and
+    /// public-status cache, the network status gate, and
     /// `TerminalController`'s no-private-metadata branch), so the fields
-    /// cannot drift. Includes the Mac's identity: the pairing QR no longer
-    /// carries the display name or the device id, so this status reply is
-    /// where a freshly paired phone learns what to call this Mac and which
-    /// paired-Mac record it belongs to. Both fields are deliberately cheap
-    /// and low-sensitivity on this unauthenticated probe: the name is the
-    /// user's pairing-name override or the System Settings computer name that
-    /// Bonjour already broadcasts on the local network, and the device id is
-    /// the random pairing UUID every legacy QR already displayed on screen —
-    /// reachable only over the user's own tailnet (or loopback in DEBUG).
+    /// cannot drift. Identity-free: routes, fidelity, and capabilities are a
+    /// reachability probe any peer may ask for, but the Mac's stable identity
+    /// (`mac_device_id`, `mac_display_name`) is never on this unauthenticated
+    /// surface — see ``networkStatusResult(for:)`` for the verified-caller
+    /// reply that carries it.
     nonisolated static func publicStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
-        var payload: [String: Any] = [
+        [
             "routes": routesPayload,
             "terminal_fidelity": "render_grid",
             "capabilities": mobileHostCapabilities,
-            "mac_device_id": MobileHostIdentity.deviceID(),
         ]
+    }
+
+    /// `publicStatusPayload` plus the Mac's identity, for a caller that has
+    /// proven same-account Stack ownership. The pairing QR no longer carries
+    /// the display name or the device id, so this reply is where a freshly
+    /// paired phone learns what to call this Mac and which paired-Mac record
+    /// the connection belongs to.
+    nonisolated static func identityStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
+        var payload = publicStatusPayload(routesPayload: routesPayload)
+        payload["mac_device_id"] = MobileHostIdentity.deviceID()
         if let displayName = MobileHostIdentity.displayName() {
             payload["mac_display_name"] = displayName
         }
         return payload
+    }
+
+    /// The `mobile.host.status` reply for a network caller.
+    ///
+    /// Status is the one unauthenticated verb (a phone probes reachability
+    /// before it has anything to present), so a tokenless request gets the
+    /// cached identity-free payload without touching the main actor or the
+    /// Stack verifier — the DoS posture of the public probe is unchanged, and
+    /// an arbitrary process that can reach the port learns nothing that
+    /// identifies or fingerprints this Mac. A request that does present the
+    /// owner's same-account Stack token (the iOS client attaches it to status
+    /// whenever it has one) is verified and answered with the Mac's identity,
+    /// which is what a freshly QR-paired phone needs to key its paired-Mac
+    /// record. A token that fails verification degrades to the identity-free
+    /// payload rather than an error: reachability stays observable, and the
+    /// authorized verbs that follow surface the auth failure properly.
+    nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
+        let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedToken?.isEmpty == false else {
+            return MobileHostPublicStatusCache.result(includeIdentity: false)
+        }
+        do {
+            try await verifyStackAuthOffMainActor(auth: request.auth)
+        } catch {
+            mobileHostLog.error("mobile host status identity withheld: stack verification failed")
+            return MobileHostPublicStatusCache.result(includeIdentity: false)
+        }
+        return MobileHostPublicStatusCache.result(includeIdentity: true)
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
@@ -883,16 +919,6 @@ final class MobileHostService {
         }
     }
 
-    private func publicStatusSnapshot() async -> MobileHostServiceStatus {
-        let routes: [CmxAttachRoute]
-        if let listenerPort {
-            routes = routeResolver.routes(port: listenerPort).routes
-        } else {
-            routes = []
-        }
-        return makeStatus(routes: routes)
-    }
-
     private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
         let isRunning = listener != nil && listenerPort != nil
         return MobileHostServiceStatus(
@@ -947,13 +973,6 @@ final class MobileHostService {
         start()
     }
 
-    private func publicHostStatusResult() async -> MobileHostRPCResult {
-        let status = await publicStatusSnapshot()
-        return .ok(Self.publicStatusPayload(
-            routesPayload: status.routes.map(\.mobileHostJSONObject)
-        ))
-    }
-
     nonisolated private static func acceptConnectionOffMain(
         _ connection: NWConnection,
         generation: UUID
@@ -1001,7 +1020,7 @@ final class MobileHostService {
                 },
                 handleRequest: { request in
                     if request.method == "mobile.host.status" {
-                        return MobileHostPublicStatusCache.result()
+                        return await MobileHostService.networkStatusResult(for: request)
                     }
                     let result = await TerminalController.shared.mobileHostHandleRPC(request)
                     await MobileHostService.shared.recordCreatedResourcesIfNeeded(
@@ -1115,7 +1134,7 @@ final class MobileHostService {
             },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
-                    return await MobileHostService.shared.publicHostStatusResult()
+                    return await MobileHostService.networkStatusResult(for: request)
                 }
                 let result = await TerminalController.shared.mobileHostHandleRPC(request)
                 await MobileHostService.shared.recordCreatedResourcesIfNeeded(
