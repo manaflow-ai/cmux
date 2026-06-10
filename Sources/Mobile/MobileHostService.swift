@@ -364,6 +364,15 @@ final class MobileHostService {
     /// Verification goes through the same gate as the authorized verbs
     /// (``verifiedStackCaller(for:)``), so a DEBUG dev-token client that can
     /// list workspaces also sees identity.
+    ///
+    /// Because status is unauthenticated, the network verifications a
+    /// token-bearing status request can trigger are bounded: an
+    /// already-verified token answers from the verifier's cache, and
+    /// cache-miss lookups are capped by
+    /// ``MobileHostStatusVerificationLimiter`` (over the cap the reply
+    /// degrades to identity-free and the phone's identity-recovery retry
+    /// picks it up later). A flood of unique garbage tokens therefore cannot
+    /// queue unbounded Stack lookups behind this verb.
     nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
         let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedToken?.isEmpty == false else {
@@ -1236,16 +1245,37 @@ final class MobileHostService {
     /// independent of whether the method itself requires authorization. The
     /// status path uses this to decide if the caller may see the Mac's
     /// identity.
+    ///
+    /// Unlike ``authorizationError(for:)`` (whose verbs are authorized, so a
+    /// caller burning a network verification is at least failing auth), this
+    /// gate is reachable from the UNAUTHENTICATED status verb. It therefore
+    /// answers from the verifier's cache when it can, and caps concurrent
+    /// cache-miss network lookups: saturated means "withhold identity now",
+    /// never an unbounded queue of attacker-minted token verifications. The
+    /// legitimate client recovers via its identity-recovery retry once its
+    /// token is cache-verified by the authorized verbs that follow connect.
     func verifiedStackCaller(for request: MobileHostRPCRequest) async -> Bool {
         if devStackTokenAuthorized(request) {
             return true
         }
-        do {
-            try await Self.verifyStackAuthOffMainActor(auth: request.auth)
-            return true
-        } catch {
+        if let cachedVerdict = await MobileHostStackAuthVerifier.shared.cachedVerdict(auth: request.auth) {
+            return cachedVerdict
+        }
+        guard await MobileHostStatusVerificationLimiter.shared.acquire() else {
+            mobileHostLog.error("mobile host status identity withheld: verification limiter saturated")
             return false
         }
+        let verified: Bool
+        do {
+            try await Self.verifyStackAuthOffMainActor(auth: request.auth)
+            verified = true
+        } catch {
+            verified = false
+        }
+        // Non-throwing actor call: runs even if this task was cancelled
+        // mid-verification, so a slot can never leak.
+        await MobileHostStatusVerificationLimiter.shared.release()
+        return verified
     }
 
     private func authorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
@@ -1678,6 +1708,41 @@ enum MobileHostDevStackAuthPolicy {
 }
 #endif
 
+/// Caps how many concurrent Stack network verifications the unauthenticated
+/// `mobile.host.status` identity gate may have in flight. Status is reachable
+/// without credentials, so without a cap a peer that can reach the pairing
+/// port could mint unique garbage tokens and queue an unbounded backlog of
+/// 10s-timeout Stack lookups. Over the cap the status reply simply withholds
+/// identity (cheap), which the client's identity-recovery retry tolerates.
+/// Authorized verbs do not pass through this limiter; their verification
+/// posture is unchanged.
+actor MobileHostStatusVerificationLimiter {
+    static let shared = MobileHostStatusVerificationLimiter()
+
+    private var inFlight = 0
+    private let limit: Int
+
+    init(limit: Int = 2) {
+        self.limit = limit
+    }
+
+    /// Take a verification slot. `false` when saturated; the caller must
+    /// degrade (withhold identity), not wait.
+    func acquire() -> Bool {
+        guard inFlight < limit else {
+            return false
+        }
+        inFlight += 1
+        return true
+    }
+
+    /// Return a slot taken with a successful ``acquire()``.
+    func release() {
+        assert(inFlight > 0, "release without a matching acquire")
+        inFlight = max(0, inFlight - 1)
+    }
+}
+
 private actor MobileHostStackAuthVerifier {
     static let shared = MobileHostStackAuthVerifier()
     private static let verificationTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000
@@ -1691,6 +1756,25 @@ private actor MobileHostStackAuthVerifier {
     private var refreshingKeys: Set<String> = []
     private static let cacheTTLSeconds: TimeInterval = 60
     private static let refreshAheadWindowSeconds: TimeInterval = 15
+
+    /// The verification verdict for `auth`'s token using only the cache, or
+    /// `nil` when no fresh cached binding exists (deciding would need a Stack
+    /// network lookup). Lets the unauthenticated status path answer
+    /// already-verified callers without spending a capped network slot.
+    func cachedVerdict(auth: MobileHostRPCAuth?) async -> Bool? {
+        guard let accessToken = auth?.stackAccessToken else {
+            return false
+        }
+        guard let cached = cache[Self.cacheKey(for: accessToken)],
+              cached.expiresAt > Date() else {
+            return nil
+        }
+        let localUserID = await currentAuthenticatedLocalUserID()
+        return (try? MobileHostAuthorizationPolicy.authorizeStackUser(
+            localUserID: localUserID,
+            remoteUserID: cached.userID
+        )) != nil
+    }
 
     func verify(auth: MobileHostRPCAuth?) async throws {
         guard let accessToken = auth?.stackAccessToken else {
