@@ -39,9 +39,12 @@ final class MobilePairingWindowController {
         let window = NSWindow(contentViewController: hostingController)
         window.title = String(localized: "mobile.pairing.window.title", defaultValue: "Pair iPhone")
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
-        window.styleMask = [.titled, .closable, .miniaturizable]
+        // Resizable so the QR (which fills the window width) can be made even
+        // larger for scanning at a distance.
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.isReleasedWhenClosed = false
         window.setContentSize(NSSize(width: 460, height: 640))
+        window.contentMinSize = NSSize(width: 380, height: 480)
         window.center()
         self.window = window
         window.makeKeyAndOrderFront(nil)
