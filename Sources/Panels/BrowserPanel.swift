@@ -9416,6 +9416,15 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         if navigationAction.targetFrame?.isMainFrame != false {
             lastAttemptedURL = navigationAction.request.url
         }
+        if navigationAction.targetFrame?.isMainFrame != false,
+           BrowserDevHostCachePolicy.shouldBypassCache(for: navigationAction.request.url) {
+            let store = webView.configuration.websiteDataStore
+            Task { @MainActor in
+                await BrowserDevHostCachePolicy.purgeDevHostCache(in: store)
+                decisionHandler(.allow)
+            }
+            return
+        }
         decisionHandler(.allow)
     }
 

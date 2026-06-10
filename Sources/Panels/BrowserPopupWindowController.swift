@@ -628,6 +628,14 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
+        if BrowserDevHostCachePolicy.shouldBypassCache(for: url) {
+            let store = webView.configuration.websiteDataStore
+            Task { @MainActor in
+                await BrowserDevHostCachePolicy.purgeDevHostCache(in: store)
+                decisionHandler(.allow)
+            }
+            return
+        }
         decisionHandler(.allow)
     }
 
