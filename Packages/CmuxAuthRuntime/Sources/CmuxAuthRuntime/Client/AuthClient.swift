@@ -80,4 +80,15 @@ public protocol AuthClient: Sendable {
     /// Best-effort by contract: callers bound it with a deadline and log
     /// failures rather than letting revocation gate sign-out.
     func revokeSession(accessToken: String?, refreshToken: String?) async throws
+
+    /// Mint a fresh access token from an explicit refresh token, touching no
+    /// local token storage (an ephemeral store backs the mint).
+    ///
+    /// For the sign-out teardown when only a refresh token survived at
+    /// capture time (the SDK drops expired access tokens): the cmux API
+    /// authenticates with the Bearer + refresh header pair, so the bounded
+    /// best-effort teardown needs a usable access token even though the local
+    /// session is already cleared. Best-effort: returns `nil` when the mint
+    /// fails (offline, dead server).
+    func mintAccessToken(refreshToken: String) async -> String?
 }

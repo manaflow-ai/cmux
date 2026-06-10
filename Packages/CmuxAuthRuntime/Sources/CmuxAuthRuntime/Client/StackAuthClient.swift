@@ -95,6 +95,10 @@ public struct StackAuthClient: AuthClient {
         try await stack.revokeSession(accessToken: accessToken, refreshToken: refreshToken)
     }
 
+    public func mintAccessToken(refreshToken: String) async -> String? {
+        await stack.mintAccessToken(refreshToken: refreshToken)
+    }
+
     private static func mapped(_ user: CurrentUser) async -> CMUXAuthUser {
         let id = await user.id
         let email = await user.primaryEmail

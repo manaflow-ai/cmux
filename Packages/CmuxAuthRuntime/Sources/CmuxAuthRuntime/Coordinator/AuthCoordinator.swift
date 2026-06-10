@@ -316,7 +316,7 @@ public final class AuthCoordinator {
             // republishing a session whose local tokens are already gone.
             guard generation == sessionGeneration else { return }
             if let user {
-                await applySignedInUser(user)
+                await applySignedInUser(user, generation: generation)
                 return
             }
             authLog.info("Cached session validation returned no current user")
@@ -478,7 +478,7 @@ public final class AuthCoordinator {
         guard generation == sessionGeneration else {
             throw CancellationError()
         }
-        await applySignedInUser(user)
+        await applySignedInUser(user, generation: generation)
     }
 
     /// Complete a sign-in whose credentials were established outside the
@@ -521,10 +521,11 @@ public final class AuthCoordinator {
     /// - Parameter onSignedOut: An async hook the composition root uses to run
     ///   token-authenticated teardown (e.g. deleting the APNs device token from
     ///   the server) that lives above this package. It receives the
-    ///   access/refresh tokens captured before the local clear, because by the
-    ///   time it runs the live token store is already empty; it runs before the
-    ///   Stack session revocation so the server still honors those credentials.
-    ///   Defaults to a no-op.
+    ///   access/refresh tokens captured before the local clear (the access
+    ///   token freshly minted from the captured refresh token when the store
+    ///   was refresh-only), because by the time it runs the live token store
+    ///   is already empty; it runs before the Stack session revocation so the
+    ///   server still honors those credentials. Defaults to a no-op.
     /// - Parameter teardownTimeout: How long the best-effort server teardown
     ///   (hook + revocation) may run before it is cancelled so a hanging call
     ///   can't hold `signOut()` open. Sleeps on the injected clock so tests
@@ -555,13 +556,23 @@ public final class AuthCoordinator {
         let log = self.log
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
-                await onSignedOut(accessToken, refreshToken)
+                // Refresh-only store at capture time (the SDK drops expired
+                // access tokens): mint a usable Bearer credential from the
+                // captured refresh through an ephemeral store, since the cmux
+                // API authenticates the teardown with the Bearer + refresh
+                // header pair. Best-effort and cancellation-aware (URLSession)
+                // like the rest of the tail.
+                var teardownAccessToken = accessToken
+                if teardownAccessToken == nil, let refreshToken {
+                    teardownAccessToken = await client.mintAccessToken(refreshToken: refreshToken)
+                }
+                await onSignedOut(teardownAccessToken, refreshToken)
                 guard !Task.isCancelled else {
                     log.log("auth.signOut teardown deadline hit before revocation; server session left unrevoked")
                     return
                 }
                 do {
-                    try await client.revokeSession(accessToken: accessToken, refreshToken: refreshToken)
+                    try await client.revokeSession(accessToken: teardownAccessToken, refreshToken: refreshToken)
                 } catch {
                     // Best-effort by design; see the security tradeoff above.
                     authLog.error("Sign-out session revocation failed: \(error.localizedDescription, privacy: .private)")
@@ -680,13 +691,17 @@ public final class AuthCoordinator {
 
     // MARK: - State helpers
 
-    private func applySignedInUser(_ user: CMUXAuthUser) async {
+    private func applySignedInUser(_ user: CMUXAuthUser, generation: UInt64) async {
         currentUser = user
         isAuthenticated = true
         isRestoringSession = false
         saveCachedUser(user)
         sessionCache.setHasTokens(true)
-        await refreshTeams()
+        await refreshTeams(generation: generation)
+        // A sign-out landed during the team refresh: the flags above were
+        // already cleared by it, so skip the signed-in side effects (push
+        // token re-upload would re-register the account the user just left).
+        guard generation == sessionGeneration else { return }
         // Bound the post-sign-in hook (e.g. push token re-upload) too: it runs
         // while `isLoading` is still true, so an unbounded hook would hold the
         // sign-in spinner after the session is already published. Failure and
@@ -698,13 +713,16 @@ public final class AuthCoordinator {
     }
 
     /// Refresh ``availableTeams`` from the client, tolerating failure so a
-    /// flaky team fetch never blocks or unwinds a successful sign-in.
-    private func refreshTeams() async {
+    /// flaky team fetch never blocks or unwinds a successful sign-in. Drops
+    /// the writes when a sign-out raced the fetch, so a signed-out shell does
+    /// not get the old account's teams persisted back.
+    private func refreshTeams(generation: UInt64) async {
         do {
             let client = self.client
             let teams = try await runPhase(.listTeams, timeout: timeouts.network) {
                 try await client.listTeams()
             }
+            guard generation == sessionGeneration else { return }
             availableTeams = teams
             selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
         } catch {

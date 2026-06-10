@@ -374,6 +374,7 @@ private actor FlowFakeAuthClient: AuthClient {
     func storedAccessToken() async -> String? { nil }
     func clearLocalSession() async {}
     func revokeSession(accessToken: String?, refreshToken: String?) async throws {}
+    func mintAccessToken(refreshToken: String) async -> String? { nil }
 }
 
 /// In-memory ``StackAuthTokenStoreProtocol`` fake.
