@@ -44,6 +44,7 @@ struct WorkspaceListView: View {
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
+    @State private var showingDeviceTree = false
 
     /// Workspaces after search filtering, pinned ones first (stable within each
     /// group so the Mac's order is otherwise preserved).
@@ -105,6 +106,11 @@ struct WorkspaceListView: View {
             ToolbarItem(placement: .topBarLeading) {
                 settingsMenu
             }
+            if store != nil {
+                ToolbarItem(placement: .topBarLeading) {
+                    devicesButton
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 newWorkspaceButton
             }
@@ -127,8 +133,29 @@ struct WorkspaceListView: View {
                 store: store
             )
         }
+        // Present the device tree at the workspace-list level (a single sheet,
+        // not nested under Settings), so selecting a workspace dismisses straight
+        // back to the workspace shell and reveals the opened workspace rather than
+        // leaving a parent sheet covering it.
+        .sheet(isPresented: $showingDeviceTree) {
+            if let store {
+                DeviceTreeView(store: store, selectWorkspace: selectWorkspace)
+            }
+        }
         #endif
     }
+
+    #if os(iOS)
+    private var devicesButton: some View {
+        Button {
+            showingDeviceTree = true
+        } label: {
+            Image(systemName: "rectangle.stack")
+        }
+        .accessibilityLabel(L10n.string("mobile.settings.devices", defaultValue: "Devices"))
+        .accessibilityIdentifier("MobileWorkspaceDevicesButton")
+    }
+    #endif
 
     private var newWorkspaceButton: some View {
         Button(action: createWorkspace) {
