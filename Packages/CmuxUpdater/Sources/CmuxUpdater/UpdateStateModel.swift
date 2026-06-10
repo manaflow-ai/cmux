@@ -325,10 +325,13 @@ public final class UpdateStateModel {
                 break
             }
         }
+        if isUpdaterAgentConnectionFailure(nsError) {
+            return String(localized: "update.error.installerAgent.title", defaultValue: "Couldn’t Start Updater")
+        }
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
             case 4005:
-                return String(localized: "update.error.permissionError.title", defaultValue: "Updater Permission Error")
+                return String(localized: "update.error.installFailed.title", defaultValue: "Couldn’t Install Update")
             case 2001:
                 return String(localized: "update.error.downloadFailed.title", defaultValue: "Couldn't Download Update")
             case 1000, 1002:
@@ -373,6 +376,9 @@ public final class UpdateStateModel {
                 break
             }
         }
+        if isUpdaterAgentConnectionFailure(nsError) {
+            return String(localized: "update.error.installerAgent.message", defaultValue: "macOS couldn’t start the updater service, which can happen after your Mac has been running for a long time. Restart your Mac and try again, or download the latest version below.")
+        }
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
             case 2001:
@@ -385,8 +391,10 @@ public final class UpdateStateModel {
                 return String(localized: "update.error.insecureFeed.message", defaultValue: "The update feed is insecure. Please contact support.")
             case 1, 2, 3001, 3002:
                 return String(localized: "update.error.signatureError.message", defaultValue: "The update's signature could not be verified. Please try again later.")
-            case 1003, 1005, 4005:
+            case 1003, 1005:
                 return String(localized: "update.error.permissionError.message", defaultValue: "Move cmux into Applications and relaunch to enable updates.")
+            case 4005:
+                return String(localized: "update.error.installFailed.message", defaultValue: "The update couldn’t be installed. Restart your Mac and try again, or download the latest version below.")
             default:
                 break
             }
@@ -394,6 +402,29 @@ public final class UpdateStateModel {
         // Catch-all: keep user-facing copy in cmux terms; raw vendor descriptions, domains, and
         // codes stay in `errorDetails` (the copyable Details block + the update log), not here.
         return String(localized: "update.error.failed.message", defaultValue: "Something went wrong while checking for updates. Try again, or check the update log for details.")
+    }
+
+    /// A direct download URL for the latest release when manually downloading is a sensible
+    /// recovery for `error`, or `nil` when it is not.
+    ///
+    /// Returned for installation, extraction, resume, and download failures, where grabbing the
+    /// latest build sidesteps a broken in-app install (for example the wedged-launchd case this
+    /// surfaces a "Download Latest Version" button for). Returns `nil` for feed, signature,
+    /// configuration, and "already up to date" errors, where a manual download would not help or
+    /// could be unsafe (notably signature/validation failures).
+    public static func manualDownloadURL(for error: any Swift.Error) -> URL? {
+        let nsError = error as NSError
+        guard nsError.domain == SUSparkleErrorDomain else { return nil }
+        switch nsError.code {
+        case 1004,                                    // SUResumeAppcastError
+             2000, 2001,                              // temp-directory / download failures
+             3000,                                    // SUUnarchivingError
+             4000, 4001, 4002, 4003, 4004, 4005, 4006, // file copy / auth / installer failures
+             4010, 4012:                              // agent invalidation / write-permission failures
+            return URL(string: manualDownloadURLString)
+        default:
+            return nil
+        }
     }
 
     /// Builds the multi-line technical detail block shown in the error popover.
@@ -447,6 +478,34 @@ public final class UpdateStateModel {
         return lines.joined(separator: "\n")
     }
 
+    /// The canonical direct-download URL for the latest stable release artifact, used as the
+    /// manual fallback when Sparkle's in-app install path fails.
+    private static let manualDownloadURLString = "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg"
+
+    /// Whether an error reflects Sparkle's updater helper agent never connecting.
+    ///
+    /// The login session's launchd domain can wedge into on-demand-only mode after a very long
+    /// uptime, so launchd refuses to spawn Sparkle's installer/progress agent and the install
+    /// times out ("agent connection was never initiated"). This surfaces as ``SUInstallationError``
+    /// (4005) wrapping an underlying Sparkle error, or as ``SUAgentInvalidationError`` (4010).
+    /// Restarting the Mac recreates the session domain and clears the wedge, so the user-facing
+    /// copy points there rather than at the misleading "move into Applications" guidance.
+    private static func isUpdaterAgentConnectionFailure(_ error: NSError) -> Bool {
+        guard error.domain == SUSparkleErrorDomain else { return false }
+        if error.code == 4010 { return true }
+        guard error.code == 4005 else { return false }
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying.domain == SUSparkleErrorDomain {
+            return true
+        }
+        let text = [
+            error.localizedDescription,
+            (error.userInfo[NSLocalizedFailureReasonErrorKey] as? String) ?? "",
+            (error.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String) ?? "",
+        ].joined(separator: "\n").lowercased()
+        return text.contains("agent connection") || text.contains("remote port")
+    }
+
     private static func networkError(from error: NSError) -> NSError? {
         if error.domain == NSURLErrorDomain {
             return error
@@ -464,14 +523,35 @@ public final class UpdateStateModel {
         case 2: return "SUInsufficientSigningError"
         case 3: return "SUInsecureFeedURLError"
         case 4: return "SUInvalidFeedURLError"
+        case 5: return "SUInvalidUpdaterError"
+        case 6: return "SUInvalidHostBundleIdentifierError"
+        case 7: return "SUInvalidHostVersionError"
         case 1000: return "SUAppcastParseError"
         case 1001: return "SUNoUpdateError"
         case 1002: return "SUAppcastError"
         case 1003: return "SURunningFromDiskImageError"
+        case 1004: return "SUResumeAppcastError"
         case 1005: return "SURunningTranslocated"
+        case 1006: return "SUWebKitTerminationError"
+        case 1007: return "SUReleaseNotesError"
+        case 2000: return "SUTemporaryDirectoryError"
         case 2001: return "SUDownloadError"
+        case 3000: return "SUUnarchivingError"
         case 3001: return "SUSignatureError"
         case 3002: return "SUValidationError"
+        case 4000: return "SUFileCopyFailure"
+        case 4001: return "SUAuthenticationFailure"
+        case 4002: return "SUMissingUpdateError"
+        case 4003: return "SUMissingInstallerToolError"
+        case 4004: return "SURelaunchError"
+        case 4005: return "SUInstallationError"
+        case 4006: return "SUDowngradeError"
+        case 4007: return "SUInstallationCanceledError"
+        case 4008: return "SUInstallationAuthorizeLaterError"
+        case 4009: return "SUNotValidUpdateError"
+        case 4010: return "SUAgentInvalidationError"
+        case 4012: return "SUInstallationWriteNoPermissionError"
+        case 5000: return "SUIncorrectAPIUsageError"
         default:
             return nil
         }

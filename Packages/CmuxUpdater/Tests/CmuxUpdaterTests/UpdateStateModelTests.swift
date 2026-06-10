@@ -96,4 +96,66 @@ import Testing
         #expect(!message.localizedCaseInsensitiveContains("Applications"))
     }
 
+    @Test func installerAgentFailureHasOwnTitleAndOffersManualDownload() {
+        let underlying = NSError(domain: "SUSparkleErrorDomain", code: 10)
+        let err = NSError(
+            domain: "SUSparkleErrorDomain",
+            code: 4005,
+            userInfo: [NSUnderlyingErrorKey: underlying]
+        )
+        #expect(UpdateStateModel.userFacingErrorTitle(for: err).contains("Start Updater"))
+        #expect(UpdateStateModel.manualDownloadURL(for: err)?.absoluteString.hasSuffix("cmux-macos.dmg") == true)
+    }
+
+    @Test func agentInvalidationErrorIsTreatedAsAgentFailure() {
+        let err = NSError(domain: "SUSparkleErrorDomain", code: 4010)
+        #expect(UpdateStateModel.userFacingErrorTitle(for: err).contains("Start Updater"))
+        #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
+    }
+
+    @Test func genericInstallFailureUsesInstallTitleAndOffersDownload() {
+        let err = NSError(domain: "SUSparkleErrorDomain", code: 4005)
+        let title = UpdateStateModel.userFacingErrorTitle(for: err)
+        #expect(title.contains("Install Update"))
+        #expect(!title.contains("Start Updater"))
+        #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
+    }
+
+    @Test func downloadErrorOffersManualDownload() {
+        let err = NSError(domain: "SUSparkleErrorDomain", code: 2001)
+        #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
+    }
+
+    @Test(arguments: [1000, 1001, 1002, 3, 4, 3001, 3002])
+    func feedSignatureAndNoUpdateErrorsDoNotOfferManualDownload(code: Int) {
+        let err = NSError(domain: "SUSparkleErrorDomain", code: code)
+        #expect(UpdateStateModel.manualDownloadURL(for: err) == nil)
+    }
+
+    @Test func diskImageErrorStillSaysMoveToApplications() {
+        let err = NSError(domain: "SUSparkleErrorDomain", code: 1003)
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(message.localizedCaseInsensitiveContains("Applications"))
+        #expect(UpdateStateModel.manualDownloadURL(for: err) == nil)
+    }
+
+    @Test func nonSparkleErrorHasNoManualDownload() {
+        let err = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
+        #expect(UpdateStateModel.manualDownloadURL(for: err) == nil)
+    }
+
+    @Test func errorDetailsNamesInstallationError() {
+        let err = NSError(
+            domain: "SUSparkleErrorDomain",
+            code: 4005,
+            userInfo: [NSLocalizedDescriptionKey: "boom"]
+        )
+        let details = UpdateStateModel.errorDetails(
+            for: err,
+            technicalDetails: nil,
+            feedURLString: nil,
+            logPath: "/tmp/x.log"
+        )
+        #expect(details.contains("SUInstallationError"))
+    }
 }

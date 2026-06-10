@@ -452,9 +452,12 @@ private struct UpdateErrorView: View {
     let logPath: String
     let dismiss: () -> Void
 
+    @Environment(\.openURL) private var openURL
+
     var body: some View {
         let title = UpdateStateModel.userFacingErrorTitle(for: error.error)
         let message = UpdateStateModel.userFacingErrorMessage(for: error.error)
+        let downloadURL = UpdateStateModel.manualDownloadURL(for: error.error)
         let details = UpdateStateModel.errorDetails(
             for: error.error,
             technicalDetails: error.technicalDetails,
@@ -476,6 +479,20 @@ private struct UpdateErrorView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let downloadURL {
+                Button {
+                    openURL(downloadURL)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.down.circle")
+                        Text(String(localized: "update.error.downloadLatest.button", defaultValue: "Download Latest Version"))
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
             }
 
             VStack(alignment: .leading, spacing: 6) {
