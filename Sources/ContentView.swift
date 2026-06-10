@@ -11308,11 +11308,7 @@ struct VerticalTabsSidebar: View {
     // finite empty-area height keeps it hidden when content fits (#3241).
     private func configureSidebarScrollView(_ scrollView: NSScrollView?) {
         guard let scrollView else { return }
-
-        scrollView.hasHorizontalScroller = false
-        scrollView.scrollerStyle = .overlay
-        scrollView.autohidesScrollers = true
-        scrollView.hasVerticalScroller = true
+        SidebarScrollViewConfigurator.apply(to: scrollView)
     }
 
     @ViewBuilder
