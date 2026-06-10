@@ -140,53 +140,16 @@ extension ControlCommandCoordinator {
     // MARK: - Create
 
     /// `workspace.create` — create a workspace.
+    ///
+    /// A passthrough to the still-shared `v2WorkspaceCreate(params:tabManager:)`
+    /// (which the mobile data-plane `v2MobileWorkspaceCreate` also drives), rather
+    /// than a typed lift: the create body parses all ~10 params and mints refs
+    /// itself, so a single source of truth is both deduplicated and exactly
+    /// faithful. The conformance bridges the body's Foundation payload to a
+    /// `ControlCallResult`, like `surface.move` / `debug.terminals`.
     func workspaceCreate(_ params: [String: JSONValue]) -> ControlCallResult {
-        let workingDirectory = optionalTrimmedRawString(params, "working_directory")
-        let initialCommand = optionalTrimmedRawString(params, "initial_command")
-        let title = optionalTrimmedRawString(params, "title")
-        let description = rawString(params, "description")
-
-        let rawInitialEnv = stringMap(params, "initial_env") ?? [:]
-        let initialEnv = rawInitialEnv.reduce(into: [String: String]()) { result, pair in
-            let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty else { return }
-            result[key] = pair.value
-        }
-
-        let inputs = ControlWorkspaceCreateInputs(
-            title: title,
-            description: description,
-            workingDirectory: workingDirectory,
-            rawCWD: params["cwd"],
-            initialCommand: initialCommand,
-            initialEnv: initialEnv,
-            rawLayout: params["layout"],
-            focusRequested: bool(params, "focus") ?? false,
-            eagerLoadTerminal: bool(params, "eager_load_terminal"),
-            autoRefreshMetadata: bool(params, "auto_refresh_metadata")
-        )
-
-        let resolution = context?.controlCreateWorkspace(
-            routing: routingSelectors(params),
-            inputs: inputs
-        ) ?? .tabManagerUnavailable
-        switch resolution {
-        case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        case .invalidParams(let message):
-            return .err(code: "invalid_params", message: message, data: nil)
-        case .creationFailed:
-            return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
-        case .resolved(let windowID, let workspaceID, let surfaceID):
-            return .ok(.object([
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-                "surface_id": orNull(surfaceID?.uuidString),
-                "surface_ref": ref(.surface, surfaceID),
-            ]))
-        }
+        context?.controlWorkspaceCreate(params: params)
+            ?? .err(code: "unavailable", message: "TabManager not available", data: nil)
     }
 
     // MARK: - Select / close / move

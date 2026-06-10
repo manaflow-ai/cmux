@@ -187,10 +187,9 @@ extension ControlWorkspaceContext {
         .tabManagerUnavailable
     }
 
-    func controlCreateWorkspace(
-        routing: ControlRoutingSelectors,
-        inputs: ControlWorkspaceCreateInputs
-    ) -> ControlWorkspaceCreateResolution { .tabManagerUnavailable }
+    func controlWorkspaceCreate(params: [String: JSONValue]) -> ControlCallResult {
+        .err(code: "unavailable", message: "", data: nil)
+    }
 
     func controlSelectWorkspace(
         routing: ControlRoutingSelectors,

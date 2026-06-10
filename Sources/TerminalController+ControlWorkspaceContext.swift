@@ -108,65 +108,16 @@ extension TerminalController: ControlWorkspaceContext {
 
     // MARK: - Create
 
-    func controlCreateWorkspace(
-        routing: ControlRoutingSelectors,
-        inputs: ControlWorkspaceCreateInputs
-    ) -> ControlWorkspaceCreateResolution {
-        guard let tabManager = resolveTabManager(routing: routing) else {
-            return .tabManagerUnavailable
+    /// `workspace.create` forwards to the single shared `v2WorkspaceCreate` body
+    /// (also driven by `v2MobileWorkspaceCreate`), bridging its Foundation result
+    /// — one source of truth for the create logic, byte-identical wire output.
+    func controlWorkspaceCreate(params: [String: JSONValue]) -> ControlCallResult {
+        switch v2WorkspaceCreate(params: params.mapValues(\.foundationObject)) {
+        case let .ok(payload):
+            return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
+        case let .err(code, message, data):
+            return .err(code: code, message: message, data: data.flatMap { JSONValue(foundationObject: $0) })
         }
-
-        let cwd: String?
-        if let workingDirectory = inputs.workingDirectory {
-            cwd = workingDirectory
-        } else if let rawCWD = inputs.rawCWD, !rawCWD.isControlNull {
-            guard case .string(let str) = rawCWD else {
-                return .invalidParams(message: "cwd must be a string")
-            }
-            cwd = str
-        } else {
-            cwd = nil
-        }
-
-        // Decode optional layout param (same JSON schema as cmux.json layout
-        // field). Validate before creating the workspace so malformed layouts
-        // fail fast.
-        var layoutNode: CmuxLayoutNode?
-        if let rawLayout = inputs.rawLayout, !rawLayout.isControlNull {
-            let foundationLayout = rawLayout.foundationObject
-            guard JSONSerialization.isValidJSONObject(foundationLayout),
-                  let layoutData = try? JSONSerialization.data(withJSONObject: foundationLayout) else {
-                return .invalidParams(message: "layout must be a valid JSON object")
-            }
-            do {
-                layoutNode = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
-            } catch {
-                return .invalidParams(message: "Invalid layout: \(error.localizedDescription)")
-            }
-        }
-
-        let shouldFocus = v2FocusAllowed(requested: inputs.focusRequested)
-        let shouldEagerLoadTerminal = inputs.eagerLoadTerminal ?? !shouldFocus
-        let shouldAutoRefreshMetadata = inputs.autoRefreshMetadata ?? true
-
-        let ws = tabManager.addWorkspace(
-            title: inputs.title,
-            workingDirectory: cwd,
-            initialTerminalCommand: layoutNode == nil ? inputs.initialCommand : nil,
-            initialTerminalEnvironment: layoutNode == nil ? inputs.initialEnv : [:],
-            select: shouldFocus,
-            eagerLoadTerminal: shouldEagerLoadTerminal,
-            autoRefreshMetadata: shouldAutoRefreshMetadata
-        )
-        ws.setCustomDescription(inputs.description)
-        if let layoutNode {
-            ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
-        }
-        let newId = ws.id
-        let initialSurfaceId = ws.focusedPanelId
-
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
-        return .resolved(windowID: windowId, workspaceID: newId, initialSurfaceID: initialSurfaceId)
     }
 
     // MARK: - Select / close / move

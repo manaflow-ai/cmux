@@ -188,5 +188,5 @@
 502	Sources/Settings/ConfigSource.swift
 611	Sources/TerminalController+ControlPaneContext.swift
 533	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
-871	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
-805	Sources/TerminalController+ControlWorkspaceContext.swift
+834	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
+756	Sources/TerminalController+ControlWorkspaceContext.swift

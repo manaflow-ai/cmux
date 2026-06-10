@@ -46,17 +46,14 @@ public protocol ControlWorkspaceContext: AnyObject {
     /// - Returns: The current resolution.
     func controlWorkspaceCurrent(routing: ControlRoutingSelectors) -> ControlWorkspaceCurrentResolution
 
-    /// Creates a workspace for `workspace.create`.
+    /// Creates a workspace for `workspace.create`, forwarding to the shared
+    /// `v2WorkspaceCreate` body (also driven by the mobile data-plane create
+    /// path) and bridging its Foundation payload — a single source of truth.
     ///
-    /// - Parameters:
-    ///   - routing: The routing selectors used for TabManager resolution.
-    ///   - inputs: The pre-parsed create inputs (the app does the remaining
-    ///     app-typed `cwd`/`layout` validation and the create).
-    /// - Returns: The create resolution.
-    func controlCreateWorkspace(
-        routing: ControlRoutingSelectors,
-        inputs: ControlWorkspaceCreateInputs
-    ) -> ControlWorkspaceCreateResolution
+    /// - Parameter params: The raw command params; the body parses them and mints
+    ///   refs itself.
+    /// - Returns: The bridged call result.
+    func controlWorkspaceCreate(params: [String: JSONValue]) -> ControlCallResult
 
     /// Selects a workspace for `workspace.select` (focuses its window when it
     /// belongs to another window).

@@ -17072,7 +17072,7 @@ class TerminalController {
     // Shared workspace-create implementation (restored): the workspace.create
     // command moved to ControlCommandCoordinator, but v2MobileWorkspaceCreate
     // still drives this body for the mobile data-plane create path.
-    private func v2WorkspaceCreate(
+    func v2WorkspaceCreate(
         params: [String: Any],
         tabManager resolvedTabManager: TabManager? = nil
     ) -> V2CallResult {
