@@ -965,6 +965,18 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+        case "auth.sign_in_url":
+            var signInURL: String?
+            v2MainSync {
+                MainActor.assumeIsolated {
+                    signInURL = self.browserSignInFlow?.manualSignInURL.absoluteString
+                }
+            }
+            var result: [String: Any] = [:]
+            if let signInURL {
+                result["url"] = signInURL
+            }
+            return v2Ok(id: request.id, result: result)
         case "auth.begin_sign_in":
             let timeoutSeconds = (request.params["timeout_seconds"] as? Double) ?? 300
             let semaphore = DispatchSemaphore(value: 0)
@@ -2436,6 +2448,7 @@ class TerminalController {
             "terminal.viewport",
             "auth.login",
             "auth.status",
+            "auth.sign_in_url",
             "auth.begin_sign_in",
             "auth.sign_out",
             "vm.list",

@@ -1,6 +1,57 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Verify a built/exported IPA's single .app is strictly signed AND carries
+# aps-environment == "production" in its actual code signature. A config-level
+# entitlement only delivers push if it survives into the SIGNED binary; only
+# `codesign -d --entitlements` on the .app proves it (see the #5496 regression
+# note below). The VALUE matters, not just presence: a "development" value
+# registers a sandbox token that the production APNs host (which TestFlight runs
+# against) rejects with BadDeviceToken, which is the exact failure this guards.
+# Returns 0 only when production push is genuinely wired; non-zero otherwise.
+# One shared check used by both signing paths (manual post-re-sign gate,
+# automatic pre-upload gate) so the two paths can't drift.
+verify_ipa_aps_environment_production() {
+  local ipa="$1"
+  local workdir app ent aps rc
+  workdir="$(mktemp -d)"
+  if ! ( cd "$workdir" && unzip -q "$ipa" ); then
+    echo "error: could not unzip IPA to verify entitlements: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  app="$(find "$workdir/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1)"
+  if [[ -z "$app" || ! -d "$app" ]]; then
+    echo "error: IPA has no Payload/*.app to verify: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  # --verify --strict catches a corrupt bundle (e.g. a bad re-zip).
+  if ! codesign --verify --strict --verbose=2 "$app" >&2; then
+    rm -rf "$workdir"
+    return 1
+  fi
+  # Read the signed entitlements and assert aps-environment == production.
+  ent="$workdir/signed-entitlements.plist"
+  if ! codesign -d --entitlements :- --xml "$app" > "$ent" 2>/dev/null; then
+    echo "error: could not read entitlements from signed app: $app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  # PlistBuddy exits non-zero (and prints to stdout) when the key is absent, so
+  # capture rc and require an exact "production" match.
+  aps="$(/usr/libexec/PlistBuddy -c 'Print :aps-environment' "$ent" 2>/dev/null)"
+  rc=$?
+  if [[ $rc -ne 0 || "$aps" != "production" ]]; then
+    echo "error: signed app aps-environment is '${aps:-<absent>}', expected 'production' (push would silently fail): $app" >&2
+    plutil -p "$ent" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
+  rm -rf "$workdir"
+  return 0
+}
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -13,6 +64,17 @@ TestFlight. The default lane is beta:
 
   bundle id: dev.cmux.app.beta
   profile:   cmux Beta Distribution
+
+On the manual signing path the exported app is RE-SIGNED with the full
+entitlements before upload. The archive is built unsigned (to avoid
+distribution-cert churn), so -exportArchive re-adds only the profile baseline
+and silently DROPS app-capability entitlements like aps-environment. That is
+the https://github.com/manaflow-ai/cmux/pull/5496 regression that killed
+beta/prod push. A config-level entitlements file alone does not prove the
+entitlement reaches the signed binary; only codesign -d --entitlements on the
+exported app does. So the re-sign merges Config/cmux-release.entitlements into
+the export baseline and signs with the local distribution cert, gated on
+codesign showing aps-environment and a strict signature verify.
 
 Authentication uses one of:
 
@@ -387,6 +449,131 @@ IPA_PATH="$EXPORT_PATH/cmux.ipa"
 if [[ ! -f "$IPA_PATH" ]]; then
   echo "error: IPA was not exported at $IPA_PATH" >&2
   exit 1
+fi
+
+# Re-sign the exported app with the FULL entitlements (production aps-environment
+# et al.), then point $IPA_PATH at the re-signed IPA so the upload below ships it.
+#
+# Why this is necessary: the archive is built UNSIGNED (CODE_SIGNING_ALLOWED=NO,
+# see above) to avoid distribution-cert churn on ephemeral runners. An unsigned
+# archive carries NO entitlements, so `-exportArchive` re-adds only the profile
+# baseline (application-identifier, com.apple.developer.team-identifier,
+# get-task-allow, beta-reports-active) and SILENTLY DROPS app-capability
+# entitlements such as aps-environment. This regressed in
+# https://github.com/manaflow-ai/cmux/pull/5496 (June 2026): the signed beta IPA
+# had aps-environment absent entirely, so the device registered no push token and
+# beta/prod push was dead. The per-config entitlements file fix
+# (Config/cmux-release.entitlements) is necessary but NOT sufficient on its own:
+# a config-level entitlement only ships if it survives into the signed binary,
+# and only `codesign -d --entitlements` on the EXPORTED app proves that. So we
+# re-sign here with the export baseline MERGED with the Release entitlements file.
+#
+# This runs on the MANUAL signing path only: it re-signs with the named
+# distribution cert from the local keychain ("Apple Distribution: Manaflow,
+# Inc."), which is present for local/fleet-archive beta cuts. The cmux iOS app is
+# a single self-contained bundle (no Frameworks/, no PlugIns/, GhosttyKit is
+# static), so only the top-level .app is signed; there is no nested code to
+# re-sign. Two alternatives were ruled out: an ad-hoc archive (CODE_SIGN_IDENTITY
+# "-") is rejected by the iOS SDK for an entitled app, and signing on the shared
+# fleet would put distribution material on shared Macs.
+if [[ "$SIGNING" == "manual" ]]; then
+  # Resolve the Release entitlements file. Release.xcconfig statically sets
+  # CODE_SIGN_ENTITLEMENTS = Config/cmux-release.entitlements, so default to that
+  # path rather than parsing xcodebuild -showBuildSettings (slower, more brittle).
+  RELEASE_ENTITLEMENTS="${IOS_RELEASE_ENTITLEMENTS:-$IOS_DIR/Config/cmux-release.entitlements}"
+  RESIGN_IDENTITY="${IOS_DISTRIBUTION_IDENTITY:-Apple Distribution: Manaflow, Inc. (7WLXT3NR37)}"
+
+  if [[ ! -f "$RELEASE_ENTITLEMENTS" ]]; then
+    echo "error: re-sign needs the Release entitlements file but it is missing: $RELEASE_ENTITLEMENTS (set IOS_RELEASE_ENTITLEMENTS to override)" >&2
+    exit 1
+  fi
+  if ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$RESIGN_IDENTITY"; then
+    echo "error: re-sign needs the distribution identity '$RESIGN_IDENTITY' in the keychain, but it was not found (security find-identity -v -p codesigning). Set IOS_DISTRIBUTION_IDENTITY, or run on a Mac with the Apple Distribution cert." >&2
+    exit 1
+  fi
+
+  RESIGN_DIR="$OUT_DIR/resign"
+  rm -rf "$RESIGN_DIR"
+  mkdir -p "$RESIGN_DIR"
+  ( cd "$RESIGN_DIR" && unzip -q "$IPA_PATH" )
+  RESIGN_APP="$(find "$RESIGN_DIR/Payload" -maxdepth 1 -name '*.app' -type d | head -n 1)"
+  if [[ -z "$RESIGN_APP" || ! -d "$RESIGN_APP" ]]; then
+    echo "error: could not find Payload/*.app inside the exported IPA to re-sign" >&2
+    exit 1
+  fi
+
+  # Start from the exported app's current (profile-baseline) entitlements, then
+  # MERGE every key from the Release entitlements file. The merge is GENERIC:
+  # PlistBuddy Merge copies all keys from the Release file and skips any that
+  # already exist in the baseline, so future entitlements survive automatically
+  # and existing baseline values (e.g. get-task-allow=false) are preserved.
+  MERGED_ENTITLEMENTS="$RESIGN_DIR/entitlements.plist"
+  codesign -d --entitlements :- --xml "$RESIGN_APP" > "$MERGED_ENTITLEMENTS" 2>/dev/null || {
+    echo "error: could not read current entitlements from the exported app: $RESIGN_APP" >&2
+    exit 1
+  }
+  # `|| true`: PlistBuddy Merge prints "Duplicate Entry Was Skipped" if a future
+  # Release key ever overlaps a baseline key. That is the intended behavior
+  # (baseline wins), but its exit code on that path is not contractually 0 across
+  # OS versions, and a stray non-zero would kill the script under `set -e`. The
+  # exit code is non-load-bearing anyway: a genuinely failed merge produces no
+  # aps-environment and is caught by the hard gate below with a clear error.
+  /usr/libexec/PlistBuddy -c "Merge $RELEASE_ENTITLEMENTS" "$MERGED_ENTITLEMENTS" >/dev/null || true
+  plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
+
+  codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"
+
+  # HARD GATES on the signed .app: the entitlement we are fixing must be present,
+  # and the signature must be strictly valid. A config-level check cannot prove
+  # either; only codesign on the actual binary does.
+  if ! codesign -d --entitlements :- --xml "$RESIGN_APP" 2>/dev/null | plutil -p - | grep -q '"aps-environment"'; then
+    echo "error: re-signed app is still missing aps-environment; refusing to upload a push-broken build" >&2
+    codesign -d --entitlements :- --xml "$RESIGN_APP" 2>/dev/null | plutil -p - >&2 || true
+    exit 1
+  fi
+  codesign --verify --strict --verbose=2 "$RESIGN_APP"
+
+  # Re-zip with the exact IPA layout (Payload/ at archive root) and repoint
+  # $IPA_PATH so the existing upload step ships the re-signed IPA.
+  RESIGNED_IPA="$EXPORT_PATH/cmux-resigned.ipa"
+  rm -f "$RESIGNED_IPA"
+  ( cd "$RESIGN_DIR" && zip -qrX "$RESIGNED_IPA" Payload )
+
+  # Post-zip gate: a wrong Payload root or stripped attributes corrupts the bundle
+  # silently, and the whole point is that aps-environment survives. Re-verify the
+  # produced IPA (strict signature + aps-environment) so altool is not the first
+  # thing to notice. Same shared check the automatic path uses.
+  if ! verify_ipa_aps_environment_production "$RESIGNED_IPA"; then
+    echo "error: re-signed IPA failed verification (corrupt bundle, or aps-environment not production); refusing to upload" >&2
+    exit 1
+  fi
+
+  IPA_PATH="$RESIGNED_IPA"
+  echo "re-signed IPA with full entitlements (aps-environment=production): $IPA_PATH"
+else
+  # Automatic (cloud-managed) signing: there is no named distribution cert in the
+  # keychain to re-sign with, so we cannot re-add a dropped entitlement here. The
+  # archive is unsigned and -exportArchive does NOT mine the profile's
+  # app-capability entitlements (verified: even a manual export with the
+  # push-capable "cmux Beta Distribution" profile produced only the 4-key baseline
+  # with no aps-environment), so an automatic export almost certainly drops it too.
+  #
+  # Rather than upload a known-push-broken build with only a warning (CI warnings
+  # are effectively silent, and ios-testflight.yml drives the PRIMARY beta cut with
+  # --signing automatic), FAIL CLOSED: verify the exported IPA actually carries
+  # aps-environment, and refuse the upload if it does not. If automatic ever does
+  # preserve it, the gate passes and upload proceeds.
+  #
+  # To make CI cut a push-WORKING beta, ios-testflight.yml must import the iOS
+  # distribution cert and call this script with --signing manual (nightly.yml /
+  # release.yml already import a signing cert on ephemeral runners, so the pattern
+  # exists). That is a security-relevant workflow + secrets decision, deliberately
+  # out of scope here; this gate just stops shipping a broken artifact until then.
+  if ! verify_ipa_aps_environment_production "$IPA_PATH"; then
+    echo "error: --signing automatic produced an IPA without aps-environment=production; refusing to upload a push-broken beta. Cut the beta via --signing manual (import the iOS distribution cert in CI), or re-sign with the distribution cert." >&2
+    exit 1
+  fi
+  echo "automatic-signed IPA verified to carry aps-environment=production: $IPA_PATH"
 fi
 
 echo "IPA_PATH=$IPA_PATH"
