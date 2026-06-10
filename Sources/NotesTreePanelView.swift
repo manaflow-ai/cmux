@@ -62,6 +62,35 @@ struct NotesTreePanelView: NSViewRepresentable {
         container.updateEmptyState(hasWorkspace: store.hasWorkspace, isEmpty: store.rootNodes.isEmpty)
     }
 
+    // MARK: - Note drag writer
+
+    /// Drag writer for note rows: the tree's move type composed with the Files
+    /// tab's file-preview writer (drag registry + bonsplit tab-transfer payload
+    /// + fileURL). Dropping on a terminal inserts the shell-escaped path or
+    /// opens the preview per the file-drop setting with Shift toggling the
+    /// alternate, exactly like a Files-tab drag; dragging out exports the file.
+    /// In-sidebar moves still work because the window file-drop overlay defers
+    /// to the tree's region (SidebarFileDropDeferralRegistry).
+    final class NoteDragWriter: NSObject, NSPasteboardWriting {
+        private let movePath: String
+        private let preview: FilePreviewDragPasteboardWriter
+
+        init(filePath: String, displayTitle: String) {
+            self.movePath = filePath
+            self.preview = FilePreviewDragPasteboardWriter(filePath: filePath, displayTitle: displayTitle)
+            super.init()
+        }
+
+        func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
+            [NotesTreePanelView.movePasteboardType] + preview.writableTypes(for: pasteboard)
+        }
+
+        func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
+            if type == NotesTreePanelView.movePasteboardType { return movePath }
+            return preview.pasteboardPropertyList(forType: type)
+        }
+    }
+
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
@@ -122,7 +151,10 @@ struct NotesTreePanelView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-            NotesTreeRowView()
+            let rowView = NotesTreeRowView()
+            rowView.indentLevel = outlineView.level(forItem: item)
+            rowView.indentationWidth = outlineView.indentationPerLevel
+            return rowView
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldExpandItem item: Any) -> Bool {
@@ -372,27 +404,21 @@ struct NotesTreePanelView: NSViewRepresentable {
             )
             #endif
             guard let node = item as? NotesTreeNode, !node.path.isEmpty else { return nil }
-            // Every row drags with cmux-private types only. Declaring .fileURL
-            // or the filePreview routing type makes the window file-drop
-            // overlay capture the drag (DragOverlayRoutingPolicy
-            // .hasFileDropPayload), so the outline never sees it and in-tree
-            // moves silently stop working.
+            // Note rows drag with the full Files-tab payload (fileURL +
+            // preview transfer types) so terminal drops insert the path or
+            // open the preview, with Shift toggling the alternate. The window
+            // file-drop overlay defers over this tree
+            // (SidebarFileDropDeferralRegistry), so those types no longer
+            // swallow in-sidebar moves. Folder/session rows stay cmux-private.
+            if case .note = node.kind {
+                return NotesTreePanelView.NoteDragWriter(filePath: node.path, displayTitle: node.displayName)
+            }
             let pbItem = NSPasteboardItem()
             // Virtual session rows have nothing on disk to move; they drag as
             // pure session pointers (still resumable on a pane / droppable in
             // another Notes tree, where they materialize).
             if !node.isVirtual {
                 pbItem.setString(node.path, forType: NotesTreePanelView.movePasteboardType)
-            }
-            // Note rows also carry the registry-backed preview payload under
-            // bonsplit's plain tab-transfer type (the session-row pattern):
-            // dropping on a pane opens the note through the Files-tab preview
-            // pipeline, while in-sidebar drags still reach the outline.
-            if case .note = node.kind,
-               let transferData = FilePreviewDragPasteboardWriter.registeredTransferData(
-                   filePath: node.path, displayTitle: node.displayName
-               ) {
-                pbItem.setData(transferData, forType: NotesTreePanelView.tabTransferPasteboardType)
             }
             // Session rows also carry the shared session pointer (drag into
             // another Notes tree / window) and bonsplit's tab-transfer payload

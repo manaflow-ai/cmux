@@ -30,6 +30,19 @@ final class NotesTreeContainerView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// While this tree is on screen, the window file-drop overlay forwards
+    /// file-bearing drags over its region to the outline (note drags carry a
+    /// fileURL for Finder export and the preview payload for pane drops), so
+    /// notes can still be moved between folders in here.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            SidebarFileDropDeferralRegistry.unregister(outlineView)
+        } else {
+            SidebarFileDropDeferralRegistry.register(outlineView)
+        }
+    }
+
     private func setup(coordinator: NotesTreePanelView.Coordinator) {
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("notes"))
         column.resizingMask = .autoresizingMask

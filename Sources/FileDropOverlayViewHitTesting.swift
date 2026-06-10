@@ -3,7 +3,102 @@ import Bonsplit
 import Foundation
 import WebKit
 
+/// Sidebar tree views (e.g. the Notes outline) that own file-bearing drags
+/// over their region. The window file-drop overlay owns ALL file drags
+/// window-wide by design; for these regions it forwards the dragging events
+/// to the registered view — the same way it forwards to WKWebViews — so the
+/// tree's own validate/accept machinery (drop indicators, row targeting,
+/// in-tree moves) keeps working. The overlay never accepted drops over the
+/// sidebar anyway: there is no pane underneath it.
+enum SidebarFileDropDeferralRegistry {
+    private static let lock = NSLock()
+    private static let registeredViews = NSHashTable<NSView>.weakObjects()
+
+    static func register(_ view: NSView) {
+        lock.lock()
+        registeredViews.add(view)
+        lock.unlock()
+    }
+
+    static func unregister(_ view: NSView) {
+        lock.lock()
+        registeredViews.remove(view)
+        lock.unlock()
+    }
+
+    private static func snapshot() -> [NSView] {
+        lock.lock()
+        let views = registeredViews.allObjects
+        lock.unlock()
+        return views
+    }
+
+    private static func isVisibleInHierarchy(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let candidate = current {
+            guard !candidate.isHidden, candidate.alphaValue > 0 else { return false }
+            current = candidate.superview
+        }
+        return true
+    }
+
+    static func containsWindowPoint(_ windowPoint: CGPoint, in window: NSWindow) -> Bool {
+        view(atWindowPoint: windowPoint, in: window) != nil
+    }
+
+    static func view(atWindowPoint windowPoint: CGPoint, in window: NSWindow) -> NSView? {
+        let epsilon = max(0.5, 1.0 / max(1.0, window.backingScaleFactor))
+        for view in snapshot() {
+            guard view.window === window, isVisibleInHierarchy(view) else { continue }
+            let frameInWindow = view.convert(view.bounds, to: nil).insetBy(dx: -epsilon, dy: -epsilon)
+            if frameInWindow.contains(windowPoint) {
+                return view
+            }
+        }
+        return nil
+    }
+
+}
+
 extension FileDropOverlayView {
+    /// The registered sidebar tree under the drag location, if any.
+    /// `NSDraggingInfo.draggingLocation` is already in window coordinates.
+    func sidebarTreeDropView(at windowPoint: NSPoint) -> NSView? {
+        guard let window else { return nil }
+        return SidebarFileDropDeferralRegistry.view(atWindowPoint: windowPoint, in: window)
+    }
+
+    /// Route the drag to a sidebar tree (Notes outline) when the cursor is
+    /// over its region — the same forwarding shape as the WKWebView route.
+    /// Returns nil when the drag is not over a registered sidebar tree.
+    private func updateSidebarTreeDragTarget(_ sender: any NSDraggingInfo) -> NSDragOperation? {
+        guard let sidebarView = sidebarTreeDropView(at: sender.draggingLocation) else {
+            if let prev = activeSidebarDropView {
+                prev.draggingExited(sender)
+                activeSidebarDropView = nil
+            }
+            return nil
+        }
+        hintBadgeView.hide()
+        if let prev = activeDragWebView {
+            prev.draggingExited(sender)
+            activeDragWebView = nil
+        }
+        if let prev = activePaneDropTarget {
+            prev.fileDropDraggingExited(sender)
+            activePaneDropTarget = nil
+        }
+        if activeSidebarDropView !== sidebarView {
+            activeSidebarDropView?.draggingExited(sender)
+            activeSidebarDropView = sidebarView
+            #if DEBUG
+            cmuxDebugLog("overlay.fileDrop.sidebarRoute entered view=\(type(of: sidebarView))")
+            #endif
+            return sidebarView.draggingEntered(sender)
+        }
+        return sidebarView.draggingUpdated(sender)
+    }
+
     func updateDragTarget(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
         let loc = sender.draggingLocation
         let hasLocalDraggingSource = sender.draggingSource != nil
@@ -12,6 +107,9 @@ extension FileDropOverlayView {
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
+        if let sidebarOperation = updateSidebarTreeDragTarget(sender) {
+            return sidebarOperation
+        }
         updateHintBadge(sender: sender, pasteboardTypes: types)
 
         if shouldRouteFileDropToTextDestination(sender) {
