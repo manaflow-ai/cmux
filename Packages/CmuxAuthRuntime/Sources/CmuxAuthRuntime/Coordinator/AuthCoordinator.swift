@@ -534,6 +534,16 @@ public final class AuthCoordinator {
         // attempt that failed before writing does not block the cleanup.
         // The race surfaces as a cancellation (the sign-in UI treats
         // `.cancelled` as a deliberate back-out, not a failure).
+        //
+        // Residual, accepted: the high-water mark advances when a flow
+        // resumes on this actor, not atomically with the SDK's internal
+        // store write, so two interactive sign-in exchanges racing within
+        // one scheduler hop can still mis-order ownership. Interactive
+        // sign-ins are serialized by the UI (one sign-in screen, one
+        // attempt); making this airtight needs coordinator-serialized
+        // attempts (cancel-previous, like HostBrowserSignInFlow's
+        // cancelActiveAttempt) or a compare-and-swap token store, both
+        // follow-up territory.
         guard flow.generation == sessionGeneration else {
             if !isAuthenticated && tokenStoreWriteHighWater == flow.attempt {
                 await client.clearLocalSession()
