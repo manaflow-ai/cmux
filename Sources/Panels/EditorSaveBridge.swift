@@ -81,11 +81,8 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
         didReceive message: WKScriptMessage,
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
-        guard message.frameInfo.isMainFrame,
-              message.frameInfo.securityOrigin.protocol == CmuxDiffViewerURLSchemeHandler.scheme,
-              let fileURL = CmuxEditorSaveRegistry.shared.fileURL(
-                forToken: message.frameInfo.securityOrigin.host
-              ) else {
+        guard let token = Self.editorToken(for: message.frameInfo),
+              let fileURL = CmuxEditorSaveRegistry.shared.fileURL(forToken: token) else {
             replyHandler(Self.errorEnvelope(code: "unauthorized", detail: nil), nil)
             return
         }
@@ -108,6 +105,29 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
                 replyHandler(envelope, nil)
             }
         }
+    }
+
+    /// Extracts the page's diff-viewer serving token from the WebKit-reported
+    /// frame identity (never from the message body). Two serving modes:
+    /// custom scheme pages carry the token as the origin host; localhost
+    /// HTTP-server pages carry it as the first path component of the frame
+    /// URL (the page cannot forge `frameInfo.request.url`). The token is an
+    /// unguessable per-open capability; the registry lookup is what
+    /// authorizes the write.
+    private static func editorToken(for frameInfo: WKFrameInfo) -> String? {
+        guard frameInfo.isMainFrame else { return nil }
+        let origin = frameInfo.securityOrigin
+        if origin.protocol == CmuxDiffViewerURLSchemeHandler.scheme {
+            return origin.host
+        }
+        if origin.protocol == "http",
+           origin.host == "127.0.0.1",
+           let frameURL = frameInfo.request.url,
+           frameURL.fragment == "cmux-diff-viewer" {
+            let components = frameURL.path.split(separator: "/", omittingEmptySubsequences: true)
+            return components.first.map(String.init)
+        }
+        return nil
     }
 
     private static func performSave(
