@@ -34,8 +34,12 @@ struct TranscriptFileWatcher: Sendable {
     /// descriptors).
     ///
     /// - Returns: A stream yielding `()` once per observed filesystem change.
+    ///   Signals carry no payload and only the latest file state matters, so
+    ///   the buffer keeps at most one pending signal: a burst of events that
+    ///   lands while the consumer is mid-re-read coalesces into a single
+    ///   follow-up re-read instead of queueing redundant full parses.
     func changes() -> AsyncStream<Void> {
-        AsyncStream { continuation in
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let attachment = TranscriptWatchAttachment(path: path, continuation: continuation)
             attachment.start()
             continuation.onTermination = { _ in attachment.stop() }
