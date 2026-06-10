@@ -59,7 +59,13 @@ GET  /v1/presence/subscribe -> forward w/ verified team ------> WS (hibernation)
   devices are owner-bound like the registry: the first authenticated user to
   announce a `deviceId` owns it, and another member's heartbeat for that
   device is rejected with `403 device_owner_mismatch` (so presence cannot be
-  spoofed or force-cleared by a co-member).
+  spoofed or force-cleared by a co-member). Owner pins are durable DO state,
+  never pruned with the 24h presence tail, so idle devices cannot be
+  re-claimed. Known accepted residual until the registry's per-device
+  key-pinning phase: the very first claim of a deviceId is
+  first-authenticated-writer-wins, because presence deliberately has no
+  synchronous registry dependency and the registry does not yet issue
+  verifiable device credentials; blast radius is presence display only.
 - **Subscribe**: WebSocket (primary; DO hibernation API, so idle teams cost
   nothing) or SSE (fallback, curl-friendly). Both deliver a `snapshot` first,
   then `online` / `offline` (with `reason: "timeout" | "goodbye"`) / `seen`
@@ -75,10 +81,11 @@ GET  /v1/presence/subscribe -> forward w/ verified team ------> WS (hibernation)
 Presence is deliberately ephemeral. The durable source of device identity is
 the Aurora `devices` / `device_app_instances` registry
 (https://github.com/manaflow-ai/cmux/pull/5626); this service adds no Aurora
-columns and therefore ships no Drizzle migration. DO storage keeps only the
-live instance map plus a 24h offline tail for "last seen", pruned by the same
-alarm. Losing the service's storage entirely would cost nothing durable: hosts
-re-announce within 15s.
+columns and therefore ships no Drizzle migration. DO storage keeps the live
+instance map plus a 24h offline tail for "last seen", pruned by the same
+alarm, and the durable per-device owner pins. Losing the service's storage
+entirely would cost nothing durable beyond the owner pins: hosts re-announce
+(and re-pin) within 15s, with the same first-claim caveat noted above.
 
 The service's own schema story is the `[[migrations]]` block in
 `wrangler.toml`: Durable Object class migrations are applied by

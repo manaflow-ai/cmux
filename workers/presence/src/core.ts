@@ -124,7 +124,18 @@ export type OwnerCheck =
  * authenticated user to announce a device owns it, and only that user's
  * heartbeats are accepted afterwards. Without this, any team member could
  * forge a co-member's device online or force it offline with a goodbye, since
- * device ids are visible to the whole team. Pure for tests. */
+ * device ids are visible to the whole team.
+ *
+ * The pin lives in DO storage and is durable: it is never pruned with the
+ * 24h presence tail, so an idle device cannot be re-claimed by a co-member.
+ * Known residual (accepted until the registry's planned per-device
+ * key-pinning phase, see the `devices` schema note): the very first claim of
+ * a deviceId is first-authenticated-writer-wins, because the presence
+ * service deliberately has no synchronous dependency on the Aurora registry
+ * (presence must stay available when the web API is not) and the registry
+ * does not yet issue verifiable device credentials. Blast radius is presence
+ * display only; attach routes and durable identity stay registry-owned.
+ * Pure for tests. */
 export function checkDeviceOwner(
   existingOwner: string | undefined,
   userId: string,

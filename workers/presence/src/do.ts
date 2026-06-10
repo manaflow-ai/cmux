@@ -31,11 +31,16 @@ import {
 } from "./core";
 
 const INSTANCE_PREFIX = "inst:";
-/** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. */
+/** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
+ * never pruned with the presence tail (see checkDeviceOwner in core.ts), so
+ * an idle device cannot be re-claimed by a co-member. Bounded by
+ * MAX_OWNERS_PER_TEAM. */
 const OWNER_PREFIX = "owner:";
 const TEAM_ID_KEY = "meta:teamId";
 /** Mirrors the registry caps (200 devices x 25 instances per device). */
 const MAX_INSTANCES_PER_TEAM = 5000;
+/** Cap on durable owner pins; matches the instance cap (owners <= devices). */
+const MAX_OWNERS_PER_TEAM = 5000;
 /** Combined WebSocket + SSE subscriber cap per team. */
 const MAX_SUBSCRIBERS_PER_TEAM = 64;
 /** Drop an SSE subscriber once this many frames sit unread in its stream
@@ -136,7 +141,11 @@ export class TeamPresence extends DurableObject {
       if (count >= MAX_INSTANCES_PER_TEAM) return { error: "too_many_instances", status: 429 };
     }
 
-    if (owner.pin) await this.ctx.storage.put(ownerKey(beat.deviceId), userId);
+    if (owner.pin) {
+      const ownerCount = (await this.ctx.storage.list({ prefix: OWNER_PREFIX, limit: MAX_OWNERS_PER_TEAM })).size;
+      if (ownerCount >= MAX_OWNERS_PER_TEAM) return { error: "too_many_devices", status: 429 };
+      await this.ctx.storage.put(ownerKey(beat.deviceId), userId);
+    }
     const { instance, events } = applyHeartbeat(existing, beat, now);
     await this.ctx.storage.put(key, instance);
     this.broadcast(events);
@@ -236,7 +245,6 @@ export class TeamPresence extends DurableObject {
         all.delete(key);
       }
     }
-    await this.pruneOrphanedOwners(all);
     this.broadcast(events);
     this.closeExpiredSubscribers(now);
     const candidates = [nextAlarmTime([...all.values()]), this.nextSubscriberDeadline()]
@@ -267,18 +275,6 @@ export class TeamPresence extends DurableObject {
 
   private async allEntries(): Promise<Map<string, PresenceInstance>> {
     return await this.ctx.storage.list<PresenceInstance>({ prefix: INSTANCE_PREFIX });
-  }
-
-  /** Drop owner pins whose device no longer has any instance record, so the
-   * owner map shrinks with the same 24h prune that bounds the instance map. */
-  private async pruneOrphanedOwners(remaining: ReadonlyMap<string, PresenceInstance>): Promise<void> {
-    const liveDevices = new Set([...remaining.values()].map((instance) => instance.deviceId));
-    const owners = await this.ctx.storage.list<string>({ prefix: OWNER_PREFIX });
-    for (const key of owners.keys()) {
-      if (!liveDevices.has(key.slice(OWNER_PREFIX.length))) {
-        await this.ctx.storage.delete(key);
-      }
-    }
   }
 
   private async allInstances(): Promise<PresenceInstance[]> {

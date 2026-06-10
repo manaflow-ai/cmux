@@ -40,14 +40,33 @@ trap cleanup EXIT
 
 step() { printf '\n== %s\n' "$*"; }
 
+# Secrets never ride argv (process args are world-readable): request bodies
+# and bearer headers go through files in $WORK (mktemp -d, mode 700).
+sign_in() { # sign_in <email> <password> -> access token on stdout
+  local body="$WORK/signin-body.json"
+  printf '{"email":"%s","password":"%s"}' "$1" "$2" >"$body"
+  curl -fsS -X POST "$STACK_API_URL/api/v1/auth/password/sign-in" \
+    -H "x-stack-access-type: client" \
+    -H "x-stack-project-id: $STACK_PROJECT_ID" \
+    -H "x-stack-publishable-client-key: $STACK_PUBLISHABLE_CLIENT_KEY" \
+    -H "content-type: application/json" \
+    -d @"$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'
+  rm -f "$body"
+}
+
+stack_user_id() { # stack_user_id <access token> -> Stack user id on stdout
+  local cfg="$WORK/me.curlrc"
+  printf 'header = "x-stack-access-token: %s"\n' "$1" >"$cfg"
+  curl -fsS -K "$cfg" "$STACK_API_URL/api/v1/users/me" \
+    -H "x-stack-access-type: client" \
+    -H "x-stack-project-id: $STACK_PROJECT_ID" \
+    -H "x-stack-publishable-client-key: $STACK_PUBLISHABLE_CLIENT_KEY" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])'
+  rm -f "$cfg"
+}
+
 step "sign in to Stack (dev project ${STACK_PROJECT_ID:0:8}...)"
-SIGNIN=$(curl -fsS -X POST "$STACK_API_URL/api/v1/auth/password/sign-in" \
-  -H "x-stack-access-type: client" \
-  -H "x-stack-project-id: $STACK_PROJECT_ID" \
-  -H "x-stack-publishable-client-key: $STACK_PUBLISHABLE_CLIENT_KEY" \
-  -H "content-type: application/json" \
-  -d "{\"email\":\"$STACK_EMAIL\",\"password\":\"$STACK_PASSWORD\"}")
-ACCESS_TOKEN=$(printf '%s' "$SIGNIN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+ACCESS_TOKEN=$(sign_in "$STACK_EMAIL" "$STACK_PASSWORD")
 echo "signed in: got access token"
 
 step "start wrangler dev on :$PORT"
@@ -70,10 +89,12 @@ cat "$WORK/unauth.json"; echo " (status $CODE)"
 [ "$CODE" = "401" ] || { echo "FAIL: expected 401" >&2; exit 1; }
 
 DEVICE_ID=$(uuidgen | tr 'A-Z' 'a-z')
-AUTH=(-H "authorization: Bearer $ACCESS_TOKEN")
+AUTH_CFG="$WORK/auth1.curlrc"
+printf 'header = "authorization: Bearer %s"\n' "$ACCESS_TOKEN" >"$AUTH_CFG"
 if [ -n "${PROOF_TEAM_ID:-}" ]; then
-  AUTH+=(-H "x-cmux-team-id: $PROOF_TEAM_ID")
+  printf 'header = "x-cmux-team-id: %s"\n' "$PROOF_TEAM_ID" >>"$AUTH_CFG"
 fi
+AUTH=(-K "$AUTH_CFG")
 beat() { # beat <tag> [extra-json-fields]
   curl -fsS -X POST "$BASE/v1/presence/heartbeat" "${AUTH[@]}" \
     -H "content-type: application/json" \
@@ -105,21 +126,24 @@ beat default
 
 if [ -n "${STACK_EMAIL_2:-}" ] && [ -n "${STACK_PASSWORD_2:-}" ]; then
   step "device-owner guard: a second team member cannot spoof this device"
-  SIGNIN2=$(curl -fsS -X POST "$STACK_API_URL/api/v1/auth/password/sign-in" \
-    -H "x-stack-access-type: client" \
-    -H "x-stack-project-id: $STACK_PROJECT_ID" \
-    -H "x-stack-publishable-client-key: $STACK_PUBLISHABLE_CLIENT_KEY" \
-    -H "content-type: application/json" \
-    -d "{\"email\":\"$STACK_EMAIL_2\",\"password\":\"$STACK_PASSWORD_2\"}")
-  ACCESS_TOKEN_2=$(printf '%s' "$SIGNIN2" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
-  CODE=$(curl -s -o "$WORK/owner.json" -w '%{http_code}' -X POST "$BASE/v1/presence/heartbeat" \
-    -H "authorization: Bearer $ACCESS_TOKEN_2" \
-    -H "x-cmux-team-id: $TEAM_ID" \
-    -H "content-type: application/json" \
-    -d "{\"deviceId\":\"$DEVICE_ID\",\"platform\":\"mac\",\"tag\":\"default\",\"stopping\":true}")
-  cat "$WORK/owner.json"; echo " (status $CODE)"
-  [ "$CODE" = "403" ] || { echo "FAIL: expected 403 owner mismatch" >&2; exit 1; }
-  grep -q device_owner_mismatch "$WORK/owner.json" || { echo "FAIL: expected device_owner_mismatch" >&2; exit 1; }
+  ACCESS_TOKEN_2=$(sign_in "$STACK_EMAIL_2" "$STACK_PASSWORD_2")
+  # The guard only proves anything across two DISTINCT users; aliased env
+  # (e.g. dogfood == uitest account) would make a legitimate same-owner 200
+  # look like a guard failure, so detect and skip instead.
+  if [ "$(stack_user_id "$ACCESS_TOKEN")" = "$(stack_user_id "$ACCESS_TOKEN_2")" ]; then
+    echo "(skipping device-owner guard step: STACK_EMAIL_2 resolves to the same Stack user as STACK_EMAIL; provide a second distinct same-team account)"
+  else
+    AUTH2_CFG="$WORK/auth2.curlrc"
+    printf 'header = "authorization: Bearer %s"\n' "$ACCESS_TOKEN_2" >"$AUTH2_CFG"
+    printf 'header = "x-cmux-team-id: %s"\n' "$TEAM_ID" >>"$AUTH2_CFG"
+    CODE=$(curl -s -o "$WORK/owner.json" -w '%{http_code}' -X POST "$BASE/v1/presence/heartbeat" \
+      -K "$AUTH2_CFG" \
+      -H "content-type: application/json" \
+      -d "{\"deviceId\":\"$DEVICE_ID\",\"platform\":\"mac\",\"tag\":\"default\",\"stopping\":true}")
+    cat "$WORK/owner.json"; echo " (status $CODE)"
+    [ "$CODE" = "403" ] || { echo "FAIL: expected 403 owner mismatch" >&2; exit 1; }
+    grep -q device_owner_mismatch "$WORK/owner.json" || { echo "FAIL: expected device_owner_mismatch" >&2; exit 1; }
+  fi
 else
   echo "(skipping device-owner guard step: STACK_EMAIL_2/STACK_PASSWORD_2 not set)"
 fi
