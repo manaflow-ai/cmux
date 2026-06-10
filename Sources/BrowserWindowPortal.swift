@@ -3042,11 +3042,18 @@ final class WindowBrowserPortal: NSObject {
     }
 
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
-        for entry in entriesByWebViewId.values {
-#if DEBUG
-            Self.searchOverlayScanEntryMaterializations += 1
-#endif
-            if let panelId = entry.containerView?.searchOverlayPanelId(for: responder) {
+        // Drive the lookup off the live slot view hierarchy rather than copying
+        // Entry structs out of entriesByWebViewId. Each Entry copy performs 3
+        // objc_copyWeak ops under the global weak-table lock, so the old
+        // `.values` scan did O(panes) weak-table churn on every keystroke — the
+        // stack-exhaustion fault site in #5733 and a typing-latency contributor
+        // (#4405). Slot containers are the portal host's subviews, and only a
+        // container in the view hierarchy can own the window's first responder,
+        // so iterating subviews covers every slot that could match. The slot's
+        // own searchOverlayPanelId(for:) early-returns when it has no open find
+        // overlay, keeping the common (no-find) case cheap.
+        for case let container as WindowBrowserSlotView in hostView.subviews {
+            if let panelId = container.searchOverlayPanelId(for: responder) {
                 return panelId
             }
         }
@@ -3056,11 +3063,10 @@ final class WindowBrowserPortal: NSObject {
     @discardableResult
     func yieldSearchOverlayFocusIfOwned(by panelId: UUID) -> Bool {
         guard let window else { return false }
-        for entry in entriesByWebViewId.values {
-#if DEBUG
-            Self.searchOverlayScanEntryMaterializations += 1
-#endif
-            if entry.containerView?.yieldSearchOverlayFocusIfOwned(by: panelId, in: window) == true {
+        // See searchOverlayPanelId(for:) — iterate the live slot hierarchy to
+        // avoid per-call Entry weak-copy churn (#5733).
+        for case let container as WindowBrowserSlotView in hostView.subviews {
+            if container.yieldSearchOverlayFocusIfOwned(by: panelId, in: window) == true {
                 return true
             }
         }
