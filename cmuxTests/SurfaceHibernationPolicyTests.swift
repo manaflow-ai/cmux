@@ -216,9 +216,9 @@ struct SurfaceHibernationPolicyTests {
             now: now
         )
 
-        #expect(selected.count == SurfaceHibernationPlanner.maxUnmountedSelectionsPerEvaluation)
+        #expect(selected.count == SurfaceHibernationPlanner.maxSelectionsPerEvaluation)
         // Oldest first: the last inputs have the oldest activity timestamps.
-        let expected = Set(keys.suffix(SurfaceHibernationPlanner.maxUnmountedSelectionsPerEvaluation))
+        let expected = Set(keys.suffix(SurfaceHibernationPlanner.maxSelectionsPerEvaluation))
         #expect(selected == expected)
     }
 

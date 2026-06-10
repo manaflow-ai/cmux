@@ -280,7 +280,6 @@ final class AgentHibernationController {
             index: index,
             activityByPanel: activityByPanel,
             terminalInputByPanel: terminalInputByPanel,
-            pendingCommandLineByPanel: pendingCommandLineByPanel,
             lifecycleChangeByPanel: lifecycleChangeByPanel
         )
         let nowTime = now.timeIntervalSince1970
@@ -320,7 +319,9 @@ final class AgentHibernationController {
                 isProtected: record.isProtected,
                 isBusy: record.isBusy,
                 lifecycle: record.lifecycle,
-                hasUnconfirmedTerminalInput: record.hasUnconfirmedTerminalInput,
+                hasUnconfirmedTerminalInput: record.agent != nil
+                    ? record.hasUnconfirmedTerminalInput
+                    : pendingCommandLineByPanel[record.key] != nil,
                 lastActivityAt: record.lastActivityAt,
                 workspaceUnmountedAt: record.workspaceUnmountedAt
             )
@@ -570,7 +571,6 @@ extension AppDelegate {
         index: RestorableAgentSessionIndex,
         activityByPanel: [AgentHibernationPanelKey: TimeInterval],
         terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval],
-        pendingCommandLineByPanel: [AgentHibernationPanelKey: TimeInterval],
         lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval]
     ) -> [AgentHibernationRecord] {
         var records: [AgentHibernationRecord] = []
@@ -610,7 +610,8 @@ extension AppDelegate {
                     // never shell-restarted.
                     let canRestartShell = agent == nil &&
                         !isRemoteTerminal &&
-                        !terminalPanel.surface.hasDeferredStartupWorkForBackgroundStart()
+                        !terminalPanel.surface.hasDeferredStartupWorkForBackgroundStart() &&
+                        terminalPanel.surface.runtimeSupportsScrollbackReplay
                     // Busy means freeing the PTY could kill live work: the
                     // shell-integration state reports a running command (or
                     // Ghostty's prompt heuristic says we are not at one), the
@@ -631,9 +632,10 @@ extension AppDelegate {
                             terminalPanel: terminalPanel,
                             agent: agent,
                             lifecycle: lifecycle,
-                            hasUnconfirmedTerminalInput: agent != nil
-                                ? terminalInputAt > lifecycleChangeAt
-                                : pendingCommandLineByPanel[key] != nil,
+                            // Agent-only here; plain-shell pending input is
+                            // resolved at evaluation time, after pre-tracking
+                            // surfaces are seeded.
+                            hasUnconfirmedTerminalInput: agent != nil && terminalInputAt > lifecycleChangeAt,
                             lastActivityAt: max(indexActivity, localActivity, createdAt),
                             isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId),
                             isBusy: isBusy,

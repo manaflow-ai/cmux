@@ -150,14 +150,15 @@ enum SurfaceHibernationPlanner {
             }
             .sorted(by: leastRecentlyUsedFirst)
 
-        return Set(eligible.prefix(excess).map(\.key))
+        return Set(eligible.prefix(min(excess, maxSelectionsPerEvaluation)).map(\.key))
     }
 
     /// Hibernating a panel synchronously captures scrollback and frees the
-    /// runtime surface on the main actor, so when many hidden terminals cross
-    /// the idle window together the rule drains them a few per evaluation
-    /// instead of in one unbounded batch.
-    static let maxUnmountedSelectionsPerEvaluation = 4
+    /// runtime surface on the main actor, so when many hidden terminals become
+    /// reclaimable together — cap overflow or a cohort crossing the idle
+    /// window — each rule drains a few per evaluation instead of one unbounded
+    /// batch. Successive 30s ticks converge on the target.
+    static let maxSelectionsPerEvaluation = 4
 
     /// Surfaces whose workspace has been unmounted — and which have been quiet
     /// — for at least `unmountedIdleSeconds`, regardless of cap pressure.
@@ -180,7 +181,7 @@ enum SurfaceHibernationPlanner {
                 return now - quietSince >= surfaceSettings.unmountedIdleSeconds
             }
             .sorted(by: leastRecentlyUsedFirst)
-        return Set(eligible.prefix(maxUnmountedSelectionsPerEvaluation).map(\.key))
+        return Set(eligible.prefix(maxSelectionsPerEvaluation).map(\.key))
     }
 
     static func isEvictable(

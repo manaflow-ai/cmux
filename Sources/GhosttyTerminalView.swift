@@ -5475,6 +5475,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     let initialInput: String?
     private var nextRuntimeInitialInput: String?
     private var nextRuntimeWorkingDirectory: String?
+    /// Whether the most recent runtime surface launched with a managed shell
+    /// integration that replays CMUX_RESTORE_SCROLLBACK_FILE. Surface
+    /// hibernation must not restart shells that cannot restore their history.
+    private(set) var runtimeSupportsScrollbackReplay = false
     private let initialEnvironmentOverrides: [String: String]
     var requestedWorkingDirectory: String? { workingDirectory }
     let focusPlacement: TerminalSurfaceFocusPlacement
@@ -6657,6 +6661,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         // Shell integration: inject startup wrappers for supported shells.
         let shellIntegrationEnabled = UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true
+        runtimeSupportsScrollbackReplay = false
         if shellIntegrationEnabled,
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path {
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION", "1")
@@ -6680,6 +6685,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 protectedKeys: &protectedStartupEnvironmentKeys
             ) {
                 if baseConfig.command?.isEmpty != false { baseConfig.command = command }
+                // The managed integrations (zsh/bash/fish) are the consumers
+                // of CMUX_RESTORE_SCROLLBACK_FILE; without one, a restored
+                // shell would never replay captured scrollback.
+                runtimeSupportsScrollbackReplay = true
             }
         }
         env = Self.mergedStartupEnvironment(
