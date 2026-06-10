@@ -1030,6 +1030,42 @@ class cmux:
         # Server wraps the underlying stats object under "stats".
         return dict(res.get("stats") or {})
 
+    def terminal_mouse(
+        self,
+        action: str,
+        fx: float,
+        fy: float,
+        mods: str = "none",
+        clicks: int = 1,
+        panel: Union[str, int, None] = None,
+    ) -> None:
+        """
+        Synthesize a left-button mouse event on a terminal surface.
+        action is down/up/drag; fx/fy are 0-1 fractions of the surface bounds
+        with a top-left origin; mods is a |-separated list of shift/ctrl/alt/cmd.
+        """
+        params: Dict[str, Any] = {
+            "action": action,
+            "fx": fx,
+            "fy": fy,
+            "mods": mods,
+            "clicks": clicks,
+        }
+        if panel is not None:
+            params["surface_id"] = self._resolve_surface_id(panel)
+        self._call("debug.terminal.mouse", params)
+
+    def terminal_selection(self, panel: Union[str, int, None] = None) -> Tuple[bool, str]:
+        """Return (selection_active, selected_text) for a terminal surface."""
+        params: Dict[str, Any] = {}
+        if panel is not None:
+            params["surface_id"] = self._resolve_surface_id(panel)
+        res = self._call("debug.terminal.selection", params) or {}
+        active = bool(res.get("active"))
+        b64 = str(res.get("base64") or "")
+        raw = base64.b64decode(b64) if b64 else b""
+        return active, raw.decode("utf-8", errors="replace")
+
     def layout_debug(self) -> dict:
         res = self._call("debug.layout") or {}
         # Server wraps LayoutDebugResponse under "layout".

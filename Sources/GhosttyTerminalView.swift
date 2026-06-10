@@ -11477,6 +11477,56 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         return payload
     }
+
+    /// Synthesize a left-button mouse event through the view's real NSEvent
+    /// handlers (mouseDown/mouseDragged/mouseUp) so selection behavior such as
+    /// drag-select and shift+click extension can be exercised from socket
+    /// tests. `point` is view-local with a top-left origin.
+    func debugSynthesizeMouseEventForTesting(
+        action: String,
+        at point: NSPoint,
+        modifierFlags: NSEvent.ModifierFlags,
+        clickCount: Int
+    ) -> Bool {
+        guard let window else { return false }
+        let clamped = clampedDebugPoint(NSPoint(x: point.x, y: bounds.height - point.y))
+        let locationInWindow = convert(clamped, to: nil)
+
+        let type: NSEvent.EventType
+        switch action {
+        case "down": type = .leftMouseDown
+        case "up": type = .leftMouseUp
+        case "drag": type = .leftMouseDragged
+        default: return false
+        }
+
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: locationInWindow,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: clickCount,
+            pressure: type == .leftMouseUp ? 0 : 1
+        ) else { return false }
+
+        switch type {
+        case .leftMouseDown: mouseDown(with: event)
+        case .leftMouseUp: mouseUp(with: event)
+        case .leftMouseDragged: mouseDragged(with: event)
+        default: return false
+        }
+        return true
+    }
+
+    func debugSelectionInfoForTesting() -> (active: Bool, text: String) {
+        guard let surface else { return (false, "") }
+        let active = ghostty_surface_has_selection(surface)
+        guard active, let snapshot = readSelectionSnapshot() else { return (active, "") }
+        return (active, snapshot.string)
+    }
 #endif
 
     override func rightMouseDown(with event: NSEvent) {
@@ -12519,6 +12569,29 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugSimulateCommandClick(at point: NSPoint) -> [String: Any] {
         surfaceView.debugSimulateCommandClick(at: debugPointInSurface(point))
+    }
+
+    func debugSynthesizeMouseEventForTesting(
+        action: String,
+        atSurfaceFraction fraction: NSPoint,
+        modifierFlags: NSEvent.ModifierFlags,
+        clickCount: Int
+    ) -> Bool {
+        let surfaceBounds = surfaceView.bounds
+        let point = NSPoint(
+            x: fraction.x * surfaceBounds.width,
+            y: fraction.y * surfaceBounds.height
+        )
+        return surfaceView.debugSynthesizeMouseEventForTesting(
+            action: action,
+            at: point,
+            modifierFlags: modifierFlags,
+            clickCount: clickCount
+        )
+    }
+
+    func debugSelectionInfoForTesting() -> (active: Bool, text: String) {
+        surfaceView.debugSelectionInfoForTesting()
     }
 #endif
 
