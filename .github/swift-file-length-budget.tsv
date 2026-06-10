@@ -39,7 +39,7 @@
 2545	cmuxTests/WorkspaceManualUnreadTests.swift
 2513	cmuxTests/CommandPaletteSearchEngineTests.swift
 2509	Sources/KeyboardShortcutSettings.swift
-2378	Sources/TerminalNotificationStore.swift
+2474	Sources/TerminalNotificationStore.swift
 2327	cmuxTests/CJKIMEInputTests.swift
 2290	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
