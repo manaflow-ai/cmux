@@ -123,6 +123,33 @@ import Testing
         #expect(coordinator.isAuthenticated == false)
     }
 
+    @Test func refreshOnlySignOutMintsAccessTokenForTeardown() async throws {
+        // The SDK can hold a refresh token with no access token (refresh-only
+        // starts; expired access tokens get dropped). The capture is a raw
+        // stored read, so it sees nil access, and the cmux API authenticates
+        // the push-token DELETE with the Bearer + refresh header pair: without
+        // a usable access token the DELETE is silently skipped and the APNs
+        // token stays registered for the signed-out account. The teardown must
+        // mint an access token from the captured refresh token (through an
+        // ephemeral store, never the cleared live one) and hand it to the hook
+        // and the revocation.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(access: nil, refresh: "refresh", user: user)
+        await client.setMintedAccessToken("minted")
+        let (coordinator, _) = makeCoordinator(client: client)
+
+        let probe = TokenProbe()
+        await coordinator.signOut(onSignedOut: { accessToken, _ in
+            await probe.set(accessToken)
+        })
+
+        #expect(await probe.value == "minted")
+        #expect(await client.lastMintedRefreshToken == "refresh")
+        #expect(await client.lastRevokedAccessToken == "minted")
+        #expect(await client.lastRevokedRefreshToken == "refresh")
+        #expect(coordinator.isAuthenticated == false)
+    }
+
     @Test func signOutJoinsAndCancelsSlowTeardownAtDeadline() async throws {
         // Regression: the teardown must be STRUCTURED (joined), not detached. A
         // detached hook could outlive signOut() and, after a later sign-in,

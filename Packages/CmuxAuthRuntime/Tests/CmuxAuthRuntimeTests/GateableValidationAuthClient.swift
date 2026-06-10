@@ -9,14 +9,19 @@ import Foundation
 /// them, so it still resumes with a signed-in user.
 actor GateableValidationAuthClient: AuthClient {
     private let user: CMUXAuthUser
+    private let teams: [CMUXAuthTeam]
     private var access: String?
     private var refresh: String?
     private var gateArmed = false
     private var parkedValidation: CheckedContinuation<Void, Never>?
     private var parkWaiters: [CheckedContinuation<Void, Never>] = []
+    private var teamsGateArmed = false
+    private var parkedTeams: CheckedContinuation<Void, Never>?
+    private var teamsParkWaiters: [CheckedContinuation<Void, Never>] = []
 
-    init(user: CMUXAuthUser) {
+    init(user: CMUXAuthUser, teams: [CMUXAuthTeam] = []) {
         self.user = user
+        self.teams = teams
     }
 
     /// Park the next `currentUser` fetch until ``releaseParkedValidation()``.
@@ -51,10 +56,40 @@ actor GateableValidationAuthClient: AuthClient {
         return user
     }
 
+    /// Park the next `listTeams` fetch until ``releaseParkedTeams()``, so a
+    /// test can hold the publish path inside its team refresh (the await that
+    /// follows the signed-in state writes) while a sign-out runs.
+    func armTeamsGate() {
+        teamsGateArmed = true
+    }
+
+    /// Suspends until the gated `listTeams` fetch is parked.
+    func teamsDidPark() async {
+        if parkedTeams != nil { return }
+        await withCheckedContinuation { teamsParkWaiters.append($0) }
+    }
+
+    /// Resume the parked team fetch; it completes with the configured teams.
+    func releaseParkedTeams() {
+        parkedTeams?.resume()
+        parkedTeams = nil
+    }
+
     func accessToken() async -> String? { access }
     func refreshToken() async -> String? { refresh }
     func forceRefreshAccessToken() async -> String? { access }
-    func listTeams() async throws -> [CMUXAuthTeam] { [] }
+
+    func listTeams() async throws -> [CMUXAuthTeam] {
+        if teamsGateArmed {
+            teamsGateArmed = false
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                parkedTeams = continuation
+                for waiter in teamsParkWaiters { waiter.resume() }
+                teamsParkWaiters = []
+            }
+        }
+        return teams
+    }
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { "nonce" }
     func signInWithMagicLink(code: String) async throws {}
 

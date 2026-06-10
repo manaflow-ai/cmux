@@ -36,6 +36,10 @@ actor FakeAuthClient: AuthClient {
     private(set) var revokeCount = 0
     private(set) var lastRevokedAccessToken: String?
     private(set) var lastRevokedRefreshToken: String?
+    /// Scripted result of ``mintAccessToken(refreshToken:)`` (default `nil`,
+    /// like a mint that failed offline).
+    var mintedAccessToken: String?
+    private(set) var lastMintedRefreshToken: String?
 
     init(access: String? = nil, refresh: String? = nil, user: CMUXAuthUser? = nil) {
         self.access = access
@@ -49,6 +53,7 @@ actor FakeAuthClient: AuthClient {
         self.refresh = refresh
     }
     func setForceRefreshResult(_ result: String?) { forceRefreshResult = .some(result) }
+    func setMintedAccessToken(_ token: String?) { mintedAccessToken = token }
     func setThrowOnCurrentUser(_ error: (any Error)?) { throwOnCurrentUser = error }
     func setTeams(_ teams: [CMUXAuthTeam]) { self.teams = teams }
     func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
@@ -101,6 +106,11 @@ actor FakeAuthClient: AuthClient {
         revokeCount += 1
         lastRevokedAccessToken = accessToken
         lastRevokedRefreshToken = refreshToken
+    }
+
+    func mintAccessToken(refreshToken: String) async -> String? {
+        lastMintedRefreshToken = refreshToken
+        return mintedAccessToken
     }
 }
 
