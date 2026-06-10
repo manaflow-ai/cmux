@@ -1378,6 +1378,23 @@
         }
       }
     },
+    "mobile.recovery.accountMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is signed in to a different cmux account. Sign out and sign back in with that account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は別の cmux アカウントにサインインしています。サインアウトして、そのアカウントでサインインし直してください。"
+          }
+        }
+      }
+    },
     "mobile.recovery.lost": {
       "extractionState": "manual",
       "localizations": {
@@ -1425,6 +1442,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "再試行"
+          }
+        }
+      }
+    },
+    "mobile.recovery.switchAccount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out & Switch Account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウトしてアカウントを切り替え"
           }
         }
       }
