@@ -3958,4 +3958,150 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "A /clear SessionStart must still promote to running (the genuine new-turn boundary is preserved)"
         )
     }
+
+    // MARK: Gemini lifecycle parity
+
+    /// Gemini parity: Gemini is a non-Codex, non-Claude generic agent dispatched via
+    /// `runGenericAgentHook`. This test verifies the same four lifecycle invariants as
+    /// `testGenericSessionStartPreservesProvenLifecycle` (Codex) on the Gemini code path:
+    ///   1. AfterAgent (stop) persists `agentLifecycle == "idle"` and `lastNotificationStatus == "idle"`.
+    ///   2. A SessionStart for the same session preserves `agentLifecycle == "idle"` (the hibernation-one-shot fix).
+    ///   3. A running (BeforeAgent/prompt-submit) lifecycle survives SessionStart.
+    ///   4. A needsInput (permission notification) lifecycle survives SessionStart.
+    func testGeminiAfterAgentPersistsIdleLifecycle() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("gemini-lifecycle-survival")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-gemini-lifecycle-survival-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runGeminiHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else { return "OK" }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "surface.resume.set":
+                    return self.v2Response(id: id, ok: true, result: ["ok": true])
+                case "feed.push":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                default:
+                    return self.v2Response(id: id, ok: true, result: [:])
+                }
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "gemini", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        func persistedLifecycle(_ sessionId: String) throws -> (agentLifecycle: String?, lastNotificationStatus: String?) {
+            let storeURL = root.appendingPathComponent("gemini-hook-sessions.json", isDirectory: false)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+            let session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+            return (session["agentLifecycle"] as? String, session["lastNotificationStatus"] as? String)
+        }
+
+        // --- Core: AfterAgent (stop) persists idle lifecycle and idle notification status ---
+        // No prior session record; the handler resolves workspace/surface from
+        // CMUX_WORKSPACE_ID/CMUX_SURFACE_ID env. This exercises the first-stop path that
+        // `testGenericSessionStartPreservesProvenLifecycle` never reaches for Gemini.
+        let idleSession = "gemini-idle-session"
+        let idleStop = runGeminiHook(
+            "stop",
+            input: #"{"session_id":"\#(idleSession)","cwd":"\#(root.path)","hook_event_name":"AfterAgent"}"#
+        )
+        XCTAssertFalse(idleStop.timedOut, idleStop.stderr)
+        XCTAssertEqual(idleStop.status, 0, idleStop.stderr)
+        let afterStop = try persistedLifecycle(idleSession)
+        XCTAssertEqual(afterStop.agentLifecycle, "idle", "Gemini AfterAgent (stop) must persist an idle lifecycle")
+        XCTAssertEqual(afterStop.lastNotificationStatus, "idle", "Gemini AfterAgent (stop) must persist an idle notification status")
+
+        // --- One-shot fix: a SessionStart must not clobber the proven idle ---
+        // Before the fix, `store.upsert(agentLifecycle: .unknown)` overwrote the stored
+        // `.idle`, so a resumed-but-quiescent Gemini agent was stuck at `.unknown` and
+        // never became hibernation-eligible again.
+        let idleRestart = runGeminiHook(
+            "session-start",
+            input: #"{"session_id":"\#(idleSession)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(idleRestart.timedOut, idleRestart.stderr)
+        XCTAssertEqual(idleRestart.status, 0, idleRestart.stderr)
+        XCTAssertEqual(
+            try persistedLifecycle(idleSession).agentLifecycle, "idle",
+            "A Gemini SessionStart must NOT clobber a proven idle lifecycle to unknown (the hibernation-one-shot bug)"
+        )
+
+        // --- Safety: running (mid-turn) must survive SessionStart ---
+        let runningSession = "gemini-running-session"
+        let promptSubmit = runGeminiHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(runningSession)","cwd":"\#(root.path)","hook_event_name":"BeforeAgent","prompt":"do work"}"#
+        )
+        XCTAssertFalse(promptSubmit.timedOut, promptSubmit.stderr)
+        XCTAssertEqual(promptSubmit.status, 0, promptSubmit.stderr)
+        XCTAssertEqual(try persistedLifecycle(runningSession).agentLifecycle, "running", "Gemini BeforeAgent (prompt-submit) must persist a running lifecycle")
+
+        let runningRestart = runGeminiHook(
+            "session-start",
+            input: #"{"session_id":"\#(runningSession)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(runningRestart.timedOut, runningRestart.stderr)
+        XCTAssertEqual(runningRestart.status, 0, runningRestart.stderr)
+        XCTAssertEqual(
+            try persistedLifecycle(runningSession).agentLifecycle, "running",
+            "A Gemini SessionStart must preserve a busy (running) lifecycle so a working resumed agent is never hibernated"
+        )
+
+        // --- Safety: needsInput (blocked on a permission prompt) must survive SessionStart ---
+        let blockedSession = "gemini-blocked-session"
+        let permission = runGeminiHook(
+            "notification",
+            input: #"{"session_id":"\#(blockedSession)","cwd":"\#(root.path)","hook_event_name":"Notification","message":"Needs approval to run command"}"#
+        )
+        XCTAssertFalse(permission.timedOut, permission.stderr)
+        XCTAssertEqual(permission.status, 0, permission.stderr)
+        XCTAssertEqual(try persistedLifecycle(blockedSession).agentLifecycle, "needsInput", "Gemini permission notification must persist a needsInput lifecycle")
+
+        let blockedRestart = runGeminiHook(
+            "session-start",
+            input: #"{"session_id":"\#(blockedSession)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(blockedRestart.timedOut, blockedRestart.stderr)
+        XCTAssertEqual(blockedRestart.status, 0, blockedRestart.stderr)
+        XCTAssertEqual(
+            try persistedLifecycle(blockedSession).agentLifecycle, "needsInput",
+            "A Gemini SessionStart must preserve a blocked (needsInput) lifecycle so a mid-tool resumed agent is never hibernated"
+        )
+    }
 }
