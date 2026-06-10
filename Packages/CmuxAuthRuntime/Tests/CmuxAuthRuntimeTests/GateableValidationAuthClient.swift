@@ -15,8 +15,8 @@ actor GateableValidationAuthClient: AuthClient {
     /// it never escapes the actor.
     private final class Gate {
         var armed = false
-        var parked: CheckedContinuation<Void, Never>?
-        var waiters: [CheckedContinuation<Void, Never>] = []
+        var parked: [CheckedContinuation<Void, Never>] = []
+        var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
     }
 
     private let user: CMUXAuthUser
@@ -40,30 +40,33 @@ actor GateableValidationAuthClient: AuthClient {
 
     // MARK: - Gate plumbing
 
-    private func didPark(_ gate: Gate) async {
-        if gate.parked != nil { return }
-        await withCheckedContinuation { gate.waiters.append($0) }
+    private func didPark(_ gate: Gate, count: Int = 1) async {
+        if gate.parked.count >= count { return }
+        await withCheckedContinuation { gate.waiters.append((count, $0)) }
     }
 
     private func release(_ gate: Gate) {
-        gate.parked?.resume()
-        gate.parked = nil
+        guard !gate.parked.isEmpty else { return }
+        gate.parked.removeFirst().resume()
     }
 
     private func parkIfArmed(_ gate: Gate) async {
         guard gate.armed else { return }
         gate.armed = false
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            gate.parked = continuation
-            for waiter in gate.waiters { waiter.resume() }
-            gate.waiters = []
+            gate.parked.append(continuation)
+            gate.waiters.removeAll { waiter in
+                guard gate.parked.count >= waiter.count else { return false }
+                waiter.continuation.resume()
+                return true
+            }
         }
     }
 
     // MARK: - Validation gate (the `/users/me` fetch)
 
     func armValidationGate() { validationGate.armed = true }
-    func validationDidPark() async { await didPark(validationGate) }
+    func validationDidPark(count: Int = 1) async { await didPark(validationGate, count: count) }
     func releaseParkedValidation() { release(validationGate) }
 
     /// Script the gated `currentUser` fetch to throw once released, like an

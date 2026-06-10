@@ -455,6 +455,57 @@ import Testing
         #expect(await client.accessToken() == nil)
         #expect(await client.refreshToken() == nil)
     }
+
+    @Test func staleValidationClearMustNotCancelAnInFlightSignIn() async throws {
+        // An old revalidation parks in its fetch; the user starts a fresh
+        // sign-in whose exchange has written tokens (new store owner) but
+        // whose user fetch is still in flight; then the old validation fails
+        // definitively. Its cleanup correctly skips the token store (the
+        // high-water gate) but must skip the published-state clear too: that
+        // clear bumps the epoch, which spuriously cancels the in-flight
+        // sign-in and leaves its freshly written tokens orphaned behind a
+        // signed-out UI for the next launch restore to resurrect. Once a
+        // newer exchange owns the store, the stale flow must do nothing.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(coordinator.isAuthenticated)
+
+        // The old revalidation parks first and will fail once released.
+        await client.armValidationGate()
+        let revalidation = Task { await coordinator.revalidateSession() }
+        await client.validationDidPark()
+        await client.setGatedValidationError(AuthError.unauthorized)
+
+        // The fresh sign-in writes its tokens, then parks in its own fetch.
+        await client.armValidationGate()
+        let newSignIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await client.validationDidPark(count: 2)
+
+        // The old validation resumes first (FIFO) and runs its cleanup while
+        // the fresh sign-in is still in flight.
+        await client.releaseParkedValidation()
+        await revalidation.value
+
+        await client.releaseParkedValidation()
+        try await newSignIn.value
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(await client.accessToken() != nil)
+        #expect(await client.refreshToken() != nil)
+    }
 }
 
 /// Mutable connectivity flag for scripting `isOnline` mid-test.
