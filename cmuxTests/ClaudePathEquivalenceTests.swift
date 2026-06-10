@@ -141,7 +141,7 @@ final class ClaudePathEquivalenceTests: XCTestCase {
             homeDirectory: "/Users/me"
         )
         let slugs = eq.projectDirSlugCandidates(forCwd: "/a.b/p")
-        XCTAssertEqual(slugs, Array(NSOrderedSet(array: slugs).map { $0 as! String }))
+        XCTAssertEqual(slugs.count, Set(slugs).count, "slug candidates must be deduped")
     }
 
     // MARK: config decode
