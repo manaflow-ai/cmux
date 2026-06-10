@@ -990,6 +990,10 @@ struct cmuxApp: App {
 
             // Numbered workspace selection (9 = last workspace)
             ForEach(1...9, id: \.self) { number in
+                // `menuShortcut(for:)` already returns `.unbound` when the action
+                // carries a configured `shortcuts.when` clause, so a context-gated
+                // workspace shortcut takes the no-key-equivalent branch and the
+                // gated keyDown handler owns dispatch (issue #5189).
                 let selectWorkspaceByNumberShortcut = menuShortcut(for: .selectWorkspaceByNumber)
                 if selectWorkspaceByNumberShortcut.isUnbound || selectWorkspaceByNumberShortcut.hasChord {
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
