@@ -29,15 +29,19 @@ struct TranscriptFileWatcher: Sendable {
 
     /// Returns a fresh stream of change signals for the watched file.
     ///
+    /// The first signal is a readiness handshake, yielded once the watch is
+    /// installed: consumers should perform their initial read only after
+    /// receiving it, so no write can land between the read and the attach.
     /// The stream finishes when the consumer's task is cancelled (terminating
     /// the stream stops the underlying kqueue sources and closes their
     /// descriptors).
     ///
-    /// - Returns: A stream yielding `()` once per observed filesystem change.
-    ///   Signals carry no payload and only the latest file state matters, so
-    ///   the buffer keeps at most one pending signal: a burst of events that
-    ///   lands while the consumer is mid-re-read coalesces into a single
-    ///   follow-up re-read instead of queueing redundant full parses.
+    /// - Returns: A stream yielding `()` for readiness and then once per
+    ///   observed filesystem change. Signals carry no payload and only the
+    ///   latest file state matters, so the buffer keeps at most one pending
+    ///   signal: a burst of events that lands while the consumer is
+    ///   mid-re-read coalesces into a single follow-up re-read instead of
+    ///   queueing redundant full parses.
     func changes() -> AsyncStream<Void> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let attachment = TranscriptWatchAttachment(path: path, continuation: continuation)

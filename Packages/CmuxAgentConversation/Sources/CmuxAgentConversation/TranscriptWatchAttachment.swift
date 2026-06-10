@@ -44,8 +44,14 @@ final class TranscriptWatchAttachment: @unchecked Sendable {
     }
 
     /// Begins watching. Safe to call once, from any thread.
+    ///
+    /// Yields one readiness signal after the watch is installed so consumers
+    /// can defer their initial read until no write can race past the attach.
     func start() {
-        queue.async { self.attachToFile() }
+        queue.async {
+            self.attachToFile()
+            self.continuation.yield(())
+        }
     }
 
     /// Stops watching, closes descriptors, and finishes the stream.

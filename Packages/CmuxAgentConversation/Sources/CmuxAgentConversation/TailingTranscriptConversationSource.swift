@@ -78,15 +78,22 @@ public final class TailingTranscriptConversationSource: ConversationSource {
             return
         }
 
-        // Attach the watcher before the initial read so a write that lands
-        // mid-read is buffered as a pending signal instead of being missed.
-        let changes = TranscriptFileWatcher(url: transcriptURL).changes()
+        var changes = TranscriptFileWatcher(url: transcriptURL).changes().makeAsyncIterator()
+
+        // The watcher's first signal is its readiness handshake: deferring the
+        // initial read until the watch is installed means no write can fall
+        // into a gap between the read and the attach. A `nil` here means the
+        // consuming task was cancelled before the watcher came up.
+        guard await changes.next() != nil else {
+            continuation.finish()
+            return
+        }
 
         var current = readAndParse()
         var seq = current.seq
         continuation.yield(.snapshot(current))
 
-        for await _ in changes {
+        while await changes.next() != nil {
             if Task.isCancelled { break }
             let fresh = readAndParse()
             switch ConversationDelta.compute(from: current, to: fresh) {
