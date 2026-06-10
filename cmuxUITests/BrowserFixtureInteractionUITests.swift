@@ -67,11 +67,11 @@ class BrowserFixtureSocketTestCase: XCTestCase {
 
         // Socket-driven tests do not require frontmost: a backgrounded app still
         // serves the control socket and hosts browser webviews in its windows.
-        // Busy hosted runners frequently refuse activation ("Running Background"),
-        // so treat foreground as best-effort and gate on the socket instead.
-        if !ensureForegroundAfterLaunch(app, timeout: 12.0) {
+        // Never call activate() here: hosted runners frequently refuse activation
+        // and XCUIApplication.activate auto-records a test failure when it does.
+        if !app.wait(for: .runningForeground, timeout: 12.0) {
             XCTAssertTrue(
-                app.state == .runningForeground || app.state == .runningBackground,
+                app.state == .runningBackground,
                 "Expected app to be running for browser fixture test. state=\(app.state.rawValue)"
             )
         }
@@ -82,17 +82,6 @@ class BrowserFixtureSocketTestCase: XCTestCase {
         return app
     }
 
-    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        if app.wait(for: .runningForeground, timeout: timeout) {
-            return true
-        }
-        // On busy UI runners the app can launch backgrounded; activate once before failing.
-        if app.state == .runningBackground {
-            app.activate()
-            return app.wait(for: .runningForeground, timeout: 6.0)
-        }
-        return false
-    }
 
     // MARK: - V2 socket helpers
 
