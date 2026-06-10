@@ -641,7 +641,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 return
             }
 
-            guard store.provider is LocalFileExplorerProvider else { return }
+            // Editor/preferred-editor actions operate on local file paths via
+            // NSWorkspace; for non-local providers fall back to the cmux preview
+            // (consistent with the search-results path and the documented
+            // remote-provider behavior).
+            guard store.provider is LocalFileExplorerProvider else {
+                onOpenFilePreview(node.path)
+                return
+            }
             performFileExplorerFileOpen(path: node.path, onOpenFilePreview: onOpenFilePreview)
         }
 
