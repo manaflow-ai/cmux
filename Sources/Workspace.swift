@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxAgentConversation
 import CmuxSocketControl
 import Combine
 import CryptoKit
@@ -547,6 +548,7 @@ extension Workspace {
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?
         let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?
+        var agentChatSnapshot: SessionAgentChatPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -684,6 +686,20 @@ extension Workspace {
                 workingDirectory: directory
             )
             projectSnapshot = nil
+        case .agentChat:
+            guard let chatPanel = panel as? AgentChatPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            agentSessionSnapshot = nil
+            projectSnapshot = nil
+            agentChatSnapshot = SessionAgentChatPanelSnapshot(
+                agentKind: chatPanel.agentKind.rawValue,
+                sessionId: chatPanel.sessionId,
+                transcriptPath: chatPanel.transcriptURL?.path
+            )
         case .project:
             guard let projectPanel = panel as? ProjectPanel else { return nil }
             terminalSnapshot = nil
@@ -723,6 +739,7 @@ extension Workspace {
             filePreview: filePreviewSnapshot,
             rightSidebarTool: rightSidebarToolSnapshot,
             agentSession: agentSessionSnapshot,
+            agentChat: agentChatSnapshot,
             project: projectSnapshot
         )
     }
@@ -1900,6 +1917,22 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: agentPanel.id)
             return agentPanel.id
+        case .agentChat:
+            guard let agentChat = snapshot.agentChat else { return nil }
+            let resolution = AgentChatTranscriptResolver.Resolution(
+                agentKind: AgentKind(rawValue: agentChat.agentKind) ?? .unknown,
+                sessionId: agentChat.sessionId,
+                transcriptURL: agentChat.transcriptPath.map { URL(fileURLWithPath: $0) }
+            )
+            guard let chatPanel = newAgentChatSurface(
+                inPane: paneId,
+                resolution: resolution,
+                focus: false
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: chatPanel.id)
+            return chatPanel.id
         case .project:
             guard let projectPath = snapshot.project?.projectPath,
                   let projectPanel = newProjectSurface(
@@ -10749,6 +10782,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let filePreview = "filePreview"
         static let rightSidebarTool = "rightSidebarTool"
         static let agentSession = "agentSession"
+        static let agentChat = "agentChat"
         static let project = "project"
         static let extensionBrowser = "extensionBrowser"
     }
@@ -11764,6 +11798,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.rightSidebarTool
         case .agentSession:
             return SurfaceKind.agentSession
+        case .agentChat:
+            return SurfaceKind.agentChat
         case .project:
             return SurfaceKind.project
         case .extensionBrowser:
@@ -15599,6 +15635,94 @@ final class Workspace: Identifiable, ObservableObject {
         installAgentSessionPanelSubscription(agentPanel)
 
         return agentPanel
+    }
+
+    /// Creates an agent chat tab for a resolved transcript in the given pane.
+    ///
+    /// Mirrors ``newAgentSessionSurface(inPane:providerID:rendererKind:workingDirectory:focus:targetIndex:)``:
+    /// the panel is registered, a bonsplit tab is created, and the tab is
+    /// optionally reordered to `targetIndex` (used to place the chat right of
+    /// its source terminal tab).
+    @discardableResult
+    func newAgentChatSurface(
+        inPane paneId: PaneID,
+        resolution: AgentChatTranscriptResolver.Resolution,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> AgentChatPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let chatPanel = AgentChatPanel(resolution: resolution)
+        panels[chatPanel.id] = chatPanel
+        panelTitles[chatPanel.id] = chatPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: chatPanel.displayTitle,
+            icon: chatPanel.displayIcon,
+            kind: SurfaceKind.agentChat,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: chatPanel.id)
+            panelTitles.removeValue(forKey: chatPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = chatPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(
+            chatPanel.id,
+            paneId: paneId,
+            kind: "agent_chat",
+            origin: "agent_chat_tab",
+            focused: shouldFocusNewTab
+        )
+
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: chatPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return chatPanel
+    }
+
+    /// Opens an agent chat tab next to its source terminal tab in the same pane.
+    ///
+    /// The anchor tab may have been closed or moved between the context-menu
+    /// click and the (off-main) transcript resolution; in that case the chat
+    /// tab is appended at the end of the pane.
+    func openAgentChatTab(
+        resolution: AgentChatTranscriptResolver.Resolution,
+        anchorTabId: TabID,
+        paneId: PaneID
+    ) {
+        guard bonsplitController.allPaneIds.contains(paneId) else {
+            NSSound.beep()
+            return
+        }
+        let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
+        guard newAgentChatSurface(
+            inPane: paneId,
+            resolution: resolution,
+            focus: true,
+            targetIndex: targetIndex
+        ) != nil else {
+            NSSound.beep()
+            return
+        }
     }
 
     @discardableResult
@@ -19577,6 +19701,17 @@ extension Workspace: BonsplitDelegate {
         case .toggleZoom:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             toggleSplitZoom(panelId: panelId)
+        case .openAsChatView:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else {
+                NSSound.beep()
+                return
+            }
+            AgentChatPresenter().presentAsTab(
+                workspace: self,
+                panelId: panelId,
+                anchorTabId: tab.id,
+                paneId: pane
+            )
         case .forkConversation,
              .forkConversationRight,
              .forkConversationLeft,

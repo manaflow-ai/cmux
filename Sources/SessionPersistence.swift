@@ -1591,6 +1591,15 @@ struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
 
+/// Persisted state for an agent chat panel: enough to rebuild the transcript
+/// source without the originating terminal (whose panel id is not stable
+/// across restores).
+struct SessionAgentChatPanelSnapshot: Codable, Sendable {
+    var agentKind: String
+    var sessionId: String
+    var transcriptPath: String?
+}
+
 struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     var mode: RightSidebarMode?
 
@@ -1711,6 +1720,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
+    var agentChat: SessionAgentChatPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
 }
 

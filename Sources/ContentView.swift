@@ -5951,6 +5951,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
         case .agentSession:
             return String(localized: "commandPalette.kind.agentSession", defaultValue: "Agent")
+        case .agentChat:
+            return String(localized: "commandPalette.kind.agentChat", defaultValue: "Chat")
         case .project:
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
         case .extensionBrowser:
@@ -5972,6 +5974,8 @@ struct ContentView: View {
             return ["tool", "files", "find", "vault", "sidebar"]
         case .agentSession:
             return ["agent", "codex", "claude", "opencode", "react", "solid"]
+        case .agentChat:
+            return ["chat", "conversation", "transcript", "agent"]
         case .project:
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
         case .extensionBrowser:
@@ -11560,6 +11564,8 @@ struct VerticalTabsSidebar: View {
             return .rightSidebarTool
         case .agentSession:
             return .agentSession
+        case .agentChat:
+            return .unknown
         case .project:
             return .project
         case .extensionBrowser:

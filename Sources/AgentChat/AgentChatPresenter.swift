@@ -1,14 +1,15 @@
 import AppKit
+import Bonsplit
 import CmuxAgentConversation
 import Foundation
 
 /// The shared action path for opening the agent chat view for a panel.
 ///
-/// All entry points (menu item, future shortcut/command palette) call
-/// ``AgentChatPresenter/presentForFocusedPanel()`` so the resolve-and-open flow
-/// lives in one place. Resolution reads the restorable-session index and globs
-/// the filesystem, so it runs off-main; the window is shown back on the main
-/// actor.
+/// All entry points (Window menu item, tab context menu, future
+/// shortcut/command palette) share one resolve flow; only the presentation
+/// differs (standalone window vs in-pane tab). Resolution reads the
+/// restorable-session index and globs the filesystem, so it runs off-main; the
+/// chat is shown back on the main actor.
 @MainActor
 struct AgentChatPresenter {
     /// The resolver used to map a panel to its transcript file.
@@ -21,8 +22,9 @@ struct AgentChatPresenter {
         self.resolver = resolver
     }
 
-    /// Resolves the focused panel's agent and presents its chat, or shows an
-    /// alert when the focused panel has no recognizable agent session.
+    /// Resolves the focused panel's agent and presents its chat in the shared
+    /// standalone window, or shows an alert when the focused panel has no
+    /// recognizable agent session.
     func presentForFocusedPanel() {
         guard let manager = AppDelegate.shared?.activeTabManagerForCommands(),
               let workspace = manager.selectedWorkspace,
@@ -30,9 +32,43 @@ struct AgentChatPresenter {
             presentNoSessionAlert()
             return
         }
-        let workspaceId = workspace.id
-        let resolver = resolver
+        resolveThenPresent(workspaceId: workspace.id, panelId: panelId) { resolution in
+            AgentChatWindowController.shared.present(for: resolution)
+        }
+    }
 
+    /// Resolves a tab's panel and opens its chat as a tab next to the source
+    /// terminal tab in the same pane, or shows an alert when the panel has no
+    /// recognizable agent session.
+    ///
+    /// - Parameters:
+    ///   - workspace: The workspace owning the tab.
+    ///   - panelId: The right-clicked tab's panel id.
+    ///   - anchorTabId: The right-clicked tab (the chat opens to its right).
+    ///   - paneId: The pane hosting the tab.
+    func presentAsTab(
+        workspace: Workspace,
+        panelId: UUID,
+        anchorTabId: TabID,
+        paneId: PaneID
+    ) {
+        resolveThenPresent(workspaceId: workspace.id, panelId: panelId) { [weak workspace] resolution in
+            workspace?.openAgentChatTab(
+                resolution: resolution,
+                anchorTabId: anchorTabId,
+                paneId: paneId
+            )
+        }
+    }
+
+    /// Resolves a panel's transcript off-main, then either runs `present` with
+    /// the resolution or shows the no-session alert, on the main actor.
+    private func resolveThenPresent(
+        workspaceId: UUID,
+        panelId: UUID,
+        present: @escaping @MainActor (AgentChatTranscriptResolver.Resolution) -> Void
+    ) {
+        let resolver = resolver
         Task {
             // Loading the index and globbing the filesystem is IO; keep it off
             // the main actor, then present on the main actor.
@@ -45,11 +81,11 @@ struct AgentChatPresenter {
                 presentNoSessionAlert()
                 return
             }
-            AgentChatWindowController.shared.present(for: resolution)
+            present(resolution)
         }
     }
 
-    /// Shows an alert explaining that the focused panel has no agent session.
+    /// Shows an alert explaining that the panel has no agent session.
     private func presentNoSessionAlert() {
         let alert = NSAlert()
         alert.messageText = String(
