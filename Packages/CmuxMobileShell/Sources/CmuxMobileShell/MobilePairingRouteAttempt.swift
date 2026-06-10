@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import CmuxMobileTransport
 import Foundation
 import OSLog
@@ -128,6 +129,18 @@ struct MobilePairingRouteAttempt: Sendable {
     /// - Returns: The connected client, ready for ``finalize(route:client:)``.
     /// - Throws: The dial/probe error; the client is disconnected first.
     func probe(route: CmxAttachRoute) async throws -> MobileCoreRPCClient {
+        // Refuse to dial a route the finalize could never succeed over: every
+        // credentialed request requires the Stack token, and a route outside
+        // the trusted set must never carry it. The old sequential loop
+        // rejected such routes before dialing (the first credentialed
+        // request's auth build threw first); the credential-free probe must
+        // not regress that into "contact the host, then fail", so the same
+        // policy gate runs pre-dial here. Route-local, like the finalize
+        // failure it front-runs: a trusted sibling route still races.
+        guard allowsStackAuthFallback,
+              MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
+            throw MobileShellConnectionError.insecureManualRoute
+        }
         pairingAttemptLog.info(
             "pairing probing route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)"
         )
