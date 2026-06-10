@@ -6,6 +6,17 @@ import type { EditorLabelResolver } from "./editorLabels";
 import { EditorSaveOverlay } from "./EditorSaveOverlay";
 import type { EditorSaveController } from "./saveController";
 
+/** Fire-and-forget dirty-state mirror to the native panel (token-authorized
+ * on the Swift side; failures are benign for pages without a registration). */
+function notifyNativeDirty(dirty: boolean): void {
+  const handler = (
+    window as unknown as {
+      webkit?: { messageHandlers?: { cmuxEditorSave?: { postMessage: (m: unknown) => Promise<unknown> } } };
+    }
+  ).webkit?.messageHandlers?.cmuxEditorSave;
+  handler?.postMessage({ dirty }).catch(() => {});
+}
+
 /** Props for a single read/edit Monaco surface, fixed for the lifetime of the mount. */
 export type EditorAppProps = {
   filePath: string;
@@ -77,13 +88,19 @@ export function EditorApp({
           editor.updateOptions({ readOnly: true });
         };
         // The editor has no persistent chrome; dirty state rides the page
-        // title's leading dot, which cmux surfaces in the tab.
+        // title's leading dot (shown in the tab) and is mirrored to the
+        // native panel so closing the tab confirms unsaved changes.
         const baseTitle = document.title.replace(/^● /, "");
+        let lastNotifiedDirty: boolean | null = null;
         const syncTitle = () => {
           const dirty = saveController.getState().dirty;
           const next = dirty ? `● ${baseTitle}` : baseTitle;
           if (document.title !== next) {
             document.title = next;
+          }
+          if (lastNotifiedDirty !== dirty) {
+            lastNotifiedDirty = dirty;
+            notifyNativeDirty(dirty);
           }
         };
         removeTitleSync = saveController.subscribe(syncTitle);
@@ -99,22 +116,13 @@ export function EditorApp({
         contentListener = model.onDidChangeContent(() => {
           saveController.noteContentChanged();
         });
-        // One window-level Cmd+S handler (capture) covers both editor focus
-        // and status-bar focus. Monaco has no built-in Cmd+S binding, so the
-        // event reaching the editor afterwards is a no-op.
-        const onKeyDown = (event: KeyboardEvent) => {
-          if (
-            (event.metaKey || event.ctrlKey) &&
-            !event.shiftKey &&
-            !event.altKey &&
-            event.key.toLowerCase() === "s"
-          ) {
-            event.preventDefault();
-            saveController.requestSave();
-          }
+        // No in-page shortcut: the native side routes cmux's configurable
+        // save shortcut (saveFilePreview) here through this entrypoint.
+        (window as unknown as { __cmuxEditorRequestSave?: () => void }).__cmuxEditorRequestSave =
+          () => saveController.requestSave();
+        removeSaveShortcut = () => {
+          delete (window as unknown as { __cmuxEditorRequestSave?: () => void }).__cmuxEditorRequestSave;
         };
-        window.addEventListener("keydown", onKeyDown, true);
-        removeSaveShortcut = () => window.removeEventListener("keydown", onKeyDown, true);
       }
       return () => {
         removeTitleSync?.();
