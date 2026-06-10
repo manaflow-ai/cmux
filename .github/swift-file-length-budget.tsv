@@ -18,7 +18,7 @@
 6299	cmuxTests/TerminalAndGhosttyTests.swift
 6119	CLI/cmux_open.swift
 5948	Sources/TextBoxInput.swift
-5903	cmuxTests/SessionPersistenceTests.swift
+5929	cmuxTests/SessionPersistenceTests.swift
 5482	cmuxTests/BrowserConfigTests.swift
 5431	Sources/cmuxApp.swift
 4460	Sources/Panels/FilePreviewPanel.swift
@@ -53,7 +53,7 @@
 1793	Sources/SessionIndexStore.swift
 1751	Sources/WindowDragHandleView.swift
 1721	cmuxTests/TerminalControllerSocketSecurityTests.swift
-1718	Sources/RestorableAgentSession.swift
+1739	Sources/RestorableAgentSession.swift
 1693	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1668	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
 1654	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift

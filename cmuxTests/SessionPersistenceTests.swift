@@ -3713,6 +3713,25 @@ extension SessionPersistenceTests {
         XCTAssertTrue(startupInput.contains("cd -- '/tmp/it'\\''s repo'"), startupInput)
     }
 
+    /// A caller-supplied (non-agent-hook) command that already begins with an
+    /// explicit *required* `cd '<cwd>' && …` must be preserved verbatim. Adding the
+    /// cwd guard for #5271 must not strip that required `cd` and substitute the
+    /// optional guard (`{ cd … 2>/dev/null || [ ! -d … ]; } && …`), because the
+    /// optional form runs the command in the shell's current directory when the
+    /// bound directory is gone, whereas the caller's required `cd && …` halts. The
+    /// startup input must keep the required `cd` and must not introduce the
+    /// directory-tolerant guard.
+    func testSurfaceResumeBindingStartupInputPreservesCallerRequiredChangeDirectory() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "cd '/tmp/project' && rm -rf build",
+            cwd: "/tmp/project"
+        )
+
+        let startupInput = try XCTUnwrap(binding.startupInput)
+        XCTAssertEqual(startupInput, "cd '/tmp/project' && rm -rf build\n")
+        XCTAssertFalse(startupInput.contains("2>/dev/null || [ ! -d"), startupInput)
+    }
+
     /// #5271 regression (behavioral, not string-shape): a restored surface resume
     /// binding must run the agent in its persisted `cwd`, even when the shell the
     /// resume command is handed to started in a *different* directory. That is the
@@ -5402,10 +5421,17 @@ extension SessionPersistenceTests {
 
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["CODEX_HOME"])
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["EMPTY"])
-        XCTAssertEqual(
-            restoredPanel.surface.debugInitialInputForTesting(),
-            "'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' '/bin/zsh' '-lc' 'codex resume session'\n"
+        let initialInput = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
+        // The environment stays scoped to the resume command via the env wrapper...
+        XCTAssertTrue(
+            initialInput.hasPrefix("'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' '/bin/zsh' '-lc' "),
+            initialInput
         )
+        // ...and the persisted cwd guard precedes the resume command (#5271), so the
+        // restored agent resumes in its bound directory rather than the shell's start dir.
+        let cdRange = try XCTUnwrap(initialInput.range(of: "cd -- '\\''/tmp/project'\\''"))
+        let commandRange = try XCTUnwrap(initialInput.range(of: "codex resume session"))
+        XCTAssertLessThan(cdRange.lowerBound, commandRange.lowerBound)
     }
 
     @MainActor
