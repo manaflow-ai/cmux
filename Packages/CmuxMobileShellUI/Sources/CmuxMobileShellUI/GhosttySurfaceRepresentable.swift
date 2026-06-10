@@ -101,6 +101,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {
+            // An image the user pasted on the phone. Upload it to the Mac, which
+            // writes a temp file and injects its path into the terminal so the
+            // running TUI (e.g. Claude Code) attaches it.
+            Task { @MainActor [weak store] in
+                await store?.submitTerminalPasteImage(data, format: format)
+            }
+        }
+
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
             // Report our natural grid to the Mac and pin our render to the
             // effective grid it returns (the smallest across every attached

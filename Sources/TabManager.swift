@@ -3707,9 +3707,47 @@ class TabManager: ObservableObject {
             forDraggedWorkspaceId: draggedWorkspaceId,
             targetWorkspaceId: targetWorkspaceId
         ) else {
-            return Set(tabs.filter(\.isPinned).map(\.id))
+            return Set(tabs.filter { $0.groupId == nil && $0.isPinned }.map(\.id))
         }
         return sidebarTopLevelPinnedWorkspaceIds()
+    }
+
+    func sidebarReorderLegalInsertionRange(
+        forDraggedWorkspaceId draggedWorkspaceId: UUID?,
+        targetWorkspaceId: UUID? = nil,
+        usesTopLevelRows: Bool = false
+    ) -> ClosedRange<Int>? {
+        guard !usesTopLevelRows,
+              !sidebarReorderUsesTopLevelRows(
+                  forDraggedWorkspaceId: draggedWorkspaceId,
+                  targetWorkspaceId: targetWorkspaceId
+              ),
+              let draggedWorkspaceId,
+              let draggedWorkspace = tabs.first(where: { $0.id == draggedWorkspaceId }),
+              let groupId = draggedWorkspace.groupId,
+              let group = workspaceGroups.first(where: { $0.id == groupId }),
+              draggedWorkspace.id != group.anchorWorkspaceId else {
+            return nil
+        }
+        let memberIndices = tabs.indices.filter { tabs[$0].groupId == groupId }
+        guard let firstIndex = memberIndices.first,
+              let lastIndex = memberIndices.last else {
+            return nil
+        }
+        let pinnedMemberCount = memberIndices.reduce(into: 0) { count, index in
+            let member = tabs[index]
+            if member.id != group.anchorWorkspaceId, member.isPinned {
+                count += 1
+            }
+        }
+        if draggedWorkspace.isPinned {
+            let lower = min(firstIndex + 1, tabs.count)
+            let upper = min(firstIndex + 1 + pinnedMemberCount, tabs.count)
+            return lower...max(lower, upper)
+        }
+        let lower = min(firstIndex + 1 + pinnedMemberCount, tabs.count)
+        let upper = min(lastIndex + 1, tabs.count)
+        return min(lower, upper)...max(lower, upper)
     }
 
     @discardableResult
@@ -3783,13 +3821,13 @@ class TabManager: ObservableObject {
     /// - If only one neighbor is in a group, join that neighbor's group when
     ///   that group's anchor is the neighbor or another existing member
     ///   (i.e. the dragged workspace sits "inside" the section).
-    /// - Otherwise, clear groupId. Pinned workspaces never gain a group via
-    ///   drag.
+    /// - Otherwise, clear groupId.
+    /// Pinned workspaces may join a group when the same neighbor-based rules
+    /// place them inside that group's section.
     /// Anchors keep their group: their lifecycle is gated by group existence.
     private func applyDragInferredGroupMembership(workspaceId: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == workspaceId }) else { return }
         let tab = tabs[index]
-        if tab.isPinned { return }
         let isAnchor = workspaceGroups.contains(where: { $0.anchorWorkspaceId == workspaceId })
         if isAnchor {
             // Anchors don't change group membership via drag (their group
@@ -3803,8 +3841,8 @@ class TabManager: ObservableObject {
         }
         let before: Workspace? = index > 0 ? tabs[index - 1] : nil
         let after: Workspace? = (index + 1) < tabs.count ? tabs[index + 1] : nil
-        let beforeGroup = before.flatMap { $0.isPinned ? nil : $0.groupId }
-        let afterGroup = after.flatMap { $0.isPinned ? nil : $0.groupId }
+        let beforeGroup = before?.groupId
+        let afterGroup = after?.groupId
         let currentGroup = tab.groupId
         // Three cases:
         //  A. Both neighbors share the same value (incl. both nil): land in
@@ -4031,24 +4069,7 @@ class TabManager: ObservableObject {
     func setPinned(_ tab: Workspace, pinned: Bool) {
         guard tab.isPinned != pinned else { return }
         tab.isPinned = pinned
-        // Pinned workspaces never belong to a group. Pinning a grouped member
-        // ungroups it; if that member was the anchor, the group dissolves so
-        // other members become ungrouped.
-        if pinned, let groupId = tab.groupId {
-            if let group = workspaceGroups.first(where: { $0.id == groupId }),
-               group.anchorWorkspaceId == tab.id {
-                ungroupWorkspaceGroup(groupId: groupId)
-            } else {
-                tab.groupId = nil
-            }
-        }
         reorderTabForPinnedState(tab)
-        // Unpinning a single workspace lands it at the front of the unpinned
-        // segment via reorderTabForPinnedState. Renormalize so group runs stay
-        // contiguous around that new top-level position.
-        if !workspaceGroups.isEmpty {
-            normalizeWorkspaceGroupContiguity()
-        }
         postWorkspaceOrderDidChange(movedWorkspaceIds: [tab.id])
     }
 
@@ -4076,23 +4097,18 @@ class TabManager: ObservableObject {
             changedIdSet.insert(workspace.id)
         }
 
-        // Apply the same group-membership cleanup the single-workspace
-        // setPinned path runs: pinned workspaces never belong to a group.
-        // Anchor pins dissolve the group; non-anchor pins just clear groupId.
-        if pinned {
-            for id in changedIdSet {
-                guard let tab = workspacesById[id], let groupId = tab.groupId else { continue }
-                if let group = workspaceGroups.first(where: { $0.id == groupId }),
-                   group.anchorWorkspaceId == id {
-                    ungroupWorkspaceGroup(groupId: groupId)
-                } else {
-                    tab.groupId = nil
-                }
-            }
-        }
-
         guard !changedIdSet.isEmpty else { return [] }
         let changedIds = orderedTargetIds.filter { changedIdSet.contains($0) }
+
+        if !workspaceGroups.isEmpty {
+            for id in changedIds {
+                if let workspace = workspacesById[id] {
+                    reorderTabForPinnedState(workspace)
+                }
+            }
+            postWorkspaceOrderDidChange(movedWorkspaceIds: changedIds)
+            return changedIds
+        }
 
         let changedWorkspaces: [Workspace]
         if pinned {
@@ -4103,24 +4119,21 @@ class TabManager: ObservableObject {
             // batch in one pass must reverse the changed input order.
             changedWorkspaces = changedIds.reversed().compactMap { workspacesById[$0] }
         }
-
         let remainingPinned = tabs.filter { $0.isPinned && !changedIdSet.contains($0.id) }
         let remainingUnpinned = tabs.filter { !$0.isPinned && !changedIdSet.contains($0.id) }
         tabs = remainingPinned + changedWorkspaces + remainingUnpinned
-        // Multi-unpin uses a simple rebuild that doesn't know about contiguous
-        // group runs. Normalize so grouped members stay together around the new
-        // top-level positions.
-        if !workspaceGroups.isEmpty {
-            normalizeWorkspaceGroupContiguity()
-        }
         postWorkspaceOrderDidChange(movedWorkspaceIds: changedIds)
         return changedIds
     }
 
     private func reorderTabForPinnedState(_ tab: Workspace) {
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        if tab.groupId != nil {
+            normalizeWorkspaceGroupContiguity()
+            return
+        }
         tabs.remove(at: index)
-        let pinnedCount = tabs.filter { $0.isPinned }.count
+        let pinnedCount = leadingGlobalPinnedRowCount()
         let insertIndex = min(pinnedCount, tabs.count)
         tabs.insert(tab, at: insertIndex)
     }
@@ -4128,8 +4141,7 @@ class TabManager: ObservableObject {
     // MARK: - Workspace Groups
 
     /// Create a new group, inserting a fresh anchor workspace above the given
-    /// child workspaces. Pinned children are skipped (groups only apply to
-    /// unpinned workspaces). Returns the new group id.
+    /// child workspaces. Returns the new group id.
     ///
     /// The anchor is always brand new (never promoted from an existing
     /// workspace). Its cwd defaults to `anchorWorkingDirectory`, or the first
@@ -4142,14 +4154,13 @@ class TabManager: ObservableObject {
         selectAnchor: Bool = true,
         collapseSidebarSelection: Bool = true
     ) -> UUID? {
-        // Eligible children: not pinned and not currently an anchor of a
-        // different group. Pulling an anchor into a new group would orphan the
+        // Eligible children: not currently an anchor of a different group.
+        // Pulling an anchor into a new group would orphan the
         // source group (its anchorWorkspaceId would no longer match), so we
         // reject those silently and let the user explicitly ungroup first.
         let existingAnchorIds = Set(workspaceGroups.map(\.anchorWorkspaceId))
         let eligibleChildren = childWorkspaceIds.compactMap { id -> UUID? in
-            guard let tab = tabs.first(where: { $0.id == id }),
-                  !tab.isPinned,
+            guard tabs.contains(where: { $0.id == id }),
                   !existingAnchorIds.contains(id) else { return nil }
             return id
         }
@@ -4325,8 +4336,8 @@ class TabManager: ObservableObject {
     }
 
     /// Add an existing workspace to an existing group as a non-anchor member.
-    /// No-op for pinned workspaces or workspaces that are the anchor of a
-    /// different group (those must be ungrouped first to avoid orphaning the
+    /// No-op for workspaces that are the anchor of a different group (those
+    /// must be ungrouped first to avoid orphaning the
     /// source group). If the workspace is the currently selected one and the
     /// target group is collapsed, the group auto-expands so the focused
     /// workspace stays visible.
@@ -4336,7 +4347,7 @@ class TabManager: ObservableObject {
         placement: WorkspaceGroupNewPlacement? = nil,
         referenceWorkspaceId: UUID? = nil
     ) {
-        guard let tab = tabs.first(where: { $0.id == workspaceId }), !tab.isPinned else { return }
+        guard let tab = tabs.first(where: { $0.id == workspaceId }) else { return }
         guard workspaceGroups.contains(where: { $0.id == groupId }) else { return }
         guard tab.groupId != groupId else { return }
         let isAnchorOfOtherGroup = workspaceGroups.contains { group in
@@ -4972,18 +4983,17 @@ class TabManager: ObservableObject {
     }
 
     /// Helper for `normalizeWorkspaceGroupContiguity`: hoist the anchor to
-    /// the front of its group's member list while preserving the relative
-    /// order of the remaining members. No-op when the anchor isn't actually
-    /// in the list (anchor lifecycle elsewhere ensures it always should be).
+    /// the front of its group's member list, then keep pinned member
+    /// workspaces above unpinned member workspaces while preserving relative
+    /// order inside each tier. No-op when the anchor isn't actually in the
+    /// list (anchor lifecycle elsewhere ensures it always should be).
     private func anchorFirst(_ members: [Workspace], anchorId: UUID) -> [Workspace] {
-        guard let anchorIndex = members.firstIndex(where: { $0.id == anchorId }),
-              anchorIndex != 0 else {
+        guard let anchorIndex = members.firstIndex(where: { $0.id == anchorId }) else {
             return members
         }
-        var reordered = members
-        let anchor = reordered.remove(at: anchorIndex)
-        reordered.insert(anchor, at: 0)
-        return reordered
+        let anchor = members[anchorIndex]
+        let nonAnchors = members.filter { $0.id != anchorId }
+        return [anchor] + nonAnchors.filter(\.isPinned) + nonAnchors.filter { !$0.isPinned }
     }
 
     /// Compatibility shim. With anchor-bound group lifecycle, "empty" groups
@@ -4993,11 +5003,63 @@ class TabManager: ObservableObject {
 
     private func clampedReorderIndex(for workspace: Workspace, targetIndex: Int) -> Int {
         let clamped = max(0, min(targetIndex, tabs.count - 1))
-        let pinnedCount = tabs.filter { $0.isPinned }.count
+        if let groupClamp = clampedGroupedMemberReorderIndex(
+            for: workspace,
+            clampedTargetIndex: clamped
+        ) {
+            return groupClamp
+        }
+        let pinnedCount = leadingGlobalPinnedRowCount()
         if workspace.isPinned {
             return min(clamped, max(0, pinnedCount - 1))
         }
         return max(clamped, pinnedCount)
+    }
+
+    private func clampedGroupedMemberReorderIndex(
+        for workspace: Workspace,
+        clampedTargetIndex: Int
+    ) -> Int? {
+        guard let groupId = workspace.groupId,
+              let group = workspaceGroups.first(where: { $0.id == groupId }),
+              workspace.id != group.anchorWorkspaceId else {
+            return nil
+        }
+        let memberIndices = tabs.indices.filter { tabs[$0].groupId == groupId }
+        guard let firstIndex = memberIndices.first,
+              let lastIndex = memberIndices.last else {
+            return nil
+        }
+        let pinnedMemberCount = memberIndices.reduce(into: 0) { count, index in
+            let member = tabs[index]
+            if member.id != group.anchorWorkspaceId, member.isPinned {
+                count += 1
+            }
+        }
+        let lowerBound = workspace.isPinned
+            ? min(firstIndex + 1, lastIndex)
+            : min(firstIndex + 1 + pinnedMemberCount, lastIndex)
+        let upperBound = workspace.isPinned
+            ? max(firstIndex + pinnedMemberCount, lowerBound)
+            : lastIndex
+        return min(max(clampedTargetIndex, lowerBound), upperBound)
+    }
+
+    private func leadingGlobalPinnedRowCount() -> Int {
+        var count = 0
+        for tab in tabs {
+            guard isGlobalPinnedRow(tab) else { break }
+            count += 1
+        }
+        return count
+    }
+
+    private func isGlobalPinnedRow(_ tab: Workspace) -> Bool {
+        if let groupId = tab.groupId,
+           let group = workspaceGroups.first(where: { $0.id == groupId }) {
+            return group.isPinned
+        }
+        return tab.isPinned
     }
 
     // MARK: - Surface Directory Updates (Backwards Compatibility)
@@ -5208,9 +5270,14 @@ class TabManager: ObservableObject {
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
            let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
+            // Prefer the warm cached agent index over a synchronous
+            // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
+            // workspace does not freeze the main thread; fall back to a fresh load only
+            // while the cache has not loaded yet. See closedPanelHistoryEntry.
             let snapshot = workspace.sessionSnapshot(
                 includeScrollback: true,
-                restorableAgentIndex: RestorableAgentSessionIndex.load()
+                restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                    ?? RestorableAgentSessionIndex.load()
             )
             ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,

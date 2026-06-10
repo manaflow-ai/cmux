@@ -7,22 +7,68 @@ enum AuthEnvironment {
     private static let productionStackPublishableClientKey = "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr"
 
     static var callbackScheme: String {
-        let environment = ProcessInfo.processInfo.environment
+        callbackScheme(
+            environment: ProcessInfo.processInfo.environment,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )
+    }
+
+    static func callbackScheme(
+        environment: [String: String],
+        bundleIdentifier: String?
+    ) -> String {
+        #if DEBUG
+        return callbackScheme(environment: environment, bundleIdentifier: bundleIdentifier, isDebugBuild: true)
+        #else
+        return callbackScheme(environment: environment, bundleIdentifier: bundleIdentifier, isDebugBuild: false)
+        #endif
+    }
+
+    static func callbackScheme(
+        environment: [String: String],
+        bundleIdentifier: String?,
+        isDebugBuild: Bool
+    ) -> String {
         if let overridden = environment["CMUX_AUTH_CALLBACK_SCHEME"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !overridden.isEmpty {
             return overridden
         }
-        #if DEBUG
-        // Debug and tagged dev builds register cmux-dev:// so they can coexist
-        // with the installed stable app.
-        return "cmux-dev"
-        #else
-        if Bundle.main.bundleIdentifier == "com.cmuxterm.app.nightly" {
+        if isDebugBuild {
+            // Untagged Debug builds register cmux-dev:// so they can coexist
+            // with the installed stable app. Tagged Debug builds use
+            // cmux-dev-<tag>://.
+            if let tag = environment["CMUX_TAG"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !tag.isEmpty,
+               let schemeTag = sanitizedCallbackSchemeTag(tag) {
+                return "cmux-dev-\(schemeTag)"
+            }
+            return "cmux-dev"
+        }
+        if bundleIdentifier == "com.cmuxterm.app.nightly" {
             return "cmux-nightly"
         }
         return "cmux"
-        #endif
+    }
+
+    static func sanitizedCallbackSchemeTag(_ rawTag: String) -> String? {
+        let lowercased = rawTag.lowercased()
+        var result = ""
+        var previousWasHyphen = false
+        for scalar in lowercased.unicodeScalars {
+            let isAllowed = (scalar.value >= 97 && scalar.value <= 122)
+                || (scalar.value >= 48 && scalar.value <= 57)
+            if isAllowed {
+                result.unicodeScalars.append(scalar)
+                previousWasHyphen = false
+            } else if !previousWasHyphen {
+                result.append("-")
+                previousWasHyphen = true
+            }
+        }
+        result = result.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return result.isEmpty ? nil : result
     }
 
     static var callbackURL: URL {
@@ -191,7 +237,7 @@ enum AuthEnvironment {
         )
     }
 
-    static func signInURL() -> URL {
+    static func signInURL(callbackState: String? = nil) -> URL {
         // Build the after-sign-in callback URL that includes the native app return scheme.
         // The after-sign-in handler extracts tokens from the Stack Auth session
         // and redirects to the native app via the cmux:// callback scheme.
@@ -199,17 +245,24 @@ enum AuthEnvironment {
             url: afterSignInOrigin.appendingPathComponent("handler/after-sign-in", isDirectory: false),
             resolvingAgainstBaseURL: false
         )!
+        var nativeCallbackComponents = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)!
+        if let callbackState {
+            nativeCallbackComponents.queryItems = [
+                URLQueryItem(name: "cmux_auth_state", value: callbackState),
+            ]
+        }
+
         afterSignInComponents.queryItems = [
             URLQueryItem(
                 name: "native_app_return_to",
-                value: callbackURL.absoluteString
+                value: nativeCallbackComponents.url!.absoluteString
             ),
         ]
 
-        // Use the website's /sign-in route (provided by Stack Auth SDK).
-        // Stack Auth handles the sign-in flow, then redirects to after_auth_return_to.
+        // Enter through cmux's native sign-in wrapper, which sets a short-lived
+        // server-side handoff nonce before redirecting to Stack's /sign-in.
         var components = URLComponents(
-            url: afterSignInOrigin.appendingPathComponent("handler/sign-in", isDirectory: false),
+            url: afterSignInOrigin.appendingPathComponent("handler/native-sign-in", isDirectory: false),
             resolvingAgainstBaseURL: false
         )!
         components.queryItems = [
