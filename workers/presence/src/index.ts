@@ -14,12 +14,15 @@
 // the DO never sees unauthenticated input.
 
 import {
+  bearerToken,
+  cacheDeadline,
   requestedTeamIdFromRequest,
   resolveTeamId,
+  tokenExpiryMs,
   verifyRequest,
   type AuthEnv,
 } from "./auth";
-import { TeamPresence } from "./do";
+import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import { parseHeartbeat, readBoundedJson } from "./validate";
 
 export { TeamPresence };
@@ -85,10 +88,19 @@ export default {
       if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
       const team = await resolveTeamOr403(request, env);
       if (!team.ok) return team.response;
-      // Forward to the DO with the verified team id. The header is set from
-      // the verified value only, never passed through from the client.
+      // Forward to the DO with the verified team id and a stream deadline
+      // (token expiry capped at MAX_SUBSCRIBE_AGE_MS) so a revoked token or
+      // removed member cannot keep an old stream alive indefinitely. Both
+      // headers are set from verified values only, never passed through.
+      const token = bearerToken(request);
+      const expiresAt = cacheDeadline(
+        Date.now(),
+        token ? tokenExpiryMs(token) : null,
+        MAX_SUBSCRIBE_AGE_MS,
+      );
       const headers = new Headers(request.headers);
       headers.set("x-presence-team-id", team.teamId);
+      headers.set("x-presence-expires-at", String(Math.floor(expiresAt)));
       return team.stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 

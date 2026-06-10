@@ -59,7 +59,12 @@ GET  /v1/presence/subscribe -> forward w/ verified team ------> WS (hibernation)
 - **Subscribe**: WebSocket (primary; DO hibernation API, so idle teams cost
   nothing) or SSE (fallback, curl-friendly). Both deliver a `snapshot` first,
   then `online` / `offline` (with `reason: "timeout" | "goodbye"`) / `seen`
-  transition events on one shared broadcast path.
+  transition events on one shared broadcast path. Streams are deadline-bounded
+  by the verified token's expiry (capped at 15 minutes): the DO stops
+  delivering and closes the stream at the deadline, so a revoked token or a
+  removed team member cannot keep an old stream alive; clients reconnect with
+  a fresh token and get a fresh snapshot. Per-team subscribers are capped (64)
+  and a stalled SSE reader is dropped instead of buffered.
 
 ## Migrations and durability
 
@@ -84,7 +89,7 @@ by the `web-db-migrations` CI job and the cloud-vm migrate workflow
 
 `.github/workflows/presence.yml`, path-filtered to `workers/presence/**`:
 
-- Pull requests: `bun run typecheck`, `bun test` (39 unit tests over the state
+- Pull requests: `bun run typecheck`, `bun test` (unit tests over the state
   machine, team resolution, and validation), and a `wrangler deploy --dry-run`
   bundle check.
 - Push to main: the same checks, then `wrangler deploy` (serialized by a

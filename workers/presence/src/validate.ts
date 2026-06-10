@@ -77,7 +77,10 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
   };
 }
 
-/** Bounded JSON body reader, copied from the device-registry route. */
+/** Bounded JSON body reader. Unlike the registry route's post-hoc length
+ * check, this reads the stream incrementally and aborts the moment it crosses
+ * the cap, so a chunked or lying-Content-Length body can never make the
+ * worker buffer more than MAX_REQUEST_BYTES. */
 export async function readBoundedJson(
   request: Request,
 ): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; status: number }> {
@@ -85,16 +88,36 @@ export async function readBoundedJson(
   if (lengthHeader && Number(lengthHeader) > MAX_REQUEST_BYTES) {
     return { ok: false, status: 413 };
   }
-  let raw: string;
+  if (!request.body) return { ok: false, status: 400 };
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
   try {
-    raw = await request.text();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > MAX_REQUEST_BYTES) {
+        await reader.cancel();
+        return { ok: false, status: 413 };
+      }
+      chunks.push(value);
+    }
   } catch {
     return { ok: false, status: 400 };
   }
-  if (raw.length > MAX_REQUEST_BYTES) return { ok: false, status: 413 };
+
+  const bytes = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     return { ok: false, status: 400 };
   }

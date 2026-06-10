@@ -118,7 +118,9 @@ function normalized(value: string | null): string | null {
   return trimmed ? trimmed : null;
 }
 
-function bearerToken(request: Request): string | null {
+/** The bearer access token from the Authorization header, or null. Exported
+ * so the subscribe route can bound stream lifetime to the token's expiry. */
+export function bearerToken(request: Request): string | null {
   const header = request.headers.get("authorization");
   if (!header?.toLowerCase().startsWith("bearer ")) return null;
   return normalized(header.slice("bearer ".length));
