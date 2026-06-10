@@ -361,6 +361,13 @@ pub extern "C" fn cmux_iroh_connection_send(
 }
 
 /// Closes the connection and frees its handle.
+///
+/// Graceful close: `finish()` only queues the FIN plus any buffered stream
+/// data, while `Connection::close` is immediate and abandons buffered data.
+/// Closing right after finishing could therefore drop a final frame that
+/// `send()` already reported as accepted. `stopped()` resolves once the peer
+/// acknowledges receipt of all finished stream data, so wait for it (bounded,
+/// so a vanished peer cannot wedge close) before closing the connection.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_iroh_connection_close(connection: *mut CmuxIrohConnection) {
     if connection.is_null() {
@@ -369,7 +376,9 @@ pub extern "C" fn cmux_iroh_connection_close(connection: *mut CmuxIrohConnection
     let connection = unsafe { Box::from_raw(connection) };
     runtime().block_on(async {
         let mut send = connection.send.lock().await;
-        let _ = send.finish();
+        if send.finish().is_ok() {
+            let _ = tokio::time::timeout(Duration::from_secs(5), send.stopped()).await;
+        }
         drop(send);
         connection.connection.close(0u32.into(), b"close");
     });
