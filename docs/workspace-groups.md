@@ -14,7 +14,7 @@ Closing the anchor workspace **dissolves the group**: every other member loses i
 
 ### Group identity
 
-A group has a `name`, `iconSymbol` (an SF Symbol, default `folder.fill`), and an optional `customColor` (hex string). Both are independent of the anchor workspace's own customizations. The anchor's color and icon are seeded from the group on creation, but they can diverge afterwards.
+A group has a `name`, `iconSymbol` (an SF Symbol, default `folder.fill`), and an optional `customColor` (hex string). These belong to the group itself and are independent of the anchor workspace's own color and icon. The group header renders with the group's color and icon (`createWorkspaceGroup` only seeds the anchor's title; `setWorkspaceGroupColor`/`setWorkspaceGroupIcon` update the group, not the anchor `Workspace`), so the anchor workspace keeps its own appearance separately.
 
 ### Pinning
 

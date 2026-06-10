@@ -689,7 +689,7 @@
       "anchorNew": "Kotwice są zawsze całkowicie nowe w momencie utworzenia grupy. Nigdy nie są awansowane z istniejącego workspace'a. Katalog roboczy kotwicy jest dziedziczony z pierwszego zaznaczonego workspace'a przy grupowaniu zaznaczenia lub z aktywnego workspace'a przy tworzeniu za pomocą CLI bez --cwd.",
       "anchorClose": "Zamknięcie kotwicowego workspace'a rozwiązuje grupę: każdy pozostały członek staje się niezgrupowanym workspace'em i pozostaje na liście kart. Nic poza samą kotwicą nie jest zamykane. Przed tym aplikacja wyświetla okno potwierdzenia z przełącznikiem „Nie pytaj ponownie”.",
       "identityTitle": "Tożsamość grupy",
-      "identityDesc": "Grupa ma nazwę, ikonę (SF Symbol, domyślnie folder.fill) oraz opcjonalny niestandardowy kolor. Są one niezależne od własnych dostosowań kotwicowego workspace'a. Kolor i ikona kotwicy są przy tworzeniu inicjowane z grupy, ale później mogą się różnić.",
+      "identityDesc": "Grupa ma nazwę, ikonę (SF Symbol, domyślnie folder.fill) oraz opcjonalny niestandardowy kolor. Należą one do samej grupy i są niezależne od własnego koloru i własnej ikony zakotwiczonego obszaru roboczego. Nagłówek grupy jest renderowany z kolorem i ikoną grupy, podczas gdy zakotwiczony obszar roboczy zachowuje swój własny wygląd osobno.",
       "pinningTitle": "Przypinanie",
       "pinningDesc": "Grupy można przypinać niezależnie od przypięć poszczególnych workspace'ów. Przypięte wiersze najwyższego poziomu, niezależnie od tego, czy są to pojedyncze workspace'y, czy grupy, pozostają nad wierszami nieprzypiętymi. W obrębie każdego poziomu grupy i workspace'y zachowują kolejność, w jakiej je przeciągniesz.",
       "layoutIntro": "Pasek boczny układa wiersze najwyższego poziomu od góry do dołu:",

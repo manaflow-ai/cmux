@@ -786,7 +786,7 @@
       "anchorNew": "Anchors are always brand new when a group is created. They are never promoted from an existing workspace. The anchor's working directory is inherited from the first selected workspace when grouping a selection, or from the active workspace when creating via the CLI without --cwd.",
       "anchorClose": "Closing the anchor workspace dissolves the group: every other member becomes an ungrouped workspace and stays in the tabs list. Nothing is closed besides the anchor itself. The app shows a confirm dialog with a \"Don't ask again\" toggle before this happens.",
       "identityTitle": "Group identity",
-      "identityDesc": "A group has a name, an icon (an SF Symbol, default folder.fill), and an optional custom color. These are independent of the anchor workspace's own customizations. The anchor's color and icon are seeded from the group on creation, but they can diverge afterwards.",
+      "identityDesc": "A group has a name, an icon (an SF Symbol, default folder.fill), and an optional custom color. These belong to the group itself and are independent of the anchor workspace own color and icon. The group header renders with the group color and icon, while the anchor workspace keeps its own appearance separately.",
       "pinningTitle": "Pinning",
       "pinningDesc": "Groups can be pinned independently of individual workspace pins. Pinned top-level rows, whether individual workspaces or groups, stay above unpinned rows. Within each tier, groups and workspaces keep the order you drag them into.",
       "layoutIntro": "The sidebar lays out top-level rows top to bottom:",

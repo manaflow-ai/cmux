@@ -689,7 +689,7 @@
       "anchorNew": "Sidra su uvijek potpuno nova kada se grupa kreira. Nikada se ne promovišu iz postojećeg radnog prostora. Radni direktorij sidra nasljeđuje se od prvog odabranog radnog prostora prilikom grupisanja odabira, ili od aktivnog radnog prostora prilikom kreiranja putem CLI bez --cwd.",
       "anchorClose": "Zatvaranje sidrenog radnog prostora raspušta grupu: svaki drugi član postaje razgrupisani radni prostor i ostaje na listi kartica. Ništa se ne zatvara osim samog sidra. Aplikacija prije toga prikazuje dijalog za potvrdu s prekidačem \"Ne pitaj ponovo\".",
       "identityTitle": "Identitet grupe",
-      "identityDesc": "Grupa ima naziv, ikonu (SF Symbol, podrazumijevano folder.fill) i opcionalnu prilagođenu boju. Oni su nezavisni od vlastitih prilagođavanja sidrenog radnog prostora. Boja i ikona sidra se prilikom kreiranja preuzimaju iz grupe, ali se nakon toga mogu razlikovati.",
+      "identityDesc": "Grupa ima naziv, ikonu (SF Symbol, podrazumijevano folder.fill) i opcionalnu prilagođenu boju. Oni pripadaju samoj grupi i nezavisni su od vlastite boje i ikone sidrišnog radnog prostora. Zaglavlje grupe prikazuje se s bojom i ikonom grupe, dok sidrišni radni prostor zasebno zadržava vlastiti izgled.",
       "pinningTitle": "Prikvačivanje",
       "pinningDesc": "Grupe se mogu prikvačiti nezavisno od prikvačavanja pojedinačnih radnih prostora. Prikvačeni redovi najvišeg nivoa, bilo da su pojedinačni radni prostori ili grupe, ostaju iznad neprikvačenih redova. Unutar svakog nivoa, grupe i radni prostori zadržavaju redoslijed kojim ih prevučete.",
       "layoutIntro": "Bočna traka raspoređuje redove najvišeg nivoa odozgo prema dolje:",

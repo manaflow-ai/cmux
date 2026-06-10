@@ -689,7 +689,7 @@
       "anchorNew": "Ankere er altid helt nye, når en gruppe oprettes. De forfremmes aldrig fra et eksisterende workspace. Ankerets arbejdsmappe nedarves fra det første valgte workspace, når en markering grupperes, eller fra det aktive workspace, når der oprettes via CLI'en uden --cwd.",
       "anchorClose": "Lukning af anker-workspacet opløser gruppen: alle andre medlemmer bliver ugrupperede workspaces og forbliver i fanelisten. Intet andet end selve ankeret lukkes. Appen viser en bekræftelsesdialog med en \"Spørg ikke igen\"-kontakt, før dette sker.",
       "identityTitle": "Gruppeidentitet",
-      "identityDesc": "En gruppe har et navn, et ikon (et SF Symbol, standard folder.fill) og en valgfri brugerdefineret farve. Disse er uafhængige af anker-workspacets egne tilpasninger. Ankerets farve og ikon udledes fra gruppen ved oprettelse, men de kan afvige bagefter.",
+      "identityDesc": "En gruppe har et navn, et ikon (et SF Symbol, folder.fill som standard) og en valgfri brugerdefineret farve. Disse tilhører selve gruppen og er uafhængige af anker-workspacets egen farve og eget ikon. Gruppeoverskriften vises med gruppens farve og ikon, mens anker-workspacet bevarer sit eget udseende separat.",
       "pinningTitle": "Fastgørelse",
       "pinningDesc": "Grupper kan fastgøres uafhængigt af individuelle workspace-fastgørelser. Fastgjorte rækker på øverste niveau, hvad enten det er individuelle workspaces eller grupper, forbliver over ufastgjorte rækker. Inden for hvert niveau bevarer grupper og workspaces den rækkefølge, du trækker dem ind i.",
       "layoutIntro": "Sidebaren placerer rækker på øverste niveau fra top til bund:",
