@@ -155,7 +155,7 @@ final class MobilePairingModel {
             // no token) may ever be displayed as a scannable code. If the mint
             // raced a Tailscale route loss and fell back to the v1 payload,
             // show the Tailscale guidance rather than a weak QR.
-            guard CmxPairingQRCode.isPairingCodeURLString(attachURL) else {
+            guard CmxPairingQRCode().isPairingCodeURLString(attachURL) else {
                 state = .needsTailscale
                 return
             }
@@ -276,7 +276,7 @@ final class MobilePairingModel {
     /// route a DEBUG build always carries must not count as reachability, or
     /// the pairing window would happily display a QR no phone can use.
     private static func isPhoneReachableRoute(_ route: CmxAttachRoute) -> Bool {
-        route.kind == .tailscale && !CmxLoopbackHost.matches(route)
+        route.kind == .tailscale && !CmxLoopbackHost().matches(route)
     }
 
     private static func tailscaleLines(_ routes: [CmxAttachRoute]) -> [String] {

@@ -227,7 +227,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         // and a QR-pairing connect (where the identity matters) is always
         // signed in, so the token is present there.
         if !requestNeedsAuth,
-           Self.isHostStatusRequest(request),
+           isHostStatusRequest(request),
            allowsStackAuthFallback,
            MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
            let stackAccessToken = try? await runtime.stackAccessTokenProvider() {
@@ -237,11 +237,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             request["auth"] = auth
         }
         return try JSONSerialization.data(withJSONObject: request)
-    }
-
-    private static func isHostStatusRequest(_ request: [String: Any]) -> Bool {
-        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return method == "mobile.host.status"
     }
 
     private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
@@ -382,3 +377,10 @@ extension MobileCoreRPCClient {
     }
 }
 #endif
+
+/// Whether `request` is the unauthenticated `mobile.host.status` probe, the
+/// one verb whose reply may carry host identity for verified callers.
+private func isHostStatusRequest(_ request: [String: Any]) -> Bool {
+    let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return method == "mobile.host.status"
+}

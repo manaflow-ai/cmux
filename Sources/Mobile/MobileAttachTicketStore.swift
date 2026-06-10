@@ -129,7 +129,7 @@ final class MobileAttachTicketStore {
         // dev loopback route is dropped outright (a scanned code must never
         // point a phone at itself). The much shorter plain-text URL also
         // drops the QR several versions, so the code scans faster.
-        if let pairingURL = CmxPairingQRCode.encode(ticket), let url = URL(string: pairingURL) {
+        if let pairingURL = CmxPairingQRCode().encode(ticket), let url = URL(string: pairingURL) {
             return url
         }
         // Fallback for tickets the minimal grammar cannot express (workspace-

@@ -29,7 +29,7 @@ public struct CmxManualPairingEntry: Equatable, Sendable {
     /// is phone-dialable (no non-loopback `host:port` route at all).
     public static func best(in routes: [CmxAttachRoute]) -> CmxManualPairingEntry? {
         let candidates = routes
-            .filter { !CmxLoopbackHost.matches($0) }
+            .filter { !CmxLoopbackHost().matches($0) }
             .compactMap { route -> (route: CmxAttachRoute, entry: CmxManualPairingEntry)? in
                 guard case let .hostPort(host, port) = route.endpoint else {
                     return nil
@@ -42,15 +42,15 @@ public struct CmxManualPairingEntry: Equatable, Sendable {
         let pick = pool.first { isIPLiteral($0.entry.host) } ?? pool.first
         return pick?.entry
     }
+}
 
-    /// Whether `host` is a strict numeric IP literal (dotted-quad IPv4 or any
-    /// IPv6 spelling). Used only as a preference signal, not a trust boundary.
-    private static func isIPLiteral(_ host: String) -> Bool {
-        var ipv4 = in_addr()
-        if inet_pton(AF_INET, host, &ipv4) == 1 {
-            return true
-        }
-        var ipv6 = in6_addr()
-        return inet_pton(AF_INET6, host, &ipv6) == 1
+/// Whether `host` is a strict numeric IP literal (dotted-quad IPv4 or any
+/// IPv6 spelling). Used only as a preference signal, not a trust boundary.
+private func isIPLiteral(_ host: String) -> Bool {
+    var ipv4 = in_addr()
+    if inet_pton(AF_INET, host, &ipv4) == 1 {
+        return true
     }
+    var ipv6 = in6_addr()
+    return inet_pton(AF_INET6, host, &ipv6) == 1
 }

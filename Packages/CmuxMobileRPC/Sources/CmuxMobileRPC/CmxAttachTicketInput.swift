@@ -32,8 +32,8 @@ public struct CmxAttachTicketInput {
         }
         // The minimal v2 pairing-code grammar (bare Tailscale routes, loopback
         // rejected). v1 URLs carry a base64 JSON `payload` item instead.
-        if CmxPairingQRCode.isPairingCodeURL(components) {
-            return try CmxPairingQRCode.decode(components)
+        if CmxPairingQRCode().isPairingCodeURL(components) {
+            return try CmxPairingQRCode().decode(components)
         }
         guard let encodedPayload = components.queryItems?.first(where: { $0.name == "payload" })?.value,
               let data = base64URLDecode(encodedPayload) else {

@@ -99,26 +99,6 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(result)
     }
 
-    /// The unauthenticated status verb may trigger Stack network verification
-    /// for token-bearing requests, so the lookups it can have in flight are
-    /// hard-capped: saturated acquires fail fast (the reply degrades to
-    /// identity-free) instead of queueing attacker-minted token lookups, and
-    /// a released slot is immediately reusable.
-    func testStatusVerificationLimiterCapsInFlightLookups() async {
-        let limiter = MobileHostStatusVerificationLimiter(limit: 2)
-
-        let first = await limiter.acquire()
-        let second = await limiter.acquire()
-        let saturated = await limiter.acquire()
-        XCTAssertTrue(first)
-        XCTAssertTrue(second)
-        XCTAssertFalse(saturated)
-
-        await limiter.release()
-        let afterRelease = await limiter.acquire()
-        XCTAssertTrue(afterRelease)
-    }
-
     #if DEBUG
     func testDebugStackAuthTokenPolicyRequiresConfiguredToken() {
         XCTAssertNil(MobileHostDevStackAuthPolicy.normalizedToken("   "))

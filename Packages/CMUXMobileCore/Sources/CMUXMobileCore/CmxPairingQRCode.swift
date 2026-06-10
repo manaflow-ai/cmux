@@ -36,7 +36,7 @@ import Foundation
 /// Workspace-scoped tickets, dev loopback tickets, and every RPC consumer
 /// keep the compact v1 JSON payload (``CmxAttachTicketCompactCoder``), and the
 /// decoder keeps accepting both that and the legacy full-key grammar.
-public enum CmxPairingQRCode {
+public struct CmxPairingQRCode: Sendable {
     /// The grammar version carried in the URL's `v` query item. Distinct from
     /// ``CmxAttachTicket/currentVersion`` (the ticket *structure* version):
     /// `v=1` URLs carry a base64 JSON `payload`, `v=2` URLs carry bare routes.
@@ -48,13 +48,17 @@ public enum CmxPairingQRCode {
     /// turn into a long chain of dial attempts.
     public static let maximumRouteCount = 8
 
+    /// Creates the codec. It is stateless: construct one inline at the call
+    /// site; every instance speaks the same grammar version.
+    public init() {}
+
     /// Encode `ticket` as a v2 pairing URL, or `nil` when the ticket does not
     /// qualify (see ``canEncode(_:)``); callers fall back to the compact v1
     /// payload so every ticket still has an attach URL.
     ///
     /// Only the ticket's Tailscale routes are encoded: a DEBUG Mac's dev
     /// loopback route is dropped, never written into a scannable code.
-    public static func encode(_ ticket: CmxAttachTicket) -> String? {
+    public func encode(_ ticket: CmxAttachTicket) -> String? {
         guard let routes = encodableRoutes(of: ticket) else {
             return nil
         }
@@ -65,12 +69,12 @@ public enum CmxPairingQRCode {
             }
             return "r=\(hostPortString(host: host, port: port))"
         }
-        return "cmux-ios://attach?v=\(version)&" + routeItems.joined(separator: "&")
+        return "cmux-ios://attach?v=\(Self.version)&" + routeItems.joined(separator: "&")
     }
 
     /// Whether `ticket` is expressible in the minimal grammar; see
     /// ``encodableRoutes(of:)`` for the rules.
-    public static func canEncode(_ ticket: CmxAttachTicket) -> Bool {
+    public func canEncode(_ ticket: CmxAttachTicket) -> Bool {
         encodableRoutes(of: ticket) != nil
     }
 
@@ -87,24 +91,24 @@ public enum CmxPairingQRCode {
     /// Tailscale route at all, or a non-Tailscale fallback route such as an
     /// iroh peer that the bare `host:port` grammar cannot express) keeps the
     /// compact v1 payload so the mapping stays lossless.
-    private static func encodableRoutes(of ticket: CmxAttachTicket) -> [CmxAttachRoute]? {
+    private func encodableRoutes(of ticket: CmxAttachTicket) -> [CmxAttachRoute]? {
         guard ticket.version == CmxAttachTicket.currentVersion,
               ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
             return nil
         }
-        guard ticket.routes.allSatisfy({ $0.kind == .tailscale || CmxLoopbackHost.matches($0) }) else {
+        guard ticket.routes.allSatisfy({ $0.kind == .tailscale || CmxLoopbackHost().matches($0) }) else {
             return nil
         }
         let routes = ticket.routes.filter { $0.kind == .tailscale }
-        guard !routes.isEmpty, routes.count <= maximumRouteCount else {
+        guard !routes.isEmpty, routes.count <= Self.maximumRouteCount else {
             return nil
         }
         for (index, route) in routes.enumerated() {
             guard route.id == synthesizedRouteID(index: index),
                   route.priority == synthesizedRoutePriority(index: index),
                   case let .hostPort(host, _) = route.endpoint,
-                  !CmxLoopbackHost.matches(host),
+                  !CmxLoopbackHost().matches(host),
                   isPlainHost(host) else {
                 return nil
             }
@@ -114,14 +118,14 @@ public enum CmxPairingQRCode {
 
     /// Whether `components` (an already-parsed `cmux-ios://attach` URL) speaks
     /// this grammar. v1 URLs carry the base64 `payload` item instead.
-    public static func isPairingCodeURL(_ components: URLComponents) -> Bool {
-        components.queryItems?.first(where: { $0.name == "v" })?.value == "\(version)"
+    public func isPairingCodeURL(_ components: URLComponents) -> Bool {
+        components.queryItems?.first(where: { $0.name == "v" })?.value == "\(Self.version)"
     }
 
     /// Whether `rawValue` is a v2 pairing URL. String-level convenience for
     /// callers that hold the encoded URL (the Mac's pairing window asserting
     /// the code it is about to display speaks the minimal grammar).
-    public static func isPairingCodeURLString(_ rawValue: String) -> Bool {
+    public func isPairingCodeURLString(_ rawValue: String) -> Bool {
         guard let url = URL(string: rawValue),
               url.scheme == "cmux-ios",
               url.host == "attach",
@@ -140,19 +144,19 @@ public enum CmxPairingQRCode {
     ///   input and ``MobileSyncPairingPayloadError/loopbackRouteRejected``
     ///   when any route names a loopback host (a scanned code must never
     ///   point the phone at itself).
-    public static func decode(_ components: URLComponents) throws -> CmxAttachTicket {
+    public func decode(_ components: URLComponents) throws -> CmxAttachTicket {
         guard isPairingCodeURL(components) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         let rawRoutes = (components.queryItems ?? [])
             .filter { $0.name == "r" }
             .compactMap(\.value)
-        guard !rawRoutes.isEmpty, rawRoutes.count <= maximumRouteCount else {
+        guard !rawRoutes.isEmpty, rawRoutes.count <= Self.maximumRouteCount else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         let routes = try rawRoutes.enumerated().map { index, rawRoute -> CmxAttachRoute in
             let (host, port) = try parseHostPort(rawRoute)
-            guard !CmxLoopbackHost.matches(host) else {
+            guard !CmxLoopbackHost().matches(host) else {
                 throw MobileSyncPairingPayloadError.loopbackRouteRejected
             }
             return try CmxAttachRoute(
@@ -174,68 +178,68 @@ public enum CmxPairingQRCode {
         try ticket.validate()
         return ticket
     }
+}
 
-    /// The route id the Mac's route resolver mints for the route at `index`
-    /// (`tailscale` for the first, `tailscale_N` after).
-    static func synthesizedRouteID(index: Int) -> String {
-        index == 0
-            ? CmxAttachTransportKind.tailscale.rawValue
-            : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)"
-    }
+/// The route id the Mac's route resolver mints for the route at `index`
+/// (`tailscale` for the first, `tailscale_N` after).
+private func synthesizedRouteID(index: Int) -> String {
+    index == 0
+        ? CmxAttachTransportKind.tailscale.rawValue
+        : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)"
+}
 
-    /// The priority the Mac's route resolver assigns the route at `index`.
-    static func synthesizedRoutePriority(index: Int) -> Int {
-        10 + index * 10
-    }
+/// The priority the Mac's route resolver assigns the route at `index`.
+private func synthesizedRoutePriority(index: Int) -> Int {
+    10 + index * 10
+}
 
-    /// `host:port`, bracketing IPv6 literals.
-    private static func hostPortString(host: String, port: Int) -> String {
-        host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
-    }
+/// `host:port`, bracketing IPv6 literals.
+private func hostPortString(host: String, port: Int) -> String {
+    host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+}
 
-    /// Parse `host:port` (with optional IPv6 brackets) from a query value.
-    private static func parseHostPort(_ rawValue: String) throws -> (String, Int) {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let host: Substring
-        let portText: Substring
-        if trimmed.hasPrefix("[") {
-            guard let closing = trimmed.firstIndex(of: "]"),
-                  closing > trimmed.startIndex else {
-                throw MobileSyncPairingPayloadError.invalidURL
-            }
-            host = trimmed[trimmed.index(after: trimmed.startIndex)..<closing]
-            let afterBracket = trimmed.index(after: closing)
-            guard afterBracket < trimmed.endIndex, trimmed[afterBracket] == ":" else {
-                throw MobileSyncPairingPayloadError.invalidURL
-            }
-            portText = trimmed[trimmed.index(after: afterBracket)...]
-        } else {
-            guard let separator = trimmed.lastIndex(of: ":") else {
-                throw MobileSyncPairingPayloadError.invalidURL
-            }
-            host = trimmed[..<separator]
-            portText = trimmed[trimmed.index(after: separator)...]
-        }
-        guard !host.isEmpty, isPlainHost(String(host)) else {
+/// Parse `host:port` (with optional IPv6 brackets) from a query value.
+private func parseHostPort(_ rawValue: String) throws -> (String, Int) {
+    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    let host: Substring
+    let portText: Substring
+    if trimmed.hasPrefix("[") {
+        guard let closing = trimmed.firstIndex(of: "]"),
+              closing > trimmed.startIndex else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
-        guard let port = Int(portText), (1...65535).contains(port) else {
-            throw MobileSyncPairingPayloadError.invalidPort(Int(portText) ?? 0)
+        host = trimmed[trimmed.index(after: trimmed.startIndex)..<closing]
+        let afterBracket = trimmed.index(after: closing)
+        guard afterBracket < trimmed.endIndex, trimmed[afterBracket] == ":" else {
+            throw MobileSyncPairingPayloadError.invalidURL
         }
-        return (String(host), port)
+        portText = trimmed[trimmed.index(after: afterBracket)...]
+    } else {
+        guard let separator = trimmed.lastIndex(of: ":") else {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+        host = trimmed[..<separator]
+        portText = trimmed[trimmed.index(after: separator)...]
     }
+    guard !host.isEmpty, isPlainHost(String(host)) else {
+        throw MobileSyncPairingPayloadError.invalidURL
+    }
+    guard let port = Int(portText), (1...65535).contains(port) else {
+        throw MobileSyncPairingPayloadError.invalidPort(Int(portText) ?? 0)
+    }
+    return (String(host), port)
+}
 
-    /// Whether `host` is a bare DNS name or IP literal that needs no escaping
-    /// in a URL query (letters, digits, `.`, `-`, `_`, and `:` for IPv6).
-    private static func isPlainHost(_ host: String) -> Bool {
-        !host.isEmpty && host.utf8.allSatisfy { byte in
-            (48...57).contains(byte)        // 0-9
-                || (65...90).contains(byte) // A-Z
-                || (97...122).contains(byte) // a-z
-                || byte == UInt8(ascii: ".")
-                || byte == UInt8(ascii: "-")
-                || byte == UInt8(ascii: "_")
-                || byte == UInt8(ascii: ":")
-        }
+/// Whether `host` is a bare DNS name or IP literal that needs no escaping
+/// in a URL query (letters, digits, `.`, `-`, `_`, and `:` for IPv6).
+private func isPlainHost(_ host: String) -> Bool {
+    !host.isEmpty && host.utf8.allSatisfy { byte in
+        (48...57).contains(byte)        // 0-9
+            || (65...90).contains(byte) // A-Z
+            || (97...122).contains(byte) // a-z
+            || byte == UInt8(ascii: ".")
+            || byte == UInt8(ascii: "-")
+            || byte == UInt8(ascii: "_")
+            || byte == UInt8(ascii: ":")
     }
 }

@@ -113,7 +113,7 @@ public struct MobileShellRouteAuthPolicy {
         _ routes: [CmxAttachRoute],
         isPhysicalDevice: Bool
     ) -> Bool {
-        isPhysicalDevice && routes.contains(where: CmxLoopbackHost.matches)
+        isPhysicalDevice && routes.contains(where: CmxLoopbackHost().matches)
     }
 
     /// Whether the given route may carry Stack auth when reached via an implicit

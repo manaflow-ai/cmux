@@ -21,7 +21,7 @@ import Testing
         "127.0.0",
     ])
     func matchesLoopbackSpellings(host: String) {
-        #expect(CmxLoopbackHost.matches(host))
+        #expect(CmxLoopbackHost().matches(host))
     }
 
     @Test(arguments: [
@@ -33,7 +33,7 @@ import Testing
         "128.1", "1681915909",
     ])
     func rejectsNonLoopbackHosts(host: String) {
-        #expect(!CmxLoopbackHost.matches(host))
+        #expect(!CmxLoopbackHost().matches(host))
     }
 
     @Test func classifiesRoutesByKindAndHost() throws {
@@ -42,20 +42,20 @@ import Testing
             kind: .debugLoopback,
             endpoint: .hostPort(host: "100.64.0.5", port: 58465)
         )
-        #expect(CmxLoopbackHost.matches(devLoopback))
+        #expect(CmxLoopbackHost().matches(devLoopback))
 
         let loopbackTailscale = try CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,
             endpoint: .hostPort(host: "127.0.0.1", port: 58465)
         )
-        #expect(CmxLoopbackHost.matches(loopbackTailscale))
+        #expect(CmxLoopbackHost().matches(loopbackTailscale))
 
         let tailscale = try CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,
             endpoint: .hostPort(host: "100.64.0.5", port: 58465)
         )
-        #expect(!CmxLoopbackHost.matches(tailscale))
+        #expect(!CmxLoopbackHost().matches(tailscale))
     }
 }
