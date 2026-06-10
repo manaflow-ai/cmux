@@ -663,8 +663,13 @@ class TerminalController {
             listenerDidStart: { path, _ in
                 // Fires on the listener queue (the actor's executor); the
                 // notification + PortScanner wiring are main-actor state.
+                // Re-check before posting: a stop or rebind can land before
+                // this hop runs.
                 Task { @MainActor in
-                    target.controller?.socketListenerDidStart(path: path)
+                    guard let controller = target.controller,
+                          controller.socketServer.isRunning,
+                          controller.socketServer.currentSocketPath == path else { return }
+                    controller.socketListenerDidStart(path: path)
                 }
             },
             recordLastSocketPath: { path in
@@ -756,7 +761,7 @@ class TerminalController {
     private func restartSocketListenerIfPathMissing(path: String, generation: UInt64) {
         guard let tabManager else { return }
         let restartMode = socketServer.accessMode
-        guard socketServer.performSync({ $0.shouldRestartForMissingPath(path: path, generation: generation) }) else { return }
+        guard socketServer.shouldRestartForMissingPath(path: path, generation: generation) else { return }
 
         sentryBreadcrumb(
             "socket.listener.restart",

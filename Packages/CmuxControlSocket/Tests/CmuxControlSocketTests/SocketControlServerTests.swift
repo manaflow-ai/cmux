@@ -31,10 +31,6 @@ extension SocketControlServer {
         performSync { $0.reserveStartupSocketPath(path) }
     }
 
-    fileprivate nonisolated func shouldRestartForMissingPathSync(path: String, generation: UInt64) -> Bool {
-        performSync { $0.shouldRestartForMissingPath(path: path, generation: generation) }
-    }
-
     fileprivate nonisolated func claimPendingRearmSync(
         generation: UInt64,
         errnoCode: Int32,
@@ -422,13 +418,13 @@ struct SocketControlServerPathMonitorTests {
         #expect(event.path == harness.socketPath)
         #expect(event.generation == generation)
         #expect(harness.recorder.failures.contains { $0.message == "socket.listener.path.missing" })
-        #expect(server.shouldRestartForMissingPathSync(path: event.path, generation: event.generation))
+        #expect(server.shouldRestartForMissingPath(path: event.path, generation: event.generation))
 
         // The host-side restart sequence rebinds and recreates the file.
         server.stopSync()
         #expect(server.startSync(socketPath: harness.socketPath, accessMode: .cmuxOnly))
         #expect(FileManager.default.fileExists(atPath: harness.socketPath))
-        #expect(!server.shouldRestartForMissingPathSync(path: event.path, generation: event.generation))
+        #expect(!server.shouldRestartForMissingPath(path: event.path, generation: event.generation))
         let fd = connect(to: harness.socketPath)
         #expect(fd >= 0)
         if fd >= 0 { close(fd) }
@@ -440,7 +436,7 @@ struct SocketControlServerPathMonitorTests {
         #expect(server.startSync(socketPath: harness.socketPath, accessMode: .cmuxOnly))
         let generation = try #require(harness.recorder.started.first?.generation)
         server.stopSync()
-        #expect(!server.shouldRestartForMissingPathSync(path: harness.socketPath, generation: generation))
+        #expect(!server.shouldRestartForMissingPath(path: harness.socketPath, generation: generation))
     }
 }
 

@@ -85,19 +85,21 @@ extension SocketControlServer {
     }
 
     /// Re-validates a ``SocketControlServerEvents/pathMissingDetected`` report
-    /// from the host's restart context.
+    /// from the host's restart context. Reads the published snapshot — every
+    /// consulted field is mirror-published, so the host's main-thread check
+    /// never waits on the listener queue (the legacy check was a bare lock
+    /// read with the same last-committed-state semantics).
     /// - Parameters:
     ///   - path: The path the monitor reported missing.
     ///   - generation: The generation the report was issued under.
     /// - Returns: `true` when the listener is still running that generation on
     ///   that path and the socket file is still gone, so a stop/start restart
     ///   is warranted.
-    public func shouldRestartForMissingPath(path: String, generation: UInt64) -> Bool {
-        withListenerState { state in
-            state.isRunning &&
-                state.activeAcceptLoopGeneration == generation &&
-                state.socketPath == path &&
-                !transport.pathExists(path, matching: state.boundSocketPathIdentity)
-        }
+    public nonisolated func shouldRestartForMissingPath(path: String, generation: UInt64) -> Bool {
+        let snapshot = listenerStateSnapshot()
+        return snapshot.isRunning &&
+            snapshot.activeGeneration == generation &&
+            snapshot.socketPath == path &&
+            !transport.pathExists(path, matching: snapshot.boundSocketPathIdentity)
     }
 }
