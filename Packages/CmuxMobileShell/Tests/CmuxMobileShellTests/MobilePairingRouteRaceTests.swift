@@ -198,7 +198,7 @@ import Testing
         let probe = RaceProbe()
         let routes = [try route("a", host: "100.64.0.1"), try route("b", host: "100.64.0.2")]
         let race = MobilePairingRouteRace(clock: clock)
-        let hostAnswer = MobileShellConnectionError.rpcError("account_mismatch", "different account")
+        let credentialRejection = MobileShellConnectionError.accountMismatch("different account")
 
         do {
             _ = try await race.run(
@@ -207,23 +207,63 @@ import Testing
                 onDiscardedSuccess: { (value: String) in await probe.recordDiscarded(value) },
                 attempt: { route in
                     await probe.recordStart(route.id, at: clock.now.offset)
-                    throw hostAnswer
+                    throw credentialRejection
                 }
             )
-            Issue.record("race should throw when the host answer ends it")
+            Issue.record("race should throw when a credential rejection ends it")
         } catch let failure as MobilePairingRouteRaceFailure {
-            // The host's definitive answer is the representative failure, and
-            // route b was cancelled out of its stagger sleep without ever
+            // The route-independent rejection is the representative failure,
+            // and route b was cancelled out of its stagger sleep without ever
             // dialing: no clock advance was needed to resolve the race.
             #expect(failure.raceEndingFailure?.route.id == "a")
             #expect(failure.representative?.route.id == "a")
             guard let representativeError = failure.representative?.error as? MobileShellConnectionError,
-                  case .rpcError = representativeError else {
-                Issue.record("representative should carry the host's RPC answer")
+                  case .accountMismatch = representativeError else {
+                Issue.record("representative should carry the credential rejection")
                 return
             }
         }
         #expect(await probe.startedRouteIDs == ["a"])
+    }
+
+    @Test func routeFanOutIsCappedForUntrustedTickets() async throws {
+        let clock = ManualTestClock()
+        let probe = RaceProbe()
+        // A crafted attach URL can carry an arbitrary route list; only the
+        // first `maxRoutes` (default 8) may ever dial.
+        let routes = try (0..<12).map { try route("r\($0)", host: "100.64.0.\($0 + 1)") }
+        let race = MobilePairingRouteRace(clock: clock)
+
+        let raceTask = Task {
+            try await race.run(
+                routes: routes,
+                endsRace: { _ in false },
+                onDiscardedSuccess: { (value: String) in await probe.recordDiscarded(value) },
+                attempt: { route in
+                    await probe.recordStart(route.id, at: clock.now.offset)
+                    throw CmxNetworkByteTransportError.connectionTimedOut
+                }
+            )
+        }
+
+        // Route 0 starts immediately and fails; the other raced routes park on
+        // their stagger sleeps. Advancing far past every stagger releases all
+        // of them; routes beyond the cap were never spawned at all.
+        await probe.waitForStarts(1)
+        await clock.waitUntilSleepers(count: 7)
+        clock.advance(by: .seconds(10))
+
+        let result = await raceTask.result
+        guard case let .failure(error) = result,
+              let failure = error as? MobilePairingRouteRaceFailure else {
+            Issue.record("race should throw MobilePairingRouteRaceFailure when every route fails")
+            return
+        }
+        #expect(failure.failures.count == 8)
+        #expect(await probe.startedRouteIDs.count == 8)
+        #expect(await probe.startedRouteIDs.allSatisfy { id in
+            routes.prefix(8).map(\.id).contains(id)
+        })
     }
 
     @Test func successCompletingAfterRaceEndingFailureStillWins() async throws {
@@ -331,7 +371,7 @@ import Testing
 
     // MARK: - Attempt predicates
 
-    @Test func hostLevelAnswersEndTheRaceButRouteLocalFailuresDoNot() {
+    @Test func routeIndependentFailuresEndTheRaceButRouteLocalFailuresDoNot() {
         #expect(MobilePairingRouteAttempt.failureEndsRouteRace(
             MobileShellConnectionError.authorizationFailed("no")
         ))
@@ -341,10 +381,12 @@ import Testing
         #expect(MobilePairingRouteAttempt.failureEndsRouteRace(
             MobileShellConnectionError.attachTicketExpired
         ))
-        #expect(MobilePairingRouteAttempt.failureEndsRouteRace(
+        // Route-local: the routes are unverified candidate endpoints, so a
+        // generic RPC answer on one route (stale address, wrong service, older
+        // host) must not stop a sibling route from connecting.
+        #expect(!MobilePairingRouteAttempt.failureEndsRouteRace(
             MobileShellConnectionError.rpcError("internal", "boom")
         ))
-        // Route-local: a sibling route may still reach the host or be trusted.
         #expect(!MobilePairingRouteAttempt.failureEndsRouteRace(
             MobileShellConnectionError.requestTimedOut
         ))

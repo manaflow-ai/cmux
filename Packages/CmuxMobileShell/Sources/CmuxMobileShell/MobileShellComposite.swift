@@ -1764,8 +1764,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
         } catch let raceFailure as MobilePairingRouteRaceFailure {
             guard generation == connectionGeneration, isSignedIn else { return nil }
-            // Surface the most actionable route's failure (race-ending host
-            // answers first), with activeRoute pointed at that route so the
+            // Surface the most actionable route's failure (route-independent
+            // failures first), with activeRoute pointed at that route so the
             // classifier names the right host/port in the message.
             clearRemoteConnectionContext()
             diagnosticLog?.record(DiagnosticEvent(.pairFail))

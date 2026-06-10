@@ -22,18 +22,29 @@ struct MobilePairingRouteRace: Sendable {
     /// before the secondary even dials) while letting a dead primary route cost
     /// only the stagger, not its full timeout, before alternatives start.
     var stagger: Duration
+    /// Upper bound on how many routes are raced. Attach tickets are decoded
+    /// from untrusted scanned/pasted URLs, so without a cap a crafted ticket
+    /// with thousands of routes would fan out one child task (plus a stagger
+    /// sleep and a dial) per route. A legitimate ticket carries a handful of
+    /// routes (Tailscale, LAN, loopback, manual), so 8 covers every real
+    /// ticket while bounding adversarial input; routes beyond the cap are
+    /// ignored, matching the priority order.
+    var maxRoutes: Int
     /// The clock the stagger delays sleep on (virtual in tests).
     var clock: any Clock<Duration>
 
     /// Creates a racer.
     /// - Parameters:
     ///   - stagger: Delay between starting successive route attempts.
+    ///   - maxRoutes: Upper bound on how many routes are raced.
     ///   - clock: The clock stagger delays sleep on.
     init(
         stagger: Duration = .milliseconds(250),
+        maxRoutes: Int = 8,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.stagger = stagger
+        self.maxRoutes = maxRoutes
         self.clock = clock
     }
 
@@ -41,18 +52,20 @@ struct MobilePairingRouteRace: Sendable {
     ///
     /// - Parameters:
     ///   - routes: Candidate routes in priority order; index 0 starts with no
-    ///     delay, index `n` starts after `n * stagger`.
-    ///   - endsRace: Returns `true` for failures that are definitive for the
-    ///     *host* rather than the route (auth rejection, expired ticket, an RPC
-    ///     error answer): every other route would get the same answer, so the
-    ///     race ends immediately instead of waiting out the remaining attempts.
+    ///     delay, index `n` starts after `n * stagger`. At most ``maxRoutes``
+    ///     are raced; the rest are ignored.
+    ///   - endsRace: Returns `true` for failures that are route-independent
+    ///     (locally checked ticket expiry, explicit credential rejections):
+    ///     every other route would fail the same way, so the race ends
+    ///     immediately instead of waiting out the remaining attempts.
     ///     This short-circuit stops *waiting*; it does not override a success.
     ///     A sibling attempt that completes successfully after the race-ending
     ///     failure (cancellation is cooperative) still wins, because a live,
     ///     authorized connection is definitive proof pairing works. With a
-    ///     one-time ticket this is the common race: the attempt that consumed
-    ///     the ticket succeeds while a sibling's "already used" rejection ends
-    ///     the race, and the user must get the connection, not the rejection.
+    ///     one-time ticket this is the plausible race: the attempt that
+    ///     consumed the ticket succeeds while a sibling's credential rejection
+    ///     for the now-consumed ticket ends the race, and the user must get
+    ///     the connection, not the rejection.
     ///   - onDiscardedSuccess: Cleanup for a success that completed after the
     ///     winner was chosen (close its connection so it does not leak).
     ///   - attempt: Dials one route. Must be cancellation-responsive for losers
@@ -66,13 +79,14 @@ struct MobilePairingRouteRace: Sendable {
         onDiscardedSuccess: @escaping @Sendable (Success) async -> Void,
         attempt: @escaping @Sendable (CmxAttachRoute) async throws -> Success
     ) async throws -> Success {
-        guard !routes.isEmpty else {
+        let racedRoutes = routes.prefix(max(1, maxRoutes))
+        guard !racedRoutes.isEmpty else {
             throw MobilePairingRouteRaceFailure(failures: [], raceEndingFailure: nil)
         }
         let stagger = stagger
         let clock = clock
         return try await withThrowingTaskGroup(of: RouteOutcome<Success>.self) { group in
-            for (index, route) in routes.enumerated() {
+            for (index, route) in racedRoutes.enumerated() {
                 group.addTask {
                     do {
                         if index > 0 {
@@ -155,13 +169,13 @@ struct MobilePairingRouteRaceFailure: Error {
 
     /// Every failed attempt, in route-priority order.
     let failures: [RouteFailure]
-    /// The failure that ended the race early because it was definitive for the
-    /// host (auth rejection, expired ticket, an RPC error answer), if any.
+    /// The failure that ended the race early because it was route-independent
+    /// (locally checked ticket expiry, explicit credential rejection), if any.
     let raceEndingFailure: RouteFailure?
 
     /// The single failure the pairing UI should classify and show.
     ///
-    /// A race-ending failure wins outright (the host answered; that answer is
+    /// A race-ending failure wins outright (it is route-independent, so it is
     /// the truth). Otherwise the failure whose classified category carries the
     /// most user-actionable signal wins, with the route priority breaking ties,
     /// so "cmux isn't running on your Mac" beats a sibling route's generic

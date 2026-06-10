@@ -184,21 +184,25 @@ struct MobilePairingRouteAttempt: Sendable {
 
     /// Whether a failed attempt ends the whole route race.
     ///
-    /// True for failures that are definitive for the *host* rather than this
-    /// route: an expired ticket (checked locally, identical on every route) or
-    /// an answer from the host itself (auth rejection, account mismatch, any
-    /// RPC error). Every sibling route talks to the same host with the same
-    /// request, so it would get the same answer; ending the race surfaces the
-    /// real reason immediately instead of waiting out the remaining attempts.
-    /// Transport failures and ``MobileShellConnectionError/insecureManualRoute``
-    /// stay route-local: a sibling route may still reach the host or be trusted
-    /// to carry the credential.
+    /// True only for failures that are route-independent: an expired ticket
+    /// (checked locally, identical on every route) and explicit credential
+    /// rejections (auth failure, account mismatch), which are about the
+    /// ticket/identity rather than the path that carried it. A generic
+    /// ``MobileShellConnectionError/rpcError`` stays route-local even though it
+    /// is a host answer: the ticket's routes are unverified candidate
+    /// endpoints, so a stale address, the wrong service on an advertised port,
+    /// or an older host can answer a fast RPC error on one route while a
+    /// sibling route would have connected (the old sequential loop kept trying
+    /// the next route after RPC errors for the same reason). Transport
+    /// failures and ``MobileShellConnectionError/insecureManualRoute`` also
+    /// stay route-local: a sibling route may still reach the host or be
+    /// trusted to carry the credential.
     static func failureEndsRouteRace(_ error: any Error) -> Bool {
         guard let connectionError = error as? MobileShellConnectionError else { return false }
         switch connectionError {
-        case .authorizationFailed, .accountMismatch, .attachTicketExpired, .rpcError:
+        case .authorizationFailed, .accountMismatch, .attachTicketExpired:
             return true
-        case .requestTimedOut, .connectionClosed, .invalidResponse, .insecureManualRoute:
+        case .rpcError, .requestTimedOut, .connectionClosed, .invalidResponse, .insecureManualRoute:
             return false
         }
     }
