@@ -11627,7 +11627,7 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser history subcommand: \(verb) (expected: clear)")
             }
             guard hasFlag(subArgs, name: "--force") || hasFlag(subArgs, name: "--yes") else {
-                throw CLIError(message: "browser history clear permanently deletes ALL browser history; pass --force to confirm")
+                throw CLIError(message: "browser history clear permanently deletes the default browser profile's history (same as the View menu's Clear Browser History); pass --force to confirm")
             }
             let payload = try client.sendV2(method: "browser.history.clear", params: ["force": true])
             output(payload, fallback: "OK")
@@ -32550,7 +32550,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           browser devtools toggle|console [--surface <id>]
           browser focus-mode enter|exit|toggle [--surface <id>]
           browser zoom in|out|reset [--surface <id>]
-          browser history clear --force
+          browser history clear --force   (clears the default profile's history; mirrors the View menu)
           browser url|get-url
           browser snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
           browser eval <script>

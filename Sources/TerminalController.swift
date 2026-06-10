@@ -13098,17 +13098,23 @@ class TerminalController {
         return payload
     }
 
+    /// Returns an error if any of the given handle params is SUPPLIED but does not resolve.
+    /// v2UUID returns nil for both an absent param and a present-but-unresolvable handle (e.g. a
+    /// stale `surface:2`/`workspace:99` ref), so a supplied target must not be treated as omitted
+    /// and silently fall back to the focused/selected context. Returns nil when all are valid.
+    private func v2RejectUnresolvedHandles(_ params: [String: Any], _ keys: [String]) -> V2CallResult? {
+        for key in keys where v2String(params, key) != nil && v2UUID(params, key) == nil {
+            return .err(code: "invalid_params", message: "Unresolved \(key)", data: nil)
+        }
+        return nil
+    }
+
     private func v2BrowserReactGrabToggle(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        // A supplied-but-unresolvable surface_id / return_to is an error, not silently dropped:
-        // v2UUID returns nil for both absent and unresolved, so distinguish via the raw string.
-        if v2String(params, "surface_id") != nil, v2UUID(params, "surface_id") == nil {
-            return .err(code: "invalid_params", message: "Unresolved surface_id", data: nil)
-        }
-        if v2String(params, "return_to") != nil, v2UUID(params, "return_to") == nil {
-            return .err(code: "invalid_params", message: "Unresolved return_to", data: nil)
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "return_to", "workspace_id", "window_id"]) {
+            return err
         }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface to toggle React Grab on", data: nil)
         v2MainSync {
@@ -13134,6 +13140,7 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
@@ -13151,6 +13158,7 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
@@ -13168,18 +13176,23 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
         let mode = (v2String(params, "mode") ?? "toggle").lowercased()
+        let enterAliases: Set<String> = ["enter", "on", "true", "active"]
+        let exitAliases: Set<String> = ["exit", "off", "false", "inactive"]
+        guard mode == "toggle" || enterAliases.contains(mode) || exitAliases.contains(mode) else {
+            return .err(code: "invalid_params", message: "mode must be one of: enter, exit, toggle", data: nil)
+        }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
             let handled: Bool
-            switch mode {
-            case "enter", "on", "true", "active":
+            if enterAliases.contains(mode) {
                 handled = target.panel.setBrowserFocusModeActive(true, reason: "cli.focusMode", focusWebView: true)
-            case "exit", "off", "false", "inactive":
+            } else if exitAliases.contains(mode) {
                 handled = target.panel.setBrowserFocusModeActive(false, reason: "cli.focusMode", focusWebView: false)
-            default:
+            } else {
                 handled = target.panel.toggleBrowserFocusMode(reason: "cli.focusMode", focusWebView: true)
             }
             result = .ok(v2BrowserActionPayload(
@@ -13194,6 +13207,7 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
         let direction = (v2String(params, "direction") ?? "").lowercased()
         guard ["in", "out", "reset"].contains(direction) else {
             return .err(code: "invalid_params", message: "direction must be one of: in, out, reset", data: nil)
@@ -13217,15 +13231,18 @@ class TerminalController {
     }
 
     private func v2BrowserHistoryClear(params: [String: Any]) -> V2CallResult {
-        // Destructive + global: require explicit deletion intent so a mistyped command or
-        // background agent cannot silently wipe the user's browser history.
+        // Mirrors the View menu's "Clear Browser History", which clears the default profile's
+        // history store (BrowserHistoryStore.shared). Per-profile history stores are NOT touched,
+        // so the response reports scope=default to avoid a false "everything cleared" signal.
+        // Destructive: require explicit deletion intent so a mistyped command or background agent
+        // cannot silently wipe history.
         guard v2Bool(params, "force") == true else {
             return .err(code: "invalid_params", message: "browser.history.clear requires force=true", data: nil)
         }
         v2MainSync {
             BrowserHistoryStore.shared.clearHistory()
         }
-        return .ok(["cleared": true])
+        return .ok(["cleared": true, "scope": "default_profile"])
     }
 
     private func v2BrowserGetURL(params: [String: Any]) -> V2CallResult {
