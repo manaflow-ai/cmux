@@ -198,6 +198,79 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertEqual(status.priority, 0)
     }
 
+    func testAcknowledgingClaudeNeedsInputDemotesAgentLifecycleForHibernation() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        // Mirror the Claude hook ordering: per-panel lifecycle + sidebar status
+        // both flip to needs-input before the notification is sent.
+        workspace.recordAgentPID(
+            key: "claude_code.session-needs-input",
+            pid: pid_t(12345),
+            panelId: panelId,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .needsInput)
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input",
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            priority: 100
+        )
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            title: "Claude Code",
+            subtitle: "Waiting",
+            body: "Claude needs your input"
+        )
+
+        XCTAssertEqual(
+            workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil),
+            .needsInput
+        )
+
+        store.markRead(forTabId: workspace.id, surfaceId: panelId)
+
+        // The sidebar status demotes to Idle AND the per-panel lifecycle must
+        // leave needsInput, otherwise agentHibernationLifecycleState keeps
+        // returning .needsInput and hibernation stays blocked.
+        XCTAssertEqual(workspace.statusEntries["claude_code"]?.value, "Idle")
+        XCTAssertNotEqual(
+            workspace.agentLifecycleStatesByPanelId[panelId]?["claude_code"],
+            .needsInput
+        )
+        XCTAssertNotEqual(
+            workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil),
+            .needsInput
+        )
+    }
+
     func testRemovingClaudeNeedsInputNotificationDemotesSidebarStatusToIdle() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
