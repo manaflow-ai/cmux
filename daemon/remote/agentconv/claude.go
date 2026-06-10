@@ -30,6 +30,7 @@ type claudeLine struct {
 	Cwd         string         `json:"cwd"`
 	IsSidechain bool           `json:"isSidechain"`
 	IsMeta      bool           `json:"isMeta"`
+	IsAPIError  bool           `json:"isApiErrorMessage"`
 	Message     *claudeMessage `json:"message"`
 }
 
@@ -85,6 +86,17 @@ func (p *claudeParser) consumeUser(line claudeLine) []change {
 		}
 	}
 	if text = strings.TrimSpace(text); text != "" && !isClaudeLocalCommandNoise(text) {
+		// An interrupt marker is a turn-stop event, not something the user said.
+		if strings.HasPrefix(text, "[Request interrupted") {
+			changes = append(changes, p.conversation.appendItem(Item{
+				ID:        line.UUID,
+				Type:      ItemInterrupted,
+				Status:    StatusCompleted,
+				Text:      text,
+				CreatedAt: line.Timestamp,
+			}))
+			return changes
+		}
 		p.conversation.noteTitle(truncateTitle(text))
 		changes = append(changes, p.conversation.appendItem(Item{
 			ID:        line.UUID,
@@ -106,7 +118,24 @@ func (p *claudeParser) consumeAssistant(line claudeLine) []change {
 	for index, block := range blocks {
 		switch block.Type {
 		case "text":
-			if strings.TrimSpace(block.Text) == "" {
+			trimmed := strings.TrimSpace(block.Text)
+			if trimmed == "" {
+				continue
+			}
+			// isApiErrorMessage marks synthetic non-API assistant lines: the
+			// "No response requested." placeholder is pure noise; anything
+			// else (e.g. "API Error: 401 ...") is a real error to surface.
+			if line.IsAPIError {
+				if trimmed == "No response requested." {
+					continue
+				}
+				changes = append(changes, p.conversation.appendItem(Item{
+					ID:        claudeBlockID(line.UUID, index),
+					Type:      ItemError,
+					Status:    StatusFailed,
+					Text:      block.Text,
+					CreatedAt: line.Timestamp,
+				}))
 				continue
 			}
 			changes = append(changes, p.conversation.appendItem(Item{

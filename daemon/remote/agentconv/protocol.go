@@ -38,6 +38,7 @@ const (
 	ItemDynamicToolCall   ItemType = "dynamic_tool_call"
 	ItemWebSearch         ItemType = "web_search"
 	ItemContextCompaction ItemType = "context_compaction"
+	ItemInterrupted       ItemType = "interrupted"
 	ItemError             ItemType = "error"
 	ItemUnknown           ItemType = "unknown"
 )

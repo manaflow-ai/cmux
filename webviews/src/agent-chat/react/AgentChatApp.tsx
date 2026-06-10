@@ -11,6 +11,7 @@ import {
 } from "../bridge";
 import {
   initialConversationState,
+  isAgentWorking,
   reduceConversation,
   type ConversationAction,
   type ConversationState,
@@ -224,6 +225,14 @@ function Timeline({ state }: { state: ConversationState }) {
         data-following={following ? "true" : "false"}
       >
         {rows}
+        {isAgentWorking(state) ? (
+          <output className="agent-chat-row agent-chat-working-row" data-working="true">
+            <span className="agent-chat-working-dot" aria-hidden="true" />
+            <span className="agent-chat-working-dot" aria-hidden="true" />
+            <span className="agent-chat-working-dot" aria-hidden="true" />
+            <span className="agent-chat-visually-hidden">Agent is working</span>
+          </output>
+        ) : null}
         {state.streamError ? (
           <div className="agent-chat-row agent-chat-system-row is-error" data-stream-error="true">
             <span className="agent-chat-system-label">Stream error</span>

@@ -160,7 +160,9 @@ function SystemRow({ item }: { item: ConversationItem }) {
       ? "Context compacted"
       : item.type === "error"
         ? "Error"
-        : "Event";
+        : item.type === "interrupted"
+          ? "Stopped"
+          : "Event";
   return (
     <div
       className={`agent-chat-row agent-chat-system-row${item.type === "error" ? " is-error" : ""}`}

@@ -43,6 +43,7 @@ export type ItemType =
   | "dynamic_tool_call"
   | "web_search"
   | "context_compaction"
+  | "interrupted"
   | "error"
   | "unknown";
 

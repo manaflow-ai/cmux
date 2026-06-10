@@ -235,3 +235,58 @@ describe("reduceConversation", () => {
     expect(next.items).toEqual(withItems.items);
   });
 });
+
+import { isAgentWorking } from "./conversationStore";
+
+describe("isAgentWorking", () => {
+  test("true after a user message with no reply yet", () => {
+    const ready = reduceConversation(initialConversationState(), {
+      type: "init",
+      result: { session, daemon_status: "ready" },
+    });
+    const state = {
+      ...ready,
+      ...applyAgentEvent(ready, {
+        type: "snapshot",
+        seq: 1,
+        session,
+        items: [item("u1", { type: "user_message" })],
+      }),
+    };
+    expect(isAgentWorking(state)).toBe(true);
+  });
+
+  test("false once the assistant replied and nothing is in progress", () => {
+    const ready = reduceConversation(initialConversationState(), {
+      type: "init",
+      result: { session, daemon_status: "ready" },
+    });
+    const state = {
+      ...ready,
+      ...applyAgentEvent(ready, {
+        type: "snapshot",
+        seq: 1,
+        session,
+        items: [item("u1", { type: "user_message" }), item("a1")],
+      }),
+    };
+    expect(isAgentWorking(state)).toBe(false);
+  });
+
+  test("true while any tool item is in progress", () => {
+    const ready = reduceConversation(initialConversationState(), {
+      type: "init",
+      result: { session, daemon_status: "ready" },
+    });
+    const state = {
+      ...ready,
+      ...applyAgentEvent(ready, {
+        type: "snapshot",
+        seq: 1,
+        session,
+        items: [item("t1", { type: "command_execution", status: "in_progress" }), item("a1")],
+      }),
+    };
+    expect(isAgentWorking(state)).toBe(true);
+  });
+});

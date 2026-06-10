@@ -196,3 +196,22 @@ function upsertItem(items: ConversationItem[], item: ConversationItem): Conversa
   next[index] = item;
   return next;
 }
+
+/**
+ * Whether the agent is visibly mid-work: a hook-observed turn is open, a tool
+ * call is still in progress, or the newest renderable item is the user's
+ * message awaiting a reply. Drives the typing indicator; purely derived.
+ */
+export function isAgentWorking(state: ConversationState): boolean {
+  if (state.daemonStatus !== "ready" || !state.hasSnapshot) {
+    return false;
+  }
+  if (state.activeTurn !== null) {
+    return true;
+  }
+  if (state.items.some((item) => item.status === "in_progress")) {
+    return true;
+  }
+  const last = state.items[state.items.length - 1];
+  return last !== undefined && last.type === "user_message";
+}
