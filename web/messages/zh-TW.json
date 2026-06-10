@@ -673,7 +673,57 @@
       "automatic": "自動",
       "paneIdSocket": "窗格 ID（socket API）",
       "panelIdInternal": "面板 ID（內部）",
-      "metaTitle": "概念"
+      "metaTitle": "概念",
+      "workspaceGroups": "工作區群組",
+      "workspaceGroupsDesc": "將相關的工作區歸入側邊欄中可折疊的具名區段。每個群組都由一個錨點工作區擁有，並可釘選、重新命名，以及設定專屬的圖示與顏色。新工作區可以直接從群組標頭在群組內建立。",
+      "workspaceGroupsLink": "閱讀完整的工作區群組指南"
+    },
+    "workspaceGroups": {
+      "metaTitle": "工作區群組",
+      "metaDescription": "在 cmux 側邊欄中將工作區巢狀整理成可折疊的具名區段。錨點模型、如何建立與管理群組，以及 workspace-group CLI。",
+      "title": "工作區群組",
+      "intro": "工作區群組讓你能將工作區巢狀歸入側邊欄中可折疊的具名區段。每個群組都有一個隱含的錨點工作區、一個可自訂用來在群組內建立新工作區的 + 按鈕，以及用於重新命名、釘選、解除群組和編輯其設定的右鍵動作。",
+      "concepts": "概念",
+      "anchorTitle": "錨點工作區",
+      "anchorDesc": "每個群組都恰好由一個稱為錨點的工作區擁有。側邊欄中的群組標頭即是錨點的呈現方式——它沒有獨立的列。點按標頭名稱區域會聚焦於錨點的面板；點按箭號則切換折疊狀態。",
+      "anchorNew": "建立群組時，錨點一律是全新的。它們絕不會由現有的工作區升格而成。對選取項目進行群組化時，錨點的工作目錄會繼承自第一個選取的工作區；透過 CLI 在未指定 --cwd 的情況下建立時，則繼承自目前作用中的工作區。",
+      "anchorClose": "關閉錨點工作區會解散群組：其他每個成員都會變成未群組的工作區，並保留在分頁列表中。除了錨點本身之外，不會關閉任何項目。在此發生之前，應用程式會顯示一個帶有「不再詢問」切換開關的確認對話框。",
+      "identityTitle": "群組識別",
+      "identityDesc": "群組具有名稱、圖示（一個 SF Symbol，預設為 folder.fill），以及一個選用的自訂顏色。這些都獨立於錨點工作區本身的自訂設定。錨點的顏色和圖示在建立時會以群組為種子值，但之後可以各自不同。",
+      "pinningTitle": "釘選",
+      "pinningDesc": "群組可以獨立於個別工作區的釘選而釘選。已釘選的頂層列，無論是個別工作區還是群組，都會位於未釘選列的上方。在每個層級之內，群組和工作區會保留你拖曳放入的順序。",
+      "layoutIntro": "側邊欄由上而下排列頂層列：",
+      "layoutItem1": "已釘選的頂層列（工作區與群組）。",
+      "layoutItem2": "未釘選的頂層列（工作區與群組）。",
+      "creatingTitle": "建立群組",
+      "creatingIntro": "可以透過兩種方式建立群組：鍵盤快速鍵或工作區右鍵選單。兩者都會在所選項目上方插入一個新的錨點工作區，並將所選工作區移入該群組。群組建立後，你可以從群組標題處管理它並向其中新增工作區（請參閱下方的「管理群組」）。",
+      "keyboardTitle": "透過鍵盤（{shortcut}）",
+      "keyboardDesc": "在側邊欄中選取兩個或更多工作區，然後按下 {shortcut}。一個全新的錨點工作區會插入在所選項目上方，且所有選取的工作區都會成為子項。群組會自動命名為 Group 1、Group 2 等等——你可以隨時透過標頭情境選單重新命名。",
+      "keyboardNote": "{shortcut} 與 React Grab 的預設快捷鍵相衝突。群組處理常式只有在側邊欄明確多選至少兩個工作區時才會消耗此和弦，因此在單選以及瀏覽器或終端機情境中，React Grab 仍會觸發。如果你不希望兩者共用同一個按鍵，可以在「設定 → 鍵盤」中重新繫結。",
+      "keyboardSingle": "單一分頁群組無法透過快捷鍵建立。請改用工作區右鍵選單中的 New Group from Workspace 項目來建立。",
+      "contextMenuTitle": "透過工作區情境選單",
+      "contextMenuDesc": "在側邊欄中對任一工作區按右鍵並選擇 New Group from Workspace；當選取多個工作區時，則選擇 New Group from Selection。這會使用與快捷鍵相同的自動命名行為。",
+      "managingTitle": "管理群組",
+      "managingIntro": "群組建立後，可以透過其標題的右鍵選單以及標題上的 + 按鈕來管理群組並向其中新增工作區。這兩者都不會建立新群組。",
+      "headerMenuTitle": "透過群組標頭情境選單",
+      "headerMenuDesc": "對現有的群組標題列按右鍵，可使用 Rename Group…、Pin Group / Unpin Group、Edit Group Config…（會開啟 ~/.config/cmux/cmux.json）、Open Workspace Groups Docs、Ungroup (Keep Workspaces) 以及 Delete Group (Close Workspaces)。刪除是破壞性操作並會提示確認；取消群組則會保留工作區，僅移除容器。",
+      "plusButtonTitle": "透過群組標頭上的 + 按鈕",
+      "plusButtonDesc": "將滑鼠移到群組標題列上，即可顯示尾端的 + 按鈕。點按它即可在該群組中、於錨點工作目錄下建立新的工作區。對它按右鍵則可使用 New Workspace in Group、Edit Group Config… 以及 Open Workspace Groups Docs。",
+      "plusButtonNote": "當目前作用中的工作區是某個群組的錨點或成員時，按下 {shortcut} 也會在該群組內建立新工作區。預設放置方式為 After current：從一般的群組成員出發時，新工作區會落在作用中成員的正後方；從錨點或標頭出發時，則會落在群組的頂端。",
+      "cliTitle": "CLI",
+      "cliDesc": "所有群組操作皆可透過 cmux workspace-group 子命令編寫指令稿。帶連字號的形式將率先推出；一旦更廣泛的 cmux workspace 命令命名空間上線，cmux workspace group 將成為標準形式，而帶連字號的形式將永久保留作為別名。",
+      "cliSubcommandsTitle": "子指令",
+      "cliCreateNote": "create 會回傳一個群組控制代碼（預設為 workspace_group:N）。傳入 --json 可取得完整的結構化負載。",
+      "cliFlagsNote": "傳給 set-color 或 set-icon 一個空值即可清除群組的顏色或圖示。delete 是不可逆的：它會關閉每個成員工作區。",
+      "cliExamplesTitle": "範例",
+      "cliExampleGroup": "將目前選取的工作區以某個名稱進行群組化：",
+      "cliExampleNew": "在現有群組內建立一個新工作區，例如連接到某個 worktree 指令稿：",
+      "cliExampleList": "列出聚焦視窗中的群組：",
+      "configTitle": "設定",
+      "configNote": "每個群組的設定位於 ~/.config/cmux/cmux.json 中的 workspaceGroups 鍵之下，並以錨點工作區的工作目錄作為鍵。請參閱設定參考，以了解所支援的鍵，包括全域新工作區放置位置，以及各目錄的色彩、圖示、放置位置和右鍵選單動作。",
+      "configLinkText": "workspaceGroups 設定參考",
+      "persistenceTitle": "持久化",
+      "persistenceDesc": "群組名稱、錨點、釘選狀態、折疊狀態、顏色與圖示都會與你的工作區一併儲存，並在重新啟動後還原。群組成員資格則儲存在每個工作區上。"
     },
     "configuration": {
       "title": "設定",
@@ -742,12 +792,20 @@
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "每個動作可選的內容述詞（VS Code 風格的 `when` 子句），依 cmux 動作 id 建立索引。每個值都是基於內容鍵的布林運算式，可用 !、&&、|| 與括號組合。布林鍵：sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible。型別化鍵支援比較：字串 sidebarMode（files、find、sessions、feed 或 dock）以及整數 paneCount 與 workspaceCount。比較運算子為 ==、!=、=~（正規表示式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的鍵視為 false。也接受布林常值 true 和 false；`key == false` 等同於 `!key`。只有在子句成立時，該動作的快速鍵才會觸發，也只會在這種情況下與其他快速鍵衝突。範例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 讓 Ctrl+1–9 在右側邊欄未聚焦時選取工作區；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作區有多個窗格時，將綁定限制在尋找側邊欄。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "shortcutsWhenIntro": "每個動作可選的內容述詞（VS Code 風格的 when 子句），依 cmux 動作 id 建立索引。只有在其子句成立時，綁定才會觸發，也只會在這種情況下與同一按鍵上的其他綁定衝突。省略子句即保留動作的內建內容。子句可用的詞彙：",
+      "shortcutsWhenBooleanKeys": "布林鍵。未知或不存在的鍵視為 false；也接受常值 true 和 false。",
+      "shortcutsWhenTypedKeys": "用於比較的型別化鍵：右側邊欄的目前模式（字串），以及窗格與工作區數量（整數）。",
+      "shortcutsWhenOperators": "布林運算子、型別化比較、正規表示式比對與清單成員判斷。比較的結合優先順序高於 && 和 ||。",
+      "shortcutsWhenExample": "例如，以下設定讓 Ctrl+1–9 在右側邊欄未取得焦點時選取工作區（將 Ctrl+1–5 留給側邊欄模式切換器），並在工作區有多個窗格時，將表面選取限制在尋找側邊欄："
     },
     "customCommands": {
       "title": "自訂指令",
@@ -1148,6 +1206,7 @@
     "navItems": {
       "gettingStarted": "入門指南",
       "concepts": "概念",
+      "workspaceGroups": "工作區群組",
       "configuration": "設定",
       "sessionRestore": "工作階段還原",
       "customCommands": "自訂指令",
@@ -1429,5 +1488,10 @@
     "downloadLight": "下載淺色圖示",
     "downloadDark": "下載深色圖示",
     "brandPage": "品牌素材"
+  },
+  "afterSignIn": {
+    "title": "已登入 cmux",
+    "body": "如果 cmux 沒有自動開啟，請使用下方按鈕。",
+    "button": "返回 cmux"
   }
 }
