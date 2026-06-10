@@ -1678,6 +1678,8 @@ final class SocketClient {
     private var socketFD: Int32 = -1
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
+    private var reconnectAuthCommand: String?
+    private var isReplayingReconnectAuth = false
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
     private static let maxSocketTimeoutSeconds: TimeInterval = 9_007_199_254_740_991
@@ -1820,10 +1822,38 @@ final class SocketClient {
         lastConfiguredReceiveTimeout = nil
     }
 
+    /// Remembers the auth line to replay when a dead cached connection is
+    /// transparently re-established: the server authenticates each socket
+    /// connection independently, so a reconnect must repeat the login.
+    func rememberReconnectAuth(command: String) {
+        reconnectAuthCommand = command
+    }
+
+    /// The control socket server applies a receive timeout to each accepted
+    /// connection and closes it once idle, so for a long-lived cached client
+    /// (such as the ssh-pty-attach SIGWINCH resize source) a peer-closed
+    /// connection is the expected steady state rather than an error.
+    /// Re-establish the connection — and replay password auth when configured
+    /// — before sending instead of failing the request on a dead socket.
+    /// Clients that were never connected still surface "Not connected".
+    private func reestablishConnectionIfPeerClosed() throws {
+        guard socketFD >= 0, !connectionAppearsOpen() else { return }
+        close()
+        try connect()
+        guard let authCommand = reconnectAuthCommand, !isReplayingReconnectAuth else { return }
+        isReplayingReconnectAuth = true
+        defer { isReplayingReconnectAuth = false }
+        let response = try send(command: authCommand)
+        if response.hasPrefix("ERROR:") {
+            throw CLIError(message: response)
+        }
+    }
+
     func send(command: String, responseTimeout: TimeInterval? = nil) throws -> String {
         if relayEndpoint != nil, socketFD < 0 {
             try connect()
         }
+        try reestablishConnectionIfPeerClosed()
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
         let shouldCloseAfterSend = relayEndpoint != nil
         defer {
@@ -5612,6 +5642,9 @@ struct CMUXCLI {
             if authResponse.hasPrefix("ERROR:"),
                !authResponse.contains("Unknown command 'auth'") {
                 throw CLIError(message: authResponse)
+            }
+            if !authResponse.hasPrefix("ERROR:") {
+                client.rememberReconnectAuth(command: "auth \(socketPassword)")
             }
         }
     }
@@ -10897,7 +10930,15 @@ struct CMUXCLI {
                 params["surface_id"] = surfaceID
                 params["allow_moved_surface"] = true
             }
-            _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: params)
+            // SocketClient.send() transparently re-establishes a peer-closed
+            // cached connection (the server times out idle clients), so the
+            // only errors left here are real failures — log them instead of
+            // silently freezing the remote PTY at its previous size.
+            do {
+                _ = try client.sendV2(method: "workspace.remote.pty_resize", params: params)
+            } catch {
+                self.cliDebugLog("ssh-pty-attach: failed to propagate terminal resize (\(size.cols)x\(size.rows)): \(error)")
+            }
         }
         source.resume()
         return source
