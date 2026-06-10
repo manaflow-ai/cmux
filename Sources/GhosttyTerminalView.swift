@@ -5326,7 +5326,10 @@ private func recordAgentHibernationTerminalInput(
 private func terminalInputCanLeavePromptText(_ text: String) -> Bool {
     !text.allSatisfy { character in
         if character == "\r" || character == "\n" ||
-            character == "\u{03}" || character == "\u{04}" || character == "\u{15}" {
+            character == "\u{03}" || character == "\u{04}" || character == "\u{15}" ||
+            character == "\u{1B}" || character == "\u{7F}" || character == "\u{08}" {
+            // Settling characters plus non-inserting editing controls:
+            // escape, delete, backspace.
             return true
         }
         // NSEvent function-key range (arrows, F-keys, page up/down…).
@@ -6695,6 +6698,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 ?? getenv("SHELL").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["SHELL"]
                 ?? "/bin/zsh"
+            // The managed integrations are the consumers of
+            // CMUX_RESTORE_SCROLLBACK_FILE; without one, a restored shell
+            // would never replay captured scrollback. Keyed off the shell
+            // name: zsh/bash apply via environment (the helper returns nil),
+            // only fish returns a replacement command.
+            let shellName = URL(fileURLWithPath: shell).lastPathComponent
+            runtimeSupportsScrollbackReplay = ["zsh", "bash", "fish"].contains(shellName)
             if let command = Self.applyManagedShellSpecificStartupEnvironment(
                 shell: shell,
                 integrationDir: integrationDir,
@@ -6703,10 +6713,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 protectedKeys: &protectedStartupEnvironmentKeys
             ) {
                 if baseConfig.command?.isEmpty != false { baseConfig.command = command }
-                // The managed integrations (zsh/bash/fish) are the consumers
-                // of CMUX_RESTORE_SCROLLBACK_FILE; without one, a restored
-                // shell would never replay captured scrollback.
-                runtimeSupportsScrollbackReplay = true
             }
         }
         env = Self.mergedStartupEnvironment(
