@@ -1065,6 +1065,13 @@ class TabManager: ObservableObject {
     weak var window: NSWindow?
 
     @Published var tabs: [Workspace] = []
+    /// Memoizes the sidebar's O(N) lookup dictionaries / render items so they
+    /// rebuild only when their inputs (workspace identity + order, per-workspace
+    /// `groupId`, `workspaceGroups`) actually change — not on every unrelated
+    /// observable tick that re-evaluates `VerticalTabsSidebar.body`. See #5832.
+    /// Plain (non-`@Published`) storage: reading/updating it must never
+    /// invalidate a SwiftUI view.
+    let sidebarWorkspaceListDerivedCache = SidebarWorkspaceListDerivedCache()
     /// Named groupings of workspaces shown as collapsible sections in the sidebar.
     /// Group order in this array defines section order in the sidebar.
     /// Each member workspace stores its `groupId` on the `Workspace` model.
@@ -3682,6 +3689,13 @@ class TabManager: ObservableObject {
         }
         postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
         return true
+    }
+
+    /// Sidebar lookup dictionaries / render items derived from the current
+    /// `tabs` and `workspaceGroups`, memoized so unrelated observable ticks that
+    /// re-evaluate `VerticalTabsSidebar.body` don't rebuild them. See #5832.
+    func sidebarWorkspaceListDerived() -> SidebarWorkspaceListDerivedCache.Derived {
+        sidebarWorkspaceListDerivedCache.derived(tabs: tabs, workspaceGroups: workspaceGroups)
     }
 
     func sidebarReorderWorkspaceIds(

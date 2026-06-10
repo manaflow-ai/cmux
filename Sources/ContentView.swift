@@ -11006,11 +11006,17 @@ struct VerticalTabsSidebar: View {
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
         let tabItemSettings = tabItemSettingsStore.snapshot
-        let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
-            ($0.element.id, $0.offset)
-        })
-        let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        let workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
+        // The workspace identity / order / grouping derived structures are
+        // memoized in `TabManager`, so the frequent unrelated ticks that
+        // re-evaluate this body (unread-count churn, config changes, parent
+        // re-renders) read cached values instead of rebuilding five O(N)
+        // dictionaries each time. See #5832.
+        let derived = tabManager.sidebarWorkspaceListDerived()
+        let tabIndexById = derived.tabIndexById
+        let workspaceById = derived.workspaceById
+        let workspaceGroupIdByWorkspaceId = derived.workspaceGroupIdByWorkspaceId
+        // Selection-derived values depend on the view-local `selectedTabIds`
+        // binding (not on `tabs`/`workspaceGroups`), so they stay in body.
         let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
         let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
@@ -11022,15 +11028,10 @@ struct VerticalTabsSidebar: View {
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
         let workspaceGroups = tabManager.workspaceGroups
-        let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
-        let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
-            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
-        )
-        let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
-            tabs: tabs,
-            groupsById: workspaceGroupById
-        )
-        let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
+        let workspaceGroupById = derived.workspaceGroupById
+        let workspaceGroupMenuSnapshot = derived.workspaceGroupMenuSnapshot
+        let workspaceRenderItems = derived.workspaceRenderItems
+        let visibleWorkspaceRowIds = derived.visibleWorkspaceRowIds
         let draggedSidebarTabId = dragState.draggedTabId
         let sidebarReorderIds = draggedSidebarTabId.map {
             tabManager.sidebarReorderWorkspaceIds(
@@ -11040,7 +11041,7 @@ struct VerticalTabsSidebar: View {
         } ?? []
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
-            tabIds: tabs.map(\.id),
+            tabIds: derived.tabIds,
             sidebarReorderIds: sidebarReorderIds,
             workspaceCount: workspaceCount,
             canCloseWorkspace: canCloseWorkspace,
