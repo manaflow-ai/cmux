@@ -745,7 +745,7 @@ final class TerminalOutputCollector {
 
     #expect(result == .failed)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "This pairing link expired. Pair again with a fresh QR/link from that computer.")
+    #expect(store.connectionError == "This code expired. On your Mac, click Refresh Code in the pairing window, then scan the new code.")
     #expect(dials.count == 0)
 }
 
