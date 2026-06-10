@@ -3142,7 +3142,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var suppressWebViewFocusForAddressBar: Bool = false
     private var addressBarFocusRestoreGeneration: UInt64 = 0
     private let blankURLString = "about:blank"
-    private static let addressBarFocusCaptureScript = """
+    static let addressBarFocusCaptureScript = """
     (() => {
       try {
         const syncState = (state) => {
@@ -3278,7 +3278,7 @@ final class BrowserPanel: Panel, ObservableObject {
       }
     })();
     """
-    private static let addressBarFocusRestoreScript = """
+    static let addressBarFocusRestoreScript = """
     (() => {
       try {
         const readState = () => {
