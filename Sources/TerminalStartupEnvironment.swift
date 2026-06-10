@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import OSLog
 
 extension TerminalSurface {
     typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
@@ -151,8 +152,7 @@ extension TerminalSurface {
     static func applyManagedFishStartupEnvironment(
         integrationDir: String,
         to environment: inout [String: String],
-        protectedKeys: inout Set<String>,
-        ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        protectedKeys: inout Set<String>
     ) {
         let normalizedIntegrationDir = URL(fileURLWithPath: integrationDir, isDirectory: true)
             .standardizedFileURL
@@ -165,6 +165,58 @@ extension TerminalSurface {
         environment["CMUX_FISH_USER_CONFIG_ALREADY_LOADED"] = "1"
         protectedKeys.insert("CMUX_FISH_INTEGRATION_FILE")
         protectedKeys.insert("CMUX_FISH_USER_CONFIG_ALREADY_LOADED")
+    }
+
+    static func applyManagedShellSpecificStartupEnvironment(
+        shell: String,
+        integrationDir: String,
+        userGhosttyShellIntegrationMode: String,
+        to environment: inout [String: String],
+        protectedKeys: inout Set<String>,
+        readFile: (String) throws -> String = { try String(contentsOfFile: $0, encoding: .utf8) }
+    ) -> String? {
+        let shellName = URL(fileURLWithPath: shell).lastPathComponent
+        func setManagedEnvironmentValue(_ key: String, _ value: String) {
+            environment[key] = value
+            protectedKeys.insert(key)
+        }
+        switch shellName {
+        case "zsh":
+            if userGhosttyShellIntegrationMode != "none" { setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION", "1") }
+            let candidateZdotdir = (environment["ZDOTDIR"]?.isEmpty == false ? environment["ZDOTDIR"] : nil)
+                ?? getenv("ZDOTDIR").map { String(cString: $0) }
+                ?? (ProcessInfo.processInfo.environment["ZDOTDIR"]?.isEmpty == false ? ProcessInfo.processInfo.environment["ZDOTDIR"] : nil)
+            if let candidateZdotdir, !candidateZdotdir.isEmpty {
+                let ghosttyResources = (environment["GHOSTTY_RESOURCES_DIR"]?.isEmpty == false ? environment["GHOSTTY_RESOURCES_DIR"] : nil)
+                    ?? getenv("GHOSTTY_RESOURCES_DIR").map { String(cString: $0) }
+                    ?? (ProcessInfo.processInfo.environment["GHOSTTY_RESOURCES_DIR"]?.isEmpty == false ? ProcessInfo.processInfo.environment["GHOSTTY_RESOURCES_DIR"] : nil)
+                let ghosttyZdotdir = ghosttyResources.map { URL(fileURLWithPath: $0).appendingPathComponent("shell-integration/zsh").path }
+                if candidateZdotdir != ghosttyZdotdir { setManagedEnvironmentValue("CMUX_ZSH_ZDOTDIR", candidateZdotdir) }
+            }
+            setManagedEnvironmentValue("ZDOTDIR", integrationDir)
+        case "bash":
+            if userGhosttyShellIntegrationMode != "none" { setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_BASH_INTEGRATION", "1") }
+            let bashBootstrapPath = (integrationDir as NSString).appendingPathComponent("cmux-bash-bootstrap.bash")
+            do {
+                let bootstrap = try readFile(bashBootstrapPath)
+                    .components(separatedBy: "\n")
+                    .filter {
+                        let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                        return !trimmed.isEmpty && !trimmed.hasPrefix("#")
+                    }
+                    .joined(separator: "\n")
+                if !bootstrap.isEmpty { setManagedEnvironmentValue("PROMPT_COMMAND", bootstrap) }
+            } catch {
+                Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
+                    .error("cmux bash bootstrap unreadable at \(bashBootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); bash shell integration will not load")
+            }
+        case "fish":
+            applyManagedFishStartupEnvironment(integrationDir: integrationDir, to: &environment, protectedKeys: &protectedKeys)
+            return managedFishShellCommand(shell: shell)
+        default:
+            break
+        }
+        return nil
     }
 
     static func managedFishShellCommand(shell: String) -> String {

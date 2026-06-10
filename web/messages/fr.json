@@ -742,12 +742,20 @@
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Prédicats de contexte facultatifs par action (clauses `when` de style VS Code), indexés par identifiant d'action cmux. Chaque valeur est une expression booléenne sur des clés de contexte, combinée avec !, &&, || et des parenthèses. Clés booléennes : sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Les clés typées acceptent des comparaisons : la chaîne sidebarMode (files, find, sessions, feed ou dock) et les entiers paneCount et workspaceCount. Les opérateurs de comparaison sont ==, !=, =~ (expression régulière), <, <=, >, >= et `in [a, b]` ; une clé inconnue ou absente vaut false. Les littéraux booléens true et false sont également acceptés ; `key == false` équivaut à `!key`. Le raccourci de l'action ne se déclenche (et n'entre en conflit avec d'autres raccourcis) que lorsque la clause est vraie. Exemples : { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sélectionne les espaces de travail avec Ctrl+1–9 partout sauf lorsque la barre latérale droite a le focus ; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limite une liaison à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "shortcutsWhenIntro": "Prédicats de contexte facultatifs par action (clauses when de style VS Code), indexés par identifiant d'action cmux. Une liaison ne se déclenche — et n'entre en conflit avec une autre liaison sur la même frappe — que lorsque sa clause est vraie. Omettez la clause pour conserver le contexte intégré de l'action. Le vocabulaire des clauses :",
+      "shortcutsWhenBooleanKeys": "clés booléennes. Une clé inconnue ou absente vaut false ; les littéraux true et false sont également acceptés.",
+      "shortcutsWhenTypedKeys": "clés typées pour les comparaisons : le mode actif de la barre latérale droite (chaîne) ainsi que le nombre de panneaux et d'espaces de travail (entiers).",
+      "shortcutsWhenOperators": "opérateurs booléens, comparaisons typées, correspondance par expression régulière et appartenance à une liste. Les comparaisons lient plus fort que && et ||.",
+      "shortcutsWhenExample": "Par exemple, ceci fait que Ctrl+1–9 sélectionne les espaces de travail partout sauf lorsque la barre latérale droite a le focus (laissant Ctrl+1–5 au sélecteur de mode de la barre latérale), et limite la sélection de surface à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux :"
     },
     "customCommands": {
       "title": "Commandes personnalisées",
