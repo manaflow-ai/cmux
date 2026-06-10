@@ -204,6 +204,11 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "fileExplorer": [
+                    "doubleClickAction": FileExplorerDoubleClickActionSettings.defaultValue.rawValue,
+                ],
+            ],
+            [
                 "diffViewer": [
                     "defaultLayout": "unified",
                 ],

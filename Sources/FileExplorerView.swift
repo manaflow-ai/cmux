@@ -75,6 +75,28 @@ private func addFileExplorerExternalOpenItems(
     }
 }
 
+/// Perform the configured double-click action for a FILE in the file explorer.
+///
+/// Shared by every file-activation gesture (the outline view's double-click and
+/// the search results list's double-click / Return) so the behavior stays
+/// consistent across surfaces. Callers must guard for local providers and skip
+/// directories before calling this — only readable local files reach here.
+private func performFileExplorerFileOpen(path: String, onOpenFilePreview: (String) -> Void) {
+    let action = FileExplorerDoubleClickActionSettings.resolvedAction()
+    let hasPreferredEditor = PreferredEditorSettings.resolvedCommand() != nil
+    switch FileExplorerDoubleClickActionSettings.fileActivation(
+        action: action,
+        hasPreferredEditorCommand: hasPreferredEditor
+    ) {
+    case .preview:
+        onOpenFilePreview(path)
+    case .defaultEditor:
+        FileExternalOpenAction.openDefault(fileURL: URL(fileURLWithPath: path))
+    case .preferredEditor:
+        PreferredEditorSettings.open(URL(fileURLWithPath: path))
+    }
+}
+
 // MARK: - File Explorer Panel (single NSViewRepresentable)
 
 enum FileExplorerPanelPresentation: Equatable {
@@ -617,7 +639,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
 
             guard store.provider is LocalFileExplorerProvider else { return }
-            onOpenFilePreview(node.path)
+            performFileExplorerFileOpen(path: node.path, onOpenFilePreview: onOpenFilePreview)
         }
 
         // MARK: - Context Menu (NSMenuDelegate)
@@ -1484,7 +1506,14 @@ final class FileExplorerContainerView: NSView {
     fileprivate func openSelectedSearchResult() {
         let row = searchResultsView.selectedRow
         guard row >= 0, row < searchSnapshot.results.count else { return }
-        coordinator.onOpenFilePreview(searchSnapshot.results[row].path)
+        let path = searchSnapshot.results[row].path
+        // Editor/preferred-editor actions operate on local file paths via
+        // NSWorkspace; for non-local providers fall back to the cmux preview.
+        guard coordinator.store.provider is LocalFileExplorerProvider else {
+            coordinator.onOpenFilePreview(path)
+            return
+        }
+        performFileExplorerFileOpen(path: path, onOpenFilePreview: coordinator.onOpenFilePreview)
     }
 
     @objc private func openSelectedSearchResultFromTable(_ sender: NSTableView) {
