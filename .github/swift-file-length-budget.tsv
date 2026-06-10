@@ -24,7 +24,7 @@
 4460	Sources/Panels/FilePreviewPanel.swift
 4237	cmuxTests/BrowserPanelTests.swift
 4196	Sources/BrowserWindowPortal.swift
-3985	cmuxTests/WindowAndDragTests.swift
+4009	cmuxTests/WindowAndDragTests.swift
 3937	Sources/Feed/FeedPanelView.swift
 3760	cmuxTests/TabManagerUnitTests.swift
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
