@@ -11089,16 +11089,20 @@ class TerminalController {
         }
         guard needsKick else { return }
 
+        // Register synchronously and invalidate after the await (both on main) so
+        // the observation cannot leak when the commit never arrives before timeout.
+        nonisolated(unsafe) var observation: NSKeyValueObservation?
         let committed = v2AwaitCallback(timeout: timeout) { (finish: @escaping (Bool) -> Void) in
-            DispatchQueue.main.async {
-                var observation: NSKeyValueObservation?
+            v2MainSync {
                 observation = webView.observe(\.url, options: [.initial, .new]) { observed, _ in
                     guard observed.url != nil else { return }
-                    observation?.invalidate()
-                    observation = nil
                     finish(true)
                 }
             }
+        }
+        v2MainSync {
+            observation?.invalidate()
+            observation = nil
         }
 #if DEBUG
         cmuxDebugLog(
