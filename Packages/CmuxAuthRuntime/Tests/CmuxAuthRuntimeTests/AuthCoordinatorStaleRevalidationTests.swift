@@ -222,6 +222,61 @@ import Testing
         #expect(await client.refreshToken() != nil)
     }
 
+    @Test func signOutCancelsAParkedExchangeSoItCannotClobberANewerSignIn() async throws {
+        // The rollback gates above stop a stale COMPLETION from clearing the
+        // wrong tokens, but nothing stopped the stale EXCHANGE from writing:
+        // sign-in A parks in its exchange, the user signs out, sign-in B's
+        // exchange writes B's session and parks in its user fetch, then A's
+        // exchange resumes and overwrites the store with A's session. The
+        // high-water gate correctly skips A's rollback (B wrote after A
+        // began), so the store ends up holding A's tokens while B publishes
+        // B's user: the UI says B but the device authenticates as the session
+        // the user signed out of mid-flight. Sign-out must cancel the parked
+        // exchange so the SDK's write chokepoint (`publishSessionTokens`
+        // checks cancellation before storing) refuses the late write.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+
+        await client.armCredentialGate()
+        let staleSignIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await client.credentialDidPark()
+
+        await coordinator.signOut()
+        #expect(coordinator.isAuthenticated == false)
+
+        // B's exchange completes (the store's first write: "access-1") and
+        // parks inside its user fetch, not yet published.
+        await client.armValidationGate()
+        let newSignIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await client.validationDidPark()
+
+        // A's exchange resumes LAST, after B's write. Cancelled by the
+        // sign-out, it must surface the cancellation without storing.
+        await client.releaseParkedCredential()
+        await #expect(throws: AuthError.cancelled) { try await staleSignIn.value }
+
+        await client.releaseParkedValidation()
+        try await newSignIn.value
+
+        // B's published session and B's stored tokens must agree: the store
+        // still holds the session B's exchange minted, not a later write
+        // from the cancelled stale exchange.
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(await client.accessToken() == "access-1")
+        #expect(await client.refreshToken() == "refresh-1")
+    }
+
     @Test func failedNewerAttemptDoesNotBlockStaleRollback() async throws {
         // Counterpart to the in-flight test above: sign-in B starts after the
         // sign-out but fails fast (offline) BEFORE its exchange writes

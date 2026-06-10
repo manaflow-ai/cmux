@@ -23,6 +23,11 @@ actor GateableValidationAuthClient: AuthClient {
     private let teams: [CMUXAuthTeam]
     private var access: String?
     private var refresh: String?
+    /// Each credential exchange mints a distinct session's tokens (like the
+    /// live backend, where every exchange creates a new server-side session),
+    /// so tests can tell WHICH exchange's write the store currently holds:
+    /// exchange N stores `"access-N"` / `"refresh-N"` in write order.
+    private var exchangeCounter = 0
     private let validationGate = Gate()
     private let teamsGate = Gate()
     private let credentialGate = Gate()
@@ -103,10 +108,15 @@ actor GateableValidationAuthClient: AuthClient {
 
     func signInWithCredential(email: String, password: String) async throws {
         await parkIfArmed(credentialGate)
+        // Mirror the vendored SDK's `publishSessionTokens` chokepoint: a flow
+        // whose task was cancelled while the request was in flight must not
+        // persist a session behind UI that already reported the flow as over.
+        try Task.checkCancellation()
         // The exchange stores fresh tokens when it resumes, even when a
         // sign-out cleared the store while the request was in flight.
-        access = "access"
-        refresh = "refresh"
+        exchangeCounter += 1
+        access = "access-\(exchangeCounter)"
+        refresh = "refresh-\(exchangeCounter)"
     }
 
     func accessToken() async -> String? { access }
