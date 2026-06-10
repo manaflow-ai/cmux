@@ -9513,10 +9513,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @IBAction func copyCurrentSurfaceLink(_ sender: Any?) {
         guard let terminalSurface else { return }
+        // Links encode the restart-stable ids so they survive an app relaunch.
+        let workspace = terminalSurface.owningWorkspace()
         WorkspaceSurfaceIdentifierClipboardText.copy(
             WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
-                workspaceId: terminalSurface.tabId,
-                surfaceId: terminalSurface.id
+                workspaceId: workspace?.stableId ?? terminalSurface.tabId,
+                surfaceId: workspace?.panels[terminalSurface.id]?.stableSurfaceId ?? terminalSurface.id
             )
         )
     }

@@ -236,6 +236,7 @@ extension Workspace {
 
         return SessionWorkspaceSnapshot(
             workspaceId: id,
+            stableId: stableId,
             processTitle: processTitle,
             customTitle: customTitle,
             customDescription: customDescription,
@@ -262,6 +263,14 @@ extension Workspace {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
+
+        // Re-adopt the persisted restart-stable workspace identifier so durable
+        // deep links keep resolving after an app restart. `id` is re-minted on
+        // restore; `stableId` is not. Legacy snapshots omit it and keep the fresh
+        // value assigned at construction.
+        if let persistedStableId = snapshot.stableId {
+            stableId = persistedStableId
+        }
 
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
@@ -705,6 +714,7 @@ extension Workspace {
 
         return SessionPanelSnapshot(
             id: panelId,
+            stableSurfaceId: panel.stableSurfaceId,
             type: panel.panelType,
             title: panelTitle,
             customTitle: customTitle,
@@ -1928,6 +1938,15 @@ extension Workspace {
     }
 
     private func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
+        // Re-adopt the persisted restart-stable surface identifier so durable deep
+        // links keep resolving after an app restart (or a closed-tab reopen). The
+        // panel `id` is re-minted on restore; `stableSurfaceId` is not. Legacy
+        // snapshots omit it and keep the fresh value assigned at construction.
+        if let stableSurfaceId = snapshot.stableSurfaceId,
+           let panel = panels[panelId] {
+            panel.stableSurfaceId = stableSurfaceId
+        }
+
         if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
         }
@@ -10479,6 +10498,16 @@ final class Workspace: Identifiable, ObservableObject {
     )
 
     let id: UUID
+    /// Restart-stable workspace identifier for durable deep links.
+    ///
+    /// `id` is a runtime instance handle re-minted every time the workspace is
+    /// recreated (including session restore); `stableId` is persisted in the
+    /// session snapshot and re-adopted on restore. Durable deep links
+    /// (`cmux://workspace/<id>`) encode this value so a copied link keeps
+    /// resolving to the same logical workspace across app restarts. A freshly
+    /// created workspace gets a fresh `stableId`; restore overwrites it with the
+    /// persisted value via ``restoreSessionSnapshot(_:)``.
+    private(set) var stableId = UUID()
     @Published var title: String
     @Published var customTitle: String?
     @Published var customDescription: String?

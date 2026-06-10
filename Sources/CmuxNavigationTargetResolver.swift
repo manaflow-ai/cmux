@@ -1,0 +1,101 @@
+import Foundation
+
+/// Pure resolution logic for `cmux://workspace/...` navigation deep links.
+///
+/// Links can carry either a session-scoped runtime identifier (the workspace or
+/// panel `id`, re-minted every launch) or a restart-stable identifier
+/// (``Workspace/stableId`` / ``Panel/stableSurfaceId``, persisted in the session
+/// snapshot and re-adopted on restore). The resolver tries the runtime
+/// identifier first — it is authoritative for anything minted this session —
+/// and falls back to the stable identifier so links keep working after an app
+/// restart. Surface routes additionally fall back to a cross-workspace search
+/// so a link survives its tab being dragged to another workspace.
+///
+/// The type is a plain value over snapshot descriptors so the resolution rules
+/// are unit-testable without launching the app.
+struct CmuxNavigationTargetResolver {
+    /// One tab (panel) inside a workspace, described by both of its identities.
+    struct SurfaceDescriptor: Equatable {
+        /// Session-scoped panel identifier (`Panel.id`).
+        let panelId: UUID
+        /// Restart-stable surface identifier (`Panel.stableSurfaceId`).
+        let stableSurfaceId: UUID
+    }
+
+    /// One workspace, described by both of its identities plus its child targets.
+    struct WorkspaceDescriptor: Equatable {
+        /// Session-scoped workspace identifier (`Workspace.id`).
+        let workspaceId: UUID
+        /// Restart-stable workspace identifier (`Workspace.stableId`).
+        let stableId: UUID
+        /// Session-scoped bonsplit pane identifiers. Panes are layout nodes with
+        /// no persisted identity, so pane routes resolve by exact match only.
+        let paneIds: [UUID]
+        let surfaces: [SurfaceDescriptor]
+    }
+
+    /// A resolved navigation target, expressed in current-session identifiers.
+    enum Resolution: Equatable {
+        case workspace(workspaceId: UUID)
+        case pane(workspaceId: UUID, paneId: UUID)
+        case surface(workspaceId: UUID, panelId: UUID)
+
+        var workspaceId: UUID {
+            switch self {
+            case .workspace(let workspaceId),
+                 .pane(let workspaceId, _),
+                 .surface(let workspaceId, _):
+                return workspaceId
+            }
+        }
+    }
+
+    let workspaces: [WorkspaceDescriptor]
+
+    /// Resolves a parsed navigation target to current-session identifiers, or
+    /// nil when no open workspace/pane/surface matches either identity.
+    func resolve(_ target: CmuxNavigationURLRequest.Target) -> Resolution? {
+        switch target {
+        case .workspace(let workspaceId):
+            return resolveWorkspace(workspaceId).map { .workspace(workspaceId: $0.workspaceId) }
+        case .pane(let workspaceId, let paneId):
+            guard let workspace = resolveWorkspace(workspaceId),
+                  workspace.paneIds.contains(paneId) else {
+                return nil
+            }
+            return .pane(workspaceId: workspace.workspaceId, paneId: paneId)
+        case .surface(let workspaceId, let surfaceId):
+            let linkedWorkspace = resolveWorkspace(workspaceId)
+            if let linkedWorkspace,
+               let panelId = resolveSurface(surfaceId, in: linkedWorkspace) {
+                return .surface(workspaceId: linkedWorkspace.workspaceId, panelId: panelId)
+            }
+            // The tab may have moved to another workspace since the link was
+            // copied (or its workspace was closed); surface identity wins over
+            // the stale workspace route. Exact runtime ids beat stable ids.
+            let otherWorkspaces = workspaces.filter { $0.workspaceId != linkedWorkspace?.workspaceId }
+            for candidate in otherWorkspaces
+            where candidate.surfaces.contains(where: { $0.panelId == surfaceId }) {
+                return .surface(workspaceId: candidate.workspaceId, panelId: surfaceId)
+            }
+            for candidate in otherWorkspaces {
+                if let surface = candidate.surfaces.first(where: { $0.stableSurfaceId == surfaceId }) {
+                    return .surface(workspaceId: candidate.workspaceId, panelId: surface.panelId)
+                }
+            }
+            return nil
+        }
+    }
+
+    private func resolveWorkspace(_ id: UUID) -> WorkspaceDescriptor? {
+        workspaces.first(where: { $0.workspaceId == id })
+            ?? workspaces.first(where: { $0.stableId == id })
+    }
+
+    private func resolveSurface(_ id: UUID, in workspace: WorkspaceDescriptor) -> UUID? {
+        if workspace.surfaces.contains(where: { $0.panelId == id }) {
+            return id
+        }
+        return workspace.surfaces.first(where: { $0.stableSurfaceId == id })?.panelId
+    }
+}

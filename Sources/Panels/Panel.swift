@@ -273,6 +273,17 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     /// Unique identifier for this panel
     var id: UUID { get }
 
+    /// Restart-stable identifier for the surface (tab) this panel hosts.
+    ///
+    /// Unlike ``id``, which is a runtime instance handle re-minted every time the
+    /// panel is recreated (including session restore), `stableSurfaceId` is
+    /// persisted in the session snapshot and re-adopted on restore. Durable deep
+    /// links (`cmux://workspace/<workspace>/surface/<surface>`) encode this value
+    /// so a copied link keeps resolving to the same logical tab across app
+    /// restarts. A freshly created panel gets a fresh `stableSurfaceId`; restore
+    /// overwrites it with the persisted value.
+    var stableSurfaceId: UUID { get set }
+
     /// The type of panel
     var panelType: PanelType { get }
 

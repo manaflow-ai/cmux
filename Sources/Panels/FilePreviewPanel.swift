@@ -971,6 +971,8 @@ enum FilePreviewTextSaver {
 @MainActor
 final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
     let id: UUID
+    /// Restart-stable surface identifier for durable deep links. See ``Panel/stableSurfaceId``.
+    var stableSurfaceId = UUID()
     let panelType: PanelType = .filePreview
     let filePath: String
     private(set) var workspaceId: UUID
