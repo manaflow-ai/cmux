@@ -124,9 +124,25 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
 
+        // An empty workspace note opens straight in the text editor: a new
+        // note is opened to be written, and an empty render is useless. This
+        // is the default for every entry point (Notes tree, pane drop,
+        // restore); non-empty notes open in the rendered viewer like any md.
+        if Self.isWorkspaceNotesPath(filePath),
+           let size = (try? FileManager.default.attributesOfItem(atPath: filePath))?[.size] as? Int,
+           size == 0 {
+            self.displayMode = .text
+        }
+
         loadFileContent()
         startWatching()
         observeTypographyDefaults()
+    }
+
+    /// True for paths inside a `.cmux/notes` tree (the per-workspace Notes
+    /// filesystem).
+    static func isWorkspaceNotesPath(_ path: String) -> Bool {
+        ((path as NSString).standardizingPath).contains("/.cmux/notes/")
     }
 
     /// Adopt a changed typography default (from another viewer's "Set as Default"
@@ -267,7 +283,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         // yet; flush pending edits before teardown. saveTextContent reads the live
         // textView, so flush before clearing it; the write Task captures content by
         // value and completes even as this panel is released.
-        if isProjectNote, isDirty {
+        if behavesAsNote, isDirty {
             _ = saveTextContent()
         }
         rendererSession.close()
@@ -340,6 +356,17 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Notes auto-save; plain Markdown files keep the explicit Save control.
     var isProjectNote: Bool { noteSlug != nil }
 
+    /// True when the file lives in a `.cmux/notes` tree — the per-workspace
+    /// Notes filesystem. Classified by path so every entrypoint (Notes tab,
+    /// session restore, file explorer) gives the same note behavior. Lazy:
+    /// `filePath` is immutable and this is consulted on every keystroke via
+    /// the autosave scheduler.
+    private(set) lazy var isWorkspaceNotesFile: Bool = Self.isWorkspaceNotesPath(filePath)
+
+    /// Note-behavior gate (auto-save, flush-on-close, no manual Save control):
+    /// flat slug-indexed project notes plus Notes-tree files.
+    var behavesAsNote: Bool { isProjectNote || isWorkspaceNotesFile }
+
     func updateTextContent(_ nextContent: String) {
         guard textContent != nextContent else { return }
         textContent = nextContent
@@ -352,7 +379,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Debounced auto-save for notes: write to disk shortly after the last
     /// keystroke so a note never needs a manual Save. No-op for plain Markdown.
     private func scheduleAutoSaveIfNeeded() {
-        guard isProjectNote, isDirty else { return }
+        guard behavesAsNote, isDirty else { return }
         autoSaveTask?.cancel()
         autoSaveTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 600_000_000)

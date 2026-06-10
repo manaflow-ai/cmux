@@ -103,7 +103,7 @@ struct MarkdownPanelView: View {
         ) {
             // Notes auto-save, so the Save control only appears for plain
             // Markdown files (which still save explicitly).
-            if panel.displayMode == .text, !panel.isProjectNote, panel.isDirty || panel.isSaving {
+            if panel.displayMode == .text, !panel.behavesAsNote, panel.isDirty || panel.isSaving {
                 PanelHeaderIconButton(
                     systemName: "square.and.arrow.down",
                     label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),

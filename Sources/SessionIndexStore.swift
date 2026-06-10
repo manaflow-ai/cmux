@@ -606,6 +606,24 @@ final class SessionIndexStore: ObservableObject {
         return snapshot
     }
 
+    /// Fresh, cwd-scoped entries across every agent, bypassing the snapshot
+    /// cache. Used by the Notes tree to re-resolve session-folder markers
+    /// against live session data with the exact scanners the Vault uses, so a
+    /// dragged-in session's title/recency keeps tracking the real session.
+    nonisolated static func loadLiveSessionEntries(cwdFilter: String) async -> [SessionEntry] {
+        let bag = ErrorBag()
+        let order = await defaultAgentOrder(workingDirectory: cwdFilter)
+        return await loadAgents(
+            order.agents,
+            registry: order.registry,
+            needle: "",
+            cwdFilter: cwdFilter,
+            offset: 0,
+            limit: 10_000,
+            errorBag: bag
+        )
+    }
+
     private func touchDirectorySnapshotLRU(_ key: String) -> DirectorySnapshot? {
         guard let cached = directorySnapshotCache[key] else { return nil }
         if let idx = directorySnapshotLRU.firstIndex(of: key) {

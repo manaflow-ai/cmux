@@ -12,7 +12,7 @@ enum NotesTreeKind: Equatable, Sendable {
     case folder
     /// A markdown note file.
     case note
-    /// A directory backed by a Claude session, carrying its resume metadata.
+    /// A directory backed by an agent session, carrying its resume metadata.
     case sessionFolder(NotesSessionMarker)
 
     /// Whether this kind is a directory (folder or session folder).
@@ -39,27 +39,54 @@ enum NotesTreeKind: Equatable, Sendable {
 /// eagerly by ``NotesTreeStore`` (notes trees are small), so `children` is
 /// non-nil for every directory node after a load.
 final class NotesTreeNode: Identifiable {
-    /// Stable identity: the node's absolute filesystem path.
+    /// Stable identity: the node's absolute filesystem path, or the synthetic
+    /// `cmux-virtual-session://…` identity for live (unmaterialized) sessions.
     let id: String
     /// The on-disk basename (used for plain folders and notes).
     let name: String
-    /// Absolute filesystem path to the file or directory.
+    /// Absolute filesystem path to the file or directory. For virtual session
+    /// rows this is the synthetic identity string, never an on-disk path —
+    /// callers must check ``isVirtual`` before any filesystem operation.
     let path: String
     /// What this node represents.
     let kind: NotesTreeKind
+    /// True for a live session row sourced from the agents' session stores
+    /// (the Vault's scanners) with no backing folder yet. Acting on it (filing
+    /// a note, dropping content) materializes a real session folder.
+    let isVirtual: Bool
     /// Child nodes for directories; `nil` for notes.
     var children: [NotesTreeNode]?
 
-    init(name: String, path: String, kind: NotesTreeKind, children: [NotesTreeNode]? = nil) {
+    init(
+        name: String,
+        path: String,
+        kind: NotesTreeKind,
+        isVirtual: Bool = false,
+        children: [NotesTreeNode]? = nil
+    ) {
         self.id = path
         self.name = name
         self.path = path
         self.kind = kind
+        self.isVirtual = isVirtual
         self.children = children
     }
 
-    /// Whether the outline view can expand this node.
-    var isExpandable: Bool { kind.isDirectory }
+    /// Whether the outline view can expand this node. Plain folders are always
+    /// expandable — empty ones included — exactly like the Files tree's
+    /// directories. Session rows behave like Vault rows until notes are filed
+    /// under them: chevron (and click-to-expand) only once they have content,
+    /// resume otherwise.
+    var isExpandable: Bool {
+        switch kind {
+        case .folder:
+            return true
+        case .sessionFolder:
+            return !(children?.isEmpty ?? true)
+        case .note:
+            return false
+        }
+    }
 
     /// The label shown in the sidebar. Session folders show their session title
     /// (which is friendlier than the slugified directory name); notes drop the

@@ -102,6 +102,51 @@ import Testing
         #expect(fm.fileExists(atPath: moved2))
     }
 
+    @Test func renameKeepsNoteExtensionAndSanitizesName() throws {
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS"
+        )
+        let note = try NotesTreeStorage.newNote(inFolder: root, preferredName: "untitled")
+
+        // Plain rename: keeps the .md extension even when the user omits it.
+        let renamed = try NotesTreeStorage.rename(sourcePath: note, toName: "Meeting Notes")
+        #expect((renamed as NSString).lastPathComponent == "Meeting Notes.md")
+        #expect(fm.fileExists(atPath: renamed))
+        #expect(!fm.fileExists(atPath: note))
+
+        // Typing the extension explicitly doesn't double it.
+        let renamed2 = try NotesTreeStorage.rename(sourcePath: renamed, toName: "Plan.md")
+        #expect((renamed2 as NSString).lastPathComponent == "Plan.md")
+
+        // Path separators are sanitized, never treated as directories.
+        let renamed3 = try NotesTreeStorage.rename(sourcePath: renamed2, toName: "a/b")
+        #expect((renamed3 as NSString).lastPathComponent == "a-b.md")
+        #expect((renamed3 as NSString).deletingLastPathComponent == root)
+
+        // Renaming to the current name is a no-op returning the same path.
+        let same = try NotesTreeStorage.rename(sourcePath: renamed3, toName: "a-b")
+        #expect(same == renamed3)
+
+        // Collision with a sibling gets a unique suffix instead of clobbering.
+        let other = try NotesTreeStorage.newNote(inFolder: root, preferredName: "kept")
+        let collided = try NotesTreeStorage.rename(sourcePath: other, toName: "a-b")
+        #expect((collided as NSString).lastPathComponent == "a-b-2.md")
+        #expect(fm.fileExists(atPath: renamed3))
+
+        // Unusable names are rejected and the file is untouched.
+        #expect(throws: NotesTreeStorageError.self) {
+            _ = try NotesTreeStorage.rename(sourcePath: collided, toName: "   ")
+        }
+        #expect(fm.fileExists(atPath: collided))
+
+        // Folders rename without gaining an extension.
+        let folder = try NotesTreeStorage.newFolder(inFolder: root, preferredName: "drafts")
+        let renamedFolder = try NotesTreeStorage.rename(sourcePath: folder, toName: "Research")
+        #expect((renamedFolder as NSString).lastPathComponent == "Research")
+        var isDir: ObjCBool = false
+        #expect(fm.fileExists(atPath: renamedFolder, isDirectory: &isDir) && isDir.boolValue)
+    }
+
     @Test func moveRejectsFolderIntoItsOwnDescendant() throws {
         let root = try NotesTreeStorage.ensureWorkspaceRoot(
             projectRoot: projectRoot, cwd: "/work", title: "WS"
@@ -112,6 +157,89 @@ import Testing
             _ = try NotesTreeStorage.move(sourcePath: parent, intoFolder: inner)
         }
         #expect(fm.fileExists(atPath: parent))  // unchanged
+    }
+
+    @Test func listFlatNotesShowsOnlyRootLevelMarkdownFiles() throws {
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS"
+        )
+        // The flat-note directory is the workspace folder's parent
+        // (<projectRoot>/.cmux/notes), shared with `cmux note` output.
+        let notesDir = (root as NSString).deletingLastPathComponent
+        try write("flat note", to: (notesDir as NSString).appendingPathComponent("note-abc.md"))
+        try write("{}", to: (notesDir as NSString).appendingPathComponent("index.json"))
+        try write("hidden", to: (notesDir as NSString).appendingPathComponent(".hidden.md"))
+
+        let flat = NotesTreeStorage.listFlatNotes(inNotesDir: notesDir)
+        // Only the markdown file: no index.json, no dotfiles, and crucially no
+        // workspace folders (this workspace's or any other's).
+        #expect(flat.map(\.name) == ["note-abc.md"])
+        #expect(flat.allSatisfy { $0.kind == .note })
+    }
+
+    @Test func sessionMarkerRefreshTracksLiveSessionData() throws {
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS"
+        )
+        // A session dragged in long ago, nested inside a plain folder (the
+        // refresh walk must find session folders at any depth)…
+        let sub = try NotesTreeStorage.newFolder(inFolder: root, preferredName: "research")
+        let dragged = try #require(NotesTreeStorage.createSessionFolder(
+            inFolder: sub,
+            descriptor: NotesSessionDescriptor(
+                agent: "claude", sessionId: "s-live", title: "Old title", cwd: "/work", modified: 100
+            )
+        ))
+        // …and one whose session no longer exists anywhere.
+        let orphan = try #require(NotesTreeStorage.createSessionFolder(
+            inFolder: root,
+            descriptor: NotesSessionDescriptor(
+                agent: "codex", sessionId: "s-gone", title: "Orphan", cwd: "/work", modified: 50
+            )
+        ))
+
+        let folders = NotesTreeStorage.collectSessionFolders(inRoot: root)
+        #expect(Set(folders.map(\.marker.sessionId)) == ["s-live", "s-gone"])
+
+        // The live scan resolved a newer title/recency for s-live (and knows
+        // nothing about s-gone). Same-id-different-agent must not match.
+        let changed = NotesTreeStorage.applySessionRefresh(
+            folders: folders,
+            live: [
+                NotesSessionDescriptor(agent: "claude", sessionId: "s-live", title: "Fresh title", cwd: "/work", modified: 200),
+                NotesSessionDescriptor(agent: "grok", sessionId: "s-gone", title: "Imposter", cwd: "/work", modified: 999),
+            ]
+        )
+        #expect(changed)
+        let refreshed = try #require(NotesTreeStorage.sessionMarker(inDirectory: dragged))
+        #expect(refreshed.title == "Fresh title")
+        #expect(refreshed.modified == 200)
+        let untouched = try #require(NotesTreeStorage.sessionMarker(inDirectory: orphan))
+        #expect(untouched.title == "Orphan")
+        #expect(untouched.modified == 50)
+
+        // Idempotent: applying the same live data again rewrites nothing (a
+        // rewrite would bump mtimes and storm the folder watchers).
+        let secondPass = NotesTreeStorage.applySessionRefresh(
+            folders: NotesTreeStorage.collectSessionFolders(inRoot: root),
+            live: [
+                NotesSessionDescriptor(agent: "claude", sessionId: "s-live", title: "Fresh title", cwd: "/work", modified: 200)
+            ]
+        )
+        #expect(!secondPass)
+
+        // A live entry with a blank title refreshes recency but keeps the
+        // last good title.
+        let blankTitle = NotesTreeStorage.applySessionRefresh(
+            folders: NotesTreeStorage.collectSessionFolders(inRoot: root),
+            live: [
+                NotesSessionDescriptor(agent: "claude", sessionId: "s-live", title: "   ", cwd: "/work", modified: 300)
+            ]
+        )
+        #expect(blankTitle)
+        let kept = try #require(NotesTreeStorage.sessionMarker(inDirectory: dragged))
+        #expect(kept.title == "Fresh title")
+        #expect(kept.modified == 300)
     }
 
     @Test func syncSessionFoldersIsIdempotentAndNeverDeletes() throws {

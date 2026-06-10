@@ -2244,7 +2244,7 @@ final class FileExplorerNSOutlineView: NSOutlineView {
 
 // MARK: - Row View
 
-final class FileExplorerRowView: NSTableRowView {
+class FileExplorerRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
         guard isSelected else { return }
         let style = FileExplorerStyle.current

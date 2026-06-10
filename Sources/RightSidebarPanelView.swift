@@ -187,7 +187,7 @@ struct RightSidebarPanelView: View {
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
-    let onOpenNote: (NotesTreeNode) -> Void
+    let onOpenNote: (NotesTreeNode, _ editImmediately: Bool) -> Void
     let onResumeNoteSession: (NotesSessionMarker) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void

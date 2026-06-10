@@ -16,9 +16,9 @@ struct NotesWorkspaceMarker: Codable, Equatable, Sendable {
 /// Contents of a `_session.json` marker inside a session folder. Drives the
 /// folder's session icon and the Resume action.
 struct NotesSessionMarker: Codable, Equatable, Sendable {
-    /// Agent identifier; currently always `"claude"`.
+    /// Agent identifier (`"claude"`, `"codex"`, …, or a registered agent id).
     var agent: String
-    /// The agent's native session id (passed to `claude --resume <id>`).
+    /// The agent's native session id (passed to its resume command).
     var sessionId: String
     /// The session's working directory.
     var cwd: String
@@ -33,7 +33,7 @@ struct NotesSessionMarker: Codable, Equatable, Sendable {
 /// A Claude session discovered for a workspace, used to materialize/refresh
 /// session folders. Produced by the app from `SessionIndexStore` and handed to
 /// ``NotesTreeStorage/syncSessionFolders(inRoot:descriptors:)``.
-struct NotesSessionDescriptor: Equatable, Sendable {
+struct NotesSessionDescriptor: Codable, Equatable, Sendable {
     var agent: String
     var sessionId: String
     var title: String
@@ -47,6 +47,14 @@ struct NotesTreeEntry: Equatable, Sendable {
     let name: String
     let path: String
     let kind: NotesTreeKind
+}
+
+/// A session folder on disk paired with its current marker, as collected by
+/// ``NotesTreeStorage/collectSessionFolders(inRoot:maxDepth:)`` for the
+/// live-refresh pass.
+struct NotesSessionFolderRef: Equatable, Sendable {
+    let directory: String
+    let marker: NotesSessionMarker
 }
 
 // MARK: - Storage
@@ -137,19 +145,46 @@ enum NotesTreeStorage {
                 entries.append(NotesTreeEntry(name: name, path: full, kind: .note))
             }
         }
-        return entries.sorted { lhs, rhs in
-            // Directories first; plain folders (alpha) above session folders;
-            // session folders by recency (most recent first); notes alpha.
-            if lhs.kind.isDirectory != rhs.kind.isDirectory { return lhs.kind.isDirectory }
-            let lSession = lhs.kind.sessionMarker
-            let rSession = rhs.kind.sessionMarker
-            if (lSession == nil) != (rSession == nil) { return lSession == nil }
-            if let lSession, let rSession {
-                let lModified = lSession.modified ?? 0
-                let rModified = rSession.modified ?? 0
-                if lModified != rModified { return lModified > rModified }
-            }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        return entries.sorted(by: displayOrder)
+    }
+
+    /// List the project's *flat* notes — `.md` files sitting directly in the
+    /// `.cmux/notes/` directory, written by `cmux note` and the note surface —
+    /// so the tree surfaces them alongside the workspace's own notes. Only
+    /// files: workspace folders (other workspaces included) are never listed.
+    static func listFlatNotes(inNotesDir notesDir: String) -> [NotesTreeEntry] {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: notesDir) else { return [] }
+        var entries: [NotesTreeEntry] = []
+        for name in names where !name.hasPrefix(".") && name.hasSuffix(".md") {
+            let full = (notesDir as NSString).appendingPathComponent(name)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: full, isDirectory: &isDir), !isDir.boolValue else { continue }
+            entries.append(NotesTreeEntry(name: name, path: full, kind: .note))
+        }
+        return entries
+    }
+
+    /// Display order shared by every level of the tree: plain folders (alpha)
+    /// like the Files tree, then notes (alpha), then sessions by recency — the
+    /// vault-style strip lives below the file-like content.
+    static func displayOrder(_ lhs: NotesTreeEntry, _ rhs: NotesTreeEntry) -> Bool {
+        let lRank = displayRank(lhs.kind)
+        let rRank = displayRank(rhs.kind)
+        if lRank != rRank { return lRank < rRank }
+        if let lSession = lhs.kind.sessionMarker, let rSession = rhs.kind.sessionMarker {
+            let lModified = lSession.modified ?? 0
+            let rModified = rSession.modified ?? 0
+            if lModified != rModified { return lModified > rModified }
+        }
+        return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+    }
+
+    private static func displayRank(_ kind: NotesTreeKind) -> Int {
+        switch kind {
+        case .folder: return 0
+        case .note: return 1
+        case .sessionFolder: return 2
         }
     }
 
@@ -182,6 +217,45 @@ enum NotesTreeStorage {
         let path = uniquePath(inFolder: folder, base: base, ext: nil)
         try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: false)
         return path
+    }
+
+    /// Rename `sourcePath` in place (same parent directory). Notes keep their
+    /// `.md` extension, names are sanitized for the filesystem, and collisions
+    /// are uniquified. Returns the new absolute path (unchanged when the new
+    /// name equals the current one).
+    @discardableResult
+    static func rename(sourcePath: String, toName newName: String) throws -> String {
+        let fm = FileManager.default
+        let src = standardized(sourcePath)
+        guard fm.fileExists(atPath: src) else { throw NotesTreeStorageError.sourceMissing(src) }
+        let isNote = src.lowercased().hasSuffix(".md")
+        guard let stem = sanitizedNameStem(newName, droppingExtension: isNote ? "md" : nil) else {
+            throw NotesTreeStorageError.invalidName
+        }
+        let parent = (src as NSString).deletingLastPathComponent
+        let targetName = isNote ? "\(stem).md" : stem
+        if targetName == (src as NSString).lastPathComponent { return src }
+        let dest = uniquePath(inFolder: parent, base: stem, ext: isNote ? "md" : nil)
+        try fm.moveItem(atPath: src, toPath: dest)
+        return dest
+    }
+
+    /// Filesystem-safe display name: path separators/colons become hyphens,
+    /// leading dots are stripped (no hidden files), marker filenames are
+    /// rejected. Unlike ``slugify``, spaces and case are preserved — these are
+    /// user-chosen names. Returns `nil` when nothing usable remains.
+    private static func sanitizedNameStem(_ name: String, droppingExtension ext: String?) -> String? {
+        var trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let ext, trimmed.lowercased().hasSuffix(".\(ext)") {
+            trimmed = String(trimmed.dropLast(ext.count + 1))
+        }
+        let cleaned = trimmed
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let stem = String(cleaned.drop(while: { $0 == "." }).prefix(64))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stem.isEmpty, stem != workspaceMarkerName, stem != sessionMarkerName else { return nil }
+        return stem
     }
 
     /// Move `sourcePath` into `destinationFolder`. Refuses to move a directory
@@ -278,6 +352,100 @@ enum NotesTreeStorage {
         return suffix.isEmpty ? base : "\(base)-\(suffix)"
     }
 
+    /// Create (or reuse) a session folder for `descriptor` inside `folder`,
+    /// idempotent on `sessionId`. Used when a session is dragged into the tree
+    /// (from the Vault or another Notes session); sessions are user-curated, not
+    /// auto-materialized. Returns the folder path.
+    @discardableResult
+    static func createSessionFolder(inFolder folder: String, descriptor: NotesSessionDescriptor) -> String? {
+        let fm = FileManager.default
+        try? fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        if let existing = existingSessionFolder(inFolder: folder, sessionId: descriptor.sessionId) {
+            return existing
+        }
+        let name = sessionFolderName(descriptor: descriptor)
+        let dir = uniquePath(inFolder: folder, base: name, ext: nil)
+        guard (try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)) != nil else { return nil }
+        let marker = NotesSessionMarker(
+            agent: descriptor.agent,
+            sessionId: descriptor.sessionId,
+            cwd: descriptor.cwd,
+            title: descriptor.title,
+            modified: descriptor.modified
+        )
+        try? writeJSON(marker, toPath: (dir as NSString).appendingPathComponent(sessionMarkerName))
+        return dir
+    }
+
+    /// Find an existing session folder for `sessionId` directly inside `folder`.
+    private static func existingSessionFolder(inFolder folder: String, sessionId: String) -> String? {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder) else { return nil }
+        for name in names where !name.hasPrefix(".") {
+            let dir = (folder as NSString).appendingPathComponent(name)
+            if let marker = sessionMarker(inDirectory: dir), marker.sessionId == sessionId { return dir }
+        }
+        return nil
+    }
+
+    // MARK: Session marker refresh
+
+    /// Every session folder anywhere under `root`, with its current marker.
+    /// Depth-capped like the tree build so a pathological hierarchy can't hang
+    /// the refresh walk.
+    static func collectSessionFolders(inRoot root: String, maxDepth: Int = 12) -> [NotesSessionFolderRef] {
+        var found: [NotesSessionFolderRef] = []
+        func walk(_ directory: String, depth: Int) {
+            guard depth < maxDepth else { return }
+            for entry in listEntries(inDirectory: directory) where entry.kind.isDirectory {
+                if let marker = entry.kind.sessionMarker {
+                    found.append(NotesSessionFolderRef(directory: entry.path, marker: marker))
+                }
+                walk(entry.path, depth: depth + 1)
+            }
+        }
+        walk(root, depth: 0)
+        return found
+    }
+
+    /// Rewrite the markers in `folders` whose session has drifted from the
+    /// matching `live` entry (keyed by agent + sessionId): newer `modified`,
+    /// changed title, or changed cwd. Folders with no live match (deleted or
+    /// foreign sessions) are left untouched — they may hold notes. Returns
+    /// whether any marker file was rewritten, so callers reload only when
+    /// something actually changed (rewrites bump mtimes and fire the watchers).
+    @discardableResult
+    static func applySessionRefresh(
+        folders: [NotesSessionFolderRef],
+        live: [NotesSessionDescriptor]
+    ) -> Bool {
+        var liveByKey: [String: NotesSessionDescriptor] = [:]
+        for descriptor in live {
+            liveByKey["\(descriptor.agent)\n\(descriptor.sessionId)"] = descriptor
+        }
+        var changed = false
+        for folder in folders {
+            guard let liveEntry = liveByKey["\(folder.marker.agent)\n\(folder.marker.sessionId)"] else { continue }
+            var updated = folder.marker
+            if !liveEntry.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                updated.title = liveEntry.title
+            }
+            if liveEntry.modified > (updated.modified ?? 0) {
+                updated.modified = liveEntry.modified
+            }
+            if !liveEntry.cwd.isEmpty {
+                updated.cwd = liveEntry.cwd
+            }
+            guard updated != folder.marker else { continue }
+            do {
+                try writeJSON(updated, toPath: (folder.directory as NSString).appendingPathComponent(sessionMarkerName))
+                changed = true
+            } catch {
+                continue
+            }
+        }
+        return changed
+    }
+
     // MARK: - Helpers
 
     /// True when `child` is equal to, or nested inside, `ancestor`.
@@ -361,6 +529,7 @@ enum NotesTreeStorage {
 enum NotesTreeStorageError: Error, LocalizedError {
     case sourceMissing(String)
     case invalidMove
+    case invalidName
     case writeFailed(String)
 
     var errorDescription: String? {
@@ -373,6 +542,8 @@ enum NotesTreeStorageError: Error, LocalizedError {
             )
         case .invalidMove:
             return String(localized: "notes.error.invalidMove", defaultValue: "Cannot move a folder into itself")
+        case .invalidName:
+            return String(localized: "notes.error.invalidName", defaultValue: "That name can't be used")
         case .writeFailed(let path):
             return String(
                 format: String(localized: "notes.error.writeFailed", defaultValue: "Could not create note: %@"),

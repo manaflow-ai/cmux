@@ -2,17 +2,27 @@ import AppKit
 
 /// A single row in the Notes outline view.
 ///
-/// Session folders adopt the Vault look — the agent's brand icon plus a
-/// relative timestamp — while notes and folders use Files-explorer icons, so the
-/// tab reads as a combination of the Files tree and the Vault. Resume is offered
-/// via double-click and the context menu rather than a per-row button, matching
-/// the Vault's clean rows.
-final class NotesTreeCellView: NSTableCellView {
+/// Notes and folders use the Files-explorer icon treatment (same symbols,
+/// sizes, and tints from ``FileExplorerStyle``) so the tab reads exactly like
+/// the Files tree; session folders adopt the Vault look — the agent's brand
+/// icon plus a relative timestamp. Resume is offered via the context menu and
+/// drag-to-pane rather than a per-row button, matching the Vault's clean rows.
+final class NotesTreeCellView: NSTableCellView, NSTextFieldDelegate {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("NotesTreeCellView")
 
     private let iconView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let timeField = NSTextField(labelWithString: "")
+    private var iconWidthConstraint: NSLayoutConstraint!
+    private var iconHeightConstraint: NSLayoutConstraint!
+    private var iconToTextConstraint: NSLayoutConstraint!
+    /// Pending inline-rename commit; non-nil only while the title is editable.
+    /// The Bool is true when the commit came from the Return key (vs. a
+    /// click-away), so callers can gate follow-up actions like auto-opening.
+    private var renameCommit: ((String, Bool) -> Void)?
+    /// Always runs when editing tears down (commit, Escape, or cell reuse) —
+    /// before any commit — so the owner can lift its rename-in-progress state.
+    private var renameEnded: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -52,13 +62,17 @@ final class NotesTreeCellView: NSTableCellView {
         addSubview(titleField)
         addSubview(timeField)
 
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 15),
-            iconView.heightAnchor.constraint(equalToConstant: 15),
+        iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: 16)
+        iconHeightConstraint = iconView.heightAnchor.constraint(equalToConstant: 16)
+        iconToTextConstraint = titleField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4)
 
-            titleField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6),
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconWidthConstraint,
+            iconHeightConstraint,
+
+            iconToTextConstraint,
             titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
 
             timeField.leadingAnchor.constraint(greaterThanOrEqualTo: titleField.trailingAnchor, constant: 6),
@@ -69,16 +83,21 @@ final class NotesTreeCellView: NSTableCellView {
 
     /// Configure for a node, matching Files-explorer density/typography.
     func configure(with node: NotesTreeNode, style: FileExplorerStyle) {
+        endRename(cancelled: true)
         titleField.stringValue = node.displayName
         titleField.font = style.nameFont
         titleField.textColor = .labelColor
+        titleField.toolTip = node.path
+        iconWidthConstraint.constant = style.iconSize
+        iconHeightConstraint.constant = style.iconSize
+        iconToTextConstraint.constant = style.iconToTextSpacing
 
         switch node.kind {
         case .note:
-            applySymbolIcon("doc.text", tint: style.fileIconTint)
+            applySymbolIcon("doc.text", style: style, tint: style.fileIconTint)
             setTime(nil)
         case .folder:
-            applySymbolIcon("folder", tint: style.folderIconTint)
+            applySymbolIcon("folder.fill", style: style, tint: style.folderIconTint)
             setTime(nil)
         case .sessionFolder(let marker):
             applyAgentIcon(forAgent: marker.agent)
@@ -96,8 +115,10 @@ final class NotesTreeCellView: NSTableCellView {
         }
     }
 
-    private func applySymbolIcon(_ name: String, tint: NSColor) {
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
+    private func applySymbolIcon(_ name: String, style: FileExplorerStyle, tint: NSColor) {
+        let config = NSImage.SymbolConfiguration(pointSize: style.iconSize, weight: style.iconWeight)
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config)
         image?.isTemplate = true
         iconView.image = image
         iconView.contentTintColor = tint
@@ -125,5 +146,119 @@ final class NotesTreeCellView: NSTableCellView {
             for: Date(timeIntervalSince1970: modified),
             relativeTo: Date()
         )
+    }
+
+    // MARK: - Inline rename
+
+    /// Make the title editable in place (VSCode-style rename). `onCommit` runs
+    /// once with the typed name on Enter or focus loss; Escape cancels.
+    /// `onEnded` runs whenever editing tears down, before any commit.
+    func beginRename(
+        initialText: String,
+        onCommit: @escaping (String, Bool) -> Void,
+        onEnded: @escaping () -> Void
+    ) {
+        renameCommit = onCommit
+        renameEnded = onEnded
+        titleField.isEditable = true
+        titleField.isSelectable = true
+        titleField.stringValue = initialText
+        titleField.delegate = self
+        window?.makeFirstResponder(titleField)
+        titleField.currentEditor()?.selectAll(nil)
+    }
+
+    /// Tear down editing state. When `cancelled`, the pending commit is dropped
+    /// (used by Escape and by cell reuse).
+    private func endRename(cancelled: Bool) {
+        if cancelled { renameCommit = nil }
+        guard titleField.isEditable else { return }
+        titleField.isEditable = false
+        titleField.isSelectable = false
+        titleField.delegate = nil
+        if cancelled { titleField.abortEditing() }
+        let ended = renameEnded
+        renameEnded = nil
+        ended?()
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        let typed = titleField.stringValue
+        let commit = renameCommit
+        renameCommit = nil
+        // Enter hands focus back to the tree; a click-away keeps focus where
+        // the user clicked.
+        let movementRaw = (obj.userInfo?["NSTextMovement"] as? NSNumber)?.intValue
+        let viaReturn = movementRaw == NSTextMovement.return.rawValue
+        endRename(cancelled: false)
+        if viaReturn {
+            window?.makeFirstResponder(enclosingOutlineView)
+        }
+        // Run last: the commit reloads the outline and reconfigures this cell.
+        commit?(typed, viaReturn)
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+        endRename(cancelled: true)
+        window?.makeFirstResponder(enclosingOutlineView)
+        return true
+    }
+
+    private var enclosingOutlineView: NSOutlineView? {
+        var view = superview
+        while let candidate = view {
+            if let outlineView = candidate as? NSOutlineView { return outlineView }
+            view = candidate.superview
+        }
+        return nil
+    }
+}
+
+/// Notes row: the Files-explorer selection treatment plus a subtle hover
+/// highlight (VSCode-style), styled by ``FileExplorerStyle``.
+final class NotesTreeRowView: FileExplorerRowView {
+    private var isHovered = false {
+        didSet { if oldValue != isHovered { needsDisplay = true } }
+    }
+    private var hoverTrackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        super.mouseEntered(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        super.mouseExited(with: event)
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        isHovered = false
+    }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        guard isHovered, !isSelected else { return }
+        let style = FileExplorerStyle.current
+        let inset = style.selectionInset
+        let rect = bounds.insetBy(dx: inset, dy: inset > 0 ? 1 : 0)
+        let path = NSBezierPath(roundedRect: rect, xRadius: style.selectionRadius, yRadius: style.selectionRadius)
+        style.hoverColor.setFill()
+        path.fill()
     }
 }

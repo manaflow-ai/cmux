@@ -2236,8 +2236,8 @@ struct ContentView: View {
             onOpenFilePreview: { filePath in
                 openFilePreviewFromSidebar(filePath: filePath)
             },
-            onOpenNote: { node in
-                openNoteFromSidebar(node: node)
+            onOpenNote: { node, editImmediately in
+                openNoteFromSidebar(node: node, editImmediately: editImmediately)
             },
             onResumeNoteSession: { marker in
                 resumeNoteSession(marker: marker)
@@ -2590,51 +2590,42 @@ struct ContentView: View {
                 cwd: cwd
             )
         }
-        guard notesTreeStore.loadSessions == nil else { return }
-        notesTreeStore.loadSessions = { [weak sessionIndexStore] cwd in
-            guard let sessionIndexStore else { return [] }
-            // cwd-scoped snapshot → only sessions from the current workspace.
-            // Include every agent (Claude, Codex, …), not just Claude.
-            let snapshot = await sessionIndexStore.loadDirectorySnapshot(cwd: cwd)
-            return snapshot.entries.map { entry in
-                let resolvedCwd = (entry.cwd?.isEmpty == false) ? entry.cwd! : cwd
-                return NotesSessionDescriptor(
-                    agent: entry.agent.rawValue,
-                    sessionId: entry.sessionId,
-                    title: entry.title,
-                    cwd: resolvedCwd,
-                    modified: entry.modified.timeIntervalSince1970
-                )
-            }
-        }
     }
 
-    /// Open a note file from the Notes tree as a markdown surface in the focused pane.
-    private func openNoteFromSidebar(node: NotesTreeNode) {
+    /// Open a note file from the Notes tree through the exact same path as
+    /// Files-tab files (`openFileSurfaces` → markdown viewer for `.md`).
+    /// Empty notes (i.e. freshly created ones) open straight in the text
+    /// editor with focus — there is nothing to render yet, and a new note is
+    /// opened to be written. `editImmediately` forces that for the
+    /// name-it-with-Return new-note flow.
+    private func openNoteFromSidebar(node: NotesTreeNode, editImmediately: Bool) {
         guard case .note = node.kind else { return }
         guard let workspace = tabManager.selectedWorkspace,
               let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
         }
         sidebarSelectionState.selection = .tabs
-        _ = workspace.openOrFocusMarkdownSurface(inPane: paneId, filePath: node.path, focus: true)
+        let panels = workspace.openFileSurfaces(
+            inPane: paneId,
+            filePaths: [node.path],
+            focus: true,
+            reuseExisting: true
+        )
+        let isEmptyNote = ((try? String(contentsOfFile: node.path, encoding: .utf8)) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+        if editImmediately || isEmptyNote, let markdown = panels.first as? MarkdownPanel {
+            markdown.setDisplayMode(.text, focusTextEditor: true)
+        }
     }
 
-    /// Resume the Claude session backing a Notes session folder by reusing the
-    /// shared resume coordinator (reconstructs a minimal ``SessionEntry``).
+    /// Resume the agent session backing a Notes session folder by reusing the
+    /// shared resume coordinator (any agent: claude, codex, registered, …).
     private func resumeNoteSession(marker: NotesSessionMarker) {
-        let entry = SessionEntry(
-            id: marker.sessionId,
-            agent: .claude,
-            sessionId: marker.sessionId,
-            title: marker.title,
-            cwd: marker.cwd.isEmpty ? nil : marker.cwd,
-            gitBranch: nil,
-            pullRequest: nil,
-            modified: Date(),
-            fileURL: nil,
-            specifics: .claude(model: nil, permissionMode: nil, configDirectoryForResume: nil)
-        )
+        guard let entry = marker.makeSessionEntry() else {
+            NSSound.beep()
+            return
+        }
         SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
     }
 
