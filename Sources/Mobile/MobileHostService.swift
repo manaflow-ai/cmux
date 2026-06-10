@@ -361,18 +361,19 @@ final class MobileHostService {
     /// record. A token that fails verification degrades to the identity-free
     /// payload rather than an error: reachability stays observable, and the
     /// authorized verbs that follow surface the auth failure properly.
+    /// Verification goes through the same gate as the authorized verbs
+    /// (``verifiedStackCaller(for:)``), so a DEBUG dev-token client that can
+    /// list workspaces also sees identity.
     nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
         let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedToken?.isEmpty == false else {
             return MobileHostPublicStatusCache.result(includeIdentity: false)
         }
-        do {
-            try await verifyStackAuthOffMainActor(auth: request.auth)
-        } catch {
+        let verified = await MobileHostService.shared.verifiedStackCaller(for: request)
+        if !verified {
             mobileHostLog.error("mobile host status identity withheld: stack verification failed")
-            return MobileHostPublicStatusCache.result(includeIdentity: false)
         }
-        return MobileHostPublicStatusCache.result(includeIdentity: true)
+        return MobileHostPublicStatusCache.result(includeIdentity: verified)
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
@@ -1214,6 +1215,39 @@ final class MobileHostService {
         await authorizationError(for: request)
     }
 
+    /// Whether `request`'s Stack token passes the DEBUG dev-token policy.
+    /// Always `false` in release builds. Shared by the authorization gate and
+    /// the status identity gate so a dev-token client is treated identically
+    /// on both.
+    private func devStackTokenAuthorized(_ request: MobileHostRPCRequest) -> Bool {
+        #if DEBUG
+        if let stackAccessToken = request.auth?.stackAccessToken {
+            return MobileHostDevStackAuthPolicy.authorize(
+                providedToken: stackAccessToken,
+                acceptedToken: debugAcceptedStackAuthToken
+            )
+        }
+        #endif
+        return false
+    }
+
+    /// Whether `request` presents credentials that pass the same Stack gate
+    /// as the authorized verbs (including the DEBUG dev-token policy),
+    /// independent of whether the method itself requires authorization. The
+    /// status path uses this to decide if the caller may see the Mac's
+    /// identity.
+    func verifiedStackCaller(for request: MobileHostRPCRequest) async -> Bool {
+        if devStackTokenAuthorized(request) {
+            return true
+        }
+        do {
+            try await Self.verifyStackAuthOffMainActor(auth: request.auth)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     private func authorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
         guard Self.requiresAuthorization(method: request.method) else {
             return nil
@@ -1225,15 +1259,9 @@ final class MobileHostService {
         // photographed QR is useless without the owner's signed-in account, and
         // pairing is bound to "who is signed in on this Mac" rather than a stored
         // ticket, so it survives Mac restarts and ticket expiry.
-        #if DEBUG
-        if let stackAccessToken = request.auth?.stackAccessToken,
-           MobileHostDevStackAuthPolicy.authorize(
-                providedToken: stackAccessToken,
-                acceptedToken: debugAcceptedStackAuthToken
-           ) {
+        if devStackTokenAuthorized(request) {
             return nil
         }
-        #endif
         do {
             try await Self.verifyStackAuthOffMainActor(auth: request.auth)
             return nil
