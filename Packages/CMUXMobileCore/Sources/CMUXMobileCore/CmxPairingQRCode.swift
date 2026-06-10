@@ -81,14 +81,19 @@ public enum CmxPairingQRCode {
     /// are exactly the canonical `host:port` sequence the decoder
     /// resynthesizes (ids `tailscale`, `tailscale_2`, ... and priorities 10,
     /// 20, ...), with no loopback host and no host that needs escaping.
-    /// Non-Tailscale routes (a DEBUG Mac's dev loopback) are dropped, not
-    /// encoded. Anything else (workspace-scoped tickets, custom route ids, no
-    /// Tailscale route at all) keeps the compact v1 payload so the mapping
-    /// stays lossless.
+    /// The only routes this grammar may silently drop are loopback ones (a
+    /// DEBUG Mac's dev loopback route), which no phone may ever dial anyway.
+    /// Anything else (workspace-scoped tickets, custom route ids, no
+    /// Tailscale route at all, or a non-Tailscale fallback route such as an
+    /// iroh peer that the bare `host:port` grammar cannot express) keeps the
+    /// compact v1 payload so the mapping stays lossless.
     private static func encodableRoutes(of ticket: CmxAttachTicket) -> [CmxAttachRoute]? {
         guard ticket.version == CmxAttachTicket.currentVersion,
               ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
+            return nil
+        }
+        guard ticket.routes.allSatisfy({ $0.kind == .tailscale || CmxLoopbackHost.matches($0) }) else {
             return nil
         }
         let routes = ticket.routes.filter { $0.kind == .tailscale }

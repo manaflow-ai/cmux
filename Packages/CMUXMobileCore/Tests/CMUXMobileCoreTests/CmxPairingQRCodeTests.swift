@@ -152,6 +152,22 @@ import Testing
             ),
         ])
         #expect(CmxPairingQRCode.encode(loopbackTailscale) == nil)
+
+        // A non-Tailscale fallback route the bare host:port grammar cannot
+        // express (an iroh peer) must NOT be silently dropped: the ticket
+        // keeps the lossless compact payload instead. Only loopback routes,
+        // which no phone may ever dial, are droppable.
+        let withIrohFallback = try pairingTicket(routes: [
+            tailscale,
+            try CmxAttachRoute(
+                id: "iroh",
+                kind: .iroh,
+                endpoint: .peer(id: "peer-1", relayHint: nil, directAddrs: [], relayURL: nil),
+                priority: 20
+            ),
+        ])
+        #expect(CmxPairingQRCode.encode(withIrohFallback) == nil)
+        #expect(!CmxPairingQRCode.canEncode(withIrohFallback))
     }
 
     @Test(arguments: [
