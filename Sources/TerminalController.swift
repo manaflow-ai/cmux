@@ -4390,7 +4390,7 @@ class TerminalController {
             "pinned": workspace.isPinned,
             "root_path": v2OrNull(rootPath),
             "project_root_path": v2OrNull(projectRootPath),
-            "branch_summary": v2OrNull(workspace.gitBranch?.branch),
+            "branch_summary": v2OrNull(workspace.sidebarGitBranchesInDisplayOrder().first?.branch),
             "remote_display_target": v2OrNull(workspace.remoteDisplayTarget),
             "remote_connection_state": workspace.remoteConnectionState.rawValue,
             "remote": workspace.remoteStatusPayload(),
