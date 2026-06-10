@@ -1800,7 +1800,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// post-handshake report is what makes a QR-paired Mac identifiable: the
     /// device id keys the paired-Mac record (launch reconnect, host switcher)
     /// and the name replaces the placeholder in the UI.
-    private func applyHostReportedIdentity(deviceID: String?, displayName: String?) async {
+    ///
+    /// `client` is the connection the status reply belongs to. Every state
+    /// read/mutation re-checks `remoteClient === client` after a suspension,
+    /// so a stale reply (the user re-paired while the request was in flight)
+    /// can never adopt the OLD Mac's identity onto the NEW connection's
+    /// empty-id ticket or persist a mixed paired-Mac record.
+    private func applyHostReportedIdentity(
+        client: MobileCoreRPCClient,
+        deviceID: String?,
+        displayName: String?
+    ) async {
+        guard remoteClient === client else { return }
         if let reportedID = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
            !reportedID.isEmpty,
            let ticket = activeTicket,
@@ -1821,13 +1832,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // empty-id ticket was skipped by the connect-time persist).
             await persistPairedMacFromTicket(adopted)
         }
+        guard remoteClient === client else { return }
         await applyHostReportedDisplayName(displayName)
     }
 
     /// Adopts the Mac name reported by `mobile.host.status`. The pairing QR
     /// no longer carries the name, so this post-handshake report is what
     /// replaces the placeholder in the UI and fills in the paired-Mac store
-    /// for freshly paired Macs.
+    /// for freshly paired Macs. The caller has verified the reply belongs to
+    /// the current connection; `ticket` is captured once here so the trailing
+    /// store write stays internally consistent even if the connection changes
+    /// mid-upsert.
     private func applyHostReportedDisplayName(_ reportedName: String?) async {
         guard let name = reportedName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !name.isEmpty,
@@ -3534,6 +3549,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:]),
                 timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
             )
+            // The status round-trip suspends, and a reconnect/new pairing can
+            // install a different `remoteClient` (and a fresh `activeTicket`)
+            // in the meantime. A stale response must not mutate the current
+            // connection's transport state, and above all must not adopt the
+            // OLD Mac's identity onto the NEW connection's empty-id ticket
+            // (which would persist the wrong paired-Mac record). The stale
+            // listener task tears itself down via its own `remoteClient`
+            // guards; returning the fallback here is inert.
+            guard remoteClient === client else { return fallback }
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
                 terminalOutputTransport = fallback
                 supportsWorkspaceActions = false
@@ -3542,13 +3566,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
             supportsDogfoodFeedback = payload.capabilities.contains(Self.dogfoodFeedbackCapability)
-            await applyHostReportedIdentity(deviceID: payload.macDeviceID, displayName: payload.macDisplayName)
+            await applyHostReportedIdentity(
+                client: client,
+                deviceID: payload.macDeviceID,
+                displayName: payload.macDisplayName
+            )
             let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
                 payload.terminalFidelity == "render_grid" ? .renderGrid : .rawBytes
             terminalOutputTransport = transport
             MobileDebugLog.anchormux("sync.transport=\(transport == .renderGrid ? "render_grid" : "raw_bytes")")
             return transport
         } catch {
+            guard remoteClient === client else { return fallback }
             terminalOutputTransport = fallback
             supportsWorkspaceActions = false
             supportsDogfoodFeedback = false
