@@ -4501,13 +4501,65 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
-    func testConditionalThemeOverrideSkipsSameThemePair() throws {
+    // Regression: https://github.com/manaflow-ai/cmux/issues/3459
+    // `cmux themes set` always encodes the selection with conditional
+    // `light:...,dark:...` syntax, even when both sides are identical. Ghostty
+    // mis-applies that conditional syntax (background lands but foreground/palette
+    // stay at the white defaults), so cmux must inject the resolved plain theme
+    // even when the light and dark sides resolve to the same theme.
+    func testConditionalThemeOverrideResolvesSameThemePair() throws {
         try withTempConfig("theme = light:Catppuccin Mocha,dark:Catppuccin Mocha\n") { path in
-            XCTAssertNil(
+            XCTAssertEqual(
                 GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
                     configPaths: [path]
-                )
+                ),
+                "theme = Catppuccin Mocha"
+            )
+        }
+    }
+
+    // Regression: https://github.com/manaflow-ai/cmux/issues/3459
+    // Exact repro from the issue body: selecting a single light theme for both
+    // sides must force ghostty to apply the light theme's dark-on-light
+    // foreground instead of leaving the default white foreground.
+    func testConditionalThemeOverrideResolvesIdenticalLightThemePairFromCLIEncoding() throws {
+        try withTempConfig("theme = light:GitHub Light Default,dark:GitHub Light Default\n") { path in
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .light,
+                    configPaths: [path]
+                ),
+                "theme = GitHub Light Default"
+            )
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path]
+                ),
+                "theme = GitHub Light Default"
+            )
+        }
+    }
+
+    // Regression: https://github.com/manaflow-ai/cmux/issues/3459
+    // `cmux themes set --light X` encodes `theme = light:X`, which ghostty treats
+    // as conditional config. cmux must still inject the resolved plain theme.
+    func testConditionalThemeOverrideResolvesLightOnlyConditionalTheme() throws {
+        try withTempConfig("theme = light:Catppuccin Latte\n") { path in
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .light,
+                    configPaths: [path]
+                ),
+                "theme = Catppuccin Latte"
+            )
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path]
+                ),
+                "theme = Catppuccin Latte"
             )
         }
     }
