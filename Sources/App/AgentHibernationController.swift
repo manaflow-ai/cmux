@@ -53,6 +53,7 @@ final class AgentHibernationController {
     private var defaultsObserver: NSObjectProtocol?
     private var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
+    private var pendingCommandLineByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
@@ -117,11 +118,25 @@ final class AgentHibernationController {
         }
     }
 
-    func recordTerminalInput(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil) {
+    func recordTerminalInput(
+        workspaceId: UUID,
+        panelId: UUID,
+        recordedAt: Date? = nil,
+        settlesCommandLine: Bool = false
+    ) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
         let recordedAt = recordedAt ?? Date()
         let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
         terminalInputByPanel[key] = recordedAt.timeIntervalSince1970
+        // Typed input that did not submit or clear the command line leaves
+        // editable text at the prompt; freeing the PTY would discard it, so
+        // shell-restart hibernation treats the panel as having unconfirmed
+        // input until a return/interrupt/EOF/kill-line settles it.
+        if settlesCommandLine {
+            pendingCommandLineByPanel.removeValue(forKey: key)
+        } else {
+            pendingCommandLineByPanel[key] = recordedAt.timeIntervalSince1970
+        }
     }
 
     func recordTerminalFocus(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil) {
@@ -202,6 +217,7 @@ final class AgentHibernationController {
             index: index,
             activityByPanel: activityByPanel,
             terminalInputByPanel: terminalInputByPanel,
+            pendingCommandLineByPanel: pendingCommandLineByPanel,
             lifecycleChangeByPanel: lifecycleChangeByPanel
         )
         let nowTime = now.timeIntervalSince1970
@@ -438,6 +454,7 @@ final class AgentHibernationController {
     private func clearTrackingState() {
         activityByPanel.removeAll(keepingCapacity: false)
         terminalInputByPanel.removeAll(keepingCapacity: false)
+        pendingCommandLineByPanel.removeAll(keepingCapacity: false)
         lifecycleChangeByPanel.removeAll(keepingCapacity: false)
         confirmations.removeAll(keepingCapacity: false)
         tailFingerprintSamples.removeAll(keepingCapacity: false)
@@ -449,6 +466,7 @@ final class AgentHibernationController {
     ) {
         activityByPanel = activityByPanel.filter { currentKeys.contains($0.key) }
         terminalInputByPanel = terminalInputByPanel.filter { currentKeys.contains($0.key) }
+        pendingCommandLineByPanel = pendingCommandLineByPanel.filter { currentKeys.contains($0.key) }
         lifecycleChangeByPanel = lifecycleChangeByPanel.filter { currentKeys.contains($0.key) }
         confirmations = confirmations.filter { key, _ in
             currentKeys.contains(key) && selectedKeys.contains(key)
@@ -463,6 +481,7 @@ extension AppDelegate {
         index: RestorableAgentSessionIndex,
         activityByPanel: [AgentHibernationPanelKey: TimeInterval],
         terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval],
+        pendingCommandLineByPanel: [AgentHibernationPanelKey: TimeInterval],
         lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval]
     ) -> [AgentHibernationRecord] {
         var records: [AgentHibernationRecord] = []
@@ -474,7 +493,7 @@ extension AppDelegate {
             for workspace in manager.tabs {
                 let workspaceIsVisible = visibleWorkspaceId == workspace.id
                 let visiblePanelIds = workspaceIsVisible
-                    ? workspace.agentHibernationVisiblePanelIdsForCurrentLayout()
+                    ? workspace.surfaceHibernationProtectedPanelIdsForCurrentLayout()
                     : []
                 let workspaceUnmountedAt = workspaceIsVisible
                     ? nil
@@ -519,7 +538,9 @@ extension AppDelegate {
                             terminalPanel: terminalPanel,
                             agent: agent,
                             lifecycle: lifecycle,
-                            hasUnconfirmedTerminalInput: agent != nil && terminalInputAt > lifecycleChangeAt,
+                            hasUnconfirmedTerminalInput: agent != nil
+                                ? terminalInputAt > lifecycleChangeAt
+                                : pendingCommandLineByPanel[key] != nil,
                             lastActivityAt: max(indexActivity, localActivity, createdAt),
                             isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId),
                             isBusy: isBusy,

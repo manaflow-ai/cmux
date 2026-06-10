@@ -31,6 +31,9 @@ struct SurfaceHibernationPlannerInput: Sendable {
     let isBusy: Bool
     /// Agent lifecycle reported by hooks; `.unknown` for plain shells.
     let lifecycle: AgentHibernationLifecycleState
+    /// Input the user could lose: typed after the last agent lifecycle change
+    /// (agent panels) or left pending on the editable command line without a
+    /// settling return/interrupt (plain shells).
     let hasUnconfirmedTerminalInput: Bool
     /// Mutable so the controller can fold in tail-fingerprint (output-only)
     /// activity after constructing the input.

@@ -17711,6 +17711,14 @@ final class Workspace: Identifiable, ObservableObject {
         return visiblePanelIds
     }
 
+    /// Panels rendered in the current layout, for hibernation protection.
+    /// Unlike the agent auto-resume set, this is independent of the
+    /// input-active presentation flag: a terminal the user can see — e.g. in a
+    /// visible but non-key window — must never be evicted.
+    func surfaceHibernationProtectedPanelIdsForCurrentLayout() -> Set<UUID> {
+        renderedVisiblePanelIdsForCurrentLayout()
+    }
+
     func agentHibernationVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
         guard agentHibernationAutoResumePresentationVisible else { return [] }
         return renderedVisiblePanelIdsForCurrentLayout()
