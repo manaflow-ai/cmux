@@ -12,7 +12,21 @@ struct GhosttyConfig {
     static let cmuxDefaultDarkThemeName = "Apple System Colors"
 
     private static let loadCacheLock = NSLock()
-    private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
+    private static var cachedConfigsByColorScheme: [ColorSchemePreference: (signature: ConfigFileSignature, config: GhosttyConfig)] = [:]
+
+    /// Cheap fingerprint of the resolved config files (path + size + mtime),
+    /// used to validate the parsed-config cache without re-reading or
+    /// re-parsing the files. SwiftUI appearance resolution calls `load()` on
+    /// every view update; this lets those calls hit the cache and skip the
+    /// synchronous file read + parse unless a config file actually changed.
+    struct ConfigFileSignature: Equatable {
+        struct Entry: Equatable {
+            var path: String
+            var size: Int64
+            var modified: TimeInterval
+        }
+        var entries: [Entry]
+    }
     static let defaultSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize)
     static let minSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.minSidebarFontSize)
     static let maxSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSidebarFontSize)
@@ -89,16 +103,18 @@ struct GhosttyConfig {
     static func load(
         preferredColorScheme: ColorSchemePreference? = nil,
         useCache: Bool = true,
+        fileSignature: () -> ConfigFileSignature = { Self.currentConfigFileSignature() },
         loadFromDisk: (_ preferredColorScheme: ColorSchemePreference) -> GhosttyConfig = Self.loadFromDisk
     ) -> GhosttyConfig {
         let resolvedColorScheme = preferredColorScheme ?? currentColorSchemePreference()
-        if useCache, let cached = cachedLoad(for: resolvedColorScheme) {
+        let signature = useCache ? fileSignature() : ConfigFileSignature(entries: [])
+        if useCache, let cached = cachedLoad(for: resolvedColorScheme, signature: signature) {
             return cached
         }
 
         let loaded = loadFromDisk(resolvedColorScheme)
         if useCache {
-            storeCachedLoad(loaded, for: resolvedColorScheme)
+            storeCachedLoad(loaded, signature: signature, for: resolvedColorScheme)
         }
         return loaded
     }
@@ -109,18 +125,39 @@ struct GhosttyConfig {
         loadCacheLock.unlock()
     }
 
-    private static func cachedLoad(for colorScheme: ColorSchemePreference) -> GhosttyConfig? {
+    /// Stats the resolved config files (no read/parse) to fingerprint their
+    /// current on-disk state. Missing files contribute a sentinel entry so a
+    /// later create/delete also invalidates the cache.
+    static func currentConfigFileSignature(
+        paths: [String] = Self.resolvedConfigPaths(),
+        fileManager: FileManager = .default
+    ) -> ConfigFileSignature {
+        let entries = paths.map { path -> ConfigFileSignature.Entry in
+            let attributes = try? fileManager.attributesOfItem(atPath: path)
+            let size = (attributes?[.size] as? NSNumber)?.int64Value ?? -1
+            let modified = (attributes?[.modificationDate] as? Date)?
+                .timeIntervalSinceReferenceDate ?? -1
+            return ConfigFileSignature.Entry(path: path, size: size, modified: modified)
+        }
+        return ConfigFileSignature(entries: entries)
+    }
+
+    private static func cachedLoad(
+        for colorScheme: ColorSchemePreference,
+        signature: ConfigFileSignature
+    ) -> GhosttyConfig? {
         loadCacheLock.lock()
         defer { loadCacheLock.unlock() }
-        return cachedConfigsByColorScheme[colorScheme]
+        return cachedConfigsByColorScheme[colorScheme]?.config
     }
 
     private static func storeCachedLoad(
         _ config: GhosttyConfig,
+        signature: ConfigFileSignature,
         for colorScheme: ColorSchemePreference
     ) {
         loadCacheLock.lock()
-        cachedConfigsByColorScheme[colorScheme] = config
+        cachedConfigsByColorScheme[colorScheme] = (signature, config)
         loadCacheLock.unlock()
     }
 
@@ -187,10 +224,11 @@ struct GhosttyConfig {
         }
     }
 
-    private static func loadFromDisk(preferredColorScheme: ColorSchemePreference) -> GhosttyConfig {
-        var config = GhosttyConfig()
-
-        // Match Ghostty's default load order on macOS.
+    /// The ordered list of config files cmux reads on a real (non-preview)
+    /// load, matching Ghostty's default load order on macOS. Shared by
+    /// `loadFromDisk` and `currentConfigFileSignature` so the cache fingerprint
+    /// covers exactly the files that are parsed.
+    static func resolvedConfigPaths() -> [String] {
         let appSupportGhosttyDirectory = NSString(
             string: "~/Library/Application Support/com.mitchellh.ghostty"
         ).expandingTildeInPath
@@ -210,6 +248,13 @@ struct GhosttyConfig {
             configPaths.append(appSupportLegacyConfig)
         }
         configPaths.append(contentsOf: cmuxConfigPaths())
+        return configPaths
+    }
+
+    private static func loadFromDisk(preferredColorScheme: ColorSchemePreference) -> GhosttyConfig {
+        var config = GhosttyConfig()
+
+        let configPaths = resolvedConfigPaths()
 
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
