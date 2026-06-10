@@ -850,4 +850,110 @@ struct WorkspaceGroupTests {
 
         #expect(manager.resolvedWorkspaceDisplayTitle(for: member) == memberTitle)
     }
+
+    // Turning a single workspace into a group promotes that workspace to be
+    // the anchor (no fresh anchor is synthesized), keeps it at the same
+    // sidebar position, inherits its title as the group name, and ungroup is
+    // the exact inverse: the same single workspace at the same spot.
+    @Test func makeWorkspaceGroupFromWorkspacePromotesInPlaceAndRoundTrips() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        #expect(originalIds.count == 3)
+        let targetId = originalIds[1]
+        let target = try #require(manager.tabs.first { $0.id == targetId })
+        target.title = "api-server"
+        let countBefore = manager.tabs.count
+
+        let groupId = try #require(manager.makeWorkspaceGroupFromWorkspace(anchorWorkspaceId: targetId))
+
+        // No phantom anchor workspace was created.
+        #expect(manager.tabs.count == countBefore)
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        // The workspace itself is the anchor and the sole member.
+        #expect(group.anchorWorkspaceId == targetId)
+        #expect(target.groupId == groupId)
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [targetId])
+        // Position is unchanged.
+        #expect(manager.tabs.map(\.id) == originalIds)
+        // The header inherits the workspace's title rather than "Group N".
+        #expect(group.name == "api-server")
+        #expect(manager.resolvedWorkspaceDisplayTitle(for: target) == "api-server")
+
+        // Ungroup returns the anchor to a regular ungrouped workspace in place.
+        manager.ungroupWorkspaceGroup(groupId: groupId)
+        #expect(manager.workspaceGroups.contains { $0.id == groupId } == false)
+        #expect(target.groupId == nil)
+        #expect(manager.tabs.count == countBefore)
+        #expect(manager.tabs.map(\.id) == originalIds)
+        #expect(manager.resolvedWorkspaceDisplayTitle(for: target) == "api-server")
+    }
+
+    // Promote is for ungrouped workspaces only. A workspace that already
+    // belongs to a group must use add/remove, so the call is a no-op.
+    @Test func makeWorkspaceGroupFromWorkspaceNoOpsForGroupedWorkspace() throws {
+        let manager = makeTabManager()
+        let memberId = manager.tabs[1].id
+        let groupId = try #require(
+            manager.createWorkspaceGroup(name: "Group 1", childWorkspaceIds: [memberId])
+        )
+        let groupCountBefore = manager.workspaceGroups.count
+        let tabCountBefore = manager.tabs.count
+
+        #expect(manager.makeWorkspaceGroupFromWorkspace(anchorWorkspaceId: memberId) == nil)
+        #expect(manager.workspaceGroups.count == groupCountBefore)
+        #expect(manager.tabs.count == tabCountBefore)
+        #expect(manager.tabs.first { $0.id == memberId }?.groupId == groupId)
+    }
+
+    // A pinned workspace turned into a group must stay in the pinned sidebar
+    // tier (group tier reads `group.isPinned`, not the anchor's own pin), so
+    // it does not get demoted below other pinned rows. Guards the
+    // `isPinned: anchorTab.isPinned` inheritance.
+    @Test func makeWorkspaceGroupFromWorkspaceKeepsPinnedWorkspaceInPinnedTier() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let ids = manager.tabs.map(\.id)
+        #expect(ids.count == 4)
+        // Pin the first two so they form the pinned tier, in order. Promoting
+        // the FIRST pinned workspace without inheriting its pin would demote
+        // it below the second pinned workspace (pinned-first reordering).
+        manager.tabs[0].isPinned = true
+        manager.tabs[1].isPinned = true
+
+        let groupId = try #require(manager.makeWorkspaceGroupFromWorkspace(anchorWorkspaceId: ids[0]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        #expect(group.isPinned)
+        #expect(manager.tabs.map(\.id) == ids)
+
+        // Ungroup restores the anchor as a still-pinned row in the same spot.
+        manager.ungroupWorkspaceGroup(groupId: groupId)
+        #expect(manager.tabs.first { $0.id == ids[0] }?.isPinned == true)
+        #expect(manager.tabs.map(\.id) == ids)
+    }
+
+    // A promoted single-workspace group has its anchor as the only member, so
+    // it renders as a header with no child rows. Sanity-check that the anchor
+    // is excluded from the rendered workspace rows (it is the header).
+    @Test func singleWorkspaceGroupRendersOnlyAsHeader() throws {
+        let manager = makeTabManager()
+        let targetId = manager.tabs[0].id
+
+        let groupId = try #require(manager.makeWorkspaceGroupFromWorkspace(anchorWorkspaceId: targetId))
+        let groupsById = Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
+        let items = SidebarWorkspaceRenderItem.renderItems(tabs: manager.tabs, groupsById: groupsById)
+
+        let headerGroupIds: [UUID] = items.compactMap {
+            if case let .groupHeader(group, _) = $0 { return group.id }
+            return nil
+        }
+        let workspaceRowIds: [UUID] = items.compactMap {
+            if case let .workspace(workspace) = $0 { return workspace.id }
+            return nil
+        }
+        #expect(headerGroupIds.contains(groupId))
+        #expect(workspaceRowIds.contains(targetId) == false)
+    }
 }

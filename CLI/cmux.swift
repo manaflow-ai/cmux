@@ -7215,7 +7215,7 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, ungroup, delete, rename, collapse, expand, pin, unpin, add, remove, set-anchor, new-workspace, set-color, set-icon, move, focus")
+            throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, from-workspace, ungroup, delete, rename, collapse, expand, pin, unpin, add, remove, set-anchor, new-workspace, set-color, set-icon, move, focus")
         }
         let rest = Array(commandArgs.dropFirst())
         var params: [String: Any] = [:]
@@ -7269,6 +7269,29 @@ struct CMUXCLI {
                 params["child_workspace_ids"] = ids
             }
             let response = try client.sendV2(method: "workspace.group.create", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else if let group = response["group"] as? [String: Any] {
+                print("OK \(textHandle(group, idFormat: idFormat))")
+            } else {
+                print("OK")
+            }
+
+        case "from-workspace":
+            // Turn an existing workspace into a group: the workspace itself
+            // becomes the anchor/header (no fresh anchor is created). Inverse
+            // of `ungroup`.
+            let (nameOpt, rem0) = parseOption(rest, name: "--name")
+            let (wsOpt, rem1) = parseOption(rem0, name: "--workspace")
+            // Strip --window before scanning for a positional so a `--window
+            // <value>` pair never gets parsed as the workspace id.
+            let (_, rem2) = parseOption(rem1, name: "--window")
+            guard let wsId = wsOpt ?? rem2.first(where: { !$0.hasPrefix("--") }) else {
+                throw CLIError(message: "from-workspace requires --workspace <id>")
+            }
+            params["workspace_id"] = wsId
+            if let nameOpt { params["name"] = nameOpt }
+            let response = try client.sendV2(method: "workspace.group.from_workspace", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(response, mode: idFormat)))
             } else if let group = response["group"] as? [String: Any] {
@@ -13529,6 +13552,12 @@ struct CMUXCLI {
               create [--name <name>] [--cwd <path>] [--from <id>,<id>...]
                                         Defaults --from to the active sidebar
                                         selection / caller workspace when omitted.
+              from-workspace --workspace <ws> [--name <name>]
+                                        Turn an existing workspace into a group:
+                                        the workspace itself becomes the anchor
+                                        (no fresh anchor is created). Inverse of
+                                        `ungroup`. Defaults the group name to the
+                                        workspace's title.
               ungroup <group>           Dissolve a group, preserving all members
               delete <group>            Delete a group AND close every workspace
                                         inside it. Destructive. Use `ungroup` to

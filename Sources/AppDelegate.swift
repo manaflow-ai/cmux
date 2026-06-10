@@ -13193,8 +13193,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .groupSelectedWorkspaces) {
             // Only consume the event when grouping actually happened; otherwise
             // fall through so the dispatcher reaches the later
-            // `.toggleReactGrab` check (default ⌘⇧G collides with React Grab
-            // and grouping returns false when no multi-selection exists).
+            // `.toggleReactGrab` check (default ⌘⇧G collides with React Grab).
+            // Grouping returns false when React Grab would act on the current
+            // focus or there's nothing to group, so React Grab still wins on
+            // browser-bearing workspaces.
             if handleGroupSelectedWorkspacesShortcut(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             ) {
@@ -13207,6 +13209,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // workspace was in a group). Otherwise fall through so a rebinding
             // that shares this chord with another action still works.
             if handleToggleFocusedWorkspaceGroupCollapsedShortcut(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            ) {
+                return true
+            }
+        }
+
+        if matchConfiguredShortcut(event: event, action: .renameFocusedWorkspaceGroup) {
+            // Only consume when the focused workspace is actually in a group.
+            // Otherwise fall through (the default chord is shared with
+            // commandPalettePrevious, which is handled earlier while the
+            // palette is open).
+            if handleRenameFocusedWorkspaceGroupShortcut(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             ) {
                 return true
@@ -14507,6 +14521,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func handleRenameFocusedWorkspaceGroupShortcut(preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let resolvedTabManager: TabManager? = contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
+        guard let tabManager = resolvedTabManager else { return false }
+        guard let focusedId = tabManager.selectedTabId,
+              let groupId = tabManager.tabs.first(where: { $0.id == focusedId })?.groupId,
+              let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
+            // Focused workspace isn't in a group — let the chord propagate.
+            return false
+        }
+        presentSidebarWorkspaceGroupRenamePrompt(
+            tabManager: tabManager,
+            groupId: group.id,
+            currentName: group.name
+        )
+        return true
+    }
+
+    @discardableResult
     func handleGroupSelectedWorkspacesShortcut(preferredWindow: NSWindow? = nil) -> Bool {
         // Resolve the TabManager for the preferred/key/main window first so
         // multi-window users get the group created in the window they were
@@ -14522,15 +14555,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let orderedSelectedIds: [UUID] = selectedSet.isEmpty
             ? []
             : tabManager.tabs.compactMap { selectedSet.contains($0.id) ? $0.id : nil }
-        // Only consume the shortcut when there's an explicit sidebar
-        // multi-selection. Anything ≤ 1 falls through so ⌘⇧G keeps working as
-        // React Grab's default in browser/terminal contexts. A single-tab
-        // group can still be created via right-click → New Group from
-        // Workspace. `sidebarSelectedWorkspaceIds` is normally synced to the
-        // focused workspace (clearSidebarMultiSelection sets it to a
-        // singleton after keyboard nav), so the singleton case must be
-        // treated the same as "no selection."
-        guard orderedSelectedIds.count >= 2 else { return false }
+        // Two or more sidebar-selected workspaces → group them under a fresh
+        // anchor (the original multi-select behavior below).
+        //
+        // A single focused workspace (or no explicit multi-selection) → turn
+        // that workspace itself into a group in place, but only when React
+        // Grab would not act on the current focus. React Grab keeps ⌘⇧G on
+        // browser-bearing workspaces; in a plain terminal the chord otherwise
+        // just beeps, so we use it to promote the focused workspace.
+        // `sidebarSelectedWorkspaceIds` is normally synced to the focused
+        // workspace (a singleton after keyboard nav), so ≤ 1 is treated as
+        // "no multi-selection."
+        guard orderedSelectedIds.count >= 2 else {
+            // Single focused workspace. React Grab keeps ⌘⇧G in browser
+            // contexts; everything below is terminal-context only.
+            guard !tabManager.reactGrabWouldHandleCurrentFocus(),
+                  let focusedId = tabManager.selectedTabId,
+                  let focused = tabManager.tabs.first(where: { $0.id == focusedId }) else {
+                return false
+            }
+            // Ungrouped → turn it into a single-member group.
+            if focused.groupId == nil {
+                return tabManager.makeWorkspaceGroupFromWorkspace(anchorWorkspaceId: focusedId) != nil
+            }
+            // Already grouped: ⌘⇧G toggles OFF only when this workspace is the
+            // anchor of a SOLO group (itself, no other members), so the chord
+            // round-trips create<->ungroup. A workspace inside a multi-member
+            // group (its anchor or a child) is left untouched — consume the
+            // chord so it doesn't beep or fall through to React Grab.
+            if let group = tabManager.workspaceGroups.first(where: { $0.id == focused.groupId }),
+               group.anchorWorkspaceId == focusedId,
+               tabManager.tabs.filter({ $0.groupId == group.id }).count == 1 {
+                tabManager.ungroupWorkspaceGroup(groupId: group.id)
+            }
+            return true
+        }
         let candidateIds: [UUID] = orderedSelectedIds
         // Match the workspace context-menu eligibility filter so the shortcut
         // doesn't silently create an anchor-only group when every selected

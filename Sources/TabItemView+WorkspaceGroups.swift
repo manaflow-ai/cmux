@@ -23,24 +23,37 @@ extension TabItemView {
             }()
             let hasAnyGroupedTarget = eligibleTargets.contains { $0.groupId != nil }
 
-            let groupSelectedShortcut = KeyboardShortcutSettings.shortcut(for: .groupSelectedWorkspaces)
-            let groupSelectedLabel = isMulti
-                ? String(
+            if isMulti {
+                // Multi-select grouping creates a fresh anchor above the
+                // selection (the documented `create` contract). ⌘⇧G drives
+                // this same path.
+                let groupSelectedShortcut = KeyboardShortcutSettings.shortcut(for: .groupSelectedWorkspaces)
+                let groupSelectedLabel = String(
                     localized: "contextMenu.workspaceGroup.newFromSelection",
                     defaultValue: "New Group from Selection"
                 )
-                : String(
-                    localized: "contextMenu.workspaceGroup.newFromWorkspace",
-                    defaultValue: "New Group from Workspace"
-                )
-            if let key = groupSelectedShortcut.keyEquivalent {
-                Button(groupSelectedLabel) {
-                    promptNewWorkspaceGroup(workspaceIds: eligibleTargetIds)
+                if let key = groupSelectedShortcut.keyEquivalent {
+                    Button(groupSelectedLabel) {
+                        promptNewWorkspaceGroup(workspaceIds: eligibleTargetIds)
+                    }
+                    .keyboardShortcut(key, modifiers: groupSelectedShortcut.eventModifiers)
+                } else {
+                    Button(groupSelectedLabel) {
+                        promptNewWorkspaceGroup(workspaceIds: eligibleTargetIds)
+                    }
                 }
-                .keyboardShortcut(key, modifiers: groupSelectedShortcut.eventModifiers)
-            } else {
-                Button(groupSelectedLabel) {
-                    promptNewWorkspaceGroup(workspaceIds: eligibleTargetIds)
+            } else if let target = eligibleTargets.first, target.groupId == nil {
+                // Single ungrouped workspace: turn it into a group by making
+                // the workspace itself the anchor (no phantom empty anchor).
+                // Hidden for workspaces already in a group — those use
+                // "Move to Group" / "Remove from Group" below.
+                Button(
+                    String(
+                        localized: "contextMenu.workspaceGroup.newFromWorkspace",
+                        defaultValue: "New Group from Workspace"
+                    )
+                ) {
+                    promptWorkspaceGroupFromWorkspace(workspaceId: target.id)
                 }
             }
 
@@ -79,5 +92,9 @@ extension TabItemView {
     func promptNewWorkspaceGroup(workspaceIds: [UUID]) {
         guard !workspaceIds.isEmpty else { return }
         tabManager.createWorkspaceGroup(name: "", childWorkspaceIds: workspaceIds)
+    }
+
+    func promptWorkspaceGroupFromWorkspace(workspaceId: UUID) {
+        tabManager.makeWorkspaceGroupFromWorkspace(anchorWorkspaceId: workspaceId)
     }
 }

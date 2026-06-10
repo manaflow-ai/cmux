@@ -1957,6 +1957,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceGroupList(params: params))
         case "workspace.group.create":
             return v2Result(id: id, self.v2WorkspaceGroupCreate(params: params))
+        case "workspace.group.from_workspace":
+            return v2Result(id: id, self.v2WorkspaceGroupFromWorkspace(params: params))
         case "workspace.group.ungroup":
             return v2Result(id: id, self.v2WorkspaceGroupUngroup(params: params))
         case "workspace.group.delete":
@@ -2462,6 +2464,7 @@ class TerminalController {
             "workspace.rename",
             "workspace.group.list",
             "workspace.group.create",
+            "workspace.group.from_workspace",
             "workspace.group.ungroup",
             "workspace.group.delete",
             "workspace.group.rename",
@@ -5014,6 +5017,54 @@ class TerminalController {
                 selectAnchor: false,
                 collapseSidebarSelection: false
             )
+        }
+        guard let gid = createdGroupId,
+              let group = v2MainSync({ tabManager.workspaceGroups.first(where: { $0.id == gid }) }) else {
+            return .err(code: "not_created", message: "Group was not created", data: nil)
+        }
+        return .ok([
+            "group": v2MainSync { v2WorkspaceGroupPayload(group, tabManager: tabManager) }
+        ])
+    }
+
+    /// Turn an existing workspace into a group: the workspace itself becomes
+    /// the new group's anchor (no fresh anchor is synthesized, unlike
+    /// `workspace.group.create`). The inverse is `workspace.group.ungroup`.
+    /// Not a focus-intent method, so the active workspace is left unchanged.
+    private func v2WorkspaceGroupFromWorkspace(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let wsId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let name = (params["name"] as? String) ?? ""
+        // Distinguish "no such workspace" from "already grouped" so scripts
+        // get an actionable error instead of a bare not-created.
+        let knownState: (exists: Bool, grouped: Bool) = v2MainSync {
+            guard let tab = tabManager.tabs.first(where: { $0.id == wsId }) else {
+                return (false, false)
+            }
+            return (true, tab.groupId != nil)
+        }
+        guard knownState.exists else {
+            return .err(code: "not_found", message: "Workspace not found in target window", data: [
+                "workspace_id": wsId.uuidString
+            ])
+        }
+        guard !knownState.grouped else {
+            return .err(
+                code: "invalid_state",
+                message: String(
+                    localized: "workspaceGroup.error.workspaceAlreadyGrouped",
+                    defaultValue: "Workspace is already in a group; remove it first"
+                ),
+                data: ["workspace_id": wsId.uuidString]
+            )
+        }
+        var createdGroupId: UUID?
+        v2MainSync {
+            createdGroupId = tabManager.makeWorkspaceGroupFromWorkspace(anchorWorkspaceId: wsId, name: name)
         }
         guard let gid = createdGroupId,
               let group = v2MainSync({ tabManager.workspaceGroups.first(where: { $0.id == gid }) }) else {

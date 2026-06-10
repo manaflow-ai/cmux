@@ -107,6 +107,7 @@ enum KeyboardShortcutSettings {
         case closeWorkspace
         case groupSelectedWorkspaces
         case toggleFocusedWorkspaceGroupCollapsed
+        case renameFocusedWorkspaceGroup
         case reopenClosedBrowserPanel
         case newSurface
         case toggleTerminalCopyMode
@@ -207,6 +208,7 @@ enum KeyboardShortcutSettings {
             case .closeWorkspace: return String(localized: "shortcut.closeWorkspace.label", defaultValue: "Close Workspace")
             case .groupSelectedWorkspaces: return String(localized: "shortcut.groupSelectedWorkspaces.label", defaultValue: "Group Selected Workspaces")
             case .toggleFocusedWorkspaceGroupCollapsed: return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
+            case .renameFocusedWorkspaceGroup: return String(localized: "shortcut.renameFocusedWorkspaceGroup.label", defaultValue: "Rename Focused Workspace's Group")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
@@ -366,6 +368,13 @@ enum KeyboardShortcutSettings {
                 // mnemonic. No-ops gracefully when the focused workspace
                 // isn't in a group.
                 return StoredShortcut(key: ".", command: true, shift: false, option: false, control: true)
+            case .renameFocusedWorkspaceGroup:
+                // Cmd+Shift+P. Shares the chord with commandPalettePrevious,
+                // but that only acts while the command palette is OPEN (it's
+                // in-palette navigation, dispatched earlier), so this fires
+                // only when the palette is closed. No-ops gracefully when the
+                // focused workspace isn't in a group. Rebind in Settings.
+                return StoredShortcut(key: "p", command: true, shift: true, option: false, control: false)
             case .reopenClosedBrowserPanel:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
             case .focusLeft:

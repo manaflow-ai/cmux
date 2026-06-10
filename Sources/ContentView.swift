@@ -9772,6 +9772,13 @@ struct ContentView: View {
         switch target.kind {
         case .workspace(let workspaceId):
             tabManager.setCustomTitle(tabId: workspaceId, title: normalizedName)
+            // A group anchor's displayed name IS its group's name, so renaming
+            // a "group workspace" must rename the group too or the header
+            // wouldn't change. Skip on clear (groups can't be unnamed).
+            if let normalizedName,
+               let anchoredGroup = tabManager.workspaceGroups.first(where: { $0.anchorWorkspaceId == workspaceId }) {
+                tabManager.renameWorkspaceGroup(groupId: anchoredGroup.id, name: normalizedName)
+            }
         case .tab(let workspaceId, let panelId):
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
                 NSSound.beep()
@@ -12378,6 +12385,18 @@ struct VerticalTabsSidebar: View {
         // drag mutations at 60fps invalidate only the rows/overlays that
         // read them, never this sidebar body. See SidebarDragState and
         // https://github.com/manaflow-ai/cmux/issues/2586.
+        // Force a clean row rebuild whenever the SET of group anchors changes
+        // (a workspace becoming, or ceasing to be, a group header). A sidebar
+        // row that switches in place between a `.workspace` row and a
+        // `.groupHeader` is mis-diffed by LazyVStack: turning the focused
+        // workspace into a single-member group left the header invisible, and
+        // ungrouping left a stale header. Keying on the anchor SET (sorted, so
+        // it ignores reorders) flips identity on group create/ungroup/anchor
+        // changes only, so neither drag-reorder nor rename triggers a rebuild.
+        let groupAnchorSignature = renderContext.workspaceGroups
+            .map { $0.anchorWorkspaceId.uuidString }
+            .sorted()
+            .joined(separator: ",")
         let rows = LazyVStack(spacing: tabRowSpacing) {
             ForEach(renderItems, id: \.id) { item in
                 switch item {
@@ -12399,6 +12418,7 @@ struct VerticalTabsSidebar: View {
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .id(groupAnchorSignature)
 
         // Gate ONLY the per-row frame-anchor *reader* (the virtualization-defeating
         // work) behind the drag-active check, and keep the Bonsplit drop-capture

@@ -8,9 +8,11 @@ Workspace groups let you nest workspaces into collapsible named sections in the 
 
 Every group is owned by exactly one workspace called the **anchor**. The group header in the sidebar IS the anchor's representation — there is no separate row for it. Clicking the header name area focuses the anchor's panels. Clicking the chevron toggles collapse.
 
-Anchors are always brand new when a group is created. They are never promoted from an existing workspace. The anchor's working directory is inherited from the first selected workspace (when grouping a selection) or from the active workspace (when creating via the CLI without `--cwd`).
+When you create a group from a **selection** (or via `create`), the anchor is brand new: a fresh workspace is inserted above the selected members, inheriting its working directory from the first selected workspace (or from the active workspace when creating via the CLI without `--cwd`).
 
-Closing the anchor workspace **dissolves the group**: every other member loses its `groupId` and stays in the tabs list as an ungrouped workspace. Nothing is closed besides the anchor itself. The app shows a confirm dialog with a "Don't ask again" toggle before this happens.
+When you **turn a single workspace into a group**, that existing workspace becomes the anchor itself: no fresh workspace is inserted, the row keeps its position, and the group name defaults to the workspace's own title. This is the exact inverse of ungrouping, so workspace → group → ungroup round-trips back to the same single workspace.
+
+Closing the anchor workspace **dissolves the group**: every other member loses its `groupId` and stays in the tabs list as an ungrouped workspace. Nothing is closed besides the anchor itself. The app shows a confirm dialog with a "Don't ask again" toggle before this happens. Ungrouping a single-workspace group simply turns the anchor back into a regular workspace at the same spot.
 
 ### Group identity
 
@@ -28,13 +30,19 @@ The sidebar layout, top to bottom:
 
 ### From the keyboard (`⌘⇧G`)
 
-Select two or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` collides with React Grab's default; the group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and browser/terminal contexts. Rebind in Settings → Keyboard if you'd rather the two not share a key.
+Select two or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu).
 
-Single-tab groups are not created from the shortcut. Use the workspace context menu's **New Group from Workspace** entry for that.
+With a single focused workspace (no multi-selection), `⌘⇧G` **toggles** that workspace into and out of a group in place: the first press turns the workspace into a single-member group (the workspace becomes the anchor, named after itself), and pressing `⌘⇧G` again on that solo group ungroups it back into a normal workspace. A workspace that is part of a multi-member group (its anchor or a child) is left untouched, so the toggle never dissolves a group that has other members. `⌘⇧G` collides with React Grab's default, so the group handler defers to React Grab whenever React Grab would act on the current focus (a browser is focused, or a single browser panel is reachable from the focused terminal). Rebind in Settings → Keyboard if you'd rather the two not share a key.
+
+You can also turn a single workspace into a group from the workspace context menu's **New Group from Workspace** entry, which works regardless of focus.
+
+### Renaming from the keyboard
+
+When the focused workspace is in a group, `⌘⇧P` opens the group rename prompt (it shares the chord with the command palette's previous-selection navigation, which only applies while the palette is open). `⌘⇧R` renames the focused workspace; when that workspace is a **group anchor**, it renames both the workspace and its group, since the group name is what the header displays. Both are rebindable in Settings → Keyboard.
 
 ### From a workspace context menu
 
-Right-click any workspace in the sidebar, choose **New Group from Workspace** (or **New Group from Selection** when multiple workspaces are selected). Same auto-naming behavior as the shortcut.
+Right-click an ungrouped workspace in the sidebar and choose **New Group from Workspace** to turn it into a group (the workspace becomes the anchor; the group takes the workspace's name). With multiple workspaces selected, the entry becomes **New Group from Selection**, which inserts a fresh auto-named anchor above them. Workspaces already in a group show **Move to Group** / **Remove from Group** instead.
 
 ### From the group header context menu
 
@@ -55,6 +63,7 @@ All group operations are scriptable via `cmux workspace-group <subcommand>`. The
 ```bash
 cmux workspace-group list [--json]
 cmux workspace-group create --name "manaflow" [--cwd ~/projects/manaflow] [--from <id>,<id>]
+cmux workspace-group from-workspace --workspace <workspace-id> [--name "manaflow"]
 cmux workspace-group ungroup <group-id>
 cmux workspace-group delete  <group-id>   # destructive: closes every member workspace
 cmux workspace-group rename <group-id> --name "new name"
@@ -68,7 +77,7 @@ cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
 cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
 ```
 
-`create` returns a group handle (`workspace_group:N` by default). Pass `--json` for the full structured payload.
+`create` and `from-workspace` return a group handle (`workspace_group:N` by default). Pass `--json` for the full structured payload.
 
 ### Examples
 
@@ -76,6 +85,12 @@ Group the three currently selected workspaces under a name:
 
 ```bash
 cmux workspace-group create --name manaflow
+```
+
+Turn an existing workspace into a group (the workspace becomes the anchor):
+
+```bash
+cmux workspace-group from-workspace --workspace workspace:2
 ```
 
 Spin up a new workspace inside an existing group (e.g. wired to a worktree script):
