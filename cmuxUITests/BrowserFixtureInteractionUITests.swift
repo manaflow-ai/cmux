@@ -690,15 +690,27 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
     /// Regression: on a page whose CSP has no 'unsafe-eval', the page-world
     /// callAsyncJavaScript/eval is blocked; automation must fall back to the
     /// isolated content world (which shares the DOM). Both eval and the
-    /// interaction methods must keep working.
+    /// interaction methods must keep working. A browser.eval served from the
+    /// isolated world must also flag content_world so the agent knows page-world
+    /// JS globals were not visible (the value came from a different JS context).
     func testCSPNoUnsafeEval() throws {
         try launchApp()
         let sid = try openFixture("csp-no-unsafe-eval")
 
+        let evalResult = try socketResult(
+            method: "browser.eval",
+            params: ["surface_id": sid, "script": "document.title"],
+            responseTimeout: 15.0
+        )
         XCTAssertEqual(
-            try evalString("document.title", surfaceID: sid),
+            evalResult["value"] as? String,
             "csp-no-unsafe-eval",
             "browser.eval must succeed under CSP without 'unsafe-eval' (isolated-world fallback)"
+        )
+        XCTAssertEqual(
+            evalResult["content_world"] as? String,
+            "isolated",
+            "a CSP-blocked browser.eval served from the isolated world must flag content_world"
         )
 
         try socketResult(method: "browser.click", params: ["surface_id": sid, "selector": "#csp-btn"])

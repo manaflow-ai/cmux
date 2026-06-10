@@ -11117,7 +11117,8 @@ class TerminalController {
         surfaceId: UUID,
         script: String,
         timeout: TimeInterval = 5.0,
-        useEval: Bool = true
+        useEval: Bool = true,
+        onIsolatedWorldFallback: (() -> Void)? = nil
     ) -> V2JavaScriptResult {
         v2EnsureBrowserDocumentLoaded(webView, surfaceId: surfaceId)
         let scriptLiteral = v2JSONLiteral(script)
@@ -11187,8 +11188,15 @@ class TerminalController {
 
         // Retry in the isolated world on failure: page CSP without 'unsafe-eval' blocks both
         // callAsyncJavaScript's function construction and eval() in the page world, but does
-        // not apply to isolated content worlds. The isolated world shares the DOM, so most
-        // automation scripts (and user evals) still work; page-world JS globals are not visible.
+        // not apply to isolated content worlds. The isolated world shares the DOM, so internal
+        // DOM-only automation scripts (and DOM-reading user evals like document.title) still work.
+        //
+        // The isolated world does NOT see page-world JS globals (window.reactRoot set by the page's
+        // own scripts). For internal automation (useEval == false) this is transparent: those scripts
+        // only touch the DOM. For a user-supplied browser.eval (useEval == true) it matters, because a
+        // value read from the isolated world can differ from the page-world value with no visible
+        // signal. So we still fall back (keeps DOM reads working under CSP) but invoke
+        // onIsolatedWorldFallback, letting browser.eval annotate the result with the content world.
         if case .failure(let pageMessage) = rawResult, #available(macOS 11.0, *) {
             let isolatedResult = v2RunJavaScript(
                 webView,
@@ -11200,6 +11208,7 @@ class TerminalController {
             switch isolatedResult {
             case .success:
                 rawResult = isolatedResult
+                onIsolatedWorldFallback?()
             case .failure(let isolatedMessage):
                 if isolatedMessage != pageMessage {
                     rawResult = .failure("\(pageMessage) (isolated-world retry: \(isolatedMessage))")
@@ -12116,17 +12125,32 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing script", data: nil)
         }
         return v2BrowserWithPanelContext(params: params) { ctx in
-            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: script, timeout: 10.0) {
+            var usedIsolatedWorld = false
+            switch v2RunBrowserJavaScript(
+                ctx.webView,
+                surfaceId: ctx.surfaceId,
+                script: script,
+                timeout: 10.0,
+                onIsolatedWorldFallback: { usedIsolatedWorld = true }
+            ) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
-                return .ok([
+                var payload: [String: Any] = [
                     "workspace_id": ctx.workspaceId.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
                     "surface_id": ctx.surfaceId.uuidString,
                     "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
                     "value": v2NormalizeJSValue(value)
-                ])
+                ]
+                if usedIsolatedWorld {
+                    // Page-world eval was blocked (typically CSP without 'unsafe-eval'); this value
+                    // came from the isolated content world. It shares the DOM but cannot read
+                    // page-world JS globals, so flag it instead of returning silently.
+                    payload["content_world"] = "isolated"
+                    payload["content_world_note"] = "Page-world eval was blocked (likely CSP without 'unsafe-eval'); value came from the isolated content world, which shares the DOM but cannot see page-world JS globals."
+                }
+                return .ok(payload)
             }
         }
     }
