@@ -11540,7 +11540,6 @@ class TerminalController {
 
         do {
             try CmuxDiffViewerURLSchemeHandler.shared.register(token: token, files: files)
-            return nil
         } catch {
             return .err(
                 code: "invalid_params",
@@ -11548,6 +11547,28 @@ class TerminalController {
                 data: ["details": error.localizedDescription]
             )
         }
+
+        // `cmux edit` additionally registers the edited file as the token's
+        // write target; the page's save bridge resolves the path from this
+        // registry by frame origin, never from page JavaScript.
+        if let editorFile = params["editor_file"] as? [String: Any] {
+            guard let path = editorFile["path"] as? String, path.hasPrefix("/") else {
+                return .err(code: "invalid_params", message: "Invalid editor file registration", data: nil)
+            }
+            do {
+                try CmuxEditorSaveRegistry.shared.register(
+                    token: token,
+                    fileURL: URL(fileURLWithPath: path)
+                )
+            } catch {
+                return .err(
+                    code: "invalid_params",
+                    message: "Invalid editor file registration",
+                    data: ["details": error.localizedDescription]
+                )
+            }
+        }
+        return nil
     }
 
     private func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {

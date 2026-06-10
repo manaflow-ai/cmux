@@ -1,7 +1,10 @@
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 // Side-effect: registers the common languages (Monarch grammars + JSON service).
 import "./monacoLanguages";
-import { useCallback } from "react";
+import { useCallback, type CSSProperties } from "react";
+import type { EditorLabelResolver } from "./editorLabels";
+import { EditorStatusBar } from "./EditorStatusBar";
+import type { EditorSaveController } from "./saveController";
 
 /** Props for a single read/edit Monaco surface, fixed for the lifetime of the mount. */
 export type EditorAppProps = {
@@ -9,6 +12,11 @@ export type EditorAppProps = {
   content: string;
   themeName: string;
   options: monaco.editor.IStandaloneEditorConstructionOptions;
+  labels: EditorLabelResolver;
+  /** Non-null when the file is writable and the native save bridge is wired. */
+  saveController: EditorSaveController | null;
+  /** Status bar chrome colors derived from the active cmux theme. */
+  chrome: { background?: string; foreground?: string };
 };
 
 /**
@@ -17,7 +25,15 @@ export type EditorAppProps = {
  * unmount, where we dispose the editor and its model. Props are set once by
  * the surface bootstrap, so the callback identity is stable for the mount.
  */
-export function EditorApp({ filePath, content, themeName, options }: EditorAppProps) {
+export function EditorApp({
+  filePath,
+  content,
+  themeName,
+  options,
+  labels,
+  saveController,
+  chrome,
+}: EditorAppProps) {
   const mountEditor = useCallback(
     (node: HTMLDivElement | null) => {
       if (!node) {
@@ -52,13 +68,65 @@ export function EditorApp({ filePath, content, themeName, options }: EditorAppPr
       tokenization?.forceTokenization?.(Math.min(model.getLineCount(), 2000));
       editor.render(true);
       node.dataset.cmuxEditorReady = "true";
+
+      let contentListener: monaco.IDisposable | null = null;
+      let removeSaveShortcut: (() => void) | null = null;
+      if (saveController) {
+        saveController.attachDocument({
+          getValue: () => model.getValue(),
+          getVersionId: () => model.getAlternativeVersionId(),
+          replaceWith: (next) => {
+            model.setValue(next);
+            return model.getAlternativeVersionId();
+          },
+        });
+        contentListener = model.onDidChangeContent(() => {
+          saveController.noteContentChanged();
+        });
+        // One window-level Cmd+S handler (capture) covers both editor focus
+        // and status-bar focus. Monaco has no built-in Cmd+S binding, so the
+        // event reaching the editor afterwards is a no-op.
+        const onKeyDown = (event: KeyboardEvent) => {
+          if (
+            (event.metaKey || event.ctrlKey) &&
+            !event.shiftKey &&
+            !event.altKey &&
+            event.key.toLowerCase() === "s"
+          ) {
+            event.preventDefault();
+            saveController.requestSave();
+          }
+        };
+        window.addEventListener("keydown", onKeyDown, true);
+        removeSaveShortcut = () => window.removeEventListener("keydown", onKeyDown, true);
+      }
       return () => {
+        removeSaveShortcut?.();
+        contentListener?.dispose();
+        saveController?.detachDocument();
         resizeObserver.disconnect();
         editor.dispose();
         model.dispose();
       };
     },
-    [content, filePath, themeName, options],
+    [content, filePath, themeName, options, saveController],
   );
-  return <div ref={mountEditor} className="cmux-monaco-root" />;
+  const fileName = filePath.split("/").pop() || filePath;
+  return (
+    <div
+      className="cmux-editor-shell"
+      style={{
+        "--cmux-editor-chrome-bg": chrome.background ?? "transparent",
+        "--cmux-editor-chrome-fg": chrome.foreground ?? "inherit",
+      } as CSSProperties}
+    >
+      <div ref={mountEditor} className="cmux-monaco-root" />
+      <EditorStatusBar
+        fileName={fileName}
+        labels={labels}
+        readOnly={options.readOnly === true}
+        controller={saveController}
+      />
+    </div>
+  );
 }
