@@ -113,9 +113,14 @@ final class MobileAttachTicketStore {
     }
 
     private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(ticket)
+        // Compact short-key payload: smaller JSON means a lower QR version
+        // (fewer, larger modules), which scans faster from a Mac screen. The
+        // ticket's auth token is intentionally not part of the QR payload:
+        // the host's sole authorization gate is the owner's Stack access
+        // token (`MobileHostService.authorizationError(for:)`), so the token
+        // only inflated the QR. The full ticket (including the token) still
+        // rides in `payload(for:)["ticket"]` for RPC consumers.
+        let data = try CmxAttachTicketCompactCoder().encode(ticket)
         let payload = Self.base64URLEncode(data)
         guard let url = URL(string: "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)") else {
             throw MobileAttachTicketStoreError.invalidAttachURL

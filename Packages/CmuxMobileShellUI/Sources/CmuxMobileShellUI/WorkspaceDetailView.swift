@@ -1,3 +1,4 @@
+import CmuxMobileBrowser
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -21,6 +22,10 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    /// Phone-local browser surfaces, injected from the app root. When this
+    /// workspace has an active browser surface the detail view presents a
+    /// browser pane in place of the terminal; otherwise it shows the terminal.
+    @Environment(BrowserSurfaceStore.self) private var browserStore
     #if DEBUG && canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
@@ -31,9 +36,46 @@ struct WorkspaceDetailView: View {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
     }
 
-    var body: some View {
-        detailContent()
+    /// The active browser surface for this workspace, when a browser pane is open.
+    private var activeBrowser: BrowserSurfaceState? {
+        browserStore.activeBrowser(for: workspace.id.rawValue)
     }
+
+    var body: some View {
+        #if os(iOS)
+        if let browser = activeBrowser {
+            browserContent(browser)
+        } else {
+            detailContent()
+        }
+        #else
+        detailContent()
+        #endif
+    }
+
+    #if os(iOS)
+    /// The browser pane shown when this workspace has an active browser surface.
+    /// It carries its own navigation chrome, so it does not get the terminal's
+    /// keyboard/safe-area handling. Closing returns to the terminal.
+    @ViewBuilder
+    private func browserContent(_ browser: BrowserSurfaceState) -> some View {
+        MobileBrowserPane(
+            state: browser,
+            onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) }
+        )
+        // Key on the surface id so switching/reopening rebuilds the WKWebView.
+        .id(browser.id.rawValue)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle(browser.title ?? workspace.name)
+        .mobileTerminalNavigationChrome()
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                newWorkspaceToolbarButton
+                terminalPickerToolbarButton
+            }
+        }
+    }
+    #endif
 
     private func detailContent() -> some View {
         // `GhosttySurfaceView` owns the bottom accessory bar: it docks the
@@ -165,7 +207,9 @@ struct WorkspaceDetailView: View {
                 } label: {
                     Label(
                         terminal.name,
-                        systemImage: terminal.id == selectedTerminal?.id ? "checkmark.circle.fill" : "terminal"
+                        systemImage: terminal.id == selectedTerminal?.id && activeBrowser == nil
+                            ? "checkmark.circle.fill"
+                            : "terminal"
                     )
                 }
                 .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
@@ -182,6 +226,14 @@ struct WorkspaceDetailView: View {
                 Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
             }
             .accessibilityIdentifier("MobileNewTerminalMenuItem")
+
+            Button(action: openBrowserFromToolbar) {
+                Label(
+                    L10n.string("mobile.browser.new", defaultValue: "New Browser"),
+                    systemImage: activeBrowser == nil ? "globe" : "checkmark.circle.fill"
+                )
+            }
+            .accessibilityIdentifier("MobileNewBrowserMenuItem")
         }
 
         #if DEBUG && canImport(UIKit)
@@ -282,11 +334,26 @@ struct WorkspaceDetailView: View {
 
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
+        // Creating a terminal from the (shared) chrome must surface it. If a
+        // browser pane is up, close it so `body` leaves the browser branch and
+        // shows the new terminal instead of staying on the browser.
+        browserStore.closeBrowser(for: workspace.id.rawValue)
         createTerminal()
+    }
+
+    private func openBrowserFromToolbar() {
+        dismissTerminalKeyboardForChrome()
+        // Opens (or reveals the existing) browser pane for this workspace. The
+        // detail view flips to the browser because `activeBrowser` becomes
+        // non-nil; the picker shows a check next to "New Browser" while it is up.
+        browserStore.openBrowser(for: workspace.id.rawValue)
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
+        // Choosing a terminal returns from the browser pane (if up) to the
+        // terminal. Closing the browser is enough to flip the detail view back.
+        browserStore.closeBrowser(for: workspace.id.rawValue)
         // Switching from the picker is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is

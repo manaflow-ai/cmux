@@ -10,73 +10,103 @@ import XCTest
 #if DEBUG
 @MainActor
 final class SettingsWindowPresenterTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        closeSettingsWindows()
+    }
+
     override func tearDown() {
-        SettingsWindowPresenter.resetForTests()
+        closeSettingsWindows()
         super.tearDown()
     }
 
     func testConfigureWindowLeavesPendingNavigationForSettingsViews() {
-        let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
+        let presenter = SettingsWindowPresenter()
+        let settingsWindow = makeWindow(identifier: "cmux.unconfiguredSettings.\(UUID().uuidString)")
         var didOpen = false
         defer {
             settingsWindow.orderOut(nil)
+            settingsWindow.close()
         }
 
-        SettingsWindowPresenter.show(
+        presenter.show(
             navigationTarget: .browserImport,
             openWindowOverride: { didOpen = true }
         )
-        SettingsWindowPresenter.configure(window: settingsWindow)
+        presenter.configure(window: settingsWindow)
 
         XCTAssertTrue(didOpen)
-        XCTAssertEqual(SettingsWindowPresenter.consumePendingNavigationTarget(), .browserImport)
-        XCTAssertEqual(SettingsWindowPresenter.consumePendingContentNavigationTarget(), .browserImport)
-        XCTAssertNil(SettingsWindowPresenter.consumePendingNavigationTarget())
-        XCTAssertNil(SettingsWindowPresenter.consumePendingContentNavigationTarget())
+        XCTAssertEqual(presenter.consumePendingNavigationTarget(), .browserImport)
+        XCTAssertEqual(presenter.consumePendingContentNavigationTarget(), .browserImport)
+        XCTAssertNil(presenter.consumePendingNavigationTarget())
+        XCTAssertNil(presenter.consumePendingContentNavigationTarget())
     }
 
     func testRepeatedConfigureForSameSettingsWindowDoesNotRefocus() async {
+        let presenter = SettingsWindowPresenter()
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
-        var focusedWindows: [NSWindow] = []
         defer {
             settingsWindow.orderOut(nil)
+            settingsWindow.close()
         }
 
-        SettingsWindowPresenter.setFocusHandlerForTests { window in
-            focusedWindows.append(window)
-        }
-
-        SettingsWindowPresenter.configure(window: settingsWindow)
+        presenter.configure(window: settingsWindow)
         await Task.yield()
-        SettingsWindowPresenter.configure(window: settingsWindow)
+        presenter.configure(window: settingsWindow)
         await Task.yield()
 
-        XCTAssertEqual(focusedWindows.count, 1)
-        XCTAssertTrue(focusedWindows.first === settingsWindow)
+        XCTAssertEqual(settingsWindow.makeKeyAndOrderFrontCallCount, 1)
     }
 
     func testShowPreservesPendingNavigationWhenExistingSettingsWindowIsMiniaturized() async {
+        let presenter = SettingsWindowPresenter()
         let settingsWindow = makeWindow(
             identifier: SettingsWindowPresenter.windowIdentifier,
-            isMiniaturizedForTests: true
+            forcedMiniaturized: true
         )
         var didOpen = false
         defer {
             settingsWindow.orderOut(nil)
+            settingsWindow.close()
         }
 
-        SettingsWindowPresenter.setFocusHandlerForTests { _ in }
-        SettingsWindowPresenter.configure(window: settingsWindow)
+        presenter.configure(window: settingsWindow)
         await Task.yield()
 
-        SettingsWindowPresenter.show(
+        presenter.show(
             navigationTarget: .browserImport,
             openWindowOverride: { didOpen = true }
         )
 
         XCTAssertFalse(didOpen)
-        XCTAssertEqual(SettingsWindowPresenter.consumePendingNavigationTarget(), .browserImport)
-        XCTAssertEqual(SettingsWindowPresenter.consumePendingContentNavigationTarget(), .browserImport)
+        XCTAssertEqual(presenter.consumePendingNavigationTarget(), .browserImport)
+        XCTAssertEqual(presenter.consumePendingContentNavigationTarget(), .browserImport)
+    }
+
+    func testPresenterRetainsConfiguredSettingsWindowForReopen() async {
+        let presenter = SettingsWindowPresenter()
+        let testWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
+        var settingsWindow: TestSettingsWindow? = testWindow
+        weak var weakSettingsWindow = settingsWindow
+        var didOpen = false
+
+        presenter.configure(window: settingsWindow!)
+        await Task.yield()
+        settingsWindow?.orderOut(nil)
+        settingsWindow = nil
+        await Task.yield()
+
+        XCTAssertNotNil(weakSettingsWindow)
+
+        presenter.show(
+            openWindowOverride: { didOpen = true }
+        )
+
+        XCTAssertFalse(didOpen)
+        XCTAssertEqual(testWindow.makeKeyAndOrderFrontCallCount, 2)
+        XCTAssertTrue(testWindow === weakSettingsWindow)
+        weakSettingsWindow?.orderOut(nil)
+        weakSettingsWindow?.close()
     }
 
     // Settings is a top-level *peer* window, not a child of the main window.
@@ -86,18 +116,21 @@ final class SettingsWindowPresenterTests: XCTestCase {
     // These tests pin the peer invariant: configuring/focusing Settings must
     // never create a parent-child relationship and must leave it at `.normal`.
     func testDoesNotAttachSettingsAsChildOfPreferredMainWindow() {
+        let presenter = SettingsWindowPresenter()
         let parentWindow = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
         defer {
             settingsWindow.orderOut(nil)
             parentWindow.orderOut(nil)
+            settingsWindow.close()
+            parentWindow.close()
         }
 
-        SettingsWindowPresenter.configure(
+        presenter.configure(
             openWindow: {},
             parentWindowProvider: { parentWindow }
         )
-        SettingsWindowPresenter.configure(window: settingsWindow)
+        presenter.configure(window: settingsWindow)
 
         XCTAssertNil(settingsWindow.parent)
         XCTAssertFalse(parentWindow.childWindows?.contains(where: { $0 === settingsWindow }) == true)
@@ -105,6 +138,7 @@ final class SettingsWindowPresenterTests: XCTestCase {
     }
 
     func testFocusingSettingsKeepsItAsPeerWhenPreferredMainWindowChanges() {
+        let presenter = SettingsWindowPresenter()
         let firstParent = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
         let secondParent = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
@@ -113,19 +147,22 @@ final class SettingsWindowPresenterTests: XCTestCase {
             settingsWindow.orderOut(nil)
             firstParent.orderOut(nil)
             secondParent.orderOut(nil)
+            settingsWindow.close()
+            firstParent.close()
+            secondParent.close()
         }
 
-        SettingsWindowPresenter.configure(
+        presenter.configure(
             openWindow: {},
             parentWindowProvider: { preferredParent }
         )
-        SettingsWindowPresenter.configure(window: settingsWindow)
+        presenter.configure(window: settingsWindow)
         XCTAssertNil(settingsWindow.parent)
 
         preferredParent = secondParent
         settingsWindow.orderFront(nil)
         // refocusIfVisible() runs the real performFocus ordering path.
-        SettingsWindowPresenter.refocusIfVisible()
+        presenter.refocusIfVisible()
 
         XCTAssertNil(settingsWindow.parent)
         XCTAssertFalse(firstParent.childWindows?.contains(where: { $0 === settingsWindow }) == true)
@@ -134,18 +171,21 @@ final class SettingsWindowPresenterTests: XCTestCase {
     }
 
     func testSettingsSurvivesPreferredMainWindowCloseAsIndependentPeer() {
+        let presenter = SettingsWindowPresenter()
         let parentWindow = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
         defer {
             settingsWindow.orderOut(nil)
             parentWindow.orderOut(nil)
+            settingsWindow.close()
+            parentWindow.close()
         }
 
-        SettingsWindowPresenter.configure(
+        presenter.configure(
             openWindow: {},
             parentWindowProvider: { parentWindow }
         )
-        SettingsWindowPresenter.configure(window: settingsWindow)
+        presenter.configure(window: settingsWindow)
         settingsWindow.orderFront(nil)
         XCTAssertNil(settingsWindow.parent)
 
@@ -159,7 +199,10 @@ final class SettingsWindowPresenterTests: XCTestCase {
 
     func testAdoptCmuxPeerWindowLevelBringsFloatingWindowToNormal() {
         let window = makeWindow(identifier: "cmux.peer.\(UUID().uuidString)")
-        defer { window.orderOut(nil) }
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
 
         window.level = .floating
         XCTAssertEqual(window.level, .floating)
@@ -170,6 +213,7 @@ final class SettingsWindowPresenterTests: XCTestCase {
     }
 
     func testConfigureClampsOversizedSettingsFrameToVisibleArea() throws {
+        let presenter = SettingsWindowPresenter()
         guard let screen = NSScreen.main else {
             throw XCTSkip("No screen available for Settings frame clamping")
         }
@@ -186,9 +230,10 @@ final class SettingsWindowPresenterTests: XCTestCase {
         )
         defer {
             settingsWindow.orderOut(nil)
+            settingsWindow.close()
         }
 
-        SettingsWindowPresenter.configure(window: settingsWindow)
+        presenter.configure(window: settingsWindow)
 
         let inset: CGFloat = 18
         let availableWidth = max(
@@ -214,25 +259,39 @@ final class SettingsWindowPresenterTests: XCTestCase {
 
     private func makeWindow(
         identifier: String,
-        isMiniaturizedForTests: Bool? = nil
-    ) -> NSWindow {
+        forcedMiniaturized: Bool? = nil
+    ) -> TestSettingsWindow {
         let window = TestSettingsWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 220),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.isMiniaturizedForTests = isMiniaturizedForTests
+        window.forcedMiniaturized = forcedMiniaturized
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier(identifier)
         return window
     }
 
+    private func closeSettingsWindows() {
+        for window in NSApp.windows where window.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier {
+            window.orderOut(nil)
+            window.identifier = nil
+            window.close()
+        }
+    }
+
     private final class TestSettingsWindow: NSWindow {
-        var isMiniaturizedForTests: Bool?
+        var forcedMiniaturized: Bool?
+        var makeKeyAndOrderFrontCallCount = 0
 
         override var isMiniaturized: Bool {
-            isMiniaturizedForTests ?? super.isMiniaturized
+            forcedMiniaturized ?? super.isMiniaturized
+        }
+
+        override func makeKeyAndOrderFront(_ sender: Any?) {
+            makeKeyAndOrderFrontCallCount += 1
+            super.makeKeyAndOrderFront(sender)
         }
     }
 }
