@@ -29,6 +29,14 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         /// Unix epoch seconds of the preview's activity, for the row's relative
         /// time. `nil` when there is no preview.
         public let previewAt: Double?
+        /// Unix epoch seconds of the workspace's last activity. The Mac stamps
+        /// this on every workspace (latest notification, falling back to the
+        /// workspace's creation/connect time). `nil` on Macs old enough not to
+        /// emit it.
+        public let lastActivityAt: Double?
+        /// Whether the workspace has unread activity on the Mac. `nil` on Macs
+        /// old enough not to emit it (the row then shows no unread dot).
+        public let hasUnread: Bool?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
 
@@ -41,6 +49,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case groupID = "group_id"
             case preview
             case previewAt = "preview_at"
+            case lastActivityAt = "last_activity_at"
+            case hasUnread = "has_unread"
             case terminals
         }
     }

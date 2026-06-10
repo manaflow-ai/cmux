@@ -12,6 +12,8 @@ extension MobileWorkspacePreview {
             groupID: remote.groupID.map { MobileWorkspaceGroupPreview.ID(rawValue: $0) },
             previewText: remote.preview,
             previewAt: remote.previewAt.map { Date(timeIntervalSince1970: $0) },
+            lastActivityAt: remote.lastActivityAt.map { Date(timeIntervalSince1970: $0) },
+            hasUnread: remote.hasUnread ?? false,
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
             }

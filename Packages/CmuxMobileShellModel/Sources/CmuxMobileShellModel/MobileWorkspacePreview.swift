@@ -43,6 +43,15 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// When the preview's activity happened, for the row's relative time. `nil`
     /// when there is no preview.
     public var previewAt: Date?
+    /// When the workspace last had activity. The Mac stamps this on every
+    /// workspace (latest notification, falling back to the workspace's
+    /// creation/connect time), so every row can show a relative time even with
+    /// no preview. `nil` only when connected to a Mac old enough not to emit it.
+    public var lastActivityAt: Date?
+    /// Whether the workspace has unread activity on the Mac (mirrors the Mac
+    /// sidebar's workspace unread badge). Drives the iMessage-style unread dot.
+    /// `false` when connected to a Mac old enough not to emit it.
+    public var hasUnread: Bool
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
 
@@ -54,6 +63,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - groupID: The group this workspace belongs to, if any. Defaults to `nil`.
     ///   - previewText: One-line preview of the latest activity. Defaults to `nil`.
     ///   - previewAt: When the preview's activity happened. Defaults to `nil`.
+    ///   - lastActivityAt: When the workspace last had activity. Defaults to `nil`.
+    ///   - hasUnread: Whether the workspace has unread activity. Defaults to `false`.
     ///   - terminals: The terminals contained in the workspace, in display order.
     public init(
         id: ID,
@@ -62,6 +73,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         groupID: MobileWorkspaceGroupPreview.ID? = nil,
         previewText: String? = nil,
         previewAt: Date? = nil,
+        lastActivityAt: Date? = nil,
+        hasUnread: Bool = false,
         terminals: [MobileTerminalPreview]
     ) {
         self.id = id
@@ -70,6 +83,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.groupID = groupID
         self.previewText = previewText
         self.previewAt = previewAt
+        self.lastActivityAt = lastActivityAt
+        self.hasUnread = hasUnread
         self.terminals = terminals
     }
 }

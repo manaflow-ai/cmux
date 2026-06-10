@@ -102,7 +102,11 @@ extension MobileWorkspacePreview {
         return "\(previewLine), \(connectionStatus.label), \(detail)"
     }
 
-    private var latestActivityDate: Date { previewAt ?? .distantPast }
+    /// The instant the row's relative time renders. Prefers the Mac's
+    /// every-row `last_activity_at` stamp; falls back to the preview timestamp
+    /// for Macs that emit previews but predate the stamp, then to
+    /// `.distantPast` (which buckets to `.none`, an empty trailing slot).
+    private var latestActivityDate: Date { lastActivityAt ?? previewAt ?? .distantPast }
 
     private var stableAvatarSeed: Int {
         id.rawValue.unicodeScalars.reduce(0) { partialResult, scalar in
