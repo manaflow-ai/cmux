@@ -22097,6 +22097,13 @@ class TerminalController {
         if requireTerminal,
            let surfaceId,
            let panel = workspace.terminalPanel(for: surfaceId) {
+            // A surface-hibernated panel suspends runtime creation entirely,
+            // so a background start alone would no-op and the phone would
+            // read a blank terminal until the user types. A mobile client
+            // resolving the terminal is viewing it: restore first.
+            if panel.isSurfaceHibernated {
+                _ = workspace.restoreSurfaceHibernation(panelId: surfaceId, focus: false)
+            }
             panel.surface.requestBackgroundSurfaceStartIfNeeded()
         }
 

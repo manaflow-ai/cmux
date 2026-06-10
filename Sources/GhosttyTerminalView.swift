@@ -5306,14 +5306,32 @@ enum TerminalSurfaceFocusPlacement: Equatable {
 private func recordAgentHibernationTerminalInput(
     workspaceId: UUID,
     panelId: UUID,
+    armsPendingCommandLine: Bool = true,
     pendingPromptSurvivals: Int = 0
 ) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
     AgentHibernationController.shared.recordTerminalInput(
         workspaceId: workspaceId,
         panelId: panelId,
+        armsPendingCommandLine: armsPendingCommandLine,
         pendingPromptSurvivals: pendingPromptSurvivals
     )
+}
+
+/// Whether input can leave new editable text at the prompt. Bare settling
+/// characters (Enter on an empty line, ^C, ^D, ^U) and navigation/function
+/// keys type nothing, and a bare Enter or ^C often produces no shell
+/// preexec/precmd transition at all — arming the pending guard for them
+/// would exempt the panel from hibernation forever.
+private func terminalInputCanLeavePromptText(_ text: String) -> Bool {
+    !text.allSatisfy { character in
+        if character == "\r" || character == "\n" ||
+            character == "\u{03}" || character == "\u{04}" || character == "\u{15}" {
+            return true
+        }
+        // NSEvent function-key range (arrows, F-keys, page up/down…).
+        return character.unicodeScalars.allSatisfy { (0xF700...0xF8FF).contains($0.value) }
+    }
 }
 
 /// How many prompt transitions the pending-input hibernation guard must
@@ -7291,6 +7309,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendText(_ text: String) -> Bool {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
+        let armsPendingCommandLine = terminalInputCanLeavePromptText(text)
         let pendingPromptSurvivals = terminalInputPendingPromptSurvivals(text)
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return false }
@@ -7299,6 +7318,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 recordAgentHibernationTerminalInput(
                     workspaceId: tabId,
                     panelId: id,
+                    armsPendingCommandLine: armsPendingCommandLine,
                     pendingPromptSurvivals: pendingPromptSurvivals
                 )
                 requestBackgroundSurfaceStartIfNeeded()
@@ -7312,6 +7332,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         recordAgentHibernationTerminalInput(
             workspaceId: tabId,
             panelId: id,
+            armsPendingCommandLine: armsPendingCommandLine,
             pendingPromptSurvivals: pendingPromptSurvivals
         )
         writeTextData(data, to: liveSurface)
@@ -7347,7 +7368,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
-            recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+            recordAgentHibernationTerminalInput(
+                workspaceId: tabId,
+                panelId: id,
+                armsPendingCommandLine: false
+            )
             requestBackgroundSurfaceStartIfNeeded()
             return .queued
         }
@@ -7355,7 +7380,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return .surfaceUnavailable
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
-        recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+        recordAgentHibernationTerminalInput(
+            workspaceId: tabId,
+            panelId: id,
+            armsPendingCommandLine: false
+        )
         sendKeyEvent(surface: liveSurface, keycode: event.keycode, mods: event.mods)
         return .sent
     }
@@ -7418,6 +7447,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendInputResult(_ text: String) -> InputSendResult {
         guard !text.isEmpty else { return .sent }
+        let armsPendingCommandLine = terminalInputCanLeavePromptText(text)
         let pendingPromptSurvivals = terminalInputPendingPromptSurvivals(text)
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
@@ -7426,6 +7456,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 recordAgentHibernationTerminalInput(
                     workspaceId: tabId,
                     panelId: id,
+                    armsPendingCommandLine: armsPendingCommandLine,
                     pendingPromptSurvivals: pendingPromptSurvivals
                 )
                 requestBackgroundSurfaceStartIfNeeded()
@@ -7439,6 +7470,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         recordAgentHibernationTerminalInput(
             workspaceId: tabId,
             panelId: id,
+            armsPendingCommandLine: armsPendingCommandLine,
             pendingPromptSurvivals: pendingPromptSurvivals
         )
         sendInput(text, to: liveSurface)
@@ -9639,12 +9671,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func recordDirectAgentHibernationTerminalInput(
+        armsPendingCommandLine: Bool = true,
         pendingPromptSurvivals: Int = 0
     ) {
         guard let terminalSurface else { return }
         recordAgentHibernationTerminalInput(
             workspaceId: terminalSurface.tabId,
             panelId: terminalSurface.id,
+            armsPendingCommandLine: armsPendingCommandLine,
             pendingPromptSurvivals: pendingPromptSurvivals
         )
     }
@@ -9654,11 +9688,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return terminalInputPendingPromptSurvivals(pasted)
     }
 
+    private func clipboardCanLeavePromptText() -> Bool {
+        guard let pasted = NSPasteboard.general.string(forType: .string) else { return false }
+        return terminalInputCanLeavePromptText(pasted)
+    }
+
     // MARK: - Clipboard paste
 
     @IBAction func paste(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "paste.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput(
+            armsPendingCommandLine: clipboardCanLeavePromptText(),
             pendingPromptSurvivals: clipboardPendingPromptSurvivals()
         )
         _ = performBindingAction("paste_from_clipboard")
@@ -9668,6 +9708,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @IBAction func pasteAsPlainText(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "pasteAsPlainText.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput(
+            armsPendingCommandLine: clipboardCanLeavePromptText(),
             pendingPromptSurvivals: clipboardPendingPromptSurvivals()
         )
         _ = performBindingAction("paste_from_clipboard")
@@ -10170,7 +10211,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.keyDown(with: event)
             return
         }
-        recordDirectAgentHibernationTerminalInput()
+        recordDirectAgentHibernationTerminalInput(
+            armsPendingCommandLine: event.characters.map(terminalInputCanLeavePromptText) ?? false
+        )
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
@@ -16087,6 +16130,7 @@ extension GhosttyNSView: NSTextInputClient {
 
         // Otherwise send directly to the terminal
         recordDirectAgentHibernationTerminalInput(
+            armsPendingCommandLine: terminalInputCanLeavePromptText(sanitizedChars),
             pendingPromptSurvivals: terminalInputPendingPromptSurvivals(sanitizedChars)
         )
         sendTextToSurface(

@@ -127,23 +127,30 @@ final class AgentHibernationController {
         workspaceId: UUID,
         panelId: UUID,
         recordedAt: Date? = nil,
+        armsPendingCommandLine: Bool = true,
         pendingPromptSurvivals: Int = 0
     ) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
         let recordedAt = recordedAt ?? Date()
         let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
         terminalInputByPanel[key] = recordedAt.timeIntervalSince1970
-        // Any input may leave editable text at the prompt — a bare return can
-        // open a PS2 continuation (unclosed quote, heredoc), so no keystroke
-        // proves the line settled. Only the shell's own prompt transitions
-        // clear this; see recordShellActivityTransition.
-        pendingCommandLineByPanel[key] = recordedAt.timeIntervalSince1970
+        // Text-bearing input may leave editable text at the prompt — a return
+        // after text can open a PS2 continuation (unclosed quote, heredoc),
+        // so no keystroke proves the line settled; only the shell's prompt
+        // transitions clear this (see recordShellActivityTransition). Bare
+        // settling/navigation input types nothing and often produces no
+        // shell transition at all (Enter on an empty prompt, ^C), so it must
+        // not arm a fresh guard — but it also must not clear one, since ^C
+        // outcomes are unobservable here.
+        if armsPendingCommandLine {
+            pendingCommandLineByPanel[key] = recordedAt.timeIntervalSince1970
+        }
         // A batched payload such as "cmd1\ncmd2\npartial" runs one command
         // per settling character and only then leaves text editable, so the
         // pending state must outlive that many prompt transitions.
         if pendingPromptSurvivals > 0 {
             pendingPromptSurvivalsByPanel[key] = pendingPromptSurvivals
-        } else {
+        } else if armsPendingCommandLine {
             pendingPromptSurvivalsByPanel.removeValue(forKey: key)
         }
     }
