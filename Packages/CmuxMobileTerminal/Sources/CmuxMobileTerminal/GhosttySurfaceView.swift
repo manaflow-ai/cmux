@@ -74,6 +74,8 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
+    /// Default no-op: hosts that do not page in deeper history ignore the
+    /// history-top signal.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didReachLocalHistoryTopWithHeldScrollbackRows currentScrollbackRows: Int) {}
 }
 

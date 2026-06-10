@@ -123,6 +123,8 @@ public struct MobileLocalScrollEngine: Sendable {
     /// genuine growth or a fresh cold-attach snapshot.
     private var historyFullyLoaded = false
 
+    /// Creates an engine in the cold-attach state: primary screen, no frame
+    /// metadata received yet (scroll forwards to the Mac), no held history.
     public init() {}
 
     /// Record the active screen from the latest applied frame. Flipping into

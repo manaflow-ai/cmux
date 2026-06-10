@@ -27,6 +27,8 @@ public struct MobileTerminalOutputChunk: Sendable {
         /// Zero for a delta (a delta grows no local history).
         public let scrollbackRows: Int
 
+        /// Creates per-frame metadata for the terminal view's local-scroll
+        /// gates.
         public init(isAlternateScreen: Bool, isFullSnapshot: Bool, scrollbackRows: Int) {
             self.isAlternateScreen = isAlternateScreen
             self.isFullSnapshot = isFullSnapshot
@@ -42,6 +44,8 @@ public struct MobileTerminalOutputChunk: Sendable {
     /// screen).
     public let bytes: Data
 
+    /// Creates one stream element pairing a frame's metadata (`nil` for raw
+    /// compatibility bytes) with the VT bytes that realize it.
     public init(meta: FrameMeta? = nil, bytes: Data) {
         self.meta = meta
         self.bytes = bytes
