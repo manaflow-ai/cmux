@@ -38,6 +38,30 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.agentHibernation.maxLiveTerminals"
     )
 
+    public let surfaceHibernationEnabled = DefaultsKey<Bool>(
+        id: "terminal.surfaceHibernation.enabled",
+        defaultValue: true,
+        userDefaultsKey: "terminal.surfaceHibernation.enabled"
+    )
+
+    public let surfaceHibernationIdleSeconds = DefaultsKey<Double>(
+        id: "terminal.surfaceHibernation.idleSeconds",
+        defaultValue: 300,
+        userDefaultsKey: "terminal.surfaceHibernation.idleSeconds"
+    )
+
+    public let surfaceHibernationUnmountedIdleSeconds = DefaultsKey<Double>(
+        id: "terminal.surfaceHibernation.unmountedIdleSeconds",
+        defaultValue: 1800,
+        userDefaultsKey: "terminal.surfaceHibernation.unmountedIdleSeconds"
+    )
+
+    public let surfaceHibernationMaxLiveSurfaces = DefaultsKey<Int>(
+        id: "terminal.surfaceHibernation.maxLiveSurfaces",
+        defaultValue: 12,
+        userDefaultsKey: "terminal.surfaceHibernation.maxLiveSurfaces"
+    )
+
     public let showTextBoxOnNewTerminals = DefaultsKey<Bool>(
         id: "terminal.showTextBoxOnNewTerminals",
         defaultValue: false,

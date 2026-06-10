@@ -439,7 +439,7 @@
         "surfaceHibernation": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Surface Hibernation settings. cmux frees the terminal renderer (Metal buffers, render threads, PTY) of idle plain-shell terminals in hidden workspaces after capturing scrollback, then starts a fresh shell in the captured working directory with the scrollback replayed when the terminal is visited again. Terminals running a foreground process, agent terminals, remote terminals, and terminals with pending startup work are never reclaimed. Also enforces a least-recently-used cap on simultaneously live terminal surfaces.",
+          "description": "Surface Hibernation settings. cmux frees the terminal renderer (Metal buffers, render threads, PTY) of idle plain-shell terminals in hidden workspaces after capturing scrollback, then starts a fresh shell in the captured working directory with the scrollback replayed when the terminal is visited again. Terminals running a foreground process, with background jobs or listening ports, agent terminals, remote terminals, and terminals with pending startup work are never reclaimed. Also enforces a least-recently-used cap on simultaneously live terminal surfaces.",
           "properties": {
             "enabled": {
               "type": "boolean",

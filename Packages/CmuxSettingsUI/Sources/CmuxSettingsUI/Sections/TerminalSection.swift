@@ -20,6 +20,10 @@ public struct TerminalSection: View {
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
     @State private var maxLive: DefaultsValueModel<Int>
+    @State private var surfaceHibernation: DefaultsValueModel<Bool>
+    @State private var surfaceIdleSeconds: DefaultsValueModel<Double>
+    @State private var surfaceUnmountedIdleSeconds: DefaultsValueModel<Double>
+    @State private var surfaceMaxLive: DefaultsValueModel<Int>
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -37,6 +41,10 @@ public struct TerminalSection: View {
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
         _maxLive = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationMaxLiveTerminals))
+        _surfaceHibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.surfaceHibernationEnabled))
+        _surfaceIdleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.surfaceHibernationIdleSeconds))
+        _surfaceUnmountedIdleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.surfaceHibernationUnmountedIdleSeconds))
+        _surfaceMaxLive = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.surfaceHibernationMaxLiveSurfaces))
     }
 
     public var body: some View {
@@ -209,6 +217,64 @@ public struct TerminalSection: View {
                     step: 1
                 )
                 .accessibilityIdentifier("SettingsTerminalAgentHibernationMaxLiveStepper")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.surfaceHibernation.enabled"),
+                String(localized: "settings.terminal.surfaceHibernation", defaultValue: "Surface Hibernation"),
+                subtitle: surfaceHibernation.current
+                    ? String(localized: "settings.terminal.surfaceHibernation.subtitleOn", defaultValue: "Idle shell terminals in hidden workspaces release their renderer and restart with scrollback and directory restored on the next visit.")
+                    : String(localized: "settings.terminal.surfaceHibernation.subtitleOff", defaultValue: "Terminal surfaces stay live until you close them or quit cmux.")
+            ) {
+                Toggle("", isOn: Binding(get: { surfaceHibernation.current }, set: { surfaceHibernation.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalSurfaceHibernationToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.surfaceHibernation.idleSeconds"),
+                String(localized: "settings.terminal.surfaceHibernation.idleSeconds", defaultValue: "Cap Reclaim After Idle Seconds"),
+                subtitle: String(localized: "settings.terminal.surfaceHibernation.idleSeconds.subtitle", defaultValue: "A background shell terminal must be quiet for this long before the live-surface cap may reclaim it."),
+                controlWidth: 140
+            ) {
+                Stepper(
+                    "\(Int(surfaceIdleSeconds.current))",
+                    value: Binding(get: { surfaceIdleSeconds.current }, set: { surfaceIdleSeconds.set($0) }),
+                    in: 30...604_800,
+                    step: 60
+                )
+                .accessibilityIdentifier("SettingsTerminalSurfaceHibernationIdleSecondsStepper")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.surfaceHibernation.unmountedIdleSeconds"),
+                String(localized: "settings.terminal.surfaceHibernation.unmountedIdleSeconds", defaultValue: "Hibernate Hidden Workspaces After Seconds"),
+                subtitle: String(localized: "settings.terminal.surfaceHibernation.unmountedIdleSeconds.subtitle", defaultValue: "Shell terminals in workspaces hidden and quiet for this long hibernate even under the live-surface cap."),
+                controlWidth: 140
+            ) {
+                Stepper(
+                    "\(Int(surfaceUnmountedIdleSeconds.current))",
+                    value: Binding(get: { surfaceUnmountedIdleSeconds.current }, set: { surfaceUnmountedIdleSeconds.set($0) }),
+                    in: 60...2_592_000,
+                    step: 300
+                )
+                .accessibilityIdentifier("SettingsTerminalSurfaceHibernationUnmountedIdleSecondsStepper")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.surfaceHibernation.maxLiveSurfaces"),
+                String(localized: "settings.terminal.surfaceHibernation.maxLiveSurfaces", defaultValue: "Max Live Terminal Surfaces"),
+                subtitle: String(localized: "settings.terminal.surfaceHibernation.maxLiveSurfaces.subtitle", defaultValue: "Every live surface counts toward the cap; only idle, non-busy, hidden ones are reclaimed, oldest first."),
+                controlWidth: 120
+            ) {
+                Stepper(
+                    "\(surfaceMaxLive.current)",
+                    value: Binding(get: { surfaceMaxLive.current }, set: { surfaceMaxLive.set($0) }),
+                    in: 1...256,
+                    step: 1
+                )
+                .accessibilityIdentifier("SettingsTerminalSurfaceHibernationMaxLiveStepper")
             }
         }
     }

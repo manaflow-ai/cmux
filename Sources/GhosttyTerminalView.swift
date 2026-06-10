@@ -5516,6 +5516,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var clipboardReadGeneration = 0
 #if DEBUG
     private var needsConfirmCloseOverrideForTesting: Bool?
+    private var foregroundProcessHasChildrenOverrideForTesting: Bool?
     private var runtimeSurfaceFreedOutOfBandForTesting = false
     private var runtimeSurfaceCreateAttemptCountForTesting = 0
     private let debugForceRefreshCountLock = NSLock()
@@ -7226,6 +7227,23 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
+    /// Whether the surface's foreground process (the shell, when sitting at a
+    /// prompt) has live child processes. Background jobs started with `&`
+    /// produce no prompt-state or output signal, so this is the guard that
+    /// keeps surface hibernation from SIGHUPing them.
+    @MainActor
+    func foregroundProcessHasChildren() -> Bool {
+#if DEBUG
+        if let foregroundProcessHasChildrenOverrideForTesting {
+            return foregroundProcessHasChildrenOverrideForTesting
+        }
+#endif
+        guard let surface else { return false }
+        let rawPid = ghostty_surface_foreground_pid(surface)
+        guard rawPid > 0, rawPid <= UInt64(Int32.max) else { return false }
+        return CmuxTopProcessSnapshot.hasChildProcesses(parentPID: Int(rawPid))
+    }
+
     func noteClipboardReadCompleted() {
         clipboardReadGeneration += 1
         NotificationCenter.default.post(
@@ -8025,6 +8043,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     func setNeedsConfirmCloseOverrideForTesting(_ value: Bool?) {
         needsConfirmCloseOverrideForTesting = value
+    }
+
+    @MainActor
+    func setForegroundProcessHasChildrenOverrideForTesting(_ value: Bool?) {
+        foregroundProcessHasChildrenOverrideForTesting = value
     }
 
     @MainActor

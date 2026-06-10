@@ -50,6 +50,7 @@ final class AgentHibernationController {
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
     private var surfaceSettingsObserver: NSObjectProtocol?
+    private var defaultsObserver: NSObjectProtocol?
     private var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
@@ -81,6 +82,19 @@ final class AgentHibernationController {
                 AgentHibernationController.shared.updateTimerForCurrentSettings()
             }
         }
+        // The Settings window writes the enabled keys straight to UserDefaults
+        // without posting the dedicated change notifications, so reconcile the
+        // timer on any defaults change as well; the reconcile is a cheap
+        // idempotent read of two booleans.
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                AgentHibernationController.shared.updateTimerForCurrentSettings()
+            }
+        }
         updateTimerForCurrentSettings()
     }
 
@@ -96,6 +110,10 @@ final class AgentHibernationController {
         if let surfaceSettingsObserver {
             NotificationCenter.default.removeObserver(surfaceSettingsObserver)
             self.surfaceSettingsObserver = nil
+        }
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+            self.defaultsObserver = nil
         }
     }
 
@@ -142,11 +160,18 @@ final class AgentHibernationController {
         timer.setEventHandler {
             let now = Date()
             Task.detached(priority: .utility) {
-                let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+                let agentSettings = AgentHibernationSettings.values()
+                let surfaceSettings = SurfaceHibernationSettings.values()
+                guard agentSettings.enabled || surfaceSettings.enabled else { return }
+                // The full index load is an expensive disk/process scan that
+                // only the opt-in agent mechanism needs. Surface-only ticks
+                // still recognize restored agent panels through the in-memory
+                // workspace snapshots and protect running agents via the busy
+                // gates instead.
+                let index = agentSettings.enabled
+                    ? await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+                    : .empty
                 await MainActor.run {
-                    let agentSettings = AgentHibernationSettings.values()
-                    let surfaceSettings = SurfaceHibernationSettings.values()
-                    guard agentSettings.enabled || surfaceSettings.enabled else { return }
                     AgentHibernationController.shared.evaluate(
                         index: index,
                         agentSettings: agentSettings,
@@ -478,6 +503,15 @@ extension AppDelegate {
                     let canRestartShell = agent == nil &&
                         !isRemoteTerminal &&
                         !terminalPanel.surface.hasDeferredStartupWorkForBackgroundStart()
+                    // Busy means freeing the PTY could kill live work: not at a
+                    // shell prompt, serving on a listening port, or — for
+                    // shell-restart candidates — background jobs hanging off
+                    // the prompt shell, which produce no prompt or output
+                    // signal of their own.
+                    let isBusy = terminalPanel.needsConfirmClose() ||
+                        (canRestartShell &&
+                            (!(workspace.surfaceListeningPorts[panelId] ?? []).isEmpty ||
+                                terminalPanel.surface.foregroundProcessHasChildren()))
                     records.append(
                         AgentHibernationRecord(
                             key: key,
@@ -488,7 +522,7 @@ extension AppDelegate {
                             hasUnconfirmedTerminalInput: agent != nil && terminalInputAt > lifecycleChangeAt,
                             lastActivityAt: max(indexActivity, localActivity, createdAt),
                             isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId),
-                            isBusy: terminalPanel.needsConfirmClose(),
+                            isBusy: isBusy,
                             canRestartShell: canRestartShell,
                             workspaceUnmountedAt: workspaceUnmountedAt,
                             hasLiveProcess: index.hasLiveProcess(workspaceId: workspace.id, panelId: panelId),

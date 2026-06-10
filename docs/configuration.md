@@ -48,7 +48,7 @@ Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from
 
 Surface Hibernation frees the terminal renderer (Metal buffers, render threads, PTY) of idle plain-shell terminals in hidden workspaces. cmux captures the scrollback and working directory first, and when you visit the terminal again it starts a fresh shell in that directory with the scrollback replayed. It also enforces a least-recently-used cap on how many terminal surfaces stay live at once, so background workspaces cannot accumulate unbounded memory.
 
-A terminal is only reclaimed when it is off-screen, safely at a shell prompt (no foreground process), quiet for the idle window, and its output has stayed unchanged for a ~60s confirmation settle window. Agent terminals (covered by Agent Hibernation), remote terminals, tmux-bound terminals, and terminals with pending startup work or queued input are never reclaimed.
+A terminal is only reclaimed when it is off-screen, safely at a shell prompt with no foreground process, no background jobs, and no listening ports, quiet for the idle window, and its output has stayed unchanged for a ~60s confirmation settle window. Agent terminals (covered by Agent Hibernation), remote terminals, tmux-bound terminals, and terminals with pending startup work or queued input are never reclaimed.
 
 ```json
 {
