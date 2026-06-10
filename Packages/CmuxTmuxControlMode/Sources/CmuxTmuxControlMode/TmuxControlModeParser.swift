@@ -32,7 +32,11 @@ public struct TmuxControlModeParser: Sendable {
         return events
     }
 
-    private mutating func processLine(_ line: [UInt8], into events: inout [TmuxControlModeEvent]) {
+    private mutating func processLine(_ rawLine: [UInt8], into events: inout [TmuxControlModeEvent]) {
+        // Outside a block, strip tmux's control-mode introducer/terminator,
+        // which it emits on the wire fused to the next token, e.g.
+        // "\u{1b}P1000p%begin …" on entry and a trailing ST ("\u{1b}\\") on exit.
+        let line = inBlock ? rawLine : Self.stripControlIntroducers(rawLine)
         if inBlock {
             if line.starts(with: Array("%end ".utf8)) || lineEquals(line, "%end") {
                 finishBlock(isError: false, into: &events)
@@ -180,6 +184,25 @@ public struct TmuxControlModeParser: Sendable {
     }
 
     private static func isOctalDigit(_ b: UInt8) -> Bool { b >= 0x30 && b <= 0x37 }
+
+    /// Remove tmux's control-mode introducer `ESC P 1 0 0 0 p` (entry) and the
+    /// `ESC \` string terminator (exit) wherever they sit at a line boundary.
+    /// tmux emits the entry sequence fused to the first `%begin`.
+    static func stripControlIntroducers(_ input: [UInt8]) -> [UInt8] {
+        let dcs: [UInt8] = [0x1B, 0x50, 0x31, 0x30, 0x30, 0x30, 0x70] // ESC P 1 0 0 0 p
+        let st: [UInt8] = [0x1B, 0x5C] // ESC backslash
+        var line = input
+        var changed = true
+        while changed {
+            changed = false
+            if line.starts(with: dcs) { line.removeFirst(dcs.count); changed = true }
+            if line.starts(with: st) { line.removeFirst(st.count); changed = true }
+        }
+        if line.count >= st.count, line.suffix(st.count).elementsEqual(st) {
+            line.removeLast(st.count)
+        }
+        return line
+    }
 
     private func lineEquals(_ line: [UInt8], _ s: String) -> Bool {
         line.elementsEqual(Array(s.utf8))

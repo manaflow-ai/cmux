@@ -1,12 +1,18 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 
-/// A local `tmux -CC` control-mode session: spawns the gateway process, pumps
-/// its stdout through ``TmuxControlModeSessionCore``, and writes commands to its
-/// stdin. Conforms to ``ControlModeSessionSource`` so the app wires it to a
-/// manual-IO Ghostty surface without knowing it is tmux.
+/// A local `tmux -CC` control-mode session: spawns the gateway process on a
+/// pseudo-terminal, pumps its output through ``TmuxControlModeSessionCore``, and
+/// writes commands to it. Conforms to ``ControlModeSessionSource`` so the app
+/// wires it to a manual-IO Ghostty surface without knowing it is tmux.
 ///
-/// All ``TmuxControlModeSessionCore`` access is serialized on a private queue;
-/// delegate callbacks are invoked on that queue (the app hops to the main actor).
+/// `tmux -CC` requires a real terminal (it calls `tcgetattr` on its standard
+/// streams and exits if they are plain pipes), so the gateway runs on a PTY
+/// whose master end we read/write. All ``TmuxControlModeSessionCore`` access is
+/// serialized on a private queue; delegate callbacks are invoked on the main
+/// queue (the app stays on the main actor).
 public final class TmuxControlModeGateway: ControlModeSessionSource, @unchecked Sendable {
     private let target: TmuxAttachTarget
     private let tmuxExecutablePath: String
@@ -15,11 +21,10 @@ public final class TmuxControlModeGateway: ControlModeSessionSource, @unchecked 
 
     private let queue = DispatchQueue(label: "com.cmux.tmux-control-mode.gateway")
     private var core = TmuxControlModeSessionCore()
-    private weak var delegate: (any ControlModeSessionDelegate)?
+    private var delegate: (any ControlModeSessionDelegate)?
 
     private let process = Process()
-    private let stdinPipe = Pipe()
-    private let stdoutPipe = Pipe()
+    private var masterHandle: FileHandle?
     private var launched = false
     private var finished = false
 
@@ -48,45 +53,65 @@ public final class TmuxControlModeGateway: ControlModeSessionSource, @unchecked 
             launched = true
             self.delegate = delegate
 
+            // tmux -CC needs a controlling terminal; allocate a PTY and run it
+            // on the slave end, reading/writing the master.
+            var master: Int32 = 0
+            var slave: Int32 = 0
+            var ws = winsize(
+                ws_row: UInt16(clamping: initialSize.rows),
+                ws_col: UInt16(clamping: initialSize.columns),
+                ws_xpixel: 0,
+                ws_ypixel: 0
+            )
+            guard openpty(&master, &slave, nil, nil, &ws) == 0 else {
+                deliverEnd(reason: "failed to allocate pty for tmux")
+                return
+            }
+
+            // Raw slave so the commands we write are not echoed back into the
+            // control stream.
+            var term = termios()
+            if tcgetattr(slave, &term) == 0 {
+                cfmakeraw(&term)
+                _ = tcsetattr(slave, TCSANOW, &term)
+            }
+
             process.executableURL = URL(fileURLWithPath: tmuxExecutablePath)
             process.arguments = ["-CC"] + target.tmuxArguments
-            process.standardInput = stdinPipe
-            process.standardOutput = stdoutPipe
-            process.standardError = stdoutPipe // fold stderr into the stream; control protocol ignores stray lines
+            process.standardInput = FileHandle(fileDescriptor: slave, closeOnDealloc: false)
+            process.standardOutput = FileHandle(fileDescriptor: slave, closeOnDealloc: false)
+            process.standardError = FileHandle(fileDescriptor: slave, closeOnDealloc: false)
             if let workingDirectory { process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory) }
             if let environment { process.environment = environment }
 
-            stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let mHandle = FileHandle(fileDescriptor: master, closeOnDealloc: true)
+            masterHandle = mHandle
+            mHandle.readabilityHandler = { [weak self] handle in
                 let data = handle.availableData
                 guard let self else { return }
                 if data.isEmpty {
-                    // EOF; termination handler will deliver the end-of-session.
-                    handle.readabilityHandler = nil
+                    handle.readabilityHandler = nil // EOF; termination handler delivers the end.
                     return
                 }
-                self.queue.async {
-                    self.apply(self.core.consume([UInt8](data)))
-                }
+                self.queue.async { self.apply(self.core.consume([UInt8](data))) }
             }
 
             process.terminationHandler = { [weak self] proc in
                 guard let self else { return }
                 let reason = proc.terminationStatus == 0 ? nil : "tmux exited (\(proc.terminationStatus))"
-                self.queue.async {
-                    self.apply(self.core.gatewayExited(reason: reason))
-                }
+                self.queue.async { self.apply(self.core.gatewayExited(reason: reason)) }
             }
 
             do {
                 try process.run()
             } catch {
-                finished = true
-                let delegate = self.delegate
-                DispatchQueue.main.async {
-                    delegate?.controlModeSession(didEndWithReason: "failed to launch tmux: \(error.localizedDescription)")
-                }
+                close(slave)
+                deliverEnd(reason: "failed to launch tmux: \(error.localizedDescription)")
                 return
             }
+            // The child holds the slave now; close our copy so the master sees
+            // EOF when tmux exits.
+            close(slave)
 
             apply(core.start(initialSize: initialSize))
         }
@@ -128,21 +153,25 @@ public final class TmuxControlModeGateway: ControlModeSessionSource, @unchecked 
                 let delegate = self.delegate
                 DispatchQueue.main.async { delegate?.controlModeSession(didProduceOutput: bytes) }
             case let .ended(reason):
-                guard !finished else { continue }
-                finished = true
-                let delegate = self.delegate
-                DispatchQueue.main.async { delegate?.controlModeSession(didEndWithReason: reason) }
+                deliverEnd(reason: reason)
             }
         }
     }
 
+    private func deliverEnd(reason: String?) {
+        guard !finished else { return }
+        finished = true
+        let delegate = self.delegate
+        DispatchQueue.main.async { delegate?.controlModeSession(didEndWithReason: reason) }
+    }
+
     private func writeToGateway(_ bytes: [UInt8]) {
-        guard !bytes.isEmpty else { return }
+        guard !bytes.isEmpty, let masterHandle else { return }
         do {
-            try stdinPipe.fileHandleForWriting.write(contentsOf: Data(bytes))
+            try masterHandle.write(contentsOf: Data(bytes))
         } catch {
-            // Broken pipe -> the gateway is gone; let the termination handler
-            // deliver the end-of-session.
+            // Broken pipe -> the gateway is gone; the termination handler
+            // delivers the end-of-session.
         }
     }
 

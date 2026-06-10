@@ -80,6 +80,20 @@ struct TmuxControlModeParserTests {
         #expect(events == [.output(paneID: "%1", bytes: Array("ok".utf8))])
     }
 
+    @Test func stripsControlModeEntryDcsFusedToFirstBegin() {
+        // tmux emits the entry DCS fused to the first %begin on the wire.
+        let events = parse("\u{1b}P1000p%begin 1 5 0\nok\n%end 1 5 0\n")
+        #expect(events == [
+            .begin(number: 5),
+            .commandResult(number: 5, output: ["ok"], isError: false),
+        ])
+    }
+
+    @Test func stripsTrailingStringTerminatorOnExit() {
+        let events = parse("%exit\u{1b}\\\n")
+        #expect(events == [.exit(reason: nil)])
+    }
+
     @Test func decodesExtendedOutput() {
         let events = parse("%extended-output %1 5 : data\n")
         #expect(events == [.output(paneID: "%1", bytes: Array("data".utf8))])
