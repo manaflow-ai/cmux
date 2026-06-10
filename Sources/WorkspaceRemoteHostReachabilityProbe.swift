@@ -240,6 +240,10 @@ enum WorkspaceRemoteHostReachabilityProbe {
             finished = true
             lock.unlock()
             guard !alreadyFinished else { return }
+            // NWConnection retains its handler and the handler's context
+            // captures the connection; clear it before canceling so each
+            // backoff-retry probe doesn't leak a connection.
+            connection.stateUpdateHandler = nil
             connection.cancel()
             completion(outcome)
         }
