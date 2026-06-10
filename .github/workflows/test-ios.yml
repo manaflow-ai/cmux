@@ -38,7 +38,7 @@ permissions:
 
 jobs:
   detect-ios-changes:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2204' }}
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
@@ -74,7 +74,7 @@ jobs:
   package-conventions-lint:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2204' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -95,7 +95,9 @@ jobs:
   mobile-core-package:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: macos-26
+    # swift test only, no iOS Simulator runtime needed, so this rides the same
+    # paid macOS pool as the rest of CI instead of a 10x GitHub-hosted runner.
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -129,7 +131,11 @@ jobs:
   ios-simulator:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: macos-26
+    # Needs iOS Simulator runtimes (xcrun simctl). GitHub-hosted macos-26 ships
+    # these; Warp/Blacksmith macOS images are not yet verified to. Defaults to
+    # the GitHub-hosted runner; set the IOS_RUNNER repo variable to flip to a
+    # paid runner once it is confirmed to have iOS Simulator runtimes.
+    runs-on: ${{ vars.IOS_RUNNER || 'macos-26' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false

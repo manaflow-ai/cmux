@@ -96,6 +96,34 @@ check_e2e_runner_fallbacks() {
   echo "PASS: test-e2e.yml exposes Depot runner choices, identity guard, and duplicate-queue cancellation"
 }
 
+check_linux_runners() {
+  # GitHub-hosted ubuntu minutes are billed against the org allowance; Blacksmith
+  # Linux runners are not. Every Linux job routes through the LINUX_RUNNER repo
+  # variable (Blacksmith fallback) EXCEPT the cloud-vm jobs, which stay on
+  # GitHub-hosted runners so their egress IPs match infra allowlists. Any other
+  # `runs-on: ubuntu-latest` is a regression that silently burns paid minutes.
+  local allowlist="cloud-vm-migrate.yml cloud-vm-smoke.yml"
+  local offenders=""
+  while IFS= read -r file; do
+    base="$(basename "$file")"
+    case " $allowlist " in
+      *" $base "*) continue ;;
+    esac
+    if grep -Eq "runs-on:[[:space:]]*ubuntu-latest" "$file"; then
+      offenders="$offenders $base"
+    fi
+  done < <(find "$ROOT_DIR/.github/workflows" -name '*.yml')
+
+  if [[ -n "$offenders" ]]; then
+    echo "FAIL: GitHub-hosted 'runs-on: ubuntu-latest' found in:$offenders"
+    echo "      Route Linux jobs through \${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2204' }}."
+    echo "      Only $allowlist may stay on ubuntu-latest; add to the allowlist if intentional."
+    exit 1
+  fi
+
+  echo "PASS: Linux jobs route through LINUX_RUNNER (only cloud-vm jobs stay GitHub-hosted)"
+}
+
 check_xcode_selection() {
   if grep -R -n "ls -d /Applications/Xcode" "$ROOT_DIR/.github/workflows"; then
     echo "FAIL: workflow Xcode selection must use find/sort/tail fallback, not ls/glob ordering"
@@ -240,6 +268,7 @@ check_macos_runner "$COMPAT_FILE" "compat-tests"
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
 
+check_linux_runners
 check_xcode_selection
 check_release_build_signal
 check_release_helper_upload_retry

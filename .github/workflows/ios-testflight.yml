@@ -51,7 +51,7 @@ permissions:
 jobs:
   decide:
     name: Decide whether a TestFlight upload is needed
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2204' }}
     timeout-minutes: 5
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
@@ -109,7 +109,10 @@ jobs:
     # blocks publishing arbitrary code by dispatching the workflow against a
     # feature branch (the ASC secrets are only meant to ship reviewed main).
     if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
-    runs-on: macos-26
+    # Signs and uploads to TestFlight from GitHub-hosted macos-26 by default.
+    # Set the IOS_RUNNER repo variable to move this to a paid macOS runner once
+    # it is confirmed to have the required iOS toolchain and signing support.
+    runs-on: ${{ vars.IOS_RUNNER || 'macos-26' }}
     timeout-minutes: 60
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
