@@ -13059,10 +13059,13 @@ class TerminalController {
         workspace: Workspace,
         params: [String: Any]
     ) -> (panel: BrowserPanel, surfaceId: UUID)? {
-        // An explicit surface is authoritative: it must resolve to a browser in this workspace.
-        // Never silently fall back to a different browser (a terminal/typo'd ref must error).
-        if let sid = v2UUID(params, "surface_id") {
-            guard let panel = workspace.browserPanel(for: sid) else { return nil }
+        // An explicit surface is authoritative: if surface_id is SUPPLIED (even as a stale or
+        // unresolvable handle) it must resolve to a browser in this workspace, else error. Only a
+        // genuinely ABSENT surface_id falls back to the focused/sole browser. (v2UUID returns nil
+        // for both absent and unresolved, so presence is detected via the raw string.)
+        if v2String(params, "surface_id") != nil {
+            guard let sid = v2UUID(params, "surface_id"),
+                  let panel = workspace.browserPanel(for: sid) else { return nil }
             return (panel, sid)
         }
         if let focusedId = workspace.focusedPanelId, let panel = workspace.browserPanel(for: focusedId) {
@@ -13098,6 +13101,14 @@ class TerminalController {
     private func v2BrowserReactGrabToggle(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        // A supplied-but-unresolvable surface_id / return_to is an error, not silently dropped:
+        // v2UUID returns nil for both absent and unresolved, so distinguish via the raw string.
+        if v2String(params, "surface_id") != nil, v2UUID(params, "surface_id") == nil {
+            return .err(code: "invalid_params", message: "Unresolved surface_id", data: nil)
+        }
+        if v2String(params, "return_to") != nil, v2UUID(params, "return_to") == nil {
+            return .err(code: "invalid_params", message: "Unresolved return_to", data: nil)
         }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface to toggle React Grab on", data: nil)
         v2MainSync {
