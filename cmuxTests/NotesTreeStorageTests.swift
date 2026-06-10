@@ -346,6 +346,43 @@ import Testing
         #expect(kept.modified == 300)
     }
 
+    @Test func sessionEntryBoundaryRejectsShellMetacharacterIds() throws {
+        // Markers and the session-drag pasteboard are attacker-influenceable,
+        // and resume commands splice the session id into shell input.
+        let bad = NotesSessionMarker(
+            agent: "claude", sessionId: "abc; rm -rf ~", cwd: "/work", title: "x", modified: 1
+        )
+        #expect(bad.makeSessionEntry() == nil)
+        let good = NotesSessionMarker(
+            agent: "claude",
+            sessionId: "0f3c2a1b-1234-4cde-9f00-aa11bb22cc33",
+            cwd: "/work",
+            title: "x",
+            modified: 1
+        )
+        #expect(good.makeSessionEntry()?.sessionId == "0f3c2a1b-1234-4cde-9f00-aa11bb22cc33")
+    }
+
+    @Test @MainActor func storeMoveRejectsSourcesOutsideNotesDirectory() throws {
+        // The move pasteboard type is globally forgeable; a crafted payload
+        // must not be able to relocate arbitrary user files into the project.
+        let store = NotesTreeStore()
+        store.setWorkspace(
+            title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-sec"
+        )
+        let outside = (projectRoot as NSString).appendingPathComponent("victim.txt")
+        try write("secret", to: outside)
+        let dest = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-sec"
+        )
+        #expect(store.move(sourcePath: outside, intoFolder: dest) == nil)
+        #expect(fm.fileExists(atPath: outside))
+        // Tree-owned moves still work.
+        let note = try NotesTreeStorage.newNote(inFolder: dest, preferredName: "inside")
+        let sub = try NotesTreeStorage.newFolder(inFolder: dest, preferredName: "sub")
+        #expect(store.move(sourcePath: note, intoFolder: sub) != nil)
+    }
+
     @Test func syncSessionFoldersIsIdempotentAndNeverDeletes() throws {
         let root = try NotesTreeStorage.ensureWorkspaceRoot(
             projectRoot: projectRoot, cwd: "/work", title: "WS"

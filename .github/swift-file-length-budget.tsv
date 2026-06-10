@@ -3,7 +3,7 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 33123	CLI/cmux.swift
 22020	Sources/TerminalController.swift
-20505	Sources/Workspace.swift
+20523	Sources/Workspace.swift
 19298	Sources/ContentView.swift
 18037	Sources/AppDelegate.swift
 16474	Sources/GhosttyTerminalView.swift
@@ -111,13 +111,13 @@
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 739	Sources/App/MenuBarExtraController.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
+736	Sources/NotesTreeStorage.swift
 724	Packages/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift
 716	Sources/TaskManagerSnapshot.swift
 714	Sources/AppleScriptSupport.swift
 708	Sources/TerminalSSHSessionDetector.swift
 705	CLI/CMUXCLI+Config.swift
 705	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
-702	Sources/NotesTreeStorage.swift
 702	Sources/RightSidebarPanelView.swift
 701	CLI/CMUXCLI+AgentHookDefinitions.swift
 698	cmuxTests/RestorableAgentHookProviderResumeTests.swift
@@ -134,19 +134,19 @@
 668	cmuxTests/KeyboardShortcutContextTests.swift
 654	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
+650	Sources/SessionIndexModels.swift
 649	Sources/CmuxTopSnapshot.swift
 640	cmuxTests/CommandPaletteNucleoFFITests.swift
 638	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
-632	Sources/SessionIndexModels.swift
 630	Packages/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 627	Sources/WorkspaceRemoteConfiguration.swift
 621	cmuxUITests/RightSidebarChromeHeightUITests.swift
 620	cmuxTests/TerminalNotificationQueueTests.swift
 619	cmuxTests/FinderFileDropRegressionTests.swift
+613	Sources/NotesTreeStore.swift
 613	Sources/PortScanner.swift
 607	cmuxTests/SessionIndexViewTests.swift
 604	Sources/CmuxConfigExecutor.swift
-604	Sources/NotesTreeStore.swift
 599	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
 599	Sources/SettingsNavigation.swift
 596	cmuxTests/CmuxEventBusTests.swift

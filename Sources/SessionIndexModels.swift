@@ -586,14 +586,32 @@ struct SessionEntry: Identifiable, Hashable {
 // MARK: - Notes tree bridge
 
 extension NotesSessionMarker {
+    /// Resume commands splice the session id into shell input, and markers
+    /// (`_session.json`) and the session-drag pasteboard are
+    /// attacker-influenceable, so only plain token ids may cross this
+    /// boundary into a `SessionEntry`.
+    static func isSafeSessionId(_ value: String) -> Bool {
+        !value.isEmpty && value.unicodeScalars.allSatisfy { scalar in
+            switch scalar {
+            case "a"..."z", "A"..."Z", "0"..."9", ".", "_", "-", ":":
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
     /// Minimal `SessionEntry` for resuming/dragging a Notes session folder.
     /// Markers persist only identity fields (agent, sessionId, cwd, title), so
     /// agent-specific resume details default to nil and the resume command
     /// falls back to its plain `<agent> resume <id>` form. Registered
     /// (cmux.json) agents re-resolve their registration so the command can be
-    /// rebuilt; an unknown agent id yields nil.
+    /// rebuilt; an unknown agent id or a session id that is not a plain token
+    /// (shell-safe) yields nil.
     func makeSessionEntry() -> SessionEntry? {
         guard let sessionAgent = SessionAgent(rawValue: agent) else { return nil }
+        let sessionId = self.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.isSafeSessionId(sessionId) else { return nil }
         let trimmedCwd = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
         let specifics: AgentSpecifics
         switch sessionAgent {

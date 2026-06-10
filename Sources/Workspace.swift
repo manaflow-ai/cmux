@@ -12069,13 +12069,16 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Agent sessions known to run in THIS workspace's panes, for the Notes
-    /// tree: hibernated/restored snapshots first, then the shared
-    /// restorable-agent index (hook records + live-PID filtering) enumerated
-    /// by workspace id. Hook records carry the SURFACE UUID (`CMUX_SURFACE_ID`),
-    /// which is translated to the owning panel so each entry can carry the
-    /// pane's note anchor (when one was minted, never minting) — that is what
-    /// lets pane-attached flat notes nest under their session. Read-only.
-    func notesTreeObservedAgentSessions() -> [NotesTreeObservedSession] {
+    /// tree. Sources, in order: hibernated/restored snapshots; index entries
+    /// recorded under this run's workspace id (fresh launches); pid-tracked
+    /// agents (`agentPIDs`); and finally index entries whose live pid sits on
+    /// one of this workspace's pane TTYs. The TTY pass is what survives app
+    /// relaunches — reattached agents keep reporting their previous run's
+    /// workspace/surface UUIDs through hooks, so UUID matching alone misses
+    /// them, but the pane TTY and the live pid are current-run ground truth.
+    /// Each entry carries the pane's note anchor (when one was minted, never
+    /// minting) so pane-attached flat notes can nest under their session.
+    func notesTreeObservedAgentSessions() async -> [NotesTreeObservedSession] {
         SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
         var seen = Set<String>()
         var observed: [NotesTreeObservedSession] = []
@@ -12093,25 +12096,40 @@ final class Workspace: Identifiable, ObservableObject {
         for (panelId, snapshot) in restoredAgentSnapshotsByPanelId {
             add(snapshot, panelId: panelId)
         }
-        if let index = SharedLiveAgentIndex.shared.index {
-            // Agents live across app relaunches (pane reattach), so their hook
-            // records keep the PREVIOUS run's workspace/surface UUIDs — the
-            // only relaunch-proof attribution is the live pid the workspace
-            // tracks per pane. Recorded workspace id still matches agents
-            // launched fresh this run.
-            var pidOwner: [Int: UUID] = [:]
-            for (ownerId, keys) in agentPIDKeysByPanelId {
-                for key in keys {
-                    if let pid = agentPIDs[key] { pidOwner[Int(pid)] = ownerId }
-                }
+        guard let index = SharedLiveAgentIndex.shared.index else { return observed }
+        let entries = index.allEntries()
+        var pidOwner: [Int: UUID] = [:]
+        for (ownerId, keys) in agentPIDKeysByPanelId {
+            for key in keys {
+                if let pid = agentPIDs[key] { pidOwner[Int(pid)] = ownerId }
             }
-            for (key, entry) in index.allEntries() {
-                let pidMatchedOwner = entry.processIDs.compactMap { pidOwner[$0] }.first
-                guard pidMatchedOwner != nil || key.workspaceId == id else { continue }
-                let ownerId = pidMatchedOwner ?? key.panelId
-                let panelId = panelIdFromSurfaceId(TabID(uuid: ownerId)) ?? ownerId
-                add(entry.snapshot, panelId: panelId)
-            }
+        }
+        for (key, entry) in entries {
+            let pidMatchedOwner = entry.processIDs.compactMap { pidOwner[$0] }.first
+            guard pidMatchedOwner != nil || key.workspaceId == id else { continue }
+            let ownerId = pidMatchedOwner ?? key.panelId
+            let panelId = panelIdFromSurfaceId(TabID(uuid: ownerId)) ?? ownerId
+            add(entry.snapshot, panelId: panelId)
+        }
+        // TTY pass for whatever the UUID/pid registries missed.
+        let ttyByPanel = surfaceTTYNames
+        let liveEntries = entries.filter { !$0.entry.processIDs.isEmpty }
+        guard !ttyByPanel.isEmpty, !liveEntries.isEmpty else { return observed }
+        var panelByTTY: [String: UUID] = [:]
+        for (panelId, tty) in ttyByPanel {
+            panelByTTY[NotesTreePaneProcessLookup.normalizeTTY(tty)] = panelId
+        }
+        let ttys = Array(panelByTTY.keys)
+        let pidToTTY = await Task.detached(priority: .utility) {
+            NotesTreePaneProcessLookup.pidsByTTY(ttys: ttys)
+        }.value
+        guard !pidToTTY.isEmpty else { return observed }
+        for (_, entry) in liveEntries {
+            guard let pid = entry.processIDs.first(where: { pidToTTY[$0] != nil }),
+                  let tty = pidToTTY[pid],
+                  let ownerId = panelByTTY[tty] else { continue }
+            let panelId = panelIdFromSurfaceId(TabID(uuid: ownerId)) ?? ownerId
+            add(entry.snapshot, panelId: panelId)
         }
         return observed
     }

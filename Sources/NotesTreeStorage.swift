@@ -46,6 +46,40 @@ struct NotesTreeObservedSession: Equatable, Sendable {
     var surfaceAnchorId: String?
 }
 
+/// `ps -t` helper for pane↔process correlation. Agent processes survive app
+/// relaunches and keep reporting their previous run's workspace/surface UUIDs
+/// through hooks, so UUID matching misses them; the pane's TTY plus the
+/// agent's live pid are current-run ground truth.
+enum NotesTreePaneProcessLookup {
+    static func normalizeTTY(_ name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("/dev/") ? String(trimmed.dropFirst(5)) : trimmed
+    }
+
+    /// Map live pids to the (normalized) pane TTY they sit on.
+    static func pidsByTTY(ttys: [String]) -> [Int: String] {
+        let cleaned = Array(Set(ttys.map(normalizeTTY))).filter { !$0.isEmpty }
+        guard !cleaned.isEmpty else { return [:] }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-t", cleaned.joined(separator: ","), "-o", "pid=,tty="]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return [:] }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard let output = String(data: data, encoding: .utf8) else { return [:] }
+        var result: [Int: String] = [:]
+        for line in output.split(separator: "\n") {
+            let parts = line.split(separator: " ", omittingEmptySubsequences: true)
+            guard parts.count >= 2, let pid = Int(parts[0]) else { continue }
+            result[pid] = normalizeTTY(String(parts[1]))
+        }
+        return result
+    }
+}
+
 /// A flat note (`.cmux/notes/index.json` record) scoped to one workspace,
 /// pre-resolved for the tree: display title, absolute body path, and the
 /// surface anchor that links it to a pane (and thus possibly a session).

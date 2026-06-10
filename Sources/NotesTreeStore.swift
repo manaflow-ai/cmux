@@ -33,9 +33,10 @@ final class NotesTreeStore: ObservableObject {
     /// workspaces never blend together.
     private var workspaceAnchorId: String?
     /// Supplies the agent sessions currently known to run in this workspace's
-    /// panes (live snapshots + the shared restorable-agent index). Injected by
-    /// the composition root; called on the main thread.
-    private var observedSessionsProvider: (() -> [NotesTreeObservedSession])?
+    /// panes (live snapshots, the shared restorable-agent index, and the
+    /// pane-TTY process pass). Injected by the composition root; starts on the
+    /// main actor and may suspend for the process lookup.
+    private var observedSessionsProvider: (() async -> [NotesTreeObservedSession])?
     /// Absolute path to `<projectRoot>/.cmux/notes/<workspace-folder>` (resolved,
     /// not necessarily created yet — materialized on first mutation/sync).
     private(set) var resolvedRootPath: String?
@@ -80,7 +81,7 @@ final class NotesTreeStore: ObservableObject {
         projectRoot: String?,
         currentDirectory: String?,
         anchorId: String? = nil,
-        observedSessions: (() -> [NotesTreeObservedSession])? = nil
+        observedSessions: (() async -> [NotesTreeObservedSession])? = nil
     ) {
         let cwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let projectRoot, let cwd, !cwd.isEmpty else {
@@ -335,15 +336,16 @@ final class NotesTreeStore: ObservableObject {
         guard markerRefreshTask == nil else { return }
         lastMarkerRefresh = Date()
         let workspaceCwd = (cwd as NSString).standardizingPath
-        let observed = observedSessionsProvider?() ?? []
-        // Observations need the workspace folder + marker on disk to persist
-        // into; materialize it lazily the first time this workspace actually
-        // runs an agent (one small folder — not the per-session flood the old
-        // auto-materialization caused).
-        if !observed.isEmpty { _ = try? ensureRoot(folder: nil) }
+        let provider = observedSessionsProvider
         guard let root = resolvedRootPath else { return }
         markerRefreshTask = Task { @MainActor [weak self] in
             defer { self?.markerRefreshTask = nil }
+            let observed = await provider?() ?? []
+            // Observations need the workspace folder + marker on disk to
+            // persist into; materialize it lazily the first time this
+            // workspace actually runs an agent (one small folder — not the
+            // per-session flood the old auto-materialization caused).
+            if !observed.isEmpty { _ = try? self?.ensureRoot(folder: nil) }
             let folders = await Task.detached(priority: .utility) {
                 NotesTreeStorage.collectSessionFolders(inRoot: root)
             }.value
@@ -378,7 +380,7 @@ final class NotesTreeStore: ObservableObject {
             // The shared agent index refreshes asynchronously (1s TTL); the
             // scans above bought it time, so re-pull observations to catch
             // panes a cold first pass missed.
-            let lateObserved = self?.observedSessionsProvider?() ?? []
+            let lateObserved = await provider?() ?? []
             let allObserved = observed + lateObserved
             if !allObserved.isEmpty, observed.isEmpty {
                 _ = try? self?.ensureRoot(folder: nil)
@@ -433,9 +435,16 @@ final class NotesTreeStore: ObservableObject {
     }
 
     /// Move a note/folder into `destinationFolder`. Returns the new path, or nil
-    /// on failure (e.g. invalid move).
+    /// on failure (e.g. invalid move). Both endpoints must lie inside
+    /// `.cmux/notes`: the move pasteboard type is globally forgeable, so a
+    /// crafted drag payload must never be able to relocate arbitrary
+    /// user-writable files into (or around) the project.
     @discardableResult
     func move(sourcePath: String, intoFolder destinationFolder: String) -> String? {
+        guard isMutablePath(sourcePath),
+              let notesDir = notesDirPath,
+              NotesTreeStorage.isWithin(child: destinationFolder, orEqualTo: notesDir)
+        else { return nil }
         let moved = try? NotesTreeStorage.move(sourcePath: sourcePath, intoFolder: destinationFolder)
         reload()
         return moved
