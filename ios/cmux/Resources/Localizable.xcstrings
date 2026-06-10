@@ -1752,6 +1752,23 @@
         }
       }
     },
+    "mobile.settings.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
     "mobile.settings.switchMac": {
       "extractionState": "manual",
       "localizations": {
@@ -3985,13 +4002,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your phone connects straight to your Mac over Tailscale, with both signed in to the same cmux account. It is a direct, private connection to a computer you own, not a cloud relay. Put your Mac and phone on the same tailnet to pair."
+            "value": "Your phone has to reach your Mac over the network. The simplest private path is Tailscale: both devices join the same tailnet and connect directly, with no cloud relay. On the same Wi-Fi you can instead type the Mac's local address by hand, but that link is unencrypted, so Tailscale is recommended."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhoneはTailscale経由でMacに直接つながります。両方を同じcmuxアカウントでサインインしてください。クラウド中継ではなく、あなた自身のコンピュータへの直接でプライベートな接続です。ペアリングするには、Macとこの端末を同じtailnetに参加させてください。"
+            "value": "iPhoneはネットワーク経由でMacに届く必要があります。最もシンプルでプライベートな方法はTailscaleです。両方の端末を同じtailnetに参加させると、クラウド中継なしで直接つながります。同じWi-Fiなら、Macのローカルアドレスを手入力して接続することもできますが、その接続は暗号化されないため、Tailscaleをおすすめします。"
           }
         }
       }
@@ -4002,13 +4019,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set up Tailscale"
+            "value": "Set up Tailscale on the Mac"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleを設定"
+            "value": "MacにTailscaleを設定"
           }
         }
       }
@@ -4060,6 +4077,482 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペアリングの仕組み"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.tailscaleTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Put both devices on Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方の端末をTailscaleに入れる"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.tailscaleBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale is a free app that gives your devices a private network. Do this once, on both the phone and the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleは、端末同士をプライベートなネットワークでつなぐ無料アプリです。iPhoneとMacの両方で一度だけ設定してください。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.tailscaleStep1": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Tailscale on this phone and on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この端末とMacの両方にTailscaleをインストールします。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.tailscaleStep2": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign both in to the same Tailscale account so they share one tailnet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方を同じTailscaleアカウントでサインインし、同じtailnetを共有させます。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.tailscaleStep3": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep both signed in to the same cmux account too. Pairing checks that they match."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方を同じcmuxアカウントでもサインインしておきます。ペアリング時に一致を確認します。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.tailscaleAppStoreLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get Tailscale for iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone版Tailscaleを入手"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.troubleConnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trouble connecting?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続できないときは"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macをセットアップ"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.intro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To see your Mac's terminals here, four things have to line up. The step you are on is marked below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここでMacのターミナルを表示するには、4つの条件がそろう必要があります。今いるステップは下に印が付いています。"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.youAreHere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You are here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここです"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.signInTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.signInBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux on this phone with the same account your Mac uses. Without that, there is nothing to connect to."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この端末で、Macと同じアカウントを使ってcmuxにサインインします。サインインしないと、接続先がありません。"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.macAppTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run cmux on your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでcmuxを起動"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.macAppBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install the cmux Mac app and leave it running, signed in to the same account. The phone pairs to a running Mac, so a quit or never-installed app is the most common reason pairing does nothing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxのMacアプリをインストールし、同じアカウントでサインインしたまま起動しておきます。iPhoneは起動中のMacとペアリングするため、アプリが終了している、または未インストールであることが、ペアリングが進まない最も多い原因です。"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.macAppLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download cmux for Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac版cmuxをダウンロード"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.unreachableTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wake the Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macを起こす"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.unreachableBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You have paired this Mac before but it is not reachable now. Wake it, make sure cmux is running, and confirm both devices are on the same tailnet or Wi-Fi. Then reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacは以前ペアリング済みですが、今は届きません。Macを起こし、cmuxが起動していることを確認し、両方の端末が同じtailnetまたはWi-Fiにあることを確かめてから再接続してください。"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.mismatchTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match the account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを合わせる"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.mismatchBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If the Mac rejects this device's sign-in, the two are on different cmux accounts or this device's session is stale. Sign this phone in to the Mac's account (or sign the Mac in to this one), then pair again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macがこの端末のサインインを拒否する場合、両者が別々のcmuxアカウントになっているか、この端末のセッションが古くなっています。この端末をMacのアカウントでサインインし（またはMacをこの端末のアカウントでサインインし）、もう一度ペアリングしてください。"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.networkTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get them on the same network"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じネットワークに入れる"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.networkBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scanning the Mac's QR code needs Tailscale: the Mac only shows a code when it has a Tailscale address your phone can reach. Install Tailscale on both, sign both in to the same tailnet, and the code appears."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacのQRコードをスキャンするにはTailscaleが必要です。Macは、iPhoneから届くTailscaleアドレスを持っているときだけコードを表示します。両方にTailscaleをインストールし、同じtailnetでサインインすると、コードが表示されます。"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.tailscaleAppStore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get Tailscale for iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone版Tailscaleを入手"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.tailscaleMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up Tailscale on the Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacにTailscaleを設定"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.lanBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Tailscale? On the same Wi-Fi you can still connect by typing the Mac's local address and port by hand in Add device. That link is unencrypted, so only use it on a network you trust."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleがない場合でも、同じWi-Fiなら、「デバイスを追加」でMacのローカルアドレスとポートを手入力して接続できます。その接続は暗号化されないため、信頼できるネットワークでのみ使用してください。"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.sameAccountFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac and this phone must be signed in to the same cmux account, and on the same tailnet (or the same Wi-Fi for a manual local connection)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macとこの端末は、同じcmuxアカウントでサインインし、同じtailnet（手動でローカル接続する場合は同じWi-Fi）にある必要があります。"
+          }
+        }
+      }
+    },
+    "mobile.settings.setUpYourMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macをセットアップ"
+          }
+        }
+      }
+    },
+    "mobile.devices.setupHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trouble connecting?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続できないときは"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.introReference": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To see your Mac's terminals here, four things have to line up."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここでMacのターミナルを表示するには、4つの条件がそろう必要があります。"
           }
         }
       }

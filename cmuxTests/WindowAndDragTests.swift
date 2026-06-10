@@ -2070,6 +2070,67 @@ struct CustomTitlebarLeadingPaddingTests {
             ) == 8
         )
     }
+
+    // Regression: at the default (== minimum) sidebar width, toggling the sidebar
+    // must not move the folder/title. The title tracks the actual width only when
+    // the sidebar is wider than the minimum, so the default width must equal the
+    // minimum for the visible and hidden insets to match.
+    @Test func togglingSidebarAtDefaultWidthDoesNotMoveTitle() {
+        let width = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+        let minimum = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
+        let visible = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: true,
+            sidebarWidth: width,
+            minimumSidebarWidth: minimum,
+            titlebarLeadingInset: 82
+        )
+        let hidden = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: false,
+            sidebarWidth: width,
+            minimumSidebarWidth: minimum,
+            titlebarLeadingInset: 82
+        )
+        #expect(visible == hidden)
+    }
+}
+
+
+@Suite("Fullscreen titlebar controls placement")
+struct FullscreenControlsPlacementTests {
+    @Test func notShownOutsideFullscreen() {
+        #expect(
+            ContentView.fullscreenControlsPlacement(
+                isFullScreen: false,
+                isSidebarVisible: true
+            ) == nil
+        )
+        #expect(
+            ContentView.fullscreenControlsPlacement(
+                isFullScreen: false,
+                isSidebarVisible: false
+            ) == nil
+        )
+    }
+
+    // Regression: in fullscreen, toggling the sidebar used to shift the accessory
+    // bar a few pixels left and up because the controls were mounted in two
+    // anchors with different padding. Placement must be identical regardless of
+    // sidebar visibility.
+    @Test func placementIsIndependentOfSidebarVisibility() {
+        let visible = ContentView.fullscreenControlsPlacement(
+            isFullScreen: true,
+            isSidebarVisible: true
+        )
+        let hidden = ContentView.fullscreenControlsPlacement(
+            isFullScreen: true,
+            isSidebarVisible: false
+        )
+
+        #expect(visible != nil)
+        #expect(visible == hidden)
+    }
 }
 
 

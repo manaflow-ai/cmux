@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileSupport
+import CmuxMobileWorkspace
 import SwiftUI
 
 /// First-run onboarding that explains what cmux is and how the phone connects to
@@ -23,7 +24,14 @@ struct OnboardingFlowView: View {
     /// flow seen (first launch) and/or dismisses the presentation.
     let onComplete: () -> Void
 
+    /// Which setup gate the "Trouble connecting?" help should highlight, or `nil`
+    /// for a plain reference with no "You are here" marker. First-run onboarding
+    /// defaults to the never-paired gate (the user has not paired yet); Settings
+    /// re-entry passes `nil`, since reaching Settings means every gate is cleared.
+    var setupHelpHighlight: MobileSetupGuidanceState? = .signedInNeverPaired
+
     @State private var pageIndex = 0
+    @State private var isShowingSetupHelp = false
     @Environment(\.analytics) private var analytics
 
     private let pages = OnboardingPage.allPages
@@ -46,6 +54,9 @@ struct OnboardingFlowView: View {
         .background(PlatformPalette.systemBackground.ignoresSafeArea())
         .interactiveDismissDisabled()
         .accessibilityIdentifier("MobileOnboardingFlow")
+        .sheet(isPresented: $isShowingSetupHelp) {
+            SetupHelpView(highlight: setupHelpHighlight) { isShowingSetupHelp = false }
+        }
         .onAppear {
             analytics.capture("ios_onboarding_viewed", ["page": .int(0)])
         }
@@ -84,6 +95,15 @@ struct OnboardingFlowView: View {
             }
             .mobileGlassProminentButton()
             .accessibilityIdentifier("MobileOnboardingPrimaryButton")
+
+            Button {
+                analytics.capture("ios_onboarding_help_opened", ["page": .int(pageIndex)])
+                isShowingSetupHelp = true
+            } label: {
+                Text(L10n.string("mobile.onboarding.troubleConnecting", defaultValue: "Trouble connecting?"))
+                    .font(.subheadline)
+            }
+            .accessibilityIdentifier("MobileOnboardingHelpButton")
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 16)
