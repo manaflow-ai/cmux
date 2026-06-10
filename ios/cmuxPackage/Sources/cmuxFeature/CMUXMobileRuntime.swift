@@ -7,8 +7,16 @@ import Observation
 import OSLog
 
 public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
+    /// Steady-state per-request deadline. Deliberately generous: post-connect
+    /// requests (replay, paste-image) can legitimately move large payloads over
+    /// slow links, and they never hold the pairing spinner.
     public static let defaultRPCRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
-    public static let defaultPairingRequestTimeoutNanoseconds: UInt64 = 8 * 1_000_000_000
+    /// Pairing-time per-request deadline (ticket mint, initial workspace list).
+    /// These hold the visible pairing/reconnect spinner, so the bound is tight:
+    /// 4s spans the 3s transport connect deadline plus a fast host round-trip,
+    /// and with routes raced concurrently (250ms stagger) the worst-case
+    /// pairing wait is a few seconds instead of the old ~60s sequential stack.
+    public static let defaultPairingRequestTimeoutNanoseconds: UInt64 = 4 * 1_000_000_000
 
     public var supportedRouteKinds: [CmxAttachTransportKind]
     public var transportFactory: any CmxByteTransportFactory

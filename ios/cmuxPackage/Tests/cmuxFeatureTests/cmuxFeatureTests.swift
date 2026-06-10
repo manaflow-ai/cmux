@@ -90,7 +90,9 @@ final class TerminalOutputCollector {
     )
 
     #expect(runtime.rpcRequestTimeoutNanoseconds == 30 * 1_000_000_000)
-    #expect(runtime.pairingRequestTimeoutNanoseconds == 8 * 1_000_000_000)
+    // Pairing-time requests hold the visible spinner, so their deadline is
+    // tight (4s: the 3s transport connect bound plus a fast host round-trip).
+    #expect(runtime.pairingRequestTimeoutNanoseconds == 4 * 1_000_000_000)
 }
 
 @MainActor

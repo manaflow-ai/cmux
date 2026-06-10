@@ -104,8 +104,8 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
 public actor CmxNetworkByteTransport: CmxByteTransport {
     /// Default per-receive byte cap.
     public static let defaultMaximumReceiveLength = 64 * 1024
-    /// Default connect deadline, after which ``connect()`` fails as timed out.
-    public static let defaultConnectTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
+    /// Default connect deadline, after which ``connect()`` fails as timed out. 3s covers a LAN/Tailscale TCP handshake (even DERP-relayed); slower is effectively unreachable.
+    public static let defaultConnectTimeoutNanoseconds: UInt64 = 3 * 1_000_000_000
 
     private enum TransportState {
         case idle
