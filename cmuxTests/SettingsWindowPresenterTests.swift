@@ -259,54 +259,80 @@ final class SettingsWindowPresenterTests: XCTestCase {
 
     // MARK: - Multi-monitor recovery (issue #5770)
 
+    // Screen fixtures: full frame includes the menu bar strip (top 25pt) that
+    // visibleFrame excludes, mirroring real NSScreen geometry.
+    private static let primaryScreen: (frame: NSRect, visibleFrame: NSRect) = (
+        frame: NSRect(x: 0, y: 0, width: 1800, height: 1025),
+        visibleFrame: NSRect(x: 0, y: 0, width: 1800, height: 1000)
+    )
+    private static let secondaryScreen: (frame: NSRect, visibleFrame: NSRect) = (
+        frame: NSRect(x: 1800, y: 0, width: 1600, height: 925),
+        visibleFrame: NSRect(x: 1800, y: 0, width: 1600, height: 900)
+    )
+
     // A frame saved on a now-disconnected display sits off every active screen.
     // Selection must recover onto the screen under the cursor instead of leaving
     // Settings offscreen (the "nothing shows up" multi-monitor symptom).
     func testTargetVisibleFrameRecoversOffscreenFrameOntoCursorScreen() {
-        let primary = NSRect(x: 0, y: 0, width: 1800, height: 1000)
-        let secondary = NSRect(x: 1800, y: 0, width: 1600, height: 900)
         // Saved on a third display to the far left that is no longer connected.
         let orphanFrame = NSRect(x: -2400, y: 400, width: 980, height: 680)
 
         let target = SettingsWindowPresenter.targetVisibleFrame(
             windowFrame: orphanFrame,
-            screenVisibleFrames: [primary, secondary],
+            screens: [Self.primaryScreen, Self.secondaryScreen],
             mouseLocation: NSPoint(x: 2000, y: 450), // cursor is on the secondary screen
-            fallbackVisibleFrame: primary
+            fallbackVisibleFrame: Self.primaryScreen.visibleFrame
         )
 
-        XCTAssertEqual(target, secondary)
+        XCTAssertEqual(target, Self.secondaryScreen.visibleFrame)
+    }
+
+    // Opening Settings from the menu bar leaves the cursor in the strip that
+    // visibleFrame excludes. Cursor recovery must hit-test the full screen
+    // frame so that display is still selected, not the main-screen fallback.
+    func testTargetVisibleFrameRecoversCursorInMenuBarStripOntoThatScreen() {
+        let orphanFrame = NSRect(x: -2400, y: 400, width: 980, height: 680)
+        // Inside the secondary screen's full frame, above its visibleFrame.
+        let menuBarCursor = NSPoint(x: 2600, y: 912)
+        XCTAssertFalse(Self.secondaryScreen.visibleFrame.contains(menuBarCursor))
+        XCTAssertTrue(Self.secondaryScreen.frame.contains(menuBarCursor))
+
+        let target = SettingsWindowPresenter.targetVisibleFrame(
+            windowFrame: orphanFrame,
+            screens: [Self.primaryScreen, Self.secondaryScreen],
+            mouseLocation: menuBarCursor,
+            fallbackVisibleFrame: Self.primaryScreen.visibleFrame
+        )
+
+        XCTAssertEqual(target, Self.secondaryScreen.visibleFrame)
     }
 
     // When the cursor is also off every active screen, fall back to main/first.
     func testTargetVisibleFrameFallsBackWhenOffscreenAndCursorElsewhere() {
-        let primary = NSRect(x: 0, y: 0, width: 1800, height: 1000)
         let orphanFrame = NSRect(x: -2400, y: 400, width: 980, height: 680)
 
         let target = SettingsWindowPresenter.targetVisibleFrame(
             windowFrame: orphanFrame,
-            screenVisibleFrames: [primary],
+            screens: [Self.primaryScreen],
             mouseLocation: NSPoint(x: -3000, y: 9000), // cursor off all screens too
-            fallbackVisibleFrame: primary
+            fallbackVisibleFrame: Self.primaryScreen.visibleFrame
         )
 
-        XCTAssertEqual(target, primary)
+        XCTAssertEqual(target, Self.primaryScreen.visibleFrame)
     }
 
     // A window mostly on a screen stays on that screen even if another exists.
     func testTargetVisibleFramePrefersScreenWithMostOverlap() {
-        let primary = NSRect(x: 0, y: 0, width: 1800, height: 1000)
-        let secondary = NSRect(x: 1800, y: 0, width: 1600, height: 900)
         let mostlyOnSecondary = NSRect(x: 1900, y: 100, width: 980, height: 680)
 
         let target = SettingsWindowPresenter.targetVisibleFrame(
             windowFrame: mostlyOnSecondary,
-            screenVisibleFrames: [primary, secondary],
+            screens: [Self.primaryScreen, Self.secondaryScreen],
             mouseLocation: NSPoint(x: 10, y: 10), // cursor on primary, but window is on secondary
-            fallbackVisibleFrame: primary
+            fallbackVisibleFrame: Self.primaryScreen.visibleFrame
         )
 
-        XCTAssertEqual(target, secondary)
+        XCTAssertEqual(target, Self.secondaryScreen.visibleFrame)
     }
 
     func testClampedFrameMovesOffscreenOriginInsideTargetScreen() {

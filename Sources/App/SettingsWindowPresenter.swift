@@ -282,11 +282,11 @@ struct SettingsWindowPresenter {
     }
 
     private func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
-        let screenVisibleFrames = NSScreen.screens.map(\.visibleFrame)
+        let screens = NSScreen.screens.map { (frame: $0.frame, visibleFrame: $0.visibleFrame) }
         let fallbackVisibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
         guard let visibleFrame = Self.targetVisibleFrame(
             windowFrame: window.frame,
-            screenVisibleFrames: screenVisibleFrames,
+            screens: screens,
             mouseLocation: NSEvent.mouseLocation,
             fallbackVisibleFrame: fallbackVisibleFrame
         ) else { return }
@@ -321,25 +321,29 @@ struct SettingsWindowPresenter {
     /// clamped into. When the window's saved frame is off every active screen
     /// (e.g. restored onto a now-disconnected display in a multi-monitor setup)
     /// it recovers onto the screen under the cursor, then the main/first screen.
-    /// Factored out so multi-monitor recovery is unit-testable.
+    /// Cursor hit-testing uses each screen's *full* frame: `visibleFrame`
+    /// excludes the menu bar and Dock strips, and the cursor sits exactly there
+    /// when Settings is opened from the menu bar, which would misroute the
+    /// recovery to the main screen. The returned rect is always a visible
+    /// frame. Factored out so multi-monitor recovery is unit-testable.
     static func targetVisibleFrame(
         windowFrame: NSRect,
-        screenVisibleFrames: [NSRect],
+        screens: [(frame: NSRect, visibleFrame: NSRect)],
         mouseLocation: NSPoint?,
         fallbackVisibleFrame: NSRect?
     ) -> NSRect? {
-        guard !screenVisibleFrames.isEmpty else { return fallbackVisibleFrame }
+        guard !screens.isEmpty else { return fallbackVisibleFrame }
 
         // Prefer the screen the window already overlaps the most so a window
         // that is mostly visible stays where the user put it.
         var bestFrame: NSRect?
         var bestArea: CGFloat = 0
-        for visibleFrame in screenVisibleFrames {
-            let intersection = visibleFrame.intersection(windowFrame)
+        for screen in screens {
+            let intersection = screen.visibleFrame.intersection(windowFrame)
             let area = intersection.isNull ? 0 : intersection.width * intersection.height
             if area > bestArea {
                 bestArea = area
-                bestFrame = visibleFrame
+                bestFrame = screen.visibleFrame
             }
         }
         if let bestFrame, bestArea > 0 {
@@ -349,10 +353,10 @@ struct SettingsWindowPresenter {
         // The window is off every active screen. Recover onto the screen under
         // the cursor when possible so Settings appears where the user is looking.
         if let mouseLocation,
-           let mouseScreen = screenVisibleFrames.first(where: { $0.contains(mouseLocation) }) {
-            return mouseScreen
+           let mouseScreen = screens.first(where: { $0.frame.contains(mouseLocation) }) {
+            return mouseScreen.visibleFrame
         }
-        return fallbackVisibleFrame ?? screenVisibleFrames.first
+        return fallbackVisibleFrame ?? screens.first?.visibleFrame
     }
 
     /// Pure clamp geometry: fit `frame` within `visibleFrame` (honoring `inset`
