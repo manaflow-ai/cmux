@@ -881,19 +881,6 @@ final class SessionIndexStore: ObservableObject {
             ?? url.deletingLastPathComponent().lastPathComponent
     }
 
-    /// Whether a transcript `cwd` matches the "this folder only" filter,
-    /// normalizing both sides through the configured remote↔local path
-    /// equivalences first. A nil transcript cwd never matches (preserving the
-    /// prior exact-equality behavior, where `nil != filter`).
-    nonisolated private static func claudeCwd(
-        _ cwd: String?,
-        matchesFilter filter: String,
-        using equivalence: ClaudePathEquivalence
-    ) -> Bool {
-        guard let cwd else { return false }
-        return equivalence.equates(cwd, filter)
-    }
-
     nonisolated private static func enumerateClaudeJSONLCandidates(
         root: ClaudeSessionRoot,
         cwdFilter: String?,
@@ -1514,7 +1501,7 @@ final class SessionIndexStore: ObservableObject {
                     let cached = ClaudeMetadataCache.shared.get(url: candidate.url, mtime: candidate.mtime)
                     if let cached, needle.isEmpty || candidate.prefilteredByRipgrep {
                         if let cwdFilter,
-                           !claudeCwd(cached.cwd, matchesFilter: cwdFilter, using: equivalence) {
+                           !equivalence.matches(transcriptCwd: cached.cwd, filter: cwdFilter) {
                             return (idx, nil, true)
                         }
                         return (
@@ -1533,7 +1520,7 @@ final class SessionIndexStore: ObservableObject {
                     }
                     if let cached {
                         if let cwdFilter,
-                           !claudeCwd(cached.cwd, matchesFilter: cwdFilter, using: equivalence) {
+                           !equivalence.matches(transcriptCwd: cached.cwd, filter: cwdFilter) {
                             return (idx, nil, true)
                         }
                         return (
@@ -1544,7 +1531,7 @@ final class SessionIndexStore: ObservableObject {
                     }
                     let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
                     if let cwdFilter,
-                       !claudeCwd(parsed.cwd, matchesFilter: cwdFilter, using: equivalence) {
+                       !equivalence.matches(transcriptCwd: parsed.cwd, filter: cwdFilter) {
                         return (idx, nil, false)
                     }
                     let sid = candidate.url.deletingPathExtension().lastPathComponent

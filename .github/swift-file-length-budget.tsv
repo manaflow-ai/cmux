@@ -50,7 +50,7 @@
 1996	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
-1793	Sources/SessionIndexStore.swift
+1822	Sources/SessionIndexStore.swift
 1751	Sources/WindowDragHandleView.swift
 1721	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1720	Sources/RestorableAgentSession.swift
