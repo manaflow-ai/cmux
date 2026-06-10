@@ -1057,13 +1057,16 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux 透傳",
-      "tmuxDesc": "如果在 cmux 內使用 tmux，請啟用透傳：",
+      "tmuxDesc": "在 cmux ssh 中，建議從 hook 和腳本使用 cmux notify；即使在 tmux 窗格內，也會透過本機 cmux app 中繼。對於 tmux 內的原始 OSC 通知，請啟用 passthrough：",
       "metaTitle": "通知",
       "hooksTitle": "通知 Hook",
       "hooksIntro": "<config>cmux.json</config> 可以定義通知 Hook，讓每個通知政策以 JSON 形式從 stdin 傳入。每個 Hook 會透過 stdout 回傳 JSON。Hook 預設為關閉；只有在 <hooksMode>notifications.hooks</hooksMode> 至少包含一個已啟用的 Hook 時，cmux 才會執行它們。cmux 會套用回傳的通知文字與效果，因此 Hook 可以篩選橫幅、保留或略過側邊欄歷史、播放聲音，或停止後續 Hook。",
       "hooksJsonTitle": "cmux.json",
       "hooksIOTitle": "Hook 輸入與輸出",
       "hooksDetails": "Hook 會從全域 <globalConfig>~/.config/cmux/cmux.json</globalConfig> 以及從父目錄到目前 workspace 的專案 <projectConfig>.cmux/cmux.json</projectConfig> 檔案繼承。專案 Hook 執行前會使用與其他專案 <config>cmux.json</config> 命令相同的信任提示。Feed 核准橫幅也會通過這些 Hook；停用 <desktop>desktop</desktop> 會抑制原生橫幅，同時讓 Feed 項目保留在 cmux 中。若要忽略繼承的 Hook，請在專案設定中將 <hooksMode>notifications.hooksMode</hooksMode> 設為 <replace>replace</replace>。如果 Hook 失敗、逾時或回傳無效 JSON，cmux 會使用預設通知行為並顯示 Hook 失敗提醒。"
+    },
+    "ssh": {
+      "notificationsDesc": "遠端機器上的程序可以執行會在本機執行個體上執行的 cmux 命令。當 coding agent 在遠端機器上呼叫 cmux notify 時，即使是在 tmux 內，通知也會出現在本機側邊欄。工作區分頁上的藍色圓環會亮起，Cmd+Shift+U 會跳到該處。來自不穩定連線的通知洗版會以每台主機的冷卻時間抑制。"
     },
     "browserAutomation": {
       "title": "瀏覽器自動化",

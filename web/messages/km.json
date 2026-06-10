@@ -1057,13 +1057,16 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
-      "tmuxDesc": "ប្រសិនបើប្រើ tmux ក្នុង cmux, បើក passthrough:",
+      "tmuxDesc": "នៅក្នុង cmux ssh គួរប្រើ cmux notify ពី hooks និងស្គ្រីប; វា relay ទៅកាន់កម្មវិធី cmux មូលដ្ឋានរបស់អ្នក ទោះបីពី pane របស់ tmux ក៏ដោយ។ សម្រាប់ការជូនដំណឹង OSC ដើមនៅក្នុង tmux សូមបើក passthrough:",
       "metaTitle": "ការជូនដំណឹង",
       "hooksTitle": "Notification hooks",
       "hooksIntro": "<config>cmux.json</config> can define notification hooks that receive every notification policy as JSON on stdin. Each hook returns JSON on stdout. Hooks are off by default; cmux only runs them when <hooksMode>notifications.hooks</hooksMode> contains at least one enabled hook. cmux applies the returned notification text and effects, so hooks can filter banners, keep or skip sidebar history, run sounds, or stop later hooks.",
       "hooksJsonTitle": "cmux.json",
       "hooksIOTitle": "Hook input and output",
       "hooksDetails": "Hooks are inherited from global <globalConfig>~/.config/cmux/cmux.json</globalConfig> and project <projectConfig>.cmux/cmux.json</projectConfig> files from parent directories to the current workspace. Project hooks use the same trust prompt as other project <config>cmux.json</config> commands before they run. Feed approval banners also pass through these hooks; disabling <desktop>desktop</desktop> suppresses the native banner while keeping the Feed item available in cmux. Set <hooksMode>notifications.hooksMode</hooksMode> to <replace>replace</replace> in a project config to ignore inherited hooks. If a hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert."
+    },
+    "ssh": {
+      "notificationsDesc": "ដំណើរការនៅលើម៉ាស៊ីនចម្ងាយអាចដំណើរការពាក្យបញ្ជា cmux ដែលប្រតិបត្តិនៅលើ instance មូលដ្ឋានរបស់អ្នក។ ពេល coding agent ហៅ cmux notify នៅលើម៉ាស៊ីនចម្ងាយ រួមទាំងពីក្នុង tmux ការជូនដំណឹងនឹងបង្ហាញក្នុង sidebar មូលដ្ឋាន។ រង្វង់ពណ៌ខៀវនឹងភ្លឺលើផ្ទាំង workspace។ Cmd+Shift+U លោតទៅកាន់វា។ spam ការជូនដំណឹងពីការតភ្ជាប់មិនស្ថិរភាពត្រូវបានទប់ស្កាត់ដោយ cooldown រៀងរាល់ host។"
     },
     "browserAutomation": {
       "title": "ស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក",

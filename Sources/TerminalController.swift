@@ -9973,13 +9973,17 @@ class TerminalController {
 
     // MARK: - V2 Notification Methods
 
+    static var defaultNotificationTitle: String {
+        String(localized: "notification.default.title", defaultValue: "Notification")
+    }
+
     private func v2NotificationCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
         let explicitSurfaceId = v2UUID(params, "surface_id")
-        let title = (params["title"] as? String) ?? "Notification"
+        let title = (params["title"] as? String) ?? Self.defaultNotificationTitle
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
 
@@ -10018,7 +10022,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
 
-        let title = (params["title"] as? String) ?? "Notification"
+        let title = (params["title"] as? String) ?? Self.defaultNotificationTitle
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
 
@@ -10055,7 +10059,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
 
-        let title = (params["title"] as? String) ?? "Notification"
+        let title = (params["title"] as? String) ?? Self.defaultNotificationTitle
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
 
@@ -18245,14 +18249,14 @@ class TerminalController {
 
     private func parseNotificationPayload(_ args: String) -> (String, String, String) {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return ("Notification", "", "") }
+        guard !trimmed.isEmpty else { return (Self.defaultNotificationTitle, "", "") }
         let parts = trimmed.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
         let title = parts.count > 0 ? parts[0].trimmingCharacters(in: .whitespacesAndNewlines) : ""
         let subtitle = parts.count > 2 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
         let body = parts.count > 2
             ? parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
             : (parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : "")
-        return (title.isEmpty ? "Notification" : title, subtitle, body)
+        return (title.isEmpty ? Self.defaultNotificationTitle : title, subtitle, body)
     }
 
     private func closeWorkspace(_ tabId: String) -> String {

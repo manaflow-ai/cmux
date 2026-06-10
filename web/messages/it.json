@@ -1057,13 +1057,16 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "Passthrough tmux",
-      "tmuxDesc": "Se usi tmux all'interno di cmux, abilita il passthrough:",
+      "tmuxDesc": "Dentro cmux ssh, preferisci cmux notify da hook e script; viene inoltrato alla tua app cmux locale anche dai pannelli tmux. Per le notifiche OSC grezze dentro tmux, abilita passthrough:",
       "metaTitle": "Notifiche",
       "hooksTitle": "Hook di notifica",
       "hooksIntro": "<config>cmux.json</config> può definire hook di notifica che ricevono ogni criterio di notifica come JSON su stdin. Ogni hook restituisce JSON su stdout. Gli hook sono disattivati per impostazione predefinita; cmux li esegue solo quando <hooksMode>notifications.hooks</hooksMode> contiene almeno un hook abilitato. cmux applica il testo e gli effetti restituiti, così gli hook possono filtrare banner, mantenere o saltare la cronologia della barra laterale, eseguire suoni o fermare gli hook successivi.",
       "hooksJsonTitle": "cmux.json",
       "hooksIOTitle": "Input e output dell’hook",
       "hooksDetails": "Gli hook vengono ereditati dal file globale <globalConfig>~/.config/cmux/cmux.json</globalConfig> e dai file di progetto <projectConfig>.cmux/cmux.json</projectConfig>, dalle directory padre fino al workspace corrente. Gli hook di progetto usano lo stesso prompt di fiducia degli altri comandi di progetto <config>cmux.json</config> prima dell’esecuzione. Anche i banner di approvazione del Feed passano da questi hook; disattivare <desktop>desktop</desktop> sopprime il banner nativo mantenendo l’elemento Feed disponibile in cmux. Imposta <hooksMode>notifications.hooksMode</hooksMode> su <replace>replace</replace> in una configurazione di progetto per ignorare gli hook ereditati. Se un hook fallisce, scade o restituisce JSON non valido, cmux usa il comportamento di notifica predefinito e mostra un avviso di errore dell’hook."
+    },
+    "ssh": {
+      "notificationsDesc": "I processi sulla macchina remota possono eseguire comandi cmux che vengono eseguiti sulla tua istanza locale. Quando un agente di coding chiama cmux notify sulla macchina remota, anche da tmux, la notifica appare nella barra laterale locale. L'anello blu si illumina sulla scheda del workspace. Cmd+Shift+U porta a quella notifica. Lo spam di notifiche da connessioni instabili viene limitato con un cooldown per host."
     },
     "browserAutomation": {
       "title": "Automazione del browser",

@@ -163,3 +163,9 @@ Browser relay behavior:
 1. `cmux browser ...` inside an SSH session controls the local cmux browser through the authenticated relay, not a browser process inside the VM.
 2. The remote CLI supports the common automation commands: `open`, `navigate`, `back`, `forward`, `reload`, `get-url`, `snapshot`, `eval`, `wait`, `click`, `dblclick`, `hover`, `focus`, `check`, `uncheck`, `fill`, `type`, `press`, `select`, and `screenshot`.
 3. Commands that target an existing browser surface default to `CMUX_SURFACE_ID`; `open` defaults to `CMUX_WORKSPACE_ID` so agents can create a browser pane next to the active SSH terminal.
+
+Notification relay behavior:
+
+1. `cmux notify ...` inside an SSH session sends `notification.create_for_caller` through the relay so the local app can resolve the originating workspace, surface, and TTY.
+2. When the command runs inside tmux (`TMUX` or `TMUX_PANE` is present), caller TTY resolution wins over stale inherited surface IDs. This keeps notifications attached to the pane that emitted them when possible, while still falling back to `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`.
+3. Raw OSC notifications emitted from inside real tmux still require tmux passthrough (`set -g allow-passthrough on`). The relay path is the robust zero-port-forwarding path for hooks and scripts.

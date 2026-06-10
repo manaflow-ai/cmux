@@ -635,11 +635,38 @@ jobs:
           set -euo pipefail
           clang -framework Foundation -framework CoreGraphics \
             -o /tmp/create-virtual-display scripts/create-virtual-display.m
-          /tmp/create-virtual-display &
-          VDISPLAY_PID=$!
-          echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
-          sleep 3
-          kill -0 "$VDISPLAY_PID"
+
+          READY_PATH="/tmp/cmux-ci-lag-display-ready"
+          DISPLAY_ID_PATH="/tmp/cmux-ci-lag-display-id"
+          HELPER_LOG_PATH="/tmp/cmux-ci-lag-display-helper.log"
+          for attempt in 1 2 3; do
+            rm -f "$READY_PATH" "$DISPLAY_ID_PATH" "$HELPER_LOG_PATH"
+            /tmp/create-virtual-display \
+              --ready-path "$READY_PATH" \
+              --display-id-path "$DISPLAY_ID_PATH" \
+              > "$HELPER_LOG_PATH" 2>&1 &
+            VDISPLAY_PID=$!
+
+            for _ in {1..40}; do
+              if [ -f "$READY_PATH" ] && kill -0 "$VDISPLAY_PID" >/dev/null 2>&1; then
+                echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
+                echo "Virtual display ready: ID=$(cat "$DISPLAY_ID_PATH" 2>/dev/null || echo unknown)"
+                exit 0
+              fi
+              if ! kill -0 "$VDISPLAY_PID" >/dev/null 2>&1; then
+                break
+              fi
+              sleep 0.25
+            done
+
+            kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+            echo "Virtual display attempt $attempt failed" >&2
+            sleep "$attempt"
+          done
+
+          echo "ERROR: Failed to create virtual display after 3 attempts" >&2
+          cat "$HELPER_LOG_PATH" >&2 2>/dev/null || true
+          exit 1
 
       - name: Run workspace churn typing-lag regression
         run: |

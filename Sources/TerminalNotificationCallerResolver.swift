@@ -17,7 +17,7 @@ extension TerminalController {
         let preferredSurfaceId = v2UUID(params, "preferred_surface_id")
         let callerTTY = Self.normalizedTTYName(stringParam(params, "caller_tty"))
         let preferTTY = boolParam(params, "prefer_tty") ?? false
-        let title = stringParam(params, "title") ?? "Notification"
+        let title = stringParam(params, "title") ?? Self.defaultNotificationTitle
         let subtitle = stringParam(params, "subtitle") ?? ""
         let body = stringParam(params, "body") ?? ""
 

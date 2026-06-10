@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -86,7 +87,6 @@ var commands = []commandSpec{
 	{name: "close-surface", proto: protoV2, v2Method: "surface.close", flagKeys: []string{"surface"}},
 	{name: "send", proto: protoV2, v2Method: "surface.send_text", flagKeys: []string{"surface", "text"}},
 	{name: "send-key", proto: protoV2, v2Method: "surface.send_key", flagKeys: []string{"surface", "key"}},
-	{name: "notify", proto: protoV2, v2Method: "notification.create", flagKeys: []string{"title", "body", "workspace"}},
 	{name: "refresh-surfaces", proto: protoV2, v2Method: "surface.refresh", noParams: true},
 }
 
@@ -121,6 +121,17 @@ var browserCommands = map[string]browserCommandSpec{
 }
 
 var commandIndex map[string]*commandSpec
+
+var callerTTYFDLinkPaths = []string{
+	"/proc/self/fd/0",
+	"/proc/self/fd/1",
+	"/proc/self/fd/2",
+	"/dev/fd/0",
+	"/dev/fd/1",
+	"/dev/fd/2",
+}
+
+var callerTTYCommand = defaultCallerTTYCommand
 
 func init() {
 	commandIndex = make(map[string]*commandSpec, len(commands))
@@ -209,6 +220,10 @@ doneFlags:
 		return runTmuxCompat(socketPath, cmdArgs, refreshAddr)
 	}
 
+	if cmdName == "notify" {
+		return runNotifyRelay(socketPath, cmdArgs, jsonOutput, refreshAddr)
+	}
+
 	spec, ok := commandIndex[cmdName]
 	if !ok {
 		fmt.Fprintf(os.Stderr, "cmux: unknown command %q\n", cmdName)
@@ -294,6 +309,66 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 		return 1
 	}
 
+	if jsonOutput {
+		fmt.Println(resp)
+	} else {
+		fmt.Println(defaultRelayOutput(resp))
+	}
+	return 0
+}
+
+func runNotifyRelay(socketPath string, args []string, jsonOutput bool, refreshAddr func() string) int {
+	parsed, err := parseFlags(args, []string{"title", "subtitle", "body", "workspace", "surface"})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
+		return 2
+	}
+
+	params := map[string]any{}
+	if title, ok := parsed.flags["title"]; ok {
+		params["title"] = title
+	}
+	if subtitle, ok := parsed.flags["subtitle"]; ok {
+		params["subtitle"] = subtitle
+	}
+	if body, ok := parsed.flags["body"]; ok {
+		params["body"] = body
+	}
+
+	explicitWorkspace, hasExplicitWorkspace := parsed.flags["workspace"]
+	explicitSurface, hasExplicitSurface := parsed.flags["surface"]
+	method := "notification.create_for_caller"
+
+	if hasExplicitSurface {
+		method = "notification.create"
+		if hasExplicitWorkspace {
+			params["workspace_id"] = explicitWorkspace
+		} else {
+			applyWorkspaceEnvFallback(params)
+		}
+		params["surface_id"] = explicitSurface
+	} else {
+		if preferTTY := runningInsideTmux() && !hasExplicitWorkspace; preferTTY {
+			params["prefer_tty"] = true
+		}
+		if hasExplicitWorkspace {
+			params["preferred_workspace_id"] = explicitWorkspace
+		} else if workspaceID := normalizedEnvValue("CMUX_WORKSPACE_ID"); workspaceID != "" {
+			params["preferred_workspace_id"] = workspaceID
+		}
+		if surfaceID := normalizedEnvValue("CMUX_SURFACE_ID"); surfaceID != "" {
+			params["preferred_surface_id"] = surfaceID
+		}
+		if ttyName := resolveCallerTTYName(); ttyName != "" {
+			params["caller_tty"] = ttyName
+		}
+	}
+
+	resp, err := socketRoundTripV2(socketPath, method, params, refreshAddr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
+		return 1
+	}
 	if jsonOutput {
 		fmt.Println(resp)
 	} else {
@@ -465,6 +540,79 @@ func applySurfaceEnvFallback(params map[string]any) {
 	if envSf := os.Getenv("CMUX_SURFACE_ID"); envSf != "" {
 		params["surface_id"] = envSf
 	}
+}
+
+func runningInsideTmux() bool {
+	return normalizedEnvValue("TMUX") != "" || normalizedEnvValue("TMUX_PANE") != ""
+}
+
+func resolveCallerTTYName() string {
+	for _, key := range []string{"CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME", "TTY", "SSH_TTY"} {
+		if ttyName := normalizedTTYName(os.Getenv(key)); ttyName != "" {
+			return ttyName
+		}
+	}
+	for _, path := range callerTTYFDLinkPaths {
+		if target, err := os.Readlink(path); err == nil {
+			if !strings.HasPrefix(target, "/dev/") {
+				continue
+			}
+			if ttyName := normalizedTTYName(target); ttyName != "" {
+				return ttyName
+			}
+		}
+	}
+	if ttyName := normalizedTTYName(callerTTYCommand()); ttyName != "" {
+		return ttyName
+	}
+	return ""
+}
+
+func defaultCallerTTYCommand() string {
+	cmd := exec.Command("tty")
+	cmd.Stdin = os.Stdin
+	cmd.Stderr = io.Discard
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return string(output)
+}
+
+func normalizedTTYName(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "not a tty" {
+		return ""
+	}
+	if after, ok := strings.CutPrefix(trimmed, "/dev/"); ok {
+		return normalizedTTYDeviceName(after)
+	}
+	return normalizedTTYDeviceName(trimmed)
+}
+
+func normalizedTTYDeviceName(name string) string {
+	trimmed := strings.Trim(name, "/")
+	if trimmed == "" {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, "pts/") {
+		suffix := strings.TrimPrefix(trimmed, "pts/")
+		if suffix != "" && !strings.Contains(suffix, "/") {
+			return trimmed
+		}
+		return ""
+	}
+	if strings.Contains(trimmed, "/") {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, "tty") || strings.HasPrefix(trimmed, "cu.") {
+		return trimmed
+	}
+	return ""
+}
+
+func normalizedEnvValue(key string) string {
+	return strings.TrimSpace(os.Getenv(key))
 }
 
 func defaultRelayOutput(resp string) string {

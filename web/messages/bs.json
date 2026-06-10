@@ -1057,13 +1057,16 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
-      "tmuxDesc": "Ako koristite tmux unutar cmux-a, omogućite passthrough:",
+      "tmuxDesc": "Unutar cmux ssh, radije koristi cmux notify iz hookova i skripti; prosljeđuje se tvojoj lokalnoj cmux aplikaciji čak i iz tmux panela. Za sirove OSC obavijesti unutar tmux-a omogući passthrough:",
       "metaTitle": "Notifikacije",
       "hooksTitle": "Hookovi za notifikacije",
       "hooksIntro": "<config>cmux.json</config> može definisati hookove za notifikacije koji primaju svaku politiku notifikacije kao JSON na stdin. Svaki hook vraća JSON na stdout. Hookovi su isključeni po zadanim postavkama; cmux ih pokreće samo kada <hooksMode>notifications.hooks</hooksMode> sadrži barem jedan omogućen hook. cmux primjenjuje vraćeni tekst i efekte, pa hookovi mogu filtrirati bannere, zadržati ili preskočiti historiju bočne trake, pokretati zvukove ili zaustaviti kasnije hookove.",
       "hooksJsonTitle": "cmux.json",
       "hooksIOTitle": "Ulaz i izlaz hooka",
       "hooksDetails": "Hookovi se nasljeđuju iz globalnog <globalConfig>~/.config/cmux/cmux.json</globalConfig> i projektnih <projectConfig>.cmux/cmux.json</projectConfig> datoteka od nadređenih direktorija do trenutnog workspacea. Projektni hookovi koriste isti prompt povjerenja kao druge projektne <config>cmux.json</config> komande prije pokretanja. Feed banneri za odobrenje također prolaze kroz ove hookove; isključivanje <desktop>desktop</desktop> skriva nativni banner dok Feed stavka ostaje dostupna u cmuxu. Postavite <hooksMode>notifications.hooksMode</hooksMode> na <replace>replace</replace> u konfiguraciji projekta da zanemarite naslijeđene hookove. Ako hook ne uspije, istekne ili vrati neispravan JSON, cmux koristi zadano ponašanje notifikacija i prikazuje upozorenje o grešci hooka."
+    },
+    "ssh": {
+      "notificationsDesc": "Procesi na udaljenoj mašini mogu pokretati cmux komande koje se izvršavaju na tvojoj lokalnoj instanci. Kada coding agent pozove cmux notify na udaljenoj mašini, uključujući i iz tmux-a, obavijest se pojavi u lokalnoj bočnoj traci. Plavi prsten zasvijetli na tabu workspacea. Cmd+Shift+U skače na njega. Spam obavijesti iz nestabilnih veza potiskuje se cooldownom po hostu."
     },
     "browserAutomation": {
       "title": "Automatizacija preglednika",
