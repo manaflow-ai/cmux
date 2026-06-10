@@ -415,8 +415,12 @@ jobs:
           # tests (settings stores, secret-file migration, socket-control
           # convergence, etc.) are a real CI gate, not just compiled.
           # Scoped to packages that build headlessly via SwiftPM (no GhosttyKit /
-          # app-target dependency). Add a package here once its `swift test`
-          # is confirmed to resolve standalone.
+          # app-target dependency) on this job's Xcode toolchain. Add a package
+          # here once its `swift test` is confirmed to resolve standalone.
+          # iOS-line packages (CmuxMobile*) are gated in test-ios.yml's
+          # mobile-core-package job instead: they target the newer iOS
+          # toolchain (e.g. `isolated deinit` needs Swift 6.2+) and this job's
+          # Xcode cannot compile them.
           PACKAGES=(
             CMUXAuthCore
             CmuxAuthRuntime
@@ -424,8 +428,6 @@ jobs:
             CmuxFileWatch
             CmuxFoundation
             CmuxGit
-            CmuxMobileShell
-            CmuxMobileTerminalKit
             CmuxProcess
             CmuxSettings
             CmuxSettingsUI

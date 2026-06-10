@@ -64,14 +64,18 @@ struct MobileLocalScrollEngineTests {
         #expect(abs(engine.upRowsExact - 3.0) < 0.0001)
     }
 
-    @Test("below half a row is not local-scroll active")
-    func belowHalfRowInactive() {
+    @Test("any positive offset is local-scroll active: a sub-row delta already reached the real surface, so live frames must still snap")
+    func subRowOffsetStillSnaps() {
         var engine = MobileLocalScrollEngine()
         engine.noteFullSnapshot(scrollbackRows: 100)
         _ = engine.applyLocalScroll(lines: 0.4)
-        #expect(!engine.isLocalScrollActive)
-        _ = engine.applyLocalScroll(lines: 0.2)
         #expect(engine.isLocalScrollActive)
+        let snap = engine.consumeSnapRequest()
+        #expect(snap.snapToLive)
+        #expect(engine.upRowsExact == 0)
+        // Back at the live bottom exactly: no further snaps.
+        #expect(!engine.isLocalScrollActive)
+        #expect(!engine.consumeSnapRequest().snapToLive)
     }
 
     // MARK: - Deeper-fetch trigger
@@ -140,6 +144,29 @@ struct MobileLocalScrollEngineTests {
         engine.noteFullSnapshot(scrollbackRows: 10)
         // No growth -> ceiling closed, not misread as a cold attach.
         #expect(!engine.applyLocalScroll(lines: 5).requestDeeperFetch)
+    }
+
+    @Test("an alternate-screen full snapshot does not clobber the primary history latches")
+    func altSnapshotDoesNotClobberPrimaryLatches() {
+        var engine = MobileLocalScrollEngine()
+        engine.noteActiveScreen(isAlternate: false)
+        engine.noteFullSnapshot(scrollbackRows: 100)
+        #expect(engine.applyLocalScroll(lines: 120).requestDeeperFetch)
+        // A TUI flips to the alt screen and a full snapshot (e.g. a replay
+        // self-heal) lands while it is active: the alt screen has no
+        // scrollback, so it must not overwrite the held primary depth or
+        // consume the fetch-classification latch.
+        engine.noteActiveScreen(isAlternate: true)
+        engine.noteFullSnapshot(scrollbackRows: 0)
+        #expect(engine.heldScrollbackRows == 100)
+        // Back on primary, the fetch's real (grown) snapshot is still
+        // classified as a fetch result and restores the reader's position.
+        engine.noteActiveScreen(isAlternate: false)
+        engine.noteFullSnapshot(scrollbackRows: 300)
+        #expect(engine.heldScrollbackRows == 300)
+        let snap = engine.consumeSnapRequest()
+        #expect(snap.snapToLive)
+        #expect(snap.restoreUpRows == 120)
     }
 
     @Test("a cold-attach snapshot re-opens the ceiling")

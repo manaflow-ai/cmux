@@ -26,7 +26,11 @@ final class TerminalOutputCollector {
     func mount(store: CMUXMobileShellStore, surfaceID: String) {
         task = Task { @MainActor [weak self] in
             for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
-                self?.lines.append(String(data: chunk.bytes, encoding: .utf8) ?? "")
+                // Metadata-only chunks (no row changes) are valid stream
+                // elements; skip them so `lines`-count waits and equality
+                // assertions only see real PTY text.
+                guard !chunk.bytes.isEmpty else { continue }
+                self?.lines.append(String(decoding: chunk.bytes, as: UTF8.self))
             }
         }
     }

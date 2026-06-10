@@ -76,8 +76,12 @@ public struct MobileLocalScrollEngine: Sendable {
 
     /// True while the user is reading local history (scrolled up) in primary
     /// mode. While set, an incoming live frame snaps to the bottom before
-    /// applying (see ``consumeSnapRequest()``).
-    public var isLocalScrollActive: Bool { upRowsExact >= 0.5 }
+    /// applying (see ``consumeSnapRequest()``). Any positive offset counts:
+    /// every locally-applied delta also reached the real surface (which
+    /// accumulates fractional scroll and can have moved a whole row already),
+    /// so a sub-row tracked offset must still snap before live bytes paint.
+    /// A snap when the surface happens to sit at the bottom is a no-op.
+    public var isLocalScrollActive: Bool { upRowsExact > 0 }
 
     /// Dedupe/retry latch: true while a deeper-scrollback fetch issued by this
     /// engine is believed outstanding, so a held pan at the history top fires
@@ -141,6 +145,15 @@ public struct MobileLocalScrollEngine: Sendable {
     /// bouncing on a re-fetch. A genuinely larger snapshot (or a fresh cold
     /// attach that is not a fetch response) clears that ceiling.
     ///
+    /// Alternate-screen full snapshots are ignored: the alt screen has no
+    /// scrollback of its own, so letting one through would clobber the held
+    /// primary depth and the fetch/restore latches with alt-screen state (the
+    /// caller records the frame's active screen via
+    /// ``noteActiveScreen(isAlternate:)`` immediately before this call, so the
+    /// gate sees the same frame's screen). The latches stay armed for the next
+    /// PRIMARY full snapshot; a fetch dropped behind an alt flip is retried by
+    /// the next pan (``notePanBegan()``).
+    ///
     /// Deliberately does NOT touch ``upRowsExact``: the snapshot's bytes have
     /// not applied yet (the caller applies a frame's metadata immediately
     /// before its bytes), so zeroing the offset here would suppress the
@@ -150,6 +163,7 @@ public struct MobileLocalScrollEngine: Sendable {
     /// the real surface position in step.
     public mutating func noteFullSnapshot(scrollbackRows: Int) {
         hasReceivedFrameMeta = true
+        guard !isAlternateScreen else { return }
         let newRows = max(0, scrollbackRows)
         if fetchAwaitingSnapshot {
             fetchAwaitingSnapshot = false

@@ -96,7 +96,7 @@ jobs:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
     runs-on: macos-26
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -122,9 +122,18 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
-      - name: Run CMUXMobileCore package tests
+      - name: Run mobile package tests
         run: |
-          swift test --package-path Packages/CMUXMobileCore
+          # iOS-line SPM packages that build headlessly (no GhosttyKit). They
+          # are gated here, on this job's newer Xcode, rather than in ci.yml's
+          # `tests` job: that job's Xcode toolchain cannot compile them (e.g.
+          # `isolated deinit` in CmuxMobileShell needs Swift 6.2+).
+          set -euo pipefail
+          for pkg in CMUXMobileCore CmuxMobileShell CmuxMobileTerminalKit; do
+            echo "::group::swift test Packages/$pkg"
+            swift test --package-path "Packages/$pkg"
+            echo "::endgroup::"
+          done
 
   ios-simulator:
     needs: detect-ios-changes
