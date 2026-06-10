@@ -121,6 +121,10 @@ pub extern "C" fn cmux_iroh_endpoint_route_json(endpoint: *const CmuxIrohEndpoin
         .map(|addr| addr.to_string())
         .collect::<Vec<_>>();
     let relay_url = addr.relay_urls().next().map(|url| url.to_string());
+    // `CmxAttachTicket.preferredRoute` sorts ascending and lower wins, so iroh
+    // must sit below the Mac's primary Tailscale route (priority 10) to be the
+    // default; 5 also stays above debugLoopback (0) so DEBUG/simulator runs
+    // keep preferring the loopback mock host.
     let route = serde_json::json!({
         "id": "iroh",
         "kind": "iroh",
@@ -130,7 +134,7 @@ pub extern "C" fn cmux_iroh_endpoint_route_json(endpoint: *const CmuxIrohEndpoin
             "direct_addrs": direct_addrs,
             "relay_url": relay_url,
         },
-        "priority": 20,
+        "priority": 5,
     });
     string_to_c(route.to_string())
 }
