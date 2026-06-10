@@ -2,6 +2,21 @@ internal import Foundation
 internal import Darwin
 
 extension SocketTransport {
+    /// Creates the unbound listener socket (`AF_UNIX`/`SOCK_STREAM`).
+    ///
+    /// Extracted so the listener-creation path is unit-testable; the caller
+    /// owns the returned descriptor.
+    ///
+    /// - Returns: The descriptor and a nil `errno` on success, or `-1` and the
+    ///   failing `errno`.
+    public func makeListenerSocket() -> (fd: Int32, errnoCode: Int32?) {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            return (-1, errno)
+        }
+        return (fd, nil)
+    }
+
     /// Binds `socket` as the listener at `path`, preparing the path first.
     ///
     /// On success the bound socket inode's identity is captured for later
