@@ -10633,7 +10633,6 @@ struct VerticalTabsSidebar: View {
     // row sitting behind the open menu. See `SidebarShortcutHintFreezePolicy`.
     @State private var frozenShortcutHintsTabId: UUID?
     @State private var frozenShortcutHintsValue: Bool = false
-    @State private var workspaceRowsMeasurement: SidebarWorkspaceRowsMeasurement<UUID>?
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
@@ -11156,27 +11155,11 @@ struct VerticalTabsSidebar: View {
                 viewportHeight: geometryProxy.size.height,
                 insets: scrollInsets
             )
-            let measuredWorkspaceRowsHeight = workspaceRowsMeasurement?.rowsHeight(
-                for: renderContext.visibleWorkspaceRowIds
-            )
-            // The empty drop/tap area below the last row is sized to the
-            // remaining viewport so the scroll content fills (but never
-            // exceeds) the visible height when the rows fit. Sizing it to a
-            // finite remainder — instead of the old `maxHeight: .infinity` —
-            // is what keeps the document view from always overflowing, so the
-            // overlay scroller stays hidden when there is nothing to scroll
-            // (https://github.com/manaflow-ai/cmux/issues/3241).
-            let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
-                contentMinHeight: contentMinHeight,
-                rowsHeight: measuredWorkspaceRowsHeight
-            )
-
             ScrollViewReader { scrollProxy in
                 ScrollView(.vertical) {
                     workspaceScrollContent(
                         renderContext: renderContext,
-                        minHeight: contentMinHeight,
-                        emptyAreaHeight: emptyAreaHeight
+                        minHeight: contentMinHeight
                     )
                 }
                 .background(
@@ -11275,12 +11258,6 @@ struct VerticalTabsSidebar: View {
                     }
                     requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
                 }
-                .onChange(of: renderContext.visibleWorkspaceRowIds) { _, _ in
-                    // Drop the stale rows-height measurement so the empty-area
-                    // sizing recomputes for the new row set. The measurement is
-                    // also keyed by workspace ids, so this is belt-and-suspenders.
-                    workspaceRowsMeasurement = nil
-                }
                 .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
                     requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
                 }
@@ -11328,21 +11305,6 @@ struct VerticalTabsSidebar: View {
                     if let index = tabManager.tabs.firstIndex(where: { $0.id == focusedId }) {
                         lastSidebarSelectionIndex = index
                     }
-                }
-                .onPreferenceChange(SidebarWorkspaceRowsHeightPreferenceKey.self) { measurement in
-                    guard let measurement else {
-                        workspaceRowsMeasurement = nil
-                        return
-                    }
-                    let nextMeasurement = SidebarWorkspaceRowsMeasurement(
-                        workspaceIds: measurement.workspaceIds,
-                        rowsHeight: max(0, measurement.rowsHeight)
-                    )
-                    if let workspaceRowsMeasurement,
-                       workspaceRowsMeasurement.isEquivalent(to: nextMeasurement) {
-                        return
-                    }
-                    workspaceRowsMeasurement = nextMeasurement
                 }
             }
         }
@@ -12451,10 +12413,19 @@ struct VerticalTabsSidebar: View {
 
     private func workspaceScrollContent(
         renderContext: WorkspaceListRenderContext,
-        minHeight: CGFloat,
-        emptyAreaHeight: CGFloat
+        minHeight: CGFloat
     ) -> some View {
-        VStack(spacing: 0) {
+        // Rows take their natural height; the empty drop/tap area stretches to
+        // fill the remaining viewport. SidebarRowsFillLayout derives that
+        // remainder from its own concrete bounds (the parent .frame(minHeight:)
+        // resolves to the viewport during placement), so we never measure the
+        // LazyVStack's whole-content height into @State. That measurement (a
+        // .background GeometryReader writing a PreferenceKey) forced every row to
+        // be placed — defeating LazyVStack virtualization — and fed a
+        // non-converging relayout loop (#2586 / #5764). The layout's bounds are
+        // always finite, so the document view never overflows when the rows fit
+        // and the overlay scroller stays hidden (#3241).
+        SidebarRowsFillLayout {
             workspaceRows(renderContext: renderContext)
 
             SidebarEmptyArea(
@@ -12466,8 +12437,7 @@ struct VerticalTabsSidebar: View {
                 topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                 tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
                 bonsplitDropIndicator: dropIndicatorBinding,
-                expandsVertically: false,
-                minimumHeight: emptyAreaHeight
+                expandsVertically: false
             )
         }
         .frame(minHeight: minHeight, alignment: .top)
@@ -12505,18 +12475,13 @@ struct VerticalTabsSidebar: View {
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        let measuredRows = rows
-            .background {
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: SidebarWorkspaceRowsHeightPreferenceKey.self,
-                        value: SidebarWorkspaceRowsMeasurement(
-                            workspaceIds: renderContext.visibleWorkspaceRowIds,
-                            rowsHeight: proxy.size.height
-                        )
-                    )
-                }
-            }
+
+        // No whole-content height measurement here. Reading the LazyVStack's
+        // total height via a .background GeometryReader (to size the empty area)
+        // forced every row to be placed and fed a non-converging relayout loop
+        // (#2586 / #5764). The empty-area fill is now handled geometrically by
+        // SidebarRowsFillLayout in workspaceScrollContent without measuring these
+        // rows, so the LazyVStack virtualizes again.
 
         // Gate ONLY the per-row frame-anchor *reader* (the virtualization-defeating
         // work) behind the drag-active check, and keep the Bonsplit drop-capture
@@ -12526,7 +12491,7 @@ struct VerticalTabsSidebar: View {
         // the drop NSView, orphaning the in-flight drag. Applying it at the stable outer
         // level keeps the NSView identity-stable across gate flips. (#5325 review)
         rowsWithGatedDropTargetReader(
-            rows: measuredRows,
+            rows: rows,
             renderContext: renderContext,
             shouldCollect: shouldCollectWorkspaceDropTargets
         )
