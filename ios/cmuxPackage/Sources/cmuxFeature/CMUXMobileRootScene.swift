@@ -3,6 +3,7 @@ import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileShell
+import CmuxMobileShellModel
 @_exported import CmuxMobileShellUI
 import CmuxMobileTransport
 import Foundation
@@ -34,6 +35,10 @@ public struct CMUXMobileRootScene: View {
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
+    /// The first-run onboarding "seen" flag store, injected into the root view so
+    /// it gates the one-time onboarding screen ahead of the never-paired
+    /// add-device state.
+    private let onboardingStore: MobileOnboardingStore
     #endif
     /// The app-root tailnet detector (behind the shell UI's read-only
     /// observing port), injected into the environment so pairing and
@@ -60,6 +65,8 @@ public struct CMUXMobileRootScene: View {
     ///     delegate) injected into the environment.
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
+    ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
+    ///     injected into the root view to gate the one-time onboarding screen.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
     ///     the environment for the pairing and disconnected surfaces.
     ///   - diagnosticLog: The structured diagnostic log (DEBUG builds only),
@@ -71,6 +78,7 @@ public struct CMUXMobileRootScene: View {
         analytics: any AnalyticsEmitting,
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
+        onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         diagnosticLog: DiagnosticLog? = nil
     ) {
@@ -80,6 +88,7 @@ public struct CMUXMobileRootScene: View {
         self.analytics = analytics
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
+        self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.pairedMacStore = Self.openPairedMacStore()
         #if DEBUG
@@ -152,12 +161,16 @@ public struct CMUXMobileRootScene: View {
 
     @ViewBuilder
     private var content: some View {
-        #if canImport(UIKit) && DEBUG
+        #if os(iOS)
+        #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
         } else {
-            CMUXMobileAppView(store: makeStore())
+            CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
         }
+        #else
+        CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
+        #endif
         #else
         CMUXMobileAppView(store: makeStore())
         #endif
