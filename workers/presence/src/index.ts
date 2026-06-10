@@ -20,6 +20,7 @@ import {
   resolveTeamId,
   tokenExpiryMs,
   verifyRequest,
+  type AuthedUser,
   type AuthEnv,
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
@@ -45,13 +46,16 @@ function unauthorized(): Response {
 async function resolveTeamOr403(
   request: Request,
   env: Env,
-): Promise<{ ok: true; teamId: string; stub: DurableObjectStub<TeamPresence> } | { ok: false; response: Response }> {
+): Promise<
+  | { ok: true; teamId: string; user: AuthedUser; stub: DurableObjectStub<TeamPresence> }
+  | { ok: false; response: Response }
+> {
   const user = await verifyRequest(request, env);
   if (!user) return { ok: false, response: unauthorized() };
   const team = resolveTeamId(requestedTeamIdFromRequest(request), user);
   if (!team.ok) return { ok: false, response: json({ error: "team_not_found" }, 403) };
   const stub = env.TEAM_PRESENCE.get(env.TEAM_PRESENCE.idFromName(team.teamId));
-  return { ok: true, teamId: team.teamId, stub };
+  return { ok: true, teamId: team.teamId, user, stub };
 }
 
 export default {
@@ -70,8 +74,10 @@ export default {
       if (!body.ok) return json({ error: "invalid_request" }, body.status);
       const parsed = parseHeartbeat(body.value);
       if (!parsed.ok) return json({ error: parsed.error }, 400);
-      const result = await team.stub.heartbeat(team.teamId, parsed.beat);
-      if ("error" in result) return json(result, 429);
+      // The verified user id rides along so the DO can pin and enforce device
+      // ownership (a co-member must not be able to spoof this device).
+      const result = await team.stub.heartbeat(team.teamId, team.user.id, parsed.beat);
+      if ("error" in result) return json({ error: result.error }, result.status);
       return json(result);
     }
 

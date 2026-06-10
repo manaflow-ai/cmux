@@ -55,7 +55,11 @@ GET  /v1/presence/subscribe -> forward w/ verified team ------> WS (hibernation)
   mirroring `web/services/vms/auth.ts` + the device-registry route.
   Verification results are cached in isolate memory for at most 60s, bounded
   by the token's own expiry. The worker derives the DO id from the verified
-  team id, so cross-team access is impossible by construction.
+  team id, so cross-team access is impossible by construction. Within a team,
+  devices are owner-bound like the registry: the first authenticated user to
+  announce a `deviceId` owns it, and another member's heartbeat for that
+  device is rejected with `403 device_owner_mismatch` (so presence cannot be
+  spoofed or force-cleared by a co-member).
 - **Subscribe**: WebSocket (primary; DO hibernation API, so idle teams cost
   nothing) or SSE (fallback, curl-friendly). Both deliver a `snapshot` first,
   then `online` / `offline` (with `reason: "timeout" | "goodbye"`) / `seen`

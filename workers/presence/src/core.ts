@@ -114,6 +114,26 @@ function applyGoodbye(
   return { instance, events };
 }
 
+export type OwnerCheck =
+  | { ok: true; /** Pin this user as the device owner (first contact). */ pin: boolean }
+  | { ok: false; error: "device_owner_mismatch" };
+
+/** Presence mirrors the registry's ownership guard
+ * (`web/app/api/devices/route.ts`: a device row pins the registering
+ * `userId`, and a different user's write is rejected): the first
+ * authenticated user to announce a device owns it, and only that user's
+ * heartbeats are accepted afterwards. Without this, any team member could
+ * forge a co-member's device online or force it offline with a goodbye, since
+ * device ids are visible to the whole team. Pure for tests. */
+export function checkDeviceOwner(
+  existingOwner: string | undefined,
+  userId: string,
+): OwnerCheck {
+  if (existingOwner === undefined) return { ok: true, pin: true };
+  if (existingOwner === userId) return { ok: true, pin: false };
+  return { ok: false, error: "device_owner_mismatch" };
+}
+
 export interface ExpiryResult {
   /** Instances flipped to offline, with their updated records. */
   expired: PresenceInstance[];

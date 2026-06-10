@@ -19,6 +19,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   applyHeartbeat,
   buildSnapshot,
+  checkDeviceOwner,
   expireInstances,
   HEARTBEAT_INTERVAL_MS,
   nextAlarmTime,
@@ -30,6 +31,8 @@ import {
 } from "./core";
 
 const INSTANCE_PREFIX = "inst:";
+/** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. */
+const OWNER_PREFIX = "owner:";
 const TEAM_ID_KEY = "meta:teamId";
 /** Mirrors the registry caps (200 devices x 25 instances per device). */
 const MAX_INSTANCES_PER_TEAM = 5000;
@@ -73,10 +76,19 @@ export interface HeartbeatResponse {
   instance: PresenceInstance;
 }
 
+export interface HeartbeatError {
+  error: string;
+  status: number;
+}
+
 function instanceKey(deviceId: string, tag: string): string {
   // deviceId is a validated fixed-format UUID, so the composite key is
   // unambiguous even though tags may contain ":".
   return `${INSTANCE_PREFIX}${deviceId}:${tag}`;
+}
+
+function ownerKey(deviceId: string): string {
+  return `${OWNER_PREFIX}${deviceId}`;
 }
 
 export class TeamPresence extends DurableObject {
@@ -87,14 +99,26 @@ export class TeamPresence extends DurableObject {
 
   // ---- RPC surface (called by the worker) ----
 
-  async heartbeat(teamId: string, beat: HeartbeatInput): Promise<HeartbeatResponse | { error: string }> {
+  async heartbeat(
+    teamId: string,
+    userId: string,
+    beat: HeartbeatInput,
+  ): Promise<HeartbeatResponse | HeartbeatError> {
     await this.rememberTeamId(teamId);
     const now = Date.now();
+
+    // Ownership guard, mirroring the registry route: the first authenticated
+    // user to announce a device owns it; a co-member cannot forge it online
+    // or goodbye it offline (see checkDeviceOwner in core.ts).
+    const owner = checkDeviceOwner(await this.ctx.storage.get<string>(ownerKey(beat.deviceId)), userId);
+    if (!owner.ok) return { error: owner.error, status: 403 };
+
     const key = instanceKey(beat.deviceId, beat.tag);
     const existing = await this.ctx.storage.get<PresenceInstance>(key);
 
     if (!existing && beat.stopping) {
-      // A goodbye from an instance we never saw: nothing to record or announce.
+      // A goodbye from an instance we never saw: nothing to record or
+      // announce (and nothing to pin an owner for).
       return this.heartbeatOk(teamId, {
         deviceId: beat.deviceId,
         tag: beat.tag,
@@ -109,9 +133,10 @@ export class TeamPresence extends DurableObject {
 
     if (!existing) {
       const count = (await this.ctx.storage.list({ prefix: INSTANCE_PREFIX, limit: MAX_INSTANCES_PER_TEAM })).size;
-      if (count >= MAX_INSTANCES_PER_TEAM) return { error: "too_many_instances" };
+      if (count >= MAX_INSTANCES_PER_TEAM) return { error: "too_many_instances", status: 429 };
     }
 
+    if (owner.pin) await this.ctx.storage.put(ownerKey(beat.deviceId), userId);
     const { instance, events } = applyHeartbeat(existing, beat, now);
     await this.ctx.storage.put(key, instance);
     this.broadcast(events);
@@ -211,6 +236,7 @@ export class TeamPresence extends DurableObject {
         all.delete(key);
       }
     }
+    await this.pruneOrphanedOwners(all);
     this.broadcast(events);
     this.closeExpiredSubscribers(now);
     const candidates = [nextAlarmTime([...all.values()]), this.nextSubscriberDeadline()]
@@ -241,6 +267,18 @@ export class TeamPresence extends DurableObject {
 
   private async allEntries(): Promise<Map<string, PresenceInstance>> {
     return await this.ctx.storage.list<PresenceInstance>({ prefix: INSTANCE_PREFIX });
+  }
+
+  /** Drop owner pins whose device no longer has any instance record, so the
+   * owner map shrinks with the same 24h prune that bounds the instance map. */
+  private async pruneOrphanedOwners(remaining: ReadonlyMap<string, PresenceInstance>): Promise<void> {
+    const liveDevices = new Set([...remaining.values()].map((instance) => instance.deviceId));
+    const owners = await this.ctx.storage.list<string>({ prefix: OWNER_PREFIX });
+    for (const key of owners.keys()) {
+      if (!liveDevices.has(key.slice(OWNER_PREFIX.length))) {
+        await this.ctx.storage.delete(key);
+      }
+    }
   }
 
   private async allInstances(): Promise<PresenceInstance[]> {

@@ -24,6 +24,11 @@ The heartbeat response returns `heartbeatIntervalMs` (15s) and
 hardcoding it. An instance that misses heartbeats for the timeout window is
 flipped offline by the Durable Object alarm with `reason: "timeout"`.
 
+Devices are owner-bound, mirroring the registry route: the first authenticated
+user to announce a `deviceId` owns it, and a heartbeat for that device from a
+different team member is rejected with `403 device_owner_mismatch`, so a
+co-member cannot forge another member's device online or goodbye it offline.
+
 ## Develop
 
 ```bash

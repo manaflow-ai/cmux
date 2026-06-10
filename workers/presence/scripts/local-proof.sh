@@ -9,6 +9,12 @@
 # Required env (source your dev Stack secrets first):
 #   STACK_PROJECT_ID, STACK_PUBLISHABLE_CLIENT_KEY, STACK_EMAIL, STACK_PASSWORD
 # Optional: PORT (default 8799), STACK_API_URL (default hosted Stack).
+# Optional second same-team account to prove the device-owner guard
+# (a co-member's heartbeat for someone else's device is rejected):
+#   STACK_EMAIL_2, STACK_PASSWORD_2
+# Optional explicit team to scope every request to (X-Cmux-Team-Id); both
+# accounts must be members:
+#   PROOF_TEAM_ID
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -65,6 +71,9 @@ cat "$WORK/unauth.json"; echo " (status $CODE)"
 
 DEVICE_ID=$(uuidgen | tr 'A-Z' 'a-z')
 AUTH=(-H "authorization: Bearer $ACCESS_TOKEN")
+if [ -n "${PROOF_TEAM_ID:-}" ]; then
+  AUTH+=(-H "x-cmux-team-id: $PROOF_TEAM_ID")
+fi
 beat() { # beat <tag> [extra-json-fields]
   curl -fsS -X POST "$BASE/v1/presence/heartbeat" "${AUTH[@]}" \
     -H "content-type: application/json" \
@@ -75,10 +84,10 @@ beat() { # beat <tag> [extra-json-fields]
 step "subscribe via SSE (background curl) and WebSocket (bun probe)"
 curl -Ns "$BASE/v1/presence/subscribe" "${AUTH[@]}" >"$SSE_LOG" &
 PIDS+=($!)
-PRESENCE_TOKEN="$ACCESS_TOKEN" bun -e '
-  const ws = new WebSocket("ws://127.0.0.1:'"$PORT"'/v1/presence/subscribe", {
-    headers: { authorization: `Bearer ${process.env.PRESENCE_TOKEN}` },
-  });
+PRESENCE_TOKEN="$ACCESS_TOKEN" PRESENCE_TEAM_ID="${PROOF_TEAM_ID:-}" bun -e '
+  const headers = { authorization: `Bearer ${process.env.PRESENCE_TOKEN}` };
+  if (process.env.PRESENCE_TEAM_ID) headers["x-cmux-team-id"] = process.env.PRESENCE_TEAM_ID;
+  const ws = new WebSocket("ws://127.0.0.1:'"$PORT"'/v1/presence/subscribe", { headers });
   ws.onmessage = (e) => console.log(String(e.data));
   ws.onerror = (e) => console.error("ws error", e?.message ?? e);
 ' >"$WS_LOG" 2>&1 &
@@ -86,9 +95,34 @@ PIDS+=($!)
 sleep 2
 
 step "heartbeat -> online"
-beat default
+FIRST_BEAT=$(curl -fsS -X POST "$BASE/v1/presence/heartbeat" "${AUTH[@]}" \
+  -H "content-type: application/json" \
+  -d "{\"deviceId\":\"$DEVICE_ID\",\"platform\":\"mac\",\"tag\":\"default\",\"displayName\":\"proof-mac\"}")
+echo "$FIRST_BEAT"
+TEAM_ID=$(printf '%s' "$FIRST_BEAT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["teamId"])')
 step "heartbeat again -> seen"
 beat default
+
+if [ -n "${STACK_EMAIL_2:-}" ] && [ -n "${STACK_PASSWORD_2:-}" ]; then
+  step "device-owner guard: a second team member cannot spoof this device"
+  SIGNIN2=$(curl -fsS -X POST "$STACK_API_URL/api/v1/auth/password/sign-in" \
+    -H "x-stack-access-type: client" \
+    -H "x-stack-project-id: $STACK_PROJECT_ID" \
+    -H "x-stack-publishable-client-key: $STACK_PUBLISHABLE_CLIENT_KEY" \
+    -H "content-type: application/json" \
+    -d "{\"email\":\"$STACK_EMAIL_2\",\"password\":\"$STACK_PASSWORD_2\"}")
+  ACCESS_TOKEN_2=$(printf '%s' "$SIGNIN2" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+  CODE=$(curl -s -o "$WORK/owner.json" -w '%{http_code}' -X POST "$BASE/v1/presence/heartbeat" \
+    -H "authorization: Bearer $ACCESS_TOKEN_2" \
+    -H "x-cmux-team-id: $TEAM_ID" \
+    -H "content-type: application/json" \
+    -d "{\"deviceId\":\"$DEVICE_ID\",\"platform\":\"mac\",\"tag\":\"default\",\"stopping\":true}")
+  cat "$WORK/owner.json"; echo " (status $CODE)"
+  [ "$CODE" = "403" ] || { echo "FAIL: expected 403 owner mismatch" >&2; exit 1; }
+  grep -q device_owner_mismatch "$WORK/owner.json" || { echo "FAIL: expected device_owner_mismatch" >&2; exit 1; }
+else
+  echo "(skipping device-owner guard step: STACK_EMAIL_2/STACK_PASSWORD_2 not set)"
+fi
 
 step "goodbye (stopping: true) -> immediate offline(goodbye)"
 beat default ',"stopping":true'

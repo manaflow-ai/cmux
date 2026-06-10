@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   applyHeartbeat,
   buildSnapshot,
+  checkDeviceOwner,
   expireInstances,
   HEARTBEAT_INTERVAL_MS,
   nextAlarmTime,
@@ -205,5 +206,22 @@ describe("buildSnapshot", () => {
     expect(first!.instances.map((i) => i.tag)).toEqual(["dev", "default"]);
     expect(second!.deviceId).toBe(deviceB);
     expect(second!.online).toBe(false);
+  });
+});
+
+describe("checkDeviceOwner", () => {
+  it("pins the first authenticated user as the device owner", () => {
+    expect(checkDeviceOwner(undefined, "user-1")).toEqual({ ok: true, pin: true });
+  });
+
+  it("accepts further heartbeats from the pinned owner without re-pinning", () => {
+    expect(checkDeviceOwner("user-1", "user-1")).toEqual({ ok: true, pin: false });
+  });
+
+  it("rejects a different team member announcing the same device", () => {
+    expect(checkDeviceOwner("user-1", "user-2")).toEqual({
+      ok: false,
+      error: "device_owner_mismatch",
+    });
   });
 });
