@@ -295,8 +295,22 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             cancelConnectTimeout()
             state = .ready
             resumeConnectContinuations()
-        case .waiting:
-            break
+        case let .waiting(errorDescription, kind):
+            // Network.framework parks a dial it intends to retry in `.waiting`
+            // instead of `.failed` — including connection-refused and
+            // host-unreachable, which for our single-address connect are
+            // definitive answers, not transient congestion. Left alone, a
+            // dead first route (stale Tailscale IP, a code pointing at a
+            // machine with no listener) sits in `.waiting` until the connect
+            // timeout and adds the whole timeout to scan→pair latency before
+            // the caller's next route is tried. Fail the *initial* connect
+            // fast on those definitive kinds; once `ready`, waiting events
+            // are transient network churn and stay ignored (the RPC layer's
+            // liveness watchdog owns mid-stream recovery).
+            guard case .connecting = state, Self.waitingKindFailsConnect(kind) else {
+                break
+            }
+            failTransport(.connectionFailed(errorDescription, kind))
         case let .failed(errorDescription, kind):
             failTransport(.connectionFailed(errorDescription, kind))
         case .cancelled:
@@ -587,6 +601,22 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             return
         }
         failTransport(.connectionTimedOut)
+    }
+
+    /// Whether a `.waiting` reason is definitive enough to fail the initial
+    /// connect immediately. Refused/unreachable/DNS/permission answers will
+    /// not improve within our connect window, and callers race multiple
+    /// routes, so surfacing them now lets the next route start immediately.
+    /// `timedOut`/`generic` waits stay parked: they can genuinely recover
+    /// (e.g. a tailnet link finishing its handshake), and the connect timeout
+    /// still bounds them.
+    private static func waitingKindFailsConnect(_ kind: CmxConnectFailureKind) -> Bool {
+        switch kind {
+        case .connectionRefused, .hostUnreachable, .dnsFailed, .permissionDenied, .secureChannelFailed:
+            return true
+        case .timedOut, .generic:
+            return false
+        }
     }
 
     private var isTerminal: Bool {
