@@ -83,12 +83,17 @@ public final class AuthCoordinator {
     /// failure must not wipe a newer session). Same pattern as
     /// `HostBrowserSignInFlow.signOutGeneration`.
     @ObservationIgnored private var sessionGeneration: UInt64 = 0
-    /// Monotonic sign-in attempt count: the newest attempt owns the token
-    /// store. A stale attempt's rollback (clearing the tokens its resuming
-    /// exchange re-stored after a sign-out) may only run while it is still
-    /// the newest attempt; a newer in-flight attempt's freshly stored tokens
-    /// must survive even before that attempt publishes.
+    /// Monotonic sign-in attempt count, allocating each flow's attempt id.
     @ObservationIgnored private var signInAttemptCounter: UInt64 = 0
+    /// The highest attempt id whose credential exchange has written the token
+    /// store (recorded when the flow reaches its completion step, immediately
+    /// after the exchange's write). The last writer owns the store: a stale
+    /// attempt's rollback (clearing the tokens its resuming exchange
+    /// re-stored after a sign-out) may only run while no NEWER attempt has
+    /// written, so a newer in-flight attempt's tokens survive even before it
+    /// publishes, while a newer attempt that failed before writing does not
+    /// block the cleanup.
+    @ObservationIgnored private var tokenStoreWriteHighWater: UInt64 = 0
 
     /// The staleness context a sign-in flow captures before its first await:
     /// the session generation (does a later sign-out invalidate this flow?)
@@ -496,18 +501,22 @@ public final class AuthCoordinator {
     ///   sign-out landing anywhere in the flow wins (not only during the
     ///   final user fetch).
     private func completeSignIn(flow: SignInFlowContext) async throws {
+        // This flow's credential exchange (or external seeding) just wrote
+        // the token store; record it as the store's latest known writer.
+        tokenStoreWriteHighWater = max(tokenStoreWriteHighWater, flow.attempt)
         // A sign-out landed during the credential exchange that ran before
         // this completion. The resuming exchange re-stored fresh tokens that
         // the sign-out's clear never saw, so drop those too: otherwise the
         // next launch restore resurrects the session the user just signed out
-        // of. The rollback only runs while this flow is still the NEWEST
-        // sign-in attempt and nothing newer has published: a newer attempt
-        // owns the token store from the moment its exchange writes (even
-        // before it publishes), and clearing here would wipe its tokens.
+        // of. The rollback only runs while no NEWER attempt has written the
+        // token store and nothing newer has published: a newer attempt owns
+        // the store from the moment its exchange writes (even before it
+        // publishes), and clearing here would wipe its tokens; a newer
+        // attempt that failed before writing does not block the cleanup.
         // The race surfaces as a cancellation (the sign-in UI treats
         // `.cancelled` as a deliberate back-out, not a failure).
         guard flow.generation == sessionGeneration else {
-            if !isAuthenticated && flow.attempt == signInAttemptCounter {
+            if !isAuthenticated && tokenStoreWriteHighWater == flow.attempt {
                 await client.clearLocalSession()
             }
             throw CancellationError()
