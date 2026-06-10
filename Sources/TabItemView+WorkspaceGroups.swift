@@ -91,7 +91,9 @@ extension TabItemView {
 
     func promptNewWorkspaceGroup(workspaceIds: [UUID]) {
         guard !workspaceIds.isEmpty else { return }
-        tabManager.createWorkspaceGroup(name: "", childWorkspaceIds: workspaceIds)
+        // selectAnchor: false keeps focus on the workspace the user was already
+        // in instead of jumping to the new empty group-pivot anchor.
+        tabManager.createWorkspaceGroup(name: "", childWorkspaceIds: workspaceIds, selectAnchor: false)
     }
 
     func promptWorkspaceGroupFromWorkspace(workspaceId: UUID) {

@@ -20,14 +20,15 @@ extension VerticalTabsSidebar {
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
-        let anchorUnreadCount: Int = {
-            if group.isCollapsed {
-                return memberWorkspaceIds.reduce(0) { partial, workspaceId in
-                    partial + notificationStore.unreadCount(forTabId: workspaceId)
-                }
-            }
-            return notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
-        }()
+        // The group header badge is always a rollup of every member's unread
+        // (anchor included — `memberWorkspaceIds` contains the anchor), whether
+        // the group is collapsed or expanded. Expanded members still show their
+        // own per-row badges; the header total tells you the group has unread
+        // activity without expanding it. (Members hidden under a collapsed
+        // group have no row of their own, so the rollup is the only signal.)
+        let groupUnreadCount: Int = memberWorkspaceIds.reduce(0) { partial, workspaceId in
+            partial + notificationStore.unreadCount(forTabId: workspaceId)
+        }
         let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
         let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
             at: anchorIndex,
@@ -84,7 +85,7 @@ extension VerticalTabsSidebar {
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
             memberCount: memberWorkspaceIds.count,
-            anchorUnreadCount: anchorUnreadCount,
+            groupUnreadCount: groupUnreadCount,
             shortcutDigit: shortcutDigit,
             shortcutModifierSymbol: modifierSymbol,
             showsShortcutHint: showsHintForAnchor,
@@ -154,7 +155,9 @@ extension VerticalTabsSidebar {
             }
         )
         .equatable()
-        .id(group.anchorWorkspaceId)
+        // No `.id(group.anchorWorkspaceId)` here: identity comes from the
+        // ForEach (`id: \.scrollAnchorWorkspaceId`, which equals the anchor id),
+        // so promote/ungroup keeps the same slot and the morph transition runs.
         .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
         .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))
 

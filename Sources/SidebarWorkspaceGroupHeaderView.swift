@@ -16,7 +16,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isPinned == rhs.isPinned &&
             lhs.isAnchorActive == rhs.isAnchorActive &&
             lhs.memberCount == rhs.memberCount &&
-            lhs.anchorUnreadCount == rhs.anchorUnreadCount &&
+            lhs.groupUnreadCount == rhs.groupUnreadCount &&
             lhs.shortcutDigit == rhs.shortcutDigit &&
             lhs.shortcutModifierSymbol == rhs.shortcutModifierSymbol &&
             lhs.showsShortcutHint == rhs.showsShortcutHint &&
@@ -40,7 +40,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isPinned: Bool
     let isAnchorActive: Bool
     let memberCount: Int
-    let anchorUnreadCount: Int
+    let groupUnreadCount: Int
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
@@ -105,9 +105,16 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+            // One chevron rotated rather than two swapped glyphs, so the
+            // disclosure twist animates. Rotation is keyed locally to
+            // `isCollapsed` so it spins even on entrypoints that don't wrap the
+            // toggle in `withAnimation` (e.g. socket/CLI); `chevron.right` at
+            // 0° points right (collapsed) and at 90° points down (expanded).
+            Image(systemName: "chevron.right")
                 .font(.system(size: metrics.chevronFontSize, weight: .semibold))
                 .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                .animation(SidebarGroupAnimation.collapse, value: isCollapsed)
                 .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                 .contentShape(Rectangle())
                 .onTapGesture { onToggleCollapsed() }
@@ -131,16 +138,18 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if anchorUnreadCount > 0 {
-                    Text("\(anchorUnreadCount)")
+                if groupUnreadCount > 0 {
+                    Text("\(groupUnreadCount)")
                         .font(.system(size: metrics.unreadFontSize, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, metrics.unreadHorizontalPadding)
                         .padding(.vertical, metrics.unreadVerticalPadding)
                         .background(Capsule().fill(Color.accentColor))
+                        .contentTransition(.numericText(value: Double(groupUnreadCount)))
+                        .animation(SidebarGroupAnimation.collapse, value: groupUnreadCount)
                         .accessibilityLabel(Text(String.localizedStringWithFormat(
                             String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
-                            anchorUnreadCount
+                            groupUnreadCount
                         )))
                 }
             }

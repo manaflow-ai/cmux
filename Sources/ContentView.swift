@@ -9617,7 +9617,9 @@ struct ContentView: View {
               let currentIndex = selectedWorkspaceIndex() else { return }
         let targetIndex = currentIndex + delta
         guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
-        _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: targetIndex)
+        withAnimation(SidebarGroupAnimation.structure) {
+            _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: targetIndex)
+        }
         tabManager.selectWorkspace(workspace)
     }
 
@@ -10531,14 +10533,12 @@ struct SidebarWorkspaceTopDropIndicator: View {
     let isFirstRow: Bool
     let rowSpacing: CGFloat
 
+    // Intentionally renders nothing. The blue insertion line was removed per
+    // dogfood feedback; sidebar reorder feedback is the dragged row dimming
+    // plus the animated drop-settle. The inputs are kept so call sites and the
+    // drag drop-target plumbing stay unchanged.
     var body: some View {
-        if isVisible {
-            Rectangle()
-                .fill(cmuxAccentColor())
-                .frame(height: 2)
-                .padding(.horizontal, 8)
-                .offset(y: isFirstRow ? 0 : -(rowSpacing / 2))
-        }
+        EmptyView()
     }
 }
 
@@ -12377,20 +12377,28 @@ struct VerticalTabsSidebar: View {
         // drag mutations at 60fps invalidate only the rows/overlays that
         // read them, never this sidebar body. See SidebarDragState and
         // https://github.com/manaflow-ai/cmux/issues/2586.
-        // Force a clean row rebuild whenever the SET of group anchors changes
-        // (a workspace becoming, or ceasing to be, a group header). A sidebar
-        // row that switches in place between a `.workspace` row and a
-        // `.groupHeader` is mis-diffed by LazyVStack: turning the focused
-        // workspace into a single-member group left the header invisible, and
-        // ungrouping left a stale header. Keying on the anchor SET (sorted, so
-        // it ignores reorders) flips identity on group create/ungroup/anchor
-        // changes only, so neither drag-reorder nor rename triggers a rebuild.
-        let groupAnchorSignature = renderContext.workspaceGroups
-            .map { $0.anchorWorkspaceId.uuidString }
-            .sorted()
-            .joined(separator: ",")
+        //
+        // No `.id(groupAnchorSignature)` rebuild hack here: a group header now
+        // shares ForEach identity with its anchor workspace's row (see
+        // `SidebarWorkspaceRenderItem.id`), so promoting a workspace in place
+        // or ungrouping keeps the same slot identity and only swaps that row's
+        // `_ConditionalContent` branch between a `.workspace` row and a
+        // `.groupHeader`. SwiftUI keeps the materialized row instead of
+        // dropping it, so the header renders correctly without a whole-list
+        // rebuild, sidebar scroll is preserved, and the structural change can
+        // animate. The matching `.transition(.sidebarGroupRow)` on each branch
+        // crossfades the morph; the `withAnimation` transaction wrapped around
+        // the `TabManager` group mutations animates the list reflow.
+        // Identify rows by the anchor/workspace UUID rather than the render-item
+        // string id. The UUID is stable across promote/ungroup (a header keeps
+        // its anchor's id), so the slot survives the morph, AND it doubles as
+        // the `ScrollViewReader.scrollTo(selectedWorkspaceId)` target — which is
+        // why the inner `.id(...)` on each branch can be dropped. Without those
+        // inner ids pinning identity, the `_ConditionalContent` swap between a
+        // workspace row and a group header runs its `.transition`, so the
+        // promote/ungroup morph crossfades instead of replacing instantly.
         let rows = LazyVStack(spacing: tabRowSpacing) {
-            ForEach(renderItems, id: \.id) { item in
+            ForEach(renderItems, id: \.scrollAnchorWorkspaceId) { item in
                 switch item {
                 case .groupHeader(let group, let memberWorkspaceIds):
                     sidebarWorkspaceGroupHeader(
@@ -12399,18 +12407,19 @@ struct VerticalTabsSidebar: View {
                         renderContext: renderContext,
                         shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
                     )
+                    .transition(.sidebarGroupRow)
                 case .workspace(let tab):
                     workspaceRow(
                         tab,
                         renderContext: renderContext,
                         shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
                     )
+                    .transition(.sidebarGroupRow)
                 }
             }
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .id(groupAnchorSignature)
 
         // Gate ONLY the per-row frame-anchor *reader* (the virtualization-defeating
         // work) behind the drag-active check, and keep the Bonsplit drop-capture
@@ -12643,7 +12652,10 @@ struct VerticalTabsSidebar: View {
             onContextMenuDisappear: onContextMenuDisappear
         )
         .equatable()
-        .id(tab.id)
+        // No `.id(tab.id)` here: the row identity is set by the ForEach
+        // (`id: \.scrollAnchorWorkspaceId`), which also serves scroll-to. An
+        // inner `.id` would re-pin identity and suppress the workspace↔header
+        // morph transition.
         .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
         .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
 
@@ -16291,7 +16303,10 @@ struct TabItemView: View, Equatable {
     private func moveBy(_ delta: Int) {
         let targetIndex = index + delta
         guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
-        guard tabManager.reorderWorkspace(tabId: tab.id, toIndex: targetIndex) else { return }
+        let didReorder = withAnimation(SidebarGroupAnimation.structure) {
+            tabManager.reorderWorkspace(tabId: tab.id, toIndex: targetIndex)
+        }
+        guard didReorder else { return }
         selectedTabIds = [tab.id]
         lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == tab.id }
         tabManager.selectTab(tab)
@@ -17977,12 +17992,18 @@ struct SidebarTabDropDelegate: DropDelegate {
             existingAnchorIndex: lastSidebarSelectionIndex,
             liveWorkspaceIds: tabManager.tabs.map(\.id)
         )
-        let didReorder = tabManager.reorderSidebarWorkspace(
-            tabId: draggedTabId,
-            toIndex: targetIndex,
-            isDragOperation: true,
-            usesTopLevelRows: usesTopLevelRows
-        )
+        // Animate the drop settle: rows glide to their new positions instead of
+        // snapping. The array mutates once here (the live drag only moves a
+        // visual indicator, not the model), so this is post-drag and safe under
+        // the LazyVStack — it does not touch the 60fps drag hot path.
+        let didReorder = withAnimation(SidebarGroupAnimation.structure) {
+            tabManager.reorderSidebarWorkspace(
+                tabId: draggedTabId,
+                toIndex: targetIndex,
+                isDragOperation: true,
+                usesTopLevelRows: usesTopLevelRows
+            )
+        }
         syncSidebarSelection(
             preserving: selectionBeforeReorder,
             preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder

@@ -197,6 +197,49 @@ struct WorkspaceGroupTests {
         #expect(!visibleWorkspaceIds.contains(originalIds[2]))
     }
 
+    /// Promote-in-place must keep the anchor's sidebar slot identity: the group
+    /// header's render-item `id` has to equal the render-item `id` the same
+    /// workspace's row had before it became a group. That stable identity is
+    /// what lets SwiftUI animate the morph and stops the LazyVStack from
+    /// dropping the row (the bug that previously needed a whole-list
+    /// `.id(groupAnchorSignature)` rebuild). Round-trips back to the workspace
+    /// id after ungroup.
+    @Test func promoteInPlaceKeepsAnchorRenderIdentity() throws {
+        let manager = makeTabManager()
+        let anchorId = try #require(manager.tabs.first?.id)
+
+        func renderItemId(forWorkspace workspaceId: UUID) -> String? {
+            let items = SidebarWorkspaceRenderItem.renderItems(
+                tabs: manager.tabs,
+                groupsById: Dictionary(
+                    uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) }
+                )
+            )
+            for item in items {
+                switch item {
+                case .groupHeader(let group, _) where group.anchorWorkspaceId == workspaceId:
+                    return item.id
+                case .workspace(let workspace) where workspace.id == workspaceId:
+                    return item.id
+                default:
+                    continue
+                }
+            }
+            return nil
+        }
+
+        let workspaceRowId = try #require(renderItemId(forWorkspace: anchorId))
+
+        let groupId = try #require(manager.makeWorkspaceGroupFromWorkspace(anchorWorkspaceId: anchorId))
+        let headerRowId = try #require(renderItemId(forWorkspace: anchorId))
+        // Same sidebar slot identity before and after promotion.
+        #expect(headerRowId == workspaceRowId)
+
+        manager.ungroupWorkspaceGroup(groupId: groupId)
+        let restoredRowId = try #require(renderItemId(forWorkspace: anchorId))
+        #expect(restoredRowId == workspaceRowId)
+    }
+
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
@@ -704,6 +747,54 @@ struct WorkspaceGroupTests {
         #expect(closed == groupSize - 1)
         #expect(manager.workspaceGroups.first(where: { $0.id == groupId }) == nil)
         #expect(manager.tabs.allSatisfy { $0.groupId == nil })
+    }
+
+    /// Deleting a group must remove the header row *and* every member row from
+    /// the sidebar render items, not just the model arrays. The stable-identity
+    /// refactor keys the header on its anchor workspace's id, so this guards
+    /// that the header doesn't linger as a phantom row after its anchor (and
+    /// members) are closed.
+    @Test func deleteRemovesGroupHeaderAndMemberRowsFromRenderItems() throws {
+        let manager = makeTabManager()
+        // Outsider so closeWorkspace's `tabs.count <= 1` guard never fires and
+        // the whole group is genuinely closed.
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let outsiderId = try #require(manager.tabs.last?.id)
+        let groupChildren = Array(manager.tabs.prefix(2)).map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Doomed", childWorkspaceIds: groupChildren))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let anchorId = group.anchorWorkspaceId
+        let memberIds = Set(manager.tabs.filter { $0.groupId == groupId }.map(\.id))
+
+        func renderItems() -> [SidebarWorkspaceRenderItem] {
+            SidebarWorkspaceRenderItem.renderItems(
+                tabs: manager.tabs,
+                groupsById: Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
+            )
+        }
+
+        // Sanity: before delete the header renders.
+        #expect(renderItems().contains { item in
+            if case .groupHeader(let g, _) = item, g.id == groupId { return true }
+            return false
+        })
+
+        manager.deleteWorkspaceGroup(groupId: groupId)
+
+        let items = renderItems()
+        // No header for the deleted group.
+        #expect(!items.contains { item in
+            if case .groupHeader = item { return true }
+            return false
+        })
+        // No row carries the deleted group's identity (header or member).
+        let deletedRowIds = memberIds.union([anchorId]).map { "workspace.\($0.uuidString)" }
+        #expect(items.allSatisfy { !deletedRowIds.contains($0.id) })
+        // The unrelated outsider survives as a plain workspace row.
+        #expect(items.contains { item in
+            if case .workspace(let ws) = item, ws.id == outsiderId { return true }
+            return false
+        })
     }
 
     @Test func pinnedWorkspaceCannotJoinGroupViaCreate() {
