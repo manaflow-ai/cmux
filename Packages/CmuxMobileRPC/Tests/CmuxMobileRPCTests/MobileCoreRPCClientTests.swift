@@ -136,6 +136,7 @@ import Testing
     @Test func hungStackTokenFetchIsBoundedByRequestTimeout() async throws {
         let transport = QueuedCancellationProbeTransport()
         let gate = UncancellableGate()
+        let clock = ManualTestClock()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59124)
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
@@ -158,12 +159,20 @@ import Testing
             runtime: runtime,
             route: route,
             ticket: ticket,
-            allowsStackAuthFallback: true
+            allowsStackAuthFallback: true,
+            clock: clock
         )
         let request = try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:])
 
+        let sendTask = Task {
+            try await client.sendRequest(request)
+        }
+        // Advance virtual time only once the deadline is actually parked, then
+        // cross the 50ms request budget while the token fetch stays hung.
+        await clock.waitUntilSleepers(count: 1)
+        clock.advance(by: .milliseconds(50))
         do {
-            _ = try await client.sendRequest(request)
+            _ = try await sendTask.value
             Issue.record("Expected the hung token fetch to time out")
         } catch MobileShellConnectionError.requestTimedOut {
         } catch {
@@ -221,13 +230,21 @@ import Testing
     // abandoning it rather than joining it.
     @Test func requestDeadlineFiresEvenWhenOperationIgnoresCancellation() async throws {
         let gate = UncancellableGate()
-        do {
-            _ = try await MobileCoreRPCClient.debugWithRequestTimeout(
-                timeoutNanoseconds: 50_000_000
+        let clock = ManualTestClock()
+        let timeoutTask = Task {
+            try await MobileCoreRPCClient.debugWithRequestTimeout(
+                timeoutNanoseconds: 50_000_000,
+                clock: clock
             ) { () -> String in
                 await gate.wait()
                 return "late"
             }
+        }
+        // Advance virtual time only once the deadline is actually parked.
+        await clock.waitUntilSleepers(count: 1)
+        clock.advance(by: .milliseconds(50))
+        do {
+            _ = try await timeoutTask.value
             Issue.record("Expected the deadline to fire")
         } catch MobileShellConnectionError.requestTimedOut {
         } catch {

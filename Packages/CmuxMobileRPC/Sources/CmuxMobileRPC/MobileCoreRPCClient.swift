@@ -13,6 +13,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let ticket: CmxAttachTicket
     private let allowsStackAuthFallback: Bool
     private let session: MobileCoreRPCSession
+    /// The clock the per-request deadline sleeps on (virtual in tests).
+    private let clock: any Clock<Duration>
 
     /// Create a client bound to one route + attach ticket.
     /// - Parameters:
@@ -21,16 +23,19 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - ticket: The attach ticket authorizing requests.
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
+    ///   - clock: The clock the per-request deadline sleeps on (virtual in tests).
     public init(
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
-        allowsStackAuthFallback: Bool = false
+        allowsStackAuthFallback: Bool = false,
+        clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
         self.allowsStackAuthFallback = allowsStackAuthFallback
+        self.clock = clock
         self.session = MobileCoreRPCSession(
             makeTransport: { [route, runtime] in
                 try runtime.transportFactory.makeTransport(for: route)
@@ -112,7 +117,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private func forceRefreshStackTokenForRetry(timeoutNanoseconds: UInt64?) async throws {
         do {
             _ = try await Self.withRequestTimeout(
-                timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
+                timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds,
+                clock: clock
             ) {
                 try await self.runtime.stackAccessTokenForceRefresher()
             }
@@ -149,7 +155,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             forceID: !allowAuthRetry
         )
         return try await Self.withRequestTimeout(
-            timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
+            timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds,
+            clock: clock
         ) {
             // The Stack token fetch inside `requestDataWithAuth` can itself hit
             // the network (the SDK refreshes a stale access token), so it must
@@ -369,6 +376,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// `AuthCoordinator.currentUserBoundedByRestoreDeadline`.
     private static func withRequestTimeout<T: Sendable>(
         timeoutNanoseconds: UInt64,
+        clock: any Clock<Duration>,
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         try Task.checkCancellation()
@@ -382,10 +390,14 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             }
             continuation.yield(.finished(result))
         }
-        // justification: bounded, cancellable deadline; this IS the per-request
-        // timeout, cancelled the instant the operation resolves first.
+        // justification: bounded, cancellable deadline on the injected clock
+        // (virtual in tests); this IS the per-request timeout, cancelled the
+        // instant the operation resolves first.
         let deadline = Task {
-            try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+            try? await clock.sleep(
+                for: .nanoseconds(Int64(clamping: timeoutNanoseconds)),
+                tolerance: nil
+            )
             guard !Task.isCancelled else { return }
             continuation.yield(.deadlineExpired)
         }
@@ -412,10 +424,12 @@ extension MobileCoreRPCClient {
     /// Test-only hook exposing the private request-timeout race for unit tests.
     public static func debugWithRequestTimeout<T: Sendable>(
         timeoutNanoseconds: UInt64,
+        clock: any Clock<Duration> = ContinuousClock(),
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         try await withRequestTimeout(
             timeoutNanoseconds: timeoutNanoseconds,
+            clock: clock,
             operation: operation
         )
     }
