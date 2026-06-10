@@ -6551,6 +6551,12 @@ class TabManager: ObservableObject {
         if let targetPanelId, !notificationSurfaceIds.contains(targetPanelId) {
             notificationSurfaceIds.append(targetPanelId)
         }
+        // Feed-routed blocking decisions (PATH B) surface "Needs input" without a
+        // store notification, so the mark-read path below can never reach them.
+        // Acknowledge them on the same focus/interaction signal so clicking into
+        // the workspace clears the badge (#2576).
+        let didAcknowledgeBlockingDecisionAttention = FeedCoordinator.shared
+            .acknowledgeBlockingDecisionAttention(workspaceId: tabId, panelId: targetPanelId)
         let hasManualPanelUnread = targetPanelId.map { workspace?.manualUnreadPanelIds.contains($0) ?? false } ?? false
         let hasRestoredPanelUnread = targetPanelId.map { workspace?.hasRestoredUnreadIndicator(panelId: $0) ?? false } ?? false
         let hasManualWorkspaceUnread = notificationStore.hasManualUnread(forTabId: tabId)
@@ -6573,7 +6579,8 @@ class TabManager: ObservableObject {
                 notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: $0)
             }
         }
-        guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator else { return false }
+        guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator
+            || didAcknowledgeBlockingDecisionAttention else { return false }
         if hasUnreadNotification {
             if notificationSurfaceIds.isEmpty {
                 notificationStore.markRead(forTabId: tabId, surfaceId: nil)
