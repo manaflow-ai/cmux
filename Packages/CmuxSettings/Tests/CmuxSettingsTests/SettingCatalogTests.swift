@@ -13,11 +13,11 @@ struct SettingCatalogTests {
         // The catalog deliberately surfaces some UserDefaults storage keys
         // under two ids (the `automation.*` ↔ `integrations.*` reorg and the
         // `sidebar.*` ↔ `workspaceColors.*` pairs) so two settings UIs stay in
-        // sync on one stored value. That aliasing is intentional, so a global
-        // "every storage key is unique" assertion is wrong. The real hazard is
-        // two entries sharing a (key, suite) while disagreeing on Value type or
-        // default — that lets one surface clobber or mis-decode the other.
-        // Assert agreement on the value contract instead of uniqueness.
+        // sync on one stored value. `userDefaultsStorageKeysAreUnique` pins down
+        // *which* ids may alias a key; this test pins down the complementary
+        // property: aliased entries must agree on their value contract. Two
+        // entries sharing a (key, suite) while disagreeing on Value type or
+        // default lets one surface clobber or mis-decode the other.
         struct StorageLocation: Hashable {
             let suite: String?
             let key: String
@@ -96,6 +96,73 @@ struct SettingCatalogTests {
         #expect(dataDictA.userDefaultsValueContract != dataDictDifferent.userDefaultsValueContract)
     }
 
+    @Test func userDefaultsStorageKeysAreUnique() {
+        let expectedAliases: [String: Set<String>] = [
+            "ampHooksEnabled": [
+                "automation.ampIntegration",
+                "integrations.amp.hooksEnabled",
+            ],
+            "claudeCodeCustomClaudePath": [
+                "automation.claudeBinaryPath",
+                "integrations.claudeCode.customClaudePath",
+            ],
+            "claudeCodeHooksEnabled": [
+                "automation.claudeCodeIntegration",
+                "integrations.claudeCode.hooksEnabled",
+            ],
+            "cursorHooksEnabled": [
+                "automation.cursorIntegration",
+                "integrations.cursor.hooksEnabled",
+            ],
+            "geminiHooksEnabled": [
+                "automation.geminiIntegration",
+                "integrations.gemini.hooksEnabled",
+            ],
+            "kiroHooksEnabled": [
+                "automation.kiroIntegration",
+                "integrations.kiro.hooksEnabled",
+            ],
+            "kiroNotificationLevel": [
+                "automation.kiroNotificationLevel",
+                "integrations.kiro.notificationLevel",
+            ],
+            "ripgrepCustomBinaryPath": [
+                "automation.ripgrepBinaryPath",
+                "integrations.ripgrep.customBinaryPath",
+            ],
+            "suppressSubagentNotifications": [
+                "automation.suppressSubagentNotifications",
+                "integrations.suppressSubagentNotifications",
+            ],
+            "sidebarActiveTabIndicatorStyle": [
+                "sidebar.activeTabIndicatorStyle",
+                "workspaceColors.indicatorStyle",
+            ],
+            "sidebarNotificationBadgeColorHex": [
+                "sidebar.notificationBadgeColor",
+                "workspaceColors.notificationBadgeColor",
+            ],
+            "sidebarSelectionColorHex": [
+                "sidebar.selectionColor",
+                "workspaceColors.selectionColor",
+            ],
+        ]
+
+        var idsByStorageKey: [String: Set<String>] = [:]
+        for entry in SettingCatalog().all {
+            if case let .userDefaults(storageKey, _, _) = entry.kind {
+                idsByStorageKey[storageKey, default: []].insert(entry.id)
+            }
+        }
+
+        let aliases = idsByStorageKey.filter { $0.value.count > 1 }
+        #expect(aliases == expectedAliases)
+
+        for storageKey in expectedAliases.keys {
+            #expect(idsByStorageKey[storageKey] == expectedAliases[storageKey])
+        }
+    }
+
     @Test func jsonBackedKeysUseTheirIdAsPath() {
         for entry in SettingCatalog().all where entry.kind == .jsonConfig {
             #expect(!entry.id.isEmpty)
@@ -109,6 +176,7 @@ struct SettingCatalogTests {
         // `automation.socketPassword` must appear in `all`.
         let ids = Set(SettingCatalog().all.map(\.id))
         #expect(ids.contains("app.appearance"))
+        #expect(ids.contains("mobile.iOSPairingHost.enabled"))
         #expect(ids.contains("automation.socketControlMode"))
         #expect(ids.contains("automation.socketPassword"))
     }
@@ -118,6 +186,7 @@ struct SettingCatalogTests {
         // the convention that lets the JSON store use `id` as the JSON path.
         let catalog = SettingCatalog()
         for key in catalog.app.all { #expect(key.id.hasPrefix("app.")) }
+        for key in catalog.mobile.all { #expect(key.id.hasPrefix("mobile.")) }
         for key in catalog.automation.all { #expect(key.id.hasPrefix("automation.")) }
     }
 }

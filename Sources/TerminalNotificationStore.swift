@@ -46,6 +46,8 @@ enum NotificationSoundSettings {
         label: "com.cmuxterm.notification-sound-preparation",
         qos: .utility
     )
+    private static let systemSoundBaseName = "cmux-system-notification-sound"
+    private static let systemSoundDirectoryURL = URL(fileURLWithPath: "/System/Library/Sounds", isDirectory: true)
     private static let pendingCustomSoundPreparationLock = NSLock()
     private static var pendingCustomSoundPreparationPaths: Set<String> = []
     private static let activePlaybackSoundsLock = NSLock()
@@ -113,7 +115,10 @@ enum NotificationSoundSettings {
         ("None", "none"),
     ]
 
-    static func sound(defaults: UserDefaults = .standard) -> UNNotificationSound? {
+    static func sound(
+        defaults: UserDefaults = .standard,
+        systemSoundStagingDirectory: URL? = nil
+    ) -> UNNotificationSound? {
         let value = defaults.string(forKey: key) ?? defaultValue
         switch value {
         case "default":
@@ -126,7 +131,14 @@ enum NotificationSoundSettings {
             }
             return UNNotificationSound(named: UNNotificationSoundName(rawValue: customSoundName))
         default:
-            return UNNotificationSound(named: UNNotificationSoundName(rawValue: value))
+            guard let stagedSystemSoundName = stagedSystemSoundName(
+                for: value,
+                stagingDirectory: systemSoundStagingDirectory
+            ) else {
+                NSLog("Notification system sound unavailable, falling back to default: \(value)")
+                return .default
+            }
+            return UNNotificationSound(named: UNNotificationSoundName(rawValue: stagedSystemSoundName))
         }
     }
 
@@ -284,16 +296,70 @@ enum NotificationSoundSettings {
         playSound(value: value, defaults: defaults)
     }
 
-    private static func playSound(value: String, defaults: UserDefaults) {
+    static func previewSound(value: String, customFilePath: String, defaults: UserDefaults = .standard) {
+        playSound(value: value, defaults: defaults, customFilePath: customFilePath)
+    }
+
+    private static func playSound(value: String, defaults: UserDefaults, customFilePath: String? = nil) {
         switch value {
         case "default":
             NSSound.beep()
         case "none":
             break
         case customFileValue:
-            playCustomFileSound(defaults: defaults)
+            if let customFilePath,
+               normalizedCustomFilePath(customFilePath) != nil {
+                playCustomFileSound(path: customFilePath)
+            } else {
+                playCustomFileSound(defaults: defaults)
+            }
         default:
-            NSSound(named: NSSound.Name(value))?.play()
+            playSystemSound(named: value)
+        }
+    }
+
+    static func stagedSystemSoundFileName(for value: String) -> String {
+        "\(systemSoundBaseName)-\(value).aiff"
+    }
+
+    static func stagedSystemSoundName(
+        for value: String,
+        fileManager: FileManager = .default,
+        sourceDirectory: URL = systemSoundDirectoryURL,
+        stagingDirectory: URL? = nil
+    ) -> String? {
+        guard systemSounds.contains(where: { option in
+            option.value == value && value != defaultValue && value != customFileValue && value != "none"
+        }) else {
+            return nil
+        }
+
+        let sourceURL = sourceDirectory.appendingPathComponent("\(value).aiff", isDirectory: false)
+        guard fileManager.fileExists(atPath: sourceURL.path) else {
+            return nil
+        }
+
+        let destinationDirectory = stagedSoundDirectoryURL(stagingDirectory)
+        let destinationFileName = stagedSystemSoundFileName(for: value)
+        let destinationURL = destinationDirectory.appendingPathComponent(destinationFileName, isDirectory: false)
+        do {
+            try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+            try copyStagedSoundIfNeeded(from: sourceURL, to: destinationURL, fileManager: fileManager)
+            return destinationFileName
+        } catch {
+            NSLog("Failed to stage notification system sound \(value): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private static func playSystemSound(named value: String) {
+        guard let sound = NSSound(named: NSSound.Name(value)) else {
+            return
+        }
+        retainActivePlaybackSound(sound)
+        sound.delegate = activePlaybackSoundDelegate
+        if !sound.play() {
+            releaseActivePlaybackSound(sound)
         }
     }
 
@@ -323,8 +389,11 @@ enum NotificationSoundSettings {
         return trimmed
     }
 
-    private static func stagedSoundDirectoryURL() -> URL {
-        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+    private static func stagedSoundDirectoryURL(_ override: URL? = nil) -> URL {
+        if let override {
+            return override
+        }
+        return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Sounds", isDirectory: true)
     }
@@ -421,7 +490,17 @@ enum NotificationSoundSettings {
             try fileManager.removeItem(at: normalizedDestination)
         }
 
-        try fileManager.copyItem(at: normalizedSource, to: normalizedDestination)
+        do {
+            try fileManager.copyItem(at: normalizedSource, to: normalizedDestination)
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain,
+               nsError.code == NSFileWriteFileExistsError,
+               fileManager.fileExists(atPath: normalizedDestination.path) {
+                return
+            }
+            throw error
+        }
     }
 
     private static func transcodeStagedSoundIfNeeded(
@@ -1503,6 +1582,12 @@ final class TerminalNotificationStore: ObservableObject {
             suppressedNotificationFeedbackHandler(self, notification, effects)
         } else {
             notificationDeliveryHandler(self, notification, effects)
+            // Mirror to the user's iPhone (opt-in, off by default). Only on the
+            // desktop-delivery path so it matches what the Mac actually shows;
+            // suppressed/focused notifications are not forwarded.
+            if effects.desktop {
+                PhonePushClient.shared.forward(notification)
+            }
         }
     }
 

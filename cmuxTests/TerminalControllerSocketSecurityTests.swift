@@ -505,8 +505,32 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             XCTAssertEqual(result["pong"] as? Bool, true, file: file, line: line)
         case "system.capabilities":
             let methods = try XCTUnwrap(result["methods"] as? [String], method, file: file, line: line)
-            XCTAssertTrue(methods.contains("system.ping"), file: file, line: line)
-            XCTAssertTrue(methods.contains("system.capabilities"), file: file, line: line)
+            let advertisedMethods = Set(methods)
+            let expectedMethods: Set<String> = [
+                "system.ping",
+                "system.capabilities",
+                "mobile.host.status",
+                "mobile.attach_ticket.create",
+                "mobile.workspace.list",
+                "workspace.list",
+                "workspace.create",
+                "mobile.terminal.create",
+                "terminal.create",
+                "mobile.terminal.input",
+                "terminal.input",
+                "mobile.terminal.replay",
+                "terminal.replay",
+                "mobile.terminal.viewport",
+                "terminal.viewport",
+                "mobile.events.subscribe",
+                "mobile.events.unsubscribe",
+            ]
+            XCTAssertTrue(
+                expectedMethods.isSubset(of: advertisedMethods),
+                "Missing capabilities: \(expectedMethods.subtracting(advertisedMethods).sorted())",
+                file: file,
+                line: line
+            )
         default:
             XCTFail("Unexpected heartbeat method \(method)", file: file, line: line)
         }

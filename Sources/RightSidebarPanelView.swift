@@ -80,23 +80,22 @@ nonisolated enum RightSidebarDirectoryContext {
 
 extension RightSidebarMode {
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
+        modeShortcut(for: event, allowingAction: { _ in true })
+    }
+
+    static func modeShortcut(
+        for event: NSEvent,
+        allowingAction: (KeyboardShortcutSettings.Action) -> Bool
+    ) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFiles).matches(event: event) {
-            return .files
-        }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFind).matches(event: event) {
-            return .find
-        }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToSessions).matches(event: event) {
-            return .sessions
-        }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFeed).matches(event: event),
-           RightSidebarMode.feed.isAvailable() {
-            return .feed
-        }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToDock).matches(event: event),
-           RightSidebarMode.dock.isAvailable() {
-            return .dock
+        for mode in RightSidebarMode.allCases {
+            guard let action = mode.shortcutAction,
+                  allowingAction(action),
+                  mode.isAvailable(),
+                  KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
+                continue
+            }
+            return mode
         }
         return nil
     }
@@ -238,16 +237,26 @@ struct RightSidebarPanelView: View {
             focusShortcutHintMonitor.start()
             closeShortcutHintMonitor.start()
             fileExplorerState.refreshModeAvailability()
+            synchronizeDockLifecycle()
         }
         .onDisappear {
             modeShortcutHintMonitor.stop()
             focusShortcutHintMonitor.stop()
             closeShortcutHintMonitor.stop()
+            synchronizeDockLifecycle(isRightSidebarVisible: false)
         }
         .onChange(of: fileExplorerState.mode) { _, mode in
-            if mode != .dock { dockStore.deactivate() }
+            synchronizeDockLifecycle(mode: mode)
         }
-        .onChange(of: fileExplorerState.isVisible) { _, visible in if !visible { dockStore.deactivate() } }
+        .onChange(of: fileExplorerState.isVisible) { _, visible in
+            synchronizeDockLifecycle(isRightSidebarVisible: visible)
+        }
+        .onChange(of: dockRootDirectory) { _, newValue in
+            synchronizeDockLifecycle(rootDirectory: newValue, workspaceId: workspaceId)
+        }
+        .onChange(of: workspaceId) { _, newValue in
+            synchronizeDockLifecycle(rootDirectory: dockRootDirectory, workspaceId: newValue)
+        }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
@@ -447,6 +456,20 @@ struct RightSidebarPanelView: View {
         )
     }
 
+    private func synchronizeDockLifecycle(
+        isRightSidebarVisible: Bool? = nil,
+        mode: RightSidebarMode? = nil,
+        rootDirectory: String? = nil,
+        workspaceId: UUID? = nil
+    ) {
+        dockStore.synchronizeSidebarLifecycle(
+            isRightSidebarVisible: isRightSidebarVisible ?? fileExplorerState.isVisible,
+            mode: mode ?? fileExplorerState.mode,
+            rootDirectory: rootDirectory ?? dockRootDirectory,
+            workspaceId: workspaceId ?? self.workspaceId
+        )
+    }
+
     private func selectMode(_ mode: RightSidebarMode) {
         fileExplorerState.mode = mode
         if fileExplorerState.mode == .sessions {
@@ -460,7 +483,11 @@ struct RightSidebarPanelView: View {
     private func refreshModeAvailabilityAndFocusIfNeeded() {
         let previousMode = fileExplorerState.mode
         fileExplorerState.refreshModeAvailability()
-        guard previousMode != fileExplorerState.mode,
+        let mode = fileExplorerState.mode
+        if previousMode == mode {
+            synchronizeDockLifecycle(mode: mode)
+        }
+        guard previousMode != mode,
               fileExplorerState.isVisible,
               let window = NSApp.keyWindow ?? NSApp.mainWindow
         else { return }
@@ -510,7 +537,7 @@ final class RightSidebarKeyboardFocusView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if let mode = RightSidebarMode.modeShortcut(for: event) {
+        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                 mode: mode,
                 focusFirstItem: true,

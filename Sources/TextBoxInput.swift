@@ -1,5 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
+import CmuxSettingsUI
+import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 import os
@@ -3385,7 +3387,9 @@ struct TextBoxInputView: NSViewRepresentable {
                !textView.hasPendingAttachmentUploadPlaceholder() {
                 textView.invalidatePendingAttachmentUploads()
             }
-            textView.refreshMentionCompletions()
+            if !textView.isHandlingDidChangeText {
+                textView.refreshMentionCompletions()
+            }
             recalculateHeight(textView)
         }
 
@@ -3397,7 +3401,9 @@ struct TextBoxInputView: NSViewRepresentable {
                 textView.window?.firstResponder === textView ? 0.45 : 0.24
             ).cgColor
             textView.refreshInlineAttachmentFocus()
-            textView.refreshMentionCompletions()
+            if !textView.isHandlingDidChangeText {
+                textView.refreshMentionCompletions()
+            }
         }
 
         func noteMarkedTextStateChanged(_ hasMarkedText: Bool, from textView: TextBoxInputTextView? = nil) {
@@ -3498,6 +3504,8 @@ struct TextBoxInputView: NSViewRepresentable {
 }
 
 final class TextBoxInputTextView: NSTextView {
+    fileprivate private(set) var isHandlingDidChangeText = false
+
     var terminalTitle = ""
     var completionRootDirectory: String? {
         didSet {
@@ -3541,6 +3549,8 @@ final class TextBoxInputTextView: NSTextView {
     private var mentionCompletionWindowObserverTokens: [NSObjectProtocol] = []
     private weak var mentionCompletionObservedWindow: NSWindow?
     private var mentionCompletionRepositionIsScheduled = false
+    private var activeInsertTextDepth = 0
+    private var didChangeTextDuringActiveInsertText = false
     private var pendingUndoableAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var pendingAutomaticAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var suppressAutomaticAttachmentFileCleanup = false
@@ -3637,8 +3647,22 @@ final class TextBoxInputTextView: NSTextView {
 
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
         queueAutomaticAttachmentFileCleanup(in: replacementRange)
+        let isOuterInsertText = activeInsertTextDepth == 0
+        if isOuterInsertText {
+            didChangeTextDuringActiveInsertText = false
+        }
+        activeInsertTextDepth += 1
         super.insertText(insertString, replacementRange: replacementRange)
-        flushAutomaticAttachmentFileCleanup()
+        activeInsertTextDepth = max(0, activeInsertTextDepth - 1)
+        let didChangeTextWasHandled = didChangeTextDuringActiveInsertText
+        if isOuterInsertText {
+            didChangeTextDuringActiveInsertText = false
+        }
+        if didChangeTextWasHandled {
+            flushAutomaticAttachmentFileCleanup()
+        } else {
+            didChangeText()
+        }
         onMarkedTextStateChanged(hasMarkedText())
     }
 
@@ -3653,8 +3677,14 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     override func didChangeText() {
+        if activeInsertTextDepth > 0 {
+            didChangeTextDuringActiveInsertText = true
+        }
+        isHandlingDidChangeText = true
+        defer { isHandlingDidChangeText = false }
         super.didChangeText()
         flushAutomaticAttachmentFileCleanup()
+        refreshMentionCompletions()
     }
 
     override func copy(_ sender: Any?) {
@@ -4128,13 +4158,21 @@ final class TextBoxInputTextView: NSTextView {
 
     func debugInteractionState() -> [String: Any] {
         let selection = selectedRange()
+        let mentionQuery = mentionCompletionController.activeQuery
         return [
             "selected_location": selection.location,
             "selected_length": selection.length,
             "focused_attachment_index": focusedAttachmentCharacterIndex ?? -1,
             "preview_shown": isAttachmentPreviewShown,
             "attachment_count": inlineAttachments().count,
-            "plain_text": plainText()
+            "plain_text": plainText(),
+            "mention_active": mentionCompletionController.isActive,
+            "mention_query": mentionQuery?.query ?? "",
+            "mention_trigger": mentionQuery.map { String($0.trigger) } ?? "",
+            "mention_loading": mentionCompletionController.isLoadingSuggestions,
+            "mention_should_show": mentionCompletionController.debugShouldShowPopover,
+            "mention_current": mentionCompletionController.debugHasCurrentSuggestions,
+            "mention_titles": mentionCompletionController.debugSuggestionTitles
         ]
     }
 
@@ -4970,6 +5008,10 @@ final class TextBoxInputTextView: NSTextView {
         mentionCompletionController.debugSuggestionCount
     }
 
+    func debugMentionSuggestionTitles() -> [String] {
+        mentionCompletionController.debugSuggestionTitles
+    }
+
     func debugMentionSuggestionsAreCurrent() -> Bool {
         mentionCompletionController.debugHasCurrentSuggestions
     }
@@ -5001,18 +5043,26 @@ final class TextBoxInputTextView: NSTextView {
 
     private func handleConfiguredTextBoxShortcut(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown,
-              !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
+              !KeyboardShortcutRecorderActivity.isAnyRecorderActive,
+              !RecorderHostButton.isActivelyRecording else {
             return false
         }
-        if KeyboardShortcutSettings.shortcut(for: .focusTextBoxInput).matches(event: event) {
+        if textBoxShortcut(event, matches: .focusTextBoxInput) {
             onToggleFocus()
             return true
         }
-        if KeyboardShortcutSettings.shortcut(for: .attachTextBoxFile).matches(event: event) {
+        if textBoxShortcut(event, matches: .attachTextBoxFile) {
             onChooseFiles()
             return true
         }
         return false
+    }
+
+    private func textBoxShortcut(_ event: NSEvent, matches action: KeyboardShortcutSettings.Action) -> Bool {
+        guard KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
+            return false
+        }
+        return AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
     }
 
     private func handleStandardEditShortcut(_ event: NSEvent) -> Bool {

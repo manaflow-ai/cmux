@@ -45,16 +45,20 @@ extension GitMetadataService {
     }
 
     /// Resolves a ref name to its value, checking the loose ref under the git
-    /// and common directories, then `packed-refs`.
+    /// and common directories, then `packed-refs`. A ref name is repo-controlled
+    /// input from `HEAD`; names whose standardized path escapes the directory
+    /// they are joined to (e.g. `../../outside`) are ignored rather than read.
     nonisolated static func gitRefValue(repository: ResolvedGitRepository, refName: String) -> String? {
-        let refURLs = [
-            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent(refName),
-            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent(refName),
+        let lookups = [
+            (base: repository.gitDirectory, refURL: URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent(refName)),
+            (base: repository.commonDirectory, refURL: URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent(refName)),
         ]
         var seenPaths: Set<String> = []
-        for refURL in refURLs {
+        for (base, refURL) in lookups {
+            let basePath = URL(fileURLWithPath: base).standardizedFileURL.path
             let path = refURL.standardizedFileURL.path
-            guard seenPaths.insert(path).inserted,
+            guard path.hasPrefix(basePath + "/"),
+                  seenPaths.insert(path).inserted,
                   let contents = try? String(contentsOf: refURL, encoding: .utf8) else {
                 continue
             }

@@ -183,9 +183,28 @@ extension TerminalController {
 
     func v2PanelType(_ params: [String: Any], _ key: String) -> PanelType? {
         guard let s = v2String(params, key) else { return nil }
-        let normalized = s.replacingOccurrences(of: "-", with: "")
+        switch v2NormalizedToken(s) {
+        case "terminal":
+            return .terminal
+        case "browser":
+            return .browser
+        case "markdown":
+            return .markdown
+        case "filepreview":
+            return .filePreview
+        case "rightsidebartool":
+            return .rightSidebarTool
+        case "agentsession":
+            return .agentSession
+        default:
+            return nil
+        }
+    }
+
+    func v2NormalizedToken(_ raw: String) -> String {
+        raw.replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "")
             .lowercased()
-        return PanelType(rawValue: normalized)
     }
 }

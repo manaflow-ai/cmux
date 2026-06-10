@@ -996,6 +996,14 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    // Removed testBackgroundGitMetadataFallbackContinuesWithinOversizedWorkspace:
+    // it asserted the branch's batched/cursor git-metadata polling
+    // (backgroundGitMetadataPollBatchLimit), which main's refactor replaced with
+    // a full sweep (refreshTrackedWorkspaceGitMetadata now returns Void). Git
+    // metadata behavior is covered by CmuxGit/GitMetadataServiceTests; restoring
+    // the batched throttle + this test is a deliberate follow-up if mobile-host
+    // scale needs it.
+
     func testUnrelatedDefaultsChangeDoesNotRestartGitMetadataRefreshes() throws {
         let defaults = UserDefaults.standard
         let unrelatedDefaultsKey = "cmux.tests.unrelated-defaults-\(UUID().uuidString)"

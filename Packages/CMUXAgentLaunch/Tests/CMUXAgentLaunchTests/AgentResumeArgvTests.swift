@@ -7,6 +7,7 @@ struct AgentResumeArgvTests {
         ("claude", "claude", ["claude", "--resume", "SID"]),
         ("grok", "grok", ["grok", "-r", "SID"]),
         ("pi", "pi", ["pi", "--session", "SID"]),
+        ("omp", "omp", ["omp", "--session", "SID"]),
         ("cursor", "cursor-agent", ["cursor-agent", "--resume", "SID"]),
         ("gemini", "gemini", ["gemini", "--resume", "SID"]),
         ("antigravity", "agy", ["agy", "--conversation", "SID"]),
@@ -56,13 +57,14 @@ struct AgentResumeArgvTests {
 
     @Test("Captured executable path overrides the fallback executable")
     func executablePathOverridesFallback() {
+        // Non-claude kinds replay the captured executable path verbatim.
         #expect(
             AgentResumeArgv().builtInKind(
-                kind: "claude",
+                kind: "codex",
                 sessionId: "SID",
-                executablePath: "/opt/bin/claude",
-                arguments: ["/opt/bin/claude"]
-            ) == ["/opt/bin/claude", "--resume", "SID"]
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex"]
+            ) == ["/opt/bin/codex", "resume", "SID"]
         )
     }
 
@@ -104,6 +106,42 @@ struct AgentResumeArgvTests {
             AgentResumeArgv().launcherResolution(
                 launcher: nil, sessionId: "SID", executablePath: nil, arguments: []
             ) == .passthrough
+        )
+    }
+
+    @Test("Portable claude resume command wraps the POSIX rendering for any login shell")
+    func portableClaudeResumeShellCommand() {
+        #expect(
+            AgentResumeArgv.portableClaudeResumeShellCommand(posixCommand: "claude --resume SID")
+                == "/bin/sh -c 'claude --resume SID'"
+        )
+        // Embedded single quotes survive via the POSIX '\'' escape, so quoted env
+        // prefixes and argv words round-trip through the nested sh layer.
+        #expect(
+            AgentResumeArgv.portableClaudeResumeShellCommand(
+                posixCommand: "'env' 'A=b c' claude '--resume' 'SID'"
+            ) == "/bin/sh -c ''\\''env'\\'' '\\''A=b c'\\'' claude '\\''--resume'\\'' '\\''SID'\\'''"
+        )
+    }
+
+    @Test("Rendered portable command wraps only when the wrapper token was substituted")
+    func renderedPortableClaudeResumeShellCommand() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        // Bare `claude` executable: token substituted, command wrapped for non-POSIX shells.
+        let substituted = "'env' 'A=b' \(AgentResumeArgv.claudeWrapperShellExecutableToken) '--resume' 'SID'"
+        #expect(
+            AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
+                parts: ["env", "A=b", "claude", "--resume", "SID"],
+                quote: quote
+            ) == "/bin/sh -c '" + substituted.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        )
+        // Launcher resumes that resolve to cmux's own CLI emit no bare `claude`:
+        // already-portable quoted words stay unwrapped.
+        #expect(
+            AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
+                parts: ["/Applications/cmux.app/Contents/Resources/bin/cmux", "claude-teams", "--resume", "SID"],
+                quote: quote
+            ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'SID'"
         )
     }
 }

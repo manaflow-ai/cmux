@@ -369,7 +369,19 @@ enum AgentResumeCommandBuilder {
                 workingDirectory: cwd
             )
             : commandParts
-        let shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
+        // Render the claude executable as the wrapper shim token so the executed
+        // command routes through cmux's `claude` wrapper (re-injecting the hook
+        // --settings) even inside the `$SHELL -lic` restore launcher, where the
+        // shell integration's PATH shim / `claude()` function are not active and an
+        // `env`-prefixed invocation would otherwise hit the user's real binary.
+        // The token is POSIX-only, and the launcher dispatches through the user's
+        // shell (fish/csh/tcsh included), so token-bearing commands are wrapped in
+        // `/bin/sh -c '…'` to parse everywhere; the cwd guard stays outside so
+        // cd-prefix rewriting keeps composing.
+        // https://github.com/manaflow-ai/cmux/issues/5639
+        let shellCommand = kind == .claude
+            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: sanitizedCommandParts, quote: shellSingleQuoted)
+            : sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }
 
@@ -511,7 +523,10 @@ enum AgentResumeCommandBuilder {
         case .claude:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "claude")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: original.tail) else { return nil }
-            return [original.executable, "--resume", sessionId, "--fork-session"] + preserved
+            // Mirror the resume path: route through the `claude` wrapper (not the
+            // captured real binary) so cmux hooks fire on the forked session.
+            // See https://github.com/manaflow-ai/cmux/issues/5427.
+            return ["claude", "--resume", sessionId, "--fork-session"] + preserved
         case .codex:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
             guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
@@ -920,6 +935,13 @@ struct RestorableAgentSessionIndex: Sendable {
         !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
     }
 
+    // WARNING: Expensive. This reads every agent kind's hook-store file from disk,
+    // resolves transcripts, and runs sysctl(KERN_PROCARGS2) per recorded session for
+    // live-PID filtering (measured 350ms-1.8s on machines with large agent history).
+    // NEVER call it synchronously on the main actor or in interactive paths (workspace/
+    // panel/window close, SwiftUI body, didSet, menu evaluation, socket handlers). Read
+    // the off-main, cached `SharedLiveAgentIndex.shared` instead. The only sanctioned
+    // synchronous callers are cold-cache fallbacks guarded by a nil cache check.
     static func load(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
@@ -1536,10 +1558,36 @@ struct RestorableAgentSessionIndex: Sendable {
               let liveExecutable = process.arguments.first.map(executableBasename) else {
             return pid
         }
-        guard liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame else {
+        guard liveProcessExecutableMatchesRecordedAgent(
+            kind: kind,
+            liveExecutable: liveExecutable,
+            recordedExecutable: recordedExecutable,
+            arguments: process.arguments
+        ) else {
             return nil
         }
         return pid
+    }
+
+    private static func liveProcessExecutableMatchesRecordedAgent(
+        kind: RestorableAgentKind,
+        liveExecutable: String,
+        recordedExecutable: String,
+        arguments: [String]
+    ) -> Bool {
+        if liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame {
+            return true
+        }
+
+        guard kind == .claude else { return false }
+        let liveBase = liveExecutable.lowercased()
+        guard liveBase == "node" || liveBase == "bun" else { return false }
+        return arguments.dropFirst().contains { argument in
+            let lowered = argument.lowercased()
+            return executableBasename(argument).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame
+                || lowered.contains("/.claude/")
+                || lowered.contains("/claude/versions/")
+        }
     }
 
     private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {
