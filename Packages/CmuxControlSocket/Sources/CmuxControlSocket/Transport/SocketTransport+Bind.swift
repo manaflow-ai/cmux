@@ -2,7 +2,8 @@ internal import Foundation
 internal import Darwin
 
 extension SocketTransport {
-    /// Creates the listener socket (`AF_UNIX`/`SOCK_STREAM`).
+    /// Creates the listener socket (`AF_UNIX`/`SOCK_STREAM`) with `FD_CLOEXEC`
+    /// set so it is not inherited by PTY-child forks.
     ///
     /// - Returns: The descriptor and a nil errno on success, or `-1` and the
     ///   failing `errno`.
@@ -10,6 +11,10 @@ extension SocketTransport {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             return (-1, errno)
+        }
+        if let errnoCode = configureCloseOnExec(fd) {
+            close(fd)
+            return (-1, errnoCode)
         }
         return (fd, nil)
     }

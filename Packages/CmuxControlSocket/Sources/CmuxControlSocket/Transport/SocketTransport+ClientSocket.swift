@@ -17,6 +17,30 @@ extension SocketTransport {
         return nil
     }
 
+    /// Sets `FD_CLOEXEC` on `fd` so it is not inherited across `fork`/`exec`.
+    ///
+    /// Read-modify-write via `F_GETFD` to preserve any existing descriptor
+    /// flags; a no-op when the flag is already set. macOS has no `accept4`/
+    /// `SOCK_CLOEXEC`, so control-socket descriptors must be marked explicitly
+    /// to keep them out of PTY-child forks (see the path-lock fd, which uses
+    /// the same pattern).
+    ///
+    /// - Parameter fd: The descriptor to mark close-on-exec.
+    /// - Returns: Nil on success, the failing `errno` otherwise.
+    public func configureCloseOnExec(_ fd: Int32) -> Int32? {
+        let flags = fcntl(fd, F_GETFD, 0)
+        guard flags >= 0 else {
+            return errno
+        }
+        if flags & FD_CLOEXEC != 0 {
+            return nil
+        }
+        guard fcntl(fd, F_SETFD, flags | FD_CLOEXEC) >= 0 else {
+            return errno
+        }
+        return nil
+    }
+
     /// Clears `O_NONBLOCK` on `fd`; returns the failing `errno` otherwise.
     func configureBlocking(_ fd: Int32) -> Int32? {
         let flags = fcntl(fd, F_GETFL, 0)
@@ -109,6 +133,12 @@ extension SocketTransport {
     /// - Parameter fd: The freshly accepted client socket descriptor.
     /// - Returns: Nil on success, or the failing ``SocketStageFailure``.
     public func configureAcceptedClientSocket(_ fd: Int32) -> SocketStageFailure? {
+        // Set close-on-exec first, before any later configuration step can
+        // fail and before a concurrent PTY fork can inherit the descriptor
+        // (macOS has no `accept4`/`SOCK_CLOEXEC`).
+        if let errnoCode = configureCloseOnExec(fd) {
+            return SocketStageFailure(stage: "accept_client_configure_cloexec", errnoCode: errnoCode)
+        }
         if let errnoCode = configureBlocking(fd) {
             return SocketStageFailure(stage: "accept_client_configure_blocking", errnoCode: errnoCode)
         }
