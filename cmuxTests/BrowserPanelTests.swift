@@ -2987,6 +2987,54 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    // Regression guard for https://github.com/manaflow-ai/cmux/issues/5733.
+    // The per-keystroke find-overlay lookup (`searchOverlayPanelId`) must not
+    // enumerate/copy `Entry` values out of the portal's dictionary. Each Entry
+    // copy performs 3 `objc_copyWeak` ops under the global Obj-C weak-table lock,
+    // so the old `for entry in entriesByWebViewId.values` scan did O(panes)
+    // weak-table churn on every keystroke — the stack-exhaustion fault site in
+    // #5733 and a typing-latency contributor (#4405). The lookup must drive off
+    // the live slot view hierarchy instead, materializing zero Entry copies.
+    func testSearchOverlayLookupDoesNotMaterializeEntryCopies() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        // Register several hosted browser panes, mirroring a multi-pane window.
+        let paneCount = 8
+        var webViews: [CmuxWebView] = []
+        for index in 0..<paneCount {
+            let anchor = NSView(frame: NSRect(x: 0, y: CGFloat(index) * 20, width: 120, height: 18))
+            contentView.addSubview(anchor)
+            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+            portal.bind(webView: webView, to: anchor, visibleInUI: true)
+            portal.synchronizeWebViewForAnchor(anchor)
+            webViews.append(webView)
+        }
+
+        WindowBrowserPortal.searchOverlayScanEntryMaterializations = 0
+        // `window` is a responder that no slot's search overlay owns, forcing the
+        // lookup to consider every registered pane.
+        let panelId = portal.searchOverlayPanelId(for: window)
+        XCTAssertNil(panelId, "No search overlay is open, so the lookup should not match")
+        XCTAssertEqual(
+            WindowBrowserPortal.searchOverlayScanEntryMaterializations,
+            0,
+            "Find-overlay lookup must not copy Entry values per keystroke (issue #5733); "
+                + "it should scan the live slot view hierarchy instead"
+        )
+    }
+
     func testBrowserPortalHostStaysAboveTerminalPortalHostDuringPortalChurn() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),

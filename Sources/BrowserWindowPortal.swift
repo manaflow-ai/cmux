@@ -2068,6 +2068,19 @@ final class WindowBrowserPortal: NSObject {
     private var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
     private var webViewByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
 
+#if DEBUG
+    // Regression tripwire for https://github.com/manaflow-ai/cmux/issues/5733.
+    // The per-keystroke find-overlay lookup must drive off the live slot view
+    // hierarchy and must NOT enumerate/copy `Entry` values: each Entry copy
+    // performs 3 `objc_copyWeak` ops (weak webView/containerView/anchorView)
+    // under the global Obj-C weak-table lock, i.e. O(panes) weak-table churn per
+    // keystroke (498 ops at 166 panes). That scan was the stack-exhaustion fault
+    // site in #5733 and a typing-latency contributor (#4405). This counter is
+    // incremented for every `Entry` materialized while scanning for a search
+    // overlay; tests assert it stays 0.
+    static var searchOverlayScanEntryMaterializations = 0
+#endif
+
     init(window: NSWindow) {
         self.window = window
         super.init()
@@ -3030,6 +3043,9 @@ final class WindowBrowserPortal: NSObject {
 
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
         for entry in entriesByWebViewId.values {
+#if DEBUG
+            Self.searchOverlayScanEntryMaterializations += 1
+#endif
             if let panelId = entry.containerView?.searchOverlayPanelId(for: responder) {
                 return panelId
             }
@@ -3041,6 +3057,9 @@ final class WindowBrowserPortal: NSObject {
     func yieldSearchOverlayFocusIfOwned(by panelId: UUID) -> Bool {
         guard let window else { return false }
         for entry in entriesByWebViewId.values {
+#if DEBUG
+            Self.searchOverlayScanEntryMaterializations += 1
+#endif
             if entry.containerView?.yieldSearchOverlayFocusIfOwned(by: panelId, in: window) == true {
                 return true
             }
