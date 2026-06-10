@@ -506,7 +506,11 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testHiddenMountedWorkspaceDoesNotAutoRestoreSurfaceHibernatedPanel() throws {
+    func testReconcileRestoresRenderedSurfaceHibernatedPanelEvenWhenInputInactive() throws {
+        // Surface hibernation has no placeholder UI, so a rendered panel must
+        // restore even when the workspace is visible but not input-active
+        // (e.g. in a non-key window) — unlike agent resume, which stays gated
+        // on the presentation flag.
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
@@ -520,9 +524,6 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
 
         workspace.setAgentHibernationAutoResumePresentationVisible(false)
         _ = workspace.debugReconcileTerminalPortalVisibilityForTesting()
-        XCTAssertTrue(panel.isSurfaceHibernated)
-
-        workspace.setAgentHibernationAutoResumePresentationVisible(true)
 
         XCTAssertFalse(panel.isSurfaceHibernated)
     }

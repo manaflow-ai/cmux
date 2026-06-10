@@ -17735,9 +17735,11 @@ final class Workspace: Identifiable, ObservableObject {
         var didChange = agentHibernationAutoResumePresentationVisible
             ? resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
             : false
-        if agentHibernationAutoResumePresentationVisible {
-            didChange = restoreVisibleSurfaceHibernatedPanels(panelIds: visiblePanelIds) || didChange
-        }
+        // Surface restore is silent (no resume command to approve), and a
+        // hibernated panel has no placeholder UI, so any rendered panel must
+        // restore even when the workspace is visible but not input-active —
+        // otherwise it would sit blank in a non-key window.
+        didChange = restoreVisibleSurfaceHibernatedPanels(panelIds: visiblePanelIds) || didChange
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }

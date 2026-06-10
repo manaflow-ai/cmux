@@ -5295,20 +5295,20 @@ enum TerminalSurfaceFocusPlacement: Equatable {
     case rightSidebarDock
 }
 
-// Note: deliberately not throttled. The unconfirmed-input safety check
-// compares the latest input timestamp against the latest agent lifecycle
-// change, so suppressing a "repeat" keystroke could hide input typed right
-// after an idle lifecycle report and let hibernation kill an active agent.
+// Runs on the typing hot path. Every caller is already on the main actor
+// (TerminalSurface methods and AppKit event handlers), so record directly —
+// two dictionary writes — instead of spawning a per-keystroke Task. Not
+// throttled: the unconfirmed-input safety check compares the latest input
+// timestamp against the latest agent lifecycle change, so suppressing a
+// "repeat" keystroke could hide input typed right after an idle lifecycle
+// report and let hibernation kill an active agent.
+@MainActor
 private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
-    let recordedAt = Date()
-    Task { @MainActor in
-        AgentHibernationController.shared.recordTerminalInput(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            recordedAt: recordedAt
-        )
-    }
+    AgentHibernationController.shared.recordTerminalInput(
+        workspaceId: workspaceId,
+        panelId: panelId
+    )
 }
 
 final class TerminalSurface: Identifiable, ObservableObject {
