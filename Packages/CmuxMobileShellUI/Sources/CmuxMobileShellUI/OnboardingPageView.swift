@@ -1,9 +1,9 @@
 #if os(iOS)
 import SwiftUI
 
-/// Renders a single ``OnboardingPage``: a centered SF Symbol, a title, a body,
-/// and an optional inline link (used by the Tailscale page to point at the
-/// install page).
+/// Renders a single ``OnboardingPage``: a centered SF Symbol, a title, a body, an
+/// optional left-aligned checklist (used by the Tailscale set-up page), and any
+/// inline links (e.g. the Tailscale App Store and Mac download links).
 struct OnboardingPageView: View {
     let page: OnboardingPage
 
@@ -32,12 +32,20 @@ struct OnboardingPageView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                if let link = page.link {
-                    Link(destination: link.url) {
-                        Label(link.title, systemImage: "arrow.up.right.square")
-                            .font(.callout.weight(.medium))
+                if !page.checklist.isEmpty {
+                    checklist
+                }
+
+                if !page.links.isEmpty {
+                    VStack(spacing: 10) {
+                        ForEach(Array(page.links.enumerated()), id: \.offset) { index, link in
+                            Link(destination: link.url) {
+                                Label(link.title, systemImage: "arrow.up.right.square")
+                                    .font(.callout.weight(.medium))
+                            }
+                            .accessibilityIdentifier(index == 0 ? "MobileOnboardingLink" : "MobileOnboardingLink\(index)")
+                        }
                     }
-                    .accessibilityIdentifier("MobileOnboardingLink")
                 }
 
                 Spacer(minLength: 24)
@@ -47,6 +55,25 @@ struct OnboardingPageView: View {
             .frame(maxWidth: .infinity)
         }
         .accessibilityElement(children: .contain)
+    }
+
+    private var checklist: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(page.checklist.enumerated()), id: \.offset) { _, item in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundStyle(.tint)
+                        .accessibilityHidden(true)
+                    Text(item)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileOnboardingChecklist")
     }
 }
 #endif

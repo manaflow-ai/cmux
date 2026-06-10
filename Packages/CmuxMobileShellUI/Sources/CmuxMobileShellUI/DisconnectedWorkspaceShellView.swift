@@ -1,5 +1,6 @@
 import CmuxMobileShell
 import CmuxMobileSupport
+import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
 @preconcurrency import UIKit
@@ -15,6 +16,11 @@ struct DisconnectedWorkspaceShellView: View {
     let hasKnownPairedMac: Bool
     let showAddDevice: () -> Void
     let signOut: () -> Void
+    /// The setup gate to highlight in the "Trouble connecting?" help (iOS only).
+    /// The root passes `.macUnreachable` for a returning device whose stored Mac
+    /// just failed to reconnect, and `.signedInNeverPaired` for a device that has
+    /// never paired, so the help marks the user's real recovery step.
+    var setupHelpHighlight: MobileSetupGuidanceState = .signedInNeverPaired
     /// The shell store, forwarded to the reused Settings sheet so the user can
     /// still switch to another paired Mac from the no-devices/offline state
     /// (this screen is the terminal not-connected state, reached after a stored
@@ -24,6 +30,10 @@ struct DisconnectedWorkspaceShellView: View {
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
     @State private var showingSettings = false
+
+    #if os(iOS)
+    @State private var isShowingSetupHelp = false
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -51,6 +61,15 @@ struct DisconnectedWorkspaceShellView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.blue)
                 .accessibilityIdentifier("MobileShowAddDeviceButton")
+                #if os(iOS)
+                Button {
+                    isShowingSetupHelp = true
+                } label: {
+                    Text(L10n.string("mobile.devices.setupHelp", defaultValue: "Trouble connecting?"))
+                }
+                .font(.callout)
+                .accessibilityIdentifier("MobileDisconnectedSetupHelpButton")
+                #endif
             }
             .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
             .mobileInlineNavigationTitle()
@@ -74,6 +93,13 @@ struct DisconnectedWorkspaceShellView: View {
             .accessibilityIdentifier("MobileDisconnectedWorkspaceShell")
         }
         #if os(iOS)
+        .sheet(isPresented: $isShowingSetupHelp) {
+            // A user on the never-paired/offline screen can reach the same
+            // explicit setup-gate guidance shown in onboarding and Settings, so
+            // the dead end is never silent. The highlighted gate reflects whether
+            // this device has paired a Mac before (offline recovery) or not.
+            SetupHelpView(highlight: setupHelpHighlight) { isShowingSetupHelp = false }
+        }
         .sheet(isPresented: $showingSettings) {
             // Reuse the same Settings sheet the workspace list opens from its
             // 3-dots menu so the no-devices screen's chrome matches. There is no
