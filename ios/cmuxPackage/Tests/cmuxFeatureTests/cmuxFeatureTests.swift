@@ -1225,6 +1225,80 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func minimalPairingCodeConnectsAndAdoptsHostReportedIdentity() async throws {
+    // The minimal v2 pairing code carries only Tailscale routes: no device
+    // id, no display name. Both must be adopted post-handshake from
+    // `mobile.host.status` so the connection becomes a persisted, named,
+    // reconnectable paired Mac.
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let pairedMacStore = try MobilePairedMacStore(databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"))
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
+        try rpcHostStatusFrame(
+            renderGrid: true,
+            macDeviceID: "status-reported-mac",
+            macDisplayName: "Status Mac"
+        ),
+        try rpcResultFrame(result: ["stream_id": "events"]),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        pairedMacStore: pairedMacStore
+    )
+
+    store.signIn()
+    await store.connectPairingURL("cmux-ios://attach?v=2&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)")
+
+    #expect(store.connectionState == .connected)
+    // Until the status reply lands, the dialed Tailscale host stands in for
+    // the name (the v2 ticket has neither name nor device id); the status
+    // read runs on the event-listener task, so poll briefly for the adopted
+    // identity instead of racing it.
+    for _ in 0..<400 {
+        if store.connectedHostName == "Status Mac" { break }
+        try await Task.sleep(nanoseconds: 5_000_000)
+    }
+    #expect(store.connectedHostName == "Status Mac")
+    #expect(store.activeTicket?.macDeviceID == "status-reported-mac")
+    let savedMac = try #require(try await pairedMacStore.activeMac())
+    #expect(savedMac.macDeviceID == "status-reported-mac")
+    #expect(savedMac.displayName == "Status Mac")
+    #expect(savedMac.routes.contains { route in
+        if case let .hostPort(host, _) = route.endpoint {
+            return host == "100.71.210.41"
+        }
+        return false
+    })
+    #expect(store.hasKnownPairedMac)
+}
+
+@MainActor
+@Test func scannedLoopbackPairingCodeIsRejectedWithGuidance() async throws {
+    // "QR shouldn't work for localhost": a scanned/pasted v2 code whose
+    // routes point at the phone itself fails closed with copy that names the
+    // actual fix (Tailscale), instead of dialing 127.0.0.1 and burning the
+    // whole request timeout before a generic connect error.
+    let store = CMUXMobileShellStore.preview()
+
+    store.signIn()
+    let result = await store.connectPairingURLResult("cmux-ios://attach?v=2&r=127.0.0.1:\(CmxMobileDefaults.defaultHostPort)")
+
+    #expect(result == .failed)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.activeTicket == nil)
+    #expect(store.connectionError?.contains("Tailscale") == true)
+    #expect(store.connectionError != "Invalid pairing code.")
+}
+
+@MainActor
 @Test func pairLinkWithoutAttachTokenRejectsArbitraryHostBeforeSendingAuth() async throws {
     let route = try hostPortRoute(kind: .tailscale, host: "attacker.example", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(
@@ -2081,16 +2155,25 @@ private func terminalRenderGridStyledFrame(seq: UInt64, text: String) throws -> 
     )
 }
 
-private func rpcHostStatusFrame(renderGrid: Bool) throws -> Data {
+private func rpcHostStatusFrame(
+    renderGrid: Bool,
+    macDeviceID: String? = nil,
+    macDisplayName: String? = nil
+) throws -> Data {
     let capabilities = renderGrid
         ? ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
         : ["events.v1", "terminal.bytes.v1", "terminal.replay.v1"]
-    return try rpcResultFrame(
-        result: [
-            "terminal_fidelity": renderGrid ? "render_grid" : "ghostty_bytes",
-            "capabilities": capabilities,
-        ]
-    )
+    var result: [String: Any] = [
+        "terminal_fidelity": renderGrid ? "render_grid" : "ghostty_bytes",
+        "capabilities": capabilities,
+    ]
+    if let macDeviceID {
+        result["mac_device_id"] = macDeviceID
+    }
+    if let macDisplayName {
+        result["mac_display_name"] = macDisplayName
+    }
+    return try rpcResultFrame(result: result)
 }
 
 private func terminalRenderGridEventFrame(seq: UInt64, text: String, styled: Bool = false) throws -> Data {

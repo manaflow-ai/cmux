@@ -317,17 +317,21 @@ final class MobileHostService {
     /// The single shape every public `mobile.host.status` reply uses (the
     /// public-status cache, the live `publicHostStatusResult`, and
     /// `TerminalController`'s no-private-metadata branch), so the fields
-    /// cannot drift. Includes the Mac's display name: the compact pairing QR
-    /// no longer carries it, so this status reply is where a freshly paired
-    /// phone learns what to call this Mac. The name (the user's pairing-name
-    /// override, or the System Settings computer name that Bonjour already
-    /// broadcasts on the local network) is the only identity field exposed on
-    /// this unauthenticated probe.
+    /// cannot drift. Includes the Mac's identity: the pairing QR no longer
+    /// carries the display name or the device id, so this status reply is
+    /// where a freshly paired phone learns what to call this Mac and which
+    /// paired-Mac record it belongs to. Both fields are deliberately cheap
+    /// and low-sensitivity on this unauthenticated probe: the name is the
+    /// user's pairing-name override or the System Settings computer name that
+    /// Bonjour already broadcasts on the local network, and the device id is
+    /// the random pairing UUID every legacy QR already displayed on screen —
+    /// reachable only over the user's own tailnet (or loopback in DEBUG).
     nonisolated static func publicStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
         var payload: [String: Any] = [
             "routes": routesPayload,
             "terminal_fidelity": "render_grid",
             "capabilities": mobileHostCapabilities,
+            "mac_device_id": MobileHostIdentity.deviceID(),
         ]
         if let displayName = MobileHostIdentity.displayName() {
             payload["mac_display_name"] = displayName
