@@ -866,6 +866,56 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertEqual(searchController.searchRequests.last?.contentRevision, store.contentRevision)
     }
 
+    func testRedundantVisibilityAndPresentationPassesDoNotInvalidateLayout() {
+        // Regression for #4931: redundant updateNSView passes must not invalidate layout,
+        // or the unconditional KVO/isHidden writes re-enter the SwiftUI graph and hang.
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let searchController = SpyFileSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setRootPath("/tmp/cmux-find-idempotent-layout-test")
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        // updateVisibility runs on every store/content update and is unguarded; a second
+        // identical pass must not invalidate layout.
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        container.needsLayout = false
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        XCTAssertFalse(
+            container.needsLayout,
+            "A redundant updateVisibility pass must not invalidate layout; otherwise updateNSView re-enters the SwiftUI graph and loops (#4931)."
+        )
+
+        // The guard-else in updatePresentation(.find) re-runs updateSearchLayout on every
+        // redundant pass (the Cmd+Shift+F re-entry path); it must be a no-op too.
+        container.needsLayout = false
+        container.updatePresentation(.find)
+        XCTAssertFalse(
+            container.needsLayout,
+            "A redundant updatePresentation(.find) pass must not invalidate layout (#4931)."
+        )
+
+        // Positive control: a genuine visibility change must still invalidate layout, so
+        // the no-op assertions above are meaningful rather than vacuous.
+        container.needsLayout = false
+        container.updateVisibility(hasContent: false, isLoading: false, statusMessage: nil)
+        XCTAssertTrue(
+            container.needsLayout,
+            "A genuine visibility change must still invalidate layout."
+        )
+    }
+
     func testRipgrepResolverPrefersConfiguredBinaryPath() {
         let configuredPath = "/nix/store/custom-ripgrep/bin/rg"
         let fallbackPath = "/usr/local/bin/rg"
