@@ -265,6 +265,48 @@ import Testing
         #expect(await client.accessToken() == nil)
         #expect(await client.refreshToken() == nil)
     }
+
+    @Test func staleValidationFailureDoesNotClearAFreshSignIn() async throws {
+        // A revalidation of the OLD cached session parks in its fetch; the
+        // user completes a fresh sign-in meanwhile (no sign-out, so nothing
+        // bumped the clear count); then the old validation fails with a
+        // definitive rejection. That failure is about the old session: it
+        // must not clear the freshly published one. Publishing a session must
+        // advance the epoch just like clearing does.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(coordinator.isAuthenticated)
+
+        await client.armValidationGate()
+        let revalidation = Task { await coordinator.revalidateSession() }
+        await client.validationDidPark()
+
+        // A fresh sign-in completes while the old validation is in flight.
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(coordinator.isAuthenticated)
+
+        // The old validation resumes with a definitive rejection.
+        await client.setGatedValidationError(AuthError.unauthorized)
+        await client.releaseParkedValidation()
+        await revalidation.value
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(await client.accessToken() != nil)
+        #expect(await client.refreshToken() != nil)
+    }
 }
 
 /// Mutable connectivity flag for scripting `isOnline` mid-test.

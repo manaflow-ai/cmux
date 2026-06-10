@@ -60,6 +60,11 @@ actor GateableValidationAuthClient: AuthClient {
     func validationDidPark() async { await didPark(validationGate) }
     func releaseParkedValidation() { release(validationGate) }
 
+    /// Script the gated `currentUser` fetch to throw once released, like an
+    /// in-flight validation whose session was definitively rejected.
+    func setGatedValidationError(_ error: any Error) { gatedValidationError = error }
+    private var gatedValidationError: (any Error)?
+
     // MARK: - Teams gate (the publish path's team refresh)
 
     func armTeamsGate() { teamsGate.armed = true }
@@ -75,7 +80,12 @@ actor GateableValidationAuthClient: AuthClient {
     // MARK: - AuthClient
 
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
+        let wasGated = validationGate.armed
         await parkIfArmed(validationGate)
+        if wasGated, let error = gatedValidationError {
+            gatedValidationError = nil
+            throw error
+        }
         return user
     }
 
