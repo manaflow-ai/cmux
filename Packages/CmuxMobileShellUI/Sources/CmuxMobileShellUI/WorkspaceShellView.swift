@@ -64,6 +64,7 @@ struct WorkspaceShellView: View {
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
+                refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
                 store: store,
@@ -118,6 +119,7 @@ struct WorkspaceShellView: View {
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: store.createWorkspace,
+                refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
                 store: store,
@@ -161,6 +163,15 @@ struct WorkspaceShellView: View {
         guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
+    }
+
+    /// Pull-to-refresh closure for the workspace list. Awaits the store's real
+    /// `mobile.workspace.list` re-sync so the system refresh spinner reflects the
+    /// actual round-trip. Captures `store` as a local so the closure (not a store
+    /// reference) is what crosses into the `List`-hosting view.
+    private var refreshWorkspacesClosure: @Sendable () async -> Void {
+        let store = store
+        return { await store.refreshWorkspaces() }
     }
 
     private func createWorkspaceInCompactStack() {
