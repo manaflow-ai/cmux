@@ -840,22 +840,113 @@ final class TerminalNotificationStore: ObservableObject {
 
     /// Mobile-host event topic the Mac emits when one or more delivered
     /// notifications are dismissed/cleared on this Mac, so an attached phone can
-    /// clear the matching banners it is mirroring. Payload carries only the
-    /// stable notification ids (`["ids": [String]]`) — never any terminal
-    /// content — so dismiss-sync is safe even with phone-forward hideContent on.
+    /// clear the matching banners it is mirroring. Payload carries the stable
+    /// notification ids plus the authoritative unread count
+    /// (`["ids": [String], "unread_count": Int]`) — never any terminal content —
+    /// so dismiss-sync is safe even with phone-forward hideContent on.
     static let dismissedEventTopic = "notification.dismissed"
 
-    /// Forwards a dismiss/clear to any attached phone over the peer mobile-host
-    /// channel. Call only from the change-confirmed branch of a user-driven
-    /// read/clear/remove path, so the Mac→iOS→Mac echo can't loop. Session
-    /// restore / surface rebind paths must NOT call this: they reassign ids on
-    /// churn and would clear a phone banner that should persist.
+    /// Mobile-host event topic carrying the authoritative unread-notification
+    /// count (`["unread_count": Int]`) whenever it changes. The phone SETS its
+    /// app-icon badge to this absolute total (never local ±1 arithmetic), so any
+    /// drift self-heals on the next event. Emitted from the same chokepoint that
+    /// refreshes the Mac Dock badge, so every mutation lane is covered.
+    static let badgeEventTopic = "notification.badge"
+
+    /// The number of unread notification *entries* — the count the iOS app icon
+    /// badge mirrors. The phone's banners mirror notification entries, so its
+    /// badge counts exactly those. (The Mac Dock badge additionally counts
+    /// workspace-level manual unread indicators, which have no phone banner.)
+    var unreadNotificationCount: Int { indexes.unreadCount }
+
+    /// Recently dismissed/cleared notification ids, kept so the phone's
+    /// foreground reconcile sweep can classify a delivered banner as "handled
+    /// here" even after the entry left the store entirely (remove / clear-all
+    /// paths). Bounded ring: oldest evicted past ``dismissedTombstoneCapacity``.
+    /// Holds opaque UUIDs only, never content.
+    private var dismissedTombstoneIDs = Set<UUID>()
+    private var dismissedTombstoneOrder: [UUID] = []
+    private static let dismissedTombstoneCapacity = 512
+
+    private func recordDismissTombstones(ids: [UUID]) {
+        for id in ids where dismissedTombstoneIDs.insert(id).inserted {
+            dismissedTombstoneOrder.append(id)
+        }
+        let overflow = dismissedTombstoneOrder.count - Self.dismissedTombstoneCapacity
+        if overflow > 0 {
+            for stale in dismissedTombstoneOrder.prefix(overflow) {
+                dismissedTombstoneIDs.remove(stale)
+            }
+            dismissedTombstoneOrder.removeFirst(overflow)
+        }
+    }
+
+    /// Classify which of the phone's delivered banner ids have been handled on
+    /// this Mac: still in the store and read, or recently removed (tombstoned).
+    /// Ids this Mac has never seen are NOT reported handled — they may belong to
+    /// a different paired Mac — so the phone leaves those banners alone. An id
+    /// that is currently unread is never handled, even if an older tombstone
+    /// exists (markUnread after a dismiss resurrects it).
+    func reconcileHandledNotificationIDs(deliveredIDs: [UUID]) -> [String] {
+        guard !deliveredIDs.isEmpty else { return [] }
+        var readIDs = Set<UUID>()
+        var knownIDs = Set<UUID>()
+        for notification in notifications {
+            knownIDs.insert(notification.id)
+            if notification.isRead { readIDs.insert(notification.id) }
+        }
+        return deliveredIDs
+            .filter { id in
+                if knownIDs.contains(id) { return readIDs.contains(id) }
+                return dismissedTombstoneIDs.contains(id)
+            }
+            .map(\.uuidString)
+    }
+
+    /// Forwards a dismiss/clear to the user's phone. Call only from the
+    /// change-confirmed branch of a user-driven read/clear/remove path, so the
+    /// Mac→iOS→Mac echo can't loop. Session restore / surface rebind paths must
+    /// NOT call this: they reassign ids on churn and would clear a phone banner
+    /// that should persist.
+    ///
+    /// Two lanes share this chokepoint: the instant peer event for a
+    /// live-attached phone, and — only when no phone is live-subscribed — a
+    /// silent APNs badge push (the cold lane), so a pocketed phone still drops
+    /// the banner and badge. Both carry the authoritative unread count.
     private func emitNotificationsDismissed(ids: [String]) {
         guard !ids.isEmpty else { return }
-        // nonisolated static fan-out; short-circuits when no phone is subscribed.
+        recordDismissTombstones(ids: ids.compactMap { UUID(uuidString: $0) })
+        let unreadCount = indexes.unreadCount
+        // Live lane: nonisolated static fan-out; short-circuits when no phone is
+        // subscribed.
         MobileHostService.emitEvent(
             topic: Self.dismissedEventTopic,
-            payload: ["ids": ids]
+            payload: ["ids": ids, "unread_count": unreadCount]
+        )
+        // Cold lane: nobody is attached to receive the event, so mirror the
+        // dismiss through APNs instead (no-op unless phone forwarding is on).
+        if !MobileHostService.hasEventSubscribers(topic: Self.dismissedEventTopic) {
+            PhonePushClient.shared.forwardDismissed(ids: ids, badgeCount: unreadCount)
+        }
+    }
+
+    /// The last unread count pushed over ``badgeEventTopic``, so the chokepoint
+    /// only emits on real transitions.
+    private var lastEmittedPhoneBadgeCount: Int?
+
+    /// Pushes the authoritative unread count to an attached phone whenever it
+    /// changes. Runs from ``refreshUnreadPresentation()`` — the same chokepoint
+    /// that refreshes the Mac Dock badge — so every mutation lane (markRead,
+    /// markUnread, record, restore, clear) keeps the phone badge correct without
+    /// per-call-site emits. Cheap when nothing is attached (subscriber
+    /// short-circuit inside `emitEvent`).
+    private func emitUnreadBadgeEventIfChanged() {
+        let count = indexes.unreadCount
+        guard count != lastEmittedPhoneBadgeCount else { return }
+        lastEmittedPhoneBadgeCount = count
+        MobileHostService.emitEvent(
+            topic: Self.badgeEventTopic,
+            payload: ["unread_count": count]
         )
     }
 
@@ -1020,6 +1111,7 @@ final class TerminalNotificationStore: ObservableObject {
             manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
         )
         refreshDockBadge()
+        emitUnreadBadgeEventIfChanged()
     }
 
     /// Builds the per-workspace unread summaries the sidebar renders. Mirrors
@@ -1664,9 +1756,12 @@ final class TerminalNotificationStore: ObservableObject {
             notificationDeliveryHandler(self, notification, effects)
             // Mirror to the user's iPhone (opt-in, off by default). Only on the
             // desktop-delivery path so it matches what the Mac actually shows;
-            // suppressed/focused notifications are not forwarded.
+            // suppressed/focused notifications are not forwarded. The badge is
+            // the authoritative unread total at send time (the store was already
+            // mutated above, so it includes this notification); the server
+            // stamps it as `aps.badge` so the icon badge is SET, not incremented.
             if effects.desktop {
-                PhonePushClient.shared.forward(notification)
+                PhonePushClient.shared.forward(notification, badgeCount: indexes.unreadCount)
             }
         }
     }

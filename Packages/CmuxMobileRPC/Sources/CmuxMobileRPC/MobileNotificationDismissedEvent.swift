@@ -15,8 +15,15 @@ public struct MobileNotificationDismissedEvent: Decodable, Sendable {
     /// `removeDeliveredNotifications(withIdentifiers:)`.
     public let ids: [String]
 
+    /// The Mac's authoritative unread-notification count after the dismiss, when
+    /// the host sends it (newer Macs). The phone SETS its app-icon badge to this
+    /// absolute total — never local arithmetic — so drift self-heals. `nil` from
+    /// an older Mac leaves the badge untouched.
+    public let unreadCount: Int?
+
     private enum CodingKeys: String, CodingKey {
         case ids
+        case unreadCount = "unread_count"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -25,6 +32,7 @@ public struct MobileNotificationDismissedEvent: Decodable, Sendable {
         ids = rawIDs
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        unreadCount = try container.decodeIfPresent(Int.self, forKey: .unreadCount)
     }
 
     /// Decode a `notification.dismissed` event from a raw JSON payload.

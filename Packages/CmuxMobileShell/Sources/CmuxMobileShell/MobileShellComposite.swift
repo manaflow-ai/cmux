@@ -40,9 +40,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid", "notification.dismissed"]
+                return ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes", "notification.dismissed"]
+                return ["workspace.updated", "terminal.bytes", "notification.dismissed", "notification.badge"]
             }
         }
     }
@@ -891,6 +891,67 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             .filter { !$0.isEmpty }
         guard !trimmed.isEmpty else { return }
         deliveredNotificationClearer.removeDelivered(ids: trimmed)
+    }
+
+    /// SET the app-icon badge to the Mac's authoritative unread total. Always an
+    /// absolute write (never local +/-1 arithmetic) so any drift self-heals on
+    /// the next event, push, or reconcile sweep.
+    /// - Parameter count: The Mac's unread-notification count.
+    public func applyAuthoritativeUnreadBadge(_ count: Int) {
+        deliveredNotificationClearer.setBadgeCount(max(0, count))
+    }
+
+    /// Kick off one foreground/connect reconcile sweep (lane 3 of dismiss-sync)
+    /// against `client`. Fire-and-forget; failures are non-fatal because the
+    /// next (re)subscribe runs another sweep.
+    private func scheduleNotificationReconcile(client: MobileCoreRPCClient) {
+        Task { [weak self] in
+            await self?.reconcileNotificationsWithMac(client: client)
+        }
+    }
+
+    /// The reconcile sweep: send the Mac the ids of every banner currently
+    /// delivered on this phone; it answers with the subset handled there (read,
+    /// or recently dismissed/removed) plus its authoritative unread count. Remove
+    /// the handled banners and SET the badge. This heals whatever the live event
+    /// lane and the budgeted silent-push lane missed while the app was closed.
+    /// Ids the Mac does not recognize are left alone (they may mirror a
+    /// different paired Mac). Exchanges only opaque ids and a count.
+    func reconcileNotificationsWithMac(client: MobileCoreRPCClient) async {
+        let deliveredIDs = await deliveredNotificationClearer.deliveredIdentifiers()
+        guard remoteClient === client, connectionState == .connected else { return }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "notification.reconcile",
+                params: [
+                    "delivered_ids": deliveredIDs,
+                    "client_id": clientID,
+                ]
+            )
+            let data = try await client.sendRequest(request)
+            guard remoteClient === client else { return }
+            let response = try MobileNotificationReconcileResponse.decode(data)
+            applyNotificationReconcile(response)
+            MobileDebugLog.anchormux(
+                "notif.reconcile delivered=\(deliveredIDs.count) handled=\(response.handledIDs.count) unread=\(response.unreadCount.map(String.init) ?? "nil")"
+            )
+        } catch {
+            // Older Macs don't implement the verb (method_not_found), and
+            // transport hiccups are non-fatal: the next (re)subscribe retries.
+            MobileDebugLog.anchormux("notif.reconcile_failed error=\(error)")
+        }
+    }
+
+    /// Apply a reconcile result: clear the banners the Mac reports handled and
+    /// SET the badge to its authoritative count. Split from the transport so the
+    /// behavior is unit-testable through the injected clearing seam.
+    func applyNotificationReconcile(_ response: MobileNotificationReconcileResponse) {
+        if !response.handledIDs.isEmpty {
+            clearDeliveredNotifications(ids: response.handledIDs)
+        }
+        if let unreadCount = response.unreadCount {
+            applyAuthoritativeUnreadBadge(unreadCount)
+        }
     }
 
     /// Privileged direct-to-agent feedback round-trip: export the structured
@@ -3914,6 +3975,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // The Mac dismissed/cleared notifications; clear the matching
                     // mirrored banners on this phone.
                     self.handleNotificationDismissedEvent(event)
+                } else if event.topic == "notification.badge" {
+                    // The Mac's unread count changed; SET the app-icon badge to
+                    // the authoritative total.
+                    self.handleNotificationBadgeEvent(event)
                 }
             }
             guard let self else { return }
@@ -3955,6 +4020,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             self.markMacConnectionHealthy()
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
+            // Lane 3 of dismiss-sync: every successful (re)subscribe — initial
+            // connect, app foreground, network recovery, liveness restart —
+            // runs one reconcile sweep so banners/badge heal anything missed
+            // while the app was closed or detached.
+            self.scheduleNotificationReconcile(client: client)
         }
     }
 
@@ -4540,12 +4610,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) {
         guard
             let json = event.payloadJSON,
-            let payload = MobileNotificationDismissedEvent.decode(json),
-            !payload.ids.isEmpty
+            let payload = MobileNotificationDismissedEvent.decode(json)
         else {
             return
         }
-        clearDeliveredNotifications(ids: payload.ids)
+        if !payload.ids.isEmpty {
+            clearDeliveredNotifications(ids: payload.ids)
+        }
+        if let unreadCount = payload.unreadCount {
+            applyAuthoritativeUnreadBadge(unreadCount)
+        }
+    }
+
+    private func handleNotificationBadgeEvent(_ event: MobileEventEnvelope) {
+        guard
+            let json = event.payloadJSON,
+            let payload = MobileNotificationBadgeEvent.decode(json),
+            let unreadCount = payload.unreadCount
+        else {
+            return
+        }
+        applyAuthoritativeUnreadBadge(unreadCount)
     }
 
     private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {
