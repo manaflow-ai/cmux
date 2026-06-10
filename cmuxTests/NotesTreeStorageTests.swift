@@ -147,6 +147,35 @@ import Testing
         #expect(fm.fileExists(atPath: renamedFolder, isDirectory: &isDir) && isDir.boolValue)
     }
 
+    @Test @MainActor func confinementResolvesSymlinksBeforeAuthorizing() throws {
+        // A symlinked directory inside the tree must not let mutations escape
+        // the notes root (.cmux/notes/<ws>/out -> external target).
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-link"
+        )
+        let external = (NSTemporaryDirectory() as NSString)
+            .appendingPathComponent("cmux-notes-escape-\(UUID().uuidString)")
+        try fm.createDirectory(atPath: external, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(atPath: external) }
+        let victim = (external as NSString).appendingPathComponent("victim.md")
+        try write("keep me", to: victim)
+        let link = (root as NSString).appendingPathComponent("out")
+        try fm.createSymbolicLink(atPath: link, withDestinationPath: external)
+
+        #expect(!NotesTreeStorage.isWithin(child: link, orEqualTo: root))
+
+        let store = NotesTreeStore()
+        store.setWorkspace(
+            title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-link"
+        )
+        // Deleting "through" the link is refused; the external file survives.
+        store.delete(path: (link as NSString).appendingPathComponent("victim.md"))
+        #expect(fm.fileExists(atPath: victim))
+        // Renaming the linked dir (which would rename the external target's
+        // visibility) is refused too.
+        #expect(store.rename(path: link, toName: "renamed") == nil)
+    }
+
     @Test func moveRejectsFolderIntoItsOwnDescendant() throws {
         let root = try NotesTreeStorage.ensureWorkspaceRoot(
             projectRoot: projectRoot, cwd: "/work", title: "WS"

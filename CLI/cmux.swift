@@ -15256,6 +15256,7 @@ struct CMUXCLI {
                   new                Create (if missing), attach, and open a note.
                   open <slug>        Open an existing note; add --attach to attach it.
                   list               List notes in the project, newest first.
+                  here               Print the note resolved for this surface, then workspace.
                   path <slug>        Print the absolute file path for a slug.
                   read <slug>        Print note content.
                   write <slug>       Replace note content from --text, --stdin, or args.
@@ -33010,6 +33011,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           note new [--slug <name>] [--attach <none|workspace|surface|terminal>] [--title <text>] [--direction <dir>] [--focus <true|false>]
           note open <slug> [--attach <none|workspace|surface|terminal>] [--direction <dir>] [--focus <true|false>]
           note list [--json]                                                     (list notes in the project)
+          note here [--json]                                                     (print the note resolved for the calling surface)
           note path <slug>                                                       (print absolute path for a note slug)
           note read <slug>                                                       (print note content)
           note write <slug> [--text <text>|--stdin|<text...>] [--create <true|false>]

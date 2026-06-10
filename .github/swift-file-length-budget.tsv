@@ -1,7 +1,7 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-33123	CLI/cmux.swift
+33125	CLI/cmux.swift
 22020	Sources/TerminalController.swift
 20523	Sources/Workspace.swift
 19298	Sources/ContentView.swift
@@ -73,9 +73,9 @@
 1239	Sources/Feed/FeedCoordinator.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1156	cmuxTests/SidebarOrderingTests.swift
+1148	cmuxUITests/BonsplitTabDragUITests.swift
 1144	Sources/VaultAgentProcessScanner.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
-1136	cmuxUITests/BonsplitTabDragUITests.swift
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1084	cmuxTests/AgentHibernationTests.swift
 1068	cmuxTests/FileExplorerStoreTests.swift
@@ -109,9 +109,9 @@
 760	Packages/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
+745	Sources/NotesTreeStorage.swift
 739	Sources/App/MenuBarExtraController.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
-736	Sources/NotesTreeStorage.swift
 724	Packages/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift
 716	Sources/TaskManagerSnapshot.swift
 714	Sources/AppleScriptSupport.swift

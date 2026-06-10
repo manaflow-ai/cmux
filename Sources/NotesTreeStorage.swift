@@ -630,10 +630,19 @@ enum NotesTreeStorage {
     // MARK: - Helpers
 
     /// True when `child` is equal to, or nested inside, `ancestor`.
+    /// Containment check used by every tree mutation guard. Canonicalizes
+    /// both sides (symlinks resolved) so a linked directory placed inside the
+    /// tree — e.g. `.cmux/notes/<ws>/out -> ~/target` — can never authorize
+    /// writes outside the notes root. Missing path suffixes resolve lexically,
+    /// so not-yet-created roots still compare correctly.
     static func isWithin(child: String, orEqualTo ancestor: String) -> Bool {
-        let c = standardized(child)
-        let a = standardized(ancestor)
+        let c = canonicalized(child)
+        let a = canonicalized(ancestor)
         return c == a || c.hasPrefix(a + "/")
+    }
+
+    private static func canonicalized(_ path: String) -> String {
+        ((path as NSString).standardizingPath as NSString).resolvingSymlinksInPath
     }
 
     private static func standardized(_ path: String) -> String {
