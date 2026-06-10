@@ -12574,7 +12574,7 @@ class TerminalController {
                 // controlled editors) instead of forcing the value and drifting from app state.
                 let proceed = true;
                 try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: chunk })); } catch (e) {}
-                if (!proceed) return { ok: true, applied: false };
+                if (!proceed) return { ok: false, error: 'input_rejected' };
                 \(Self.reactCompatibleSetValue)
                 try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: chunk })); }
                 catch (e) { el.dispatchEvent(new Event('input', { bubbles: true })); }
@@ -12607,7 +12607,7 @@ class TerminalController {
                 // the value and drifting from app state.
                 let proceed = true;
                 try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
-                if (!proceed) return { ok: true, applied: false };
+                if (!proceed) return { ok: false, error: 'input_rejected' };
                 \(Self.reactCompatibleSetValue)
                 try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: newValue })); }
                 catch (e) { el.dispatchEvent(new Event('input', { bubbles: true })); }
