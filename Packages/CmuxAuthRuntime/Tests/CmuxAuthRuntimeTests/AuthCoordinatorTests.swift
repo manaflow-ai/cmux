@@ -150,6 +150,29 @@ import Testing
         #expect(coordinator.isAuthenticated == false)
     }
 
+    @Test func staleAccessAtSignOutGetsFreshTeardownToken() async throws {
+        // The capture is a raw stored read, so the access token it sees can
+        // be expired (the SDK leaves stale access tokens in the store while a
+        // valid refresh token survives; common after returning from
+        // background). The teardown must run the captured pair through the
+        // refresh-aware ephemeral credential path, not hand the stale bearer
+        // straight to the push-token DELETE (which would 401 and leave the
+        // device registered for the signed-out account).
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(access: "stale-access", refresh: "refresh", user: user)
+        await client.setMintedAccessToken("fresh-access")
+        let (coordinator, _) = makeCoordinator(client: client)
+
+        let probe = TokenProbe()
+        await coordinator.signOut(onSignedOut: { accessToken, _ in
+            await probe.set(accessToken)
+        })
+
+        #expect(await probe.value == "fresh-access")
+        #expect(await client.lastRevokedAccessToken == "fresh-access")
+        #expect(coordinator.isAuthenticated == false)
+    }
+
     @Test func signOutJoinsAndCancelsSlowTeardownAtDeadline() async throws {
         // Regression: the teardown must be STRUCTURED (joined), not detached. A
         // detached hook could outlive signOut() and, after a later sign-in,

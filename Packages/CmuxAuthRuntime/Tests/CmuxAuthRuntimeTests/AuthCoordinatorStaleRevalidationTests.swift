@@ -307,6 +307,51 @@ import Testing
         #expect(await client.accessToken() != nil)
         #expect(await client.refreshToken() != nil)
     }
+
+    @Test func staleValidationClearDoesNotUnpublishAFreshSignIn() async throws {
+        // Variant of the test above where the fresh sign-in completes while
+        // the stale validation is already INSIDE its awaited token-store
+        // clear. The stale flow's trailing clearAuthState() must re-check the
+        // epoch after that suspension instead of unconditionally unpublishing
+        // the session that just landed.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(coordinator.isAuthenticated)
+
+        await client.armValidationGate()
+        let revalidation = Task { await coordinator.revalidateSession() }
+        await client.validationDidPark()
+
+        // The old validation fails definitively and suspends inside the
+        // token-store clear of its .clearSession handling.
+        await client.setGatedValidationError(AuthError.unauthorized)
+        await client.armClearGate()
+        await client.releaseParkedValidation()
+        await client.clearDidPark()
+
+        // A fresh sign-in completes while that clear is suspended.
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(coordinator.isAuthenticated)
+
+        await client.releaseParkedClear()
+        await revalidation.value
+
+        // The stale flow must not unpublish the fresh session.
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(store.bool(forKey: "has_tokens"))
+    }
 }
 
 /// Mutable connectivity flag for scripting `isOnline` mid-test.

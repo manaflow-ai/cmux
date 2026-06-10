@@ -26,6 +26,7 @@ actor GateableValidationAuthClient: AuthClient {
     private let validationGate = Gate()
     private let teamsGate = Gate()
     private let credentialGate = Gate()
+    private let clearGate = Gate()
 
     init(user: CMUXAuthUser, teams: [CMUXAuthTeam] = []) {
         self.user = user
@@ -77,6 +78,12 @@ actor GateableValidationAuthClient: AuthClient {
     func credentialDidPark() async { await didPark(credentialGate) }
     func releaseParkedCredential() { release(credentialGate) }
 
+    // MARK: - Clear gate (the local token-store clear)
+
+    func armClearGate() { clearGate.armed = true }
+    func clearDidPark() async { await didPark(clearGate) }
+    func releaseParkedClear() { release(clearGate) }
+
     // MARK: - AuthClient
 
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
@@ -112,6 +119,7 @@ actor GateableValidationAuthClient: AuthClient {
     func storedAccessToken() async -> String? { access }
 
     func clearLocalSession() async {
+        await parkIfArmed(clearGate)
         access = nil
         refresh = nil
     }
