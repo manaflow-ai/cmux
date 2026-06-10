@@ -81,8 +81,18 @@ public struct StackAuthClient: AuthClient {
         try await stack.signInWithOAuth(provider: provider, presentationContextProvider: anchor)
     }
 
-    public func signOut() async throws {
-        try await stack.signOut()
+    public func storedAccessToken() async -> String? {
+        await stack.getStoredAccessToken()
+    }
+
+    public func clearLocalSession() async {
+        await stack.clearStoredTokens()
+    }
+
+    public func revokeSession(accessToken: String?, refreshToken: String?) async throws {
+        // Nothing to authenticate the DELETE with; skip the round trip.
+        guard accessToken != nil || refreshToken != nil else { return }
+        try await stack.revokeSession(accessToken: accessToken, refreshToken: refreshToken)
     }
 
     private static func mapped(_ user: CurrentUser) async -> CMUXAuthUser {

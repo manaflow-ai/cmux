@@ -62,15 +62,6 @@ actor HangingSignOutAuthClient: AuthClient {
 
     func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {}
 
-    func signOut() async throws {
-        // The pre-local-first shape: the revocation request runs (and offline,
-        // hangs) BEFORE any local clearing.
-        try await parkForeverAsRevocation()
-        access = nil
-        refresh = nil
-        localSessionCleared = true
-    }
-
     func storedAccessToken() async -> String? { access }
 
     func revokeSession(accessToken: String?, refreshToken: String?) async throws {

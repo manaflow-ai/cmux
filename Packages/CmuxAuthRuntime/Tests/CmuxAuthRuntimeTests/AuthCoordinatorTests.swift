@@ -90,31 +90,37 @@ import Testing
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
 
         let ranHook = HookFlag()
-        await coordinator.signOut(onSignedOut: { await ranHook.fire() })
+        await coordinator.signOut(onSignedOut: { _, _ in await ranHook.fire() })
 
         #expect(coordinator.isAuthenticated == false)
         #expect(coordinator.currentUser == nil)
         #expect(store.bool(forKey: "has_tokens") == false)
+        #expect(await client.clearLocalSessionCount == 1)
         #expect(await ranHook.fired)
     }
 
-    @Test func signOutRunsHookWhileTokensStillValid() async throws {
-        // The push-token DELETE runs as the onSignedOut hook and needs a valid
-        // access token. Regression: the hook used to run after client.signOut()
-        // revoked the session, so the DELETE was silently skipped.
+    @Test func signOutHandsCapturedTokensToHookAndRevocation() async throws {
+        // The push-token DELETE runs as the onSignedOut hook and must
+        // authenticate as the signing-out account. Sign-out is local-first, so
+        // the live token store is already empty by the time the hook runs: the
+        // coordinator captures the tokens before clearing and hands the same
+        // pair to the hook and then to the server-side revocation. Regression:
+        // the hook used to read tokens back through the coordinator, which
+        // would now see the cleared store and silently skip the DELETE.
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)
         let (coordinator, _) = makeCoordinator(client: client)
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
 
         let probe = TokenProbe()
-        await coordinator.signOut(onSignedOut: {
-            let token = try? await coordinator.accessToken()
-            await probe.set(token)
+        await coordinator.signOut(onSignedOut: { accessToken, _ in
+            await probe.set(accessToken)
         })
 
-        #expect(await probe.value != nil)  // hook saw a valid token (ran before revoke)
-        #expect(coordinator.isAuthenticated == false)  // session revoked afterward
+        #expect(await probe.value == "access")  // captured before the local clear
+        #expect(await client.revokeCount == 1)
+        #expect(await client.lastRevokedAccessToken == "access")
+        #expect(coordinator.isAuthenticated == false)
     }
 
     @Test func signOutJoinsAndCancelsSlowTeardownAtDeadline() async throws {
@@ -132,7 +138,7 @@ import Testing
 
         let outcome = TeardownOutcomeProbe()
         await coordinator.signOut(
-            onSignedOut: {
+            onSignedOut: { _, _ in
                 await outcome.markStarted()
                 do {
                     // Cancellation-aware slow work, like the URLSession DELETE.

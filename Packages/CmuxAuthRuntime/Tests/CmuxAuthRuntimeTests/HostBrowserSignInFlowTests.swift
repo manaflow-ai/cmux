@@ -371,7 +371,9 @@ private actor FlowFakeAuthClient: AuthClient {
     func signInWithMagicLink(code: String) async throws {}
     func signInWithCredential(email: String, password: String) async throws {}
     func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {}
-    func signOut() async throws {}
+    func storedAccessToken() async -> String? { nil }
+    func clearLocalSession() async {}
+    func revokeSession(accessToken: String?, refreshToken: String?) async throws {}
 }
 
 /// In-memory ``StackAuthTokenStoreProtocol`` fake.

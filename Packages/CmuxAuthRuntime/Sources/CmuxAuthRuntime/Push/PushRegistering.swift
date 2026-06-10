@@ -21,6 +21,13 @@ public protocol PushRegistering: Sendable {
     /// Re-upload the cached token (e.g. after sign-in). No-op unless opted in.
     func syncTokenIfPossible() async
 
-    /// Remove the cached token from the server (on disable or sign-out).
+    /// Remove the cached token from the server (on disable, while still
+    /// signed in), authenticating through the live token provider.
     func unregisterFromServer() async
+
+    /// Remove the cached token from the server on the sign-out path,
+    /// authenticating with the credentials captured before the local-first
+    /// sign-out cleared the live token provider. Passing `nil` for either
+    /// token falls back to the provider.
+    func unregisterFromServer(accessToken: String?, refreshToken: String?) async
 }

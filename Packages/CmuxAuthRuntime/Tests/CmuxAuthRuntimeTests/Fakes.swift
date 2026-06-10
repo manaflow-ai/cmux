@@ -32,7 +32,10 @@ actor FakeAuthClient: AuthClient {
     private(set) var signedInWithMagicLink = false
     private(set) var signedInWithCredential: (email: String, password: String)?
     private(set) var oauthProviders: [String] = []
-    private(set) var signOutCount = 0
+    private(set) var clearLocalSessionCount = 0
+    private(set) var revokeCount = 0
+    private(set) var lastRevokedAccessToken: String?
+    private(set) var lastRevokedRefreshToken: String?
 
     init(access: String? = nil, refresh: String? = nil, user: CMUXAuthUser? = nil) {
         self.access = access
@@ -86,10 +89,18 @@ actor FakeAuthClient: AuthClient {
         access = "access"
     }
 
-    func signOut() async throws {
-        signOutCount += 1
+    func storedAccessToken() async -> String? { access }
+
+    func clearLocalSession() async {
+        clearLocalSessionCount += 1
         access = nil
         refresh = nil
+    }
+
+    func revokeSession(accessToken: String?, refreshToken: String?) async throws {
+        revokeCount += 1
+        lastRevokedAccessToken = accessToken
+        lastRevokedRefreshToken = refreshToken
     }
 }
 

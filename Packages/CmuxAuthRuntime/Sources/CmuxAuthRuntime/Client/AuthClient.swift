@@ -60,6 +60,24 @@ public protocol AuthClient: Sendable {
     ///   - anchor: The presentation-anchor provider for the auth UI.
     func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws
 
-    /// Clear the persisted Stack session (tokens) for the current device.
-    func signOut() async throws
+    /// The access token exactly as stored, with no freshness check and no
+    /// network refresh (unlike ``accessToken()``, which may mint a new token
+    /// over the network when the stored one looks stale).
+    ///
+    /// For capturing the credentials a best-effort server-side teardown needs
+    /// before ``clearLocalSession()`` destroys them; never blocks on
+    /// connectivity.
+    func storedAccessToken() async -> String?
+
+    /// Clear the locally persisted session (tokens) without any network call.
+    /// The device is signed out once this returns, regardless of connectivity.
+    func clearLocalSession() async
+
+    /// Revoke the server-side session the captured token pair authenticates,
+    /// without touching local token storage (the local session is typically
+    /// already cleared by ``clearLocalSession()`` when this runs).
+    ///
+    /// Best-effort by contract: callers bound it with a deadline and log
+    /// failures rather than letting revocation gate sign-out.
+    func revokeSession(accessToken: String?, refreshToken: String?) async throws
 }

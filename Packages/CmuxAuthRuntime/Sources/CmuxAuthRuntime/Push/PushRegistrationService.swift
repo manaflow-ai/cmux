@@ -81,8 +81,12 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     public func unregisterFromServer() async {
+        await unregisterFromServer(accessToken: nil, refreshToken: nil)
+    }
+
+    public func unregisterFromServer(accessToken: String?, refreshToken: String?) async {
         guard let hex = cachedTokenHex else { return }
-        await sendDelete(tokenHex: hex)
+        await sendDelete(tokenHex: hex, capturedAccessToken: accessToken, capturedRefreshToken: refreshToken)
     }
 
     private var cachedTokenHex: String? {
@@ -104,23 +108,44 @@ public actor PushRegistrationService: PushRegistering {
         await perform(request, label: "register")
     }
 
-    private func sendDelete(tokenHex: String) async {
+    private func sendDelete(
+        tokenHex: String,
+        capturedAccessToken: String? = nil,
+        capturedRefreshToken: String? = nil
+    ) async {
         guard let request = await makeRequest(
             method: "DELETE",
             path: "/api/device-tokens",
-            body: ["deviceToken": tokenHex]
+            body: ["deviceToken": tokenHex],
+            capturedAccessToken: capturedAccessToken,
+            capturedRefreshToken: capturedRefreshToken
         ) else { return }
         await perform(request, label: "unregister")
     }
 
-    private func makeRequest(method: String, path: String, body: [String: String]) async -> URLRequest? {
+    private func makeRequest(
+        method: String,
+        path: String,
+        body: [String: String],
+        capturedAccessToken: String? = nil,
+        capturedRefreshToken: String? = nil
+    ) async -> URLRequest? {
         let accessToken: String
-        do {
-            accessToken = try await tokenProvider.accessToken()
-        } catch {
-            return nil
+        let refreshToken: String
+        if let capturedAccessToken, let capturedRefreshToken {
+            // Sign-out path: the live provider is already cleared by the
+            // local-first sign-out; the captured pair is the only credential.
+            accessToken = capturedAccessToken
+            refreshToken = capturedRefreshToken
+        } else {
+            do {
+                accessToken = try await tokenProvider.accessToken()
+            } catch {
+                return nil
+            }
+            guard let liveRefreshToken = await tokenProvider.refreshToken() else { return nil }
+            refreshToken = liveRefreshToken
         }
-        guard let refreshToken = await tokenProvider.refreshToken() else { return nil }
         guard let url = URL(string: apiBaseURL + path) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = method

@@ -982,6 +982,44 @@ public actor StackClientApp {
             await client.clearTokens()
         }
     }
+
+    /// Clear the locally stored session tokens without contacting the server:
+    /// the local half of ``signOut(tokenStore:)``.
+    ///
+    /// Use this when the device must end signed out immediately regardless of
+    /// connectivity (offline, the revocation request inside
+    /// ``signOut(tokenStore:)`` can block for minutes), with any server-side
+    /// revocation handled separately via
+    /// ``revokeSession(accessToken:refreshToken:)``.
+    public func clearStoredTokens(tokenStore: TokenStoreInit? = nil) async {
+        let overrideStore = resolveTokenStore(tokenStore)
+        if let overrideStore = overrideStore {
+            await client.clearTokens(tokenStoreOverride: overrideStore)
+        } else {
+            await client.clearTokens()
+        }
+    }
+
+    /// Revoke the server-side session that the explicit token pair
+    /// authenticates, touching no token store.
+    ///
+    /// The companion to ``clearStoredTokens(tokenStore:)`` for local-first
+    /// sign-out flows that capture credentials before destroying them. Unlike
+    /// ``signOut(tokenStore:)`` this throws on failure so callers can log or
+    /// bound the best-effort revocation.
+    public func revokeSession(accessToken: String?, refreshToken: String?) async throws {
+        // An ephemeral store seeded with the captured pair: the 401
+        // refresh-retry path inside sendRequest can mint against it without
+        // ever writing to the app's real token store.
+        let store = NullTokenStore()
+        await store.setTokens(accessToken: accessToken, refreshToken: refreshToken)
+        _ = try await client.sendRequest(
+            path: "/auth/sessions/current",
+            method: "DELETE",
+            authenticated: true,
+            tokenStoreOverride: store
+        )
+    }
     
     // MARK: - Tokens
     
@@ -999,6 +1037,20 @@ public actor StackClientApp {
             return await client.getRefreshToken(tokenStoreOverride: overrideStore)
         }
         return await client.getRefreshToken()
+    }
+
+    /// Read the access token exactly as stored, with no freshness check and no
+    /// network refresh (unlike ``getAccessToken(tokenStore:)``, which may mint
+    /// a new token over the network when the stored one looks stale).
+    ///
+    /// For capturing teardown credentials on paths that must never block on
+    /// connectivity, e.g. a local-first sign-out.
+    public func getStoredAccessToken(tokenStore: TokenStoreInit? = nil) async -> String? {
+        let overrideStore = resolveTokenStore(tokenStore)
+        if let overrideStore = overrideStore {
+            return await client.getStoredAccessToken(tokenStoreOverride: overrideStore)
+        }
+        return await client.getStoredAccessToken()
     }
 
     /// Forcibly mint a new access token from the stored refresh token, bypassing
