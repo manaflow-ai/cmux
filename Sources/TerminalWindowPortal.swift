@@ -205,7 +205,15 @@ final class WindowTerminalHostView: NSView {
     private func shouldPassThroughToTitlebar(at point: NSPoint) -> Bool {
         guard let window else { return false }
         let windowPoint = convert(point, to: nil)
-        return windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
+        guard windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else {
+            return false
+        }
+        // Compact mode removes the unifiedCompact toolbar, so the bonsplit
+        // tab strip sits flush at the top of content and hosted terminal
+        // pixels (including the SurfaceSearchOverlay close button) can land
+        // inside the titlebar interaction band. Defer to the hosted terminal
+        // before swallowing the hit, mirroring shouldPassThroughToPaneTabBar.
+        return hostedTerminalHitView(at: point) == nil
     }
 
     private func shouldPassThroughToPaneTabBar(
