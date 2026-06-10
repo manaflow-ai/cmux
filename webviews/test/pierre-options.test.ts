@@ -13,13 +13,26 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
   expect(css).toContain("--cmux-diff-surface-bg: light-dark(");
   expect(css).toContain("color-mix(in srgb, var(--cmux-diff-bg) 94%, #3e3d32)");
   expect(css).not.toContain("[data-diffs-header][data-sticky]");
-  expect(css).toContain("--diffs-bg-addition-override: color-mix");
-  expect(css).toContain("--diffs-bg-deletion-override: color-mix");
+  // Soft, desaturated full-line tints (Graphite-style translucent fills).
+  expect(css).toContain("--diffs-bg-addition-override: light-dark(");
+  expect(css).toContain("--diffs-bg-deletion-override: light-dark(");
+  // Changed-token (intraline) emphasis must be stronger than the line tint so
+  // edited tokens stand out, not weaker (the library default is inverted).
+  expect(css).toContain("--diffs-bg-addition-emphasis-override: light-dark(");
+  expect(css).toContain("color-mix(in srgb, var(--diffs-addition-base) 42%, transparent)");
+  // Muted, low-contrast line-number gutter.
+  expect(css).toContain("--diffs-fg-number-override: light-dark(");
   expect(css).toContain("[data-diffs-header] {");
   expect(css).toContain("background-color: var(--cmux-diff-surface-bg) !important");
-  expect(css).toContain("min-height: 30px");
+  expect(css).toContain("min-height: 32px");
+  // Header band carries a hairline divider beneath the file metadata.
+  expect(css).toContain("border-bottom: 1px solid var(--cmux-diff-border)");
   expect(css).not.toContain("border-block: 1px solid var(--cmux-diff-border)");
   expect(css).not.toContain("@container sticky-header scroll-state");
+  // Filename is emphasized over the rest of the header chrome.
+  expect(css).toContain("[data-header-content] [data-title] {");
+  // Expand-context affordances get an explicit hover treatment.
+  expect(css).toContain("[data-expand-button]:hover {");
   expect(css).toContain("[data-separator='line-info'] {");
   expect(css).toContain("[data-separator='line-info'] [data-separator-wrapper]");
   expect(css).toContain("[data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer])");

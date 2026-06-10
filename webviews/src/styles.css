@@ -580,6 +580,12 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   overscroll-behavior: contain;
   overflow-anchor: none;
   contain: strict;
+  /* Inset the per-file cards from the pane edges so the rounded corners and
+     hairline ring read as discrete cards (Graphite-style), rather than
+     full-bleed slabs. The virtualizer lays items out as in-flow blocks with
+     `width: 100%`, so horizontal padding on the scroller insets every card
+     without touching the vertical height measurement it relies on. */
+  padding-inline: 10px;
 }
 @media (max-width: 520px) {
   #content,
@@ -603,6 +609,15 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   --diffs-line-height: var(--cmux-diff-line-height);
   --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
   display: block;
+  /* Per-file card: a hairline border + rounded corners frame each file, and
+     `overflow: clip` clips the sticky header and code rows to that frame. With
+     the global `box-sizing: border-box`, the border sits inside the item's
+     `width: 100%` and is included in the height the virtualizer measures, so it
+     adds no horizontal overflow and no layout drift. The card fill comes from
+     the diff background; the gap between cards comes from the renderer layout
+     (see pierre-options.ts). */
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
+  border-radius: 9px;
   overflow: clip;
   contain: layout paint style;
 }
