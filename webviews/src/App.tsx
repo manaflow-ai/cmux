@@ -5,6 +5,7 @@ import { preparePresortedFileTreeInput } from "@pierre/trees";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
+import { DiffFileHeader } from "./diff-file-header";
 import { fileName, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
 import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh, selectPierreFileTreePath } from "./file-tree-refresh";
 import { Icon, type IconName } from "./icons";
@@ -245,6 +246,7 @@ export function App({ config, initialStatus }: ConfigProps) {
                 containerRef={viewerContainerRef}
                 items={state.items}
                 options={renderedCodeViewOptions}
+                renderCustomHeader={(item: any) => <DiffFileHeader fileDiff={item.fileDiff} label={label} />}
               />
             </WorkerPoolContextProvider>
           ) : null}

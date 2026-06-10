@@ -13,11 +13,23 @@ export type DiffViewerOptions = {
   wordWrap: boolean;
 };
 
+// Fixed height of the custom Graphite-style file header, in px. The CodeView
+// virtualizer estimates each file's height from the `diffHeaderHeight` metric
+// (it never remeasures the header DOM), so the header element is pinned to this
+// exact height in `codeViewUnsafeCSS` AND reported via `itemMetrics` below.
+// Keeping the two in lockstep is what prevents per-file layout drift. The header
+// content itself is the <DiffFileHeader> React component, wired through the
+// `renderCustomHeader` prop on <CodeView> (see App.tsx) — the React layer
+// portals it into the virtualized file's header slot, which is why it cannot be
+// passed here as a plain option.
+export const DIFF_HEADER_HEIGHT = 44;
+
 export function codeViewOptions(
   options: DiffViewerOptions,
   appearance: DiffViewerAppearance,
 ): CodeViewOptions<any> {
   return {
+    itemMetrics: { diffHeaderHeight: DIFF_HEADER_HEIGHT },
     // Graphite-style per-file cards: vertical gap between files plus a little
     // breathing room at the very top/bottom of the scroll content. The
     // virtualizer applies `gap`/padding as item margins, so this is the safe,
@@ -109,21 +121,27 @@ export function codeViewUnsafeCSS(): string {
     [data-diffs-header] {
       container-type: scroll-state;
       container-name: sticky-header;
-      min-height: 30px;
+      /* Pinned to the exact \`diffHeaderHeight\` metric (see DIFF_HEADER_HEIGHT):
+         the virtualizer estimates file heights from that constant and never
+         remeasures the header, so a fixed height keeps the per-file layout from
+         drifting. The divider is an inset shadow rather than a border-bottom for
+         the same reason (a border would add a pixel the metric doesn't know
+         about). */
+      height: 44px;
+      min-height: 44px;
+      padding-inline: 14px !important;
+      display: flex;
+      align-items: center;
       background-color: var(--cmux-diff-surface-bg) !important;
-      /* Hairline divider beneath the file metadata, drawn as an inset shadow
-         rather than a border so the header's box height stays equal to the
-         renderer's fixed \`diffHeaderHeight\` metric. A real border-bottom would
-         make every header 1px taller than the virtualizer expects and drift the
-         per-file layout (see the card-frame note in styles.css). */
       box-shadow: inset 0 -1px 0 var(--cmux-diff-border);
     }
-    /* Filename sits a touch heavier than the rest of the header chrome, the way
-       Graphite emphasizes the file over its surrounding metadata. The renderer
-       prints the whole path as one ellipsized (rtl) string, so the directory
-       prefix cannot be independently dimmed without forking the header DOM. */
-    [data-header-content] [data-title] {
-      font-weight: 510;
+    /* The custom header (renderDiffFileHeader) is projected through this slot
+       wrapper, which @pierre/diffs creates in the *light* DOM — so the wrapper
+       and the header itself are styled from styles.css, not here. Make the slot
+       stretch across the band. */
+    ::slotted([slot='header-custom']) {
+      flex: 1 1 auto;
+      min-width: 0;
     }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--diffs-addition-base);

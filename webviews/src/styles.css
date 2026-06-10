@@ -602,6 +602,73 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     transition: none;
   }
 }
+/* Graphite-style custom file header (built in renderDiffFileHeader). The
+   renderer projects it through a `<slot name="header-custom">`, so the wrapper
+   and header live in the *light* DOM and are styled here, not in the shadow-DOM
+   `unsafeCSS`. */
+#viewer diffs-container > [slot="header-custom"] {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+.cmux-fileheader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  font-family: var(--cmux-diff-ui-font-family);
+}
+.cmux-fileheader-path {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 12px;
+  line-height: 1.3;
+}
+.cmux-fileheader-dir {
+  color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  min-width: 0;
+  flex: 0 1 auto;
+  unicode-bidi: plaintext;
+}
+.cmux-fileheader-name {
+  color: var(--cmux-diff-fg);
+  font-weight: 600;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.cmux-fileheader-meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.cmux-fileheader-lang {
+  color: color-mix(in lab, var(--cmux-diff-fg) 66%, var(--cmux-diff-bg));
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 1.5px 6px;
+  border-radius: 5px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+}
+.cmux-fileheader-add {
+  color: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+  font-weight: 600;
+}
+.cmux-fileheader-del {
+  color: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+  font-weight: 600;
+}
 #viewer diffs-container {
   --diffs-font-family: var(--cmux-diff-code-font-family);
   --diffs-header-font-family: var(--cmux-diff-ui-font-family);
@@ -620,7 +687,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
      between cards comes from the renderer layout (see pierre-options.ts), which
      leaves room for the 1px outset ring. */
   border-radius: 9px;
-  box-shadow: 0 0 0 1px color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in lab, var(--cmux-diff-fg) 16%, transparent);
   overflow: clip;
   contain: layout paint style;
 }

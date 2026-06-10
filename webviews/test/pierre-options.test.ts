@@ -26,16 +26,17 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
   expect(css).toContain("--diffs-fg-number-override: light-dark(");
   expect(css).toContain("[data-diffs-header] {");
   expect(css).toContain("background-color: var(--cmux-diff-surface-bg) !important");
-  expect(css).toContain("min-height: 30px");
-  // Header divider is a non-layout-affecting inset shadow (a real border-bottom
-  // would make the header taller than the renderer's fixed header metric and
-  // drift the virtualized per-file layout).
+  // Header is pinned to the fixed metric height so the virtualizer's per-file
+  // layout does not drift, and the divider is a non-layout-affecting inset
+  // shadow (a real border-bottom would add a pixel the metric does not know).
+  expect(css).toContain("height: 44px");
   expect(css).toContain("box-shadow: inset 0 -1px 0 var(--cmux-diff-border)");
   expect(css).not.toContain("border-bottom: 1px solid var(--cmux-diff-border)");
   expect(css).not.toContain("border-block: 1px solid var(--cmux-diff-border)");
+  // The custom header band flex-centers the projected slot (the header itself is
+  // light-DOM and styled from styles.css, not here).
+  expect(css).toContain("::slotted([slot='header-custom'])");
   expect(css).not.toContain("@container sticky-header scroll-state");
-  // Filename is emphasized over the rest of the header chrome.
-  expect(css).toContain("[data-header-content] [data-title] {");
   // Expand-context affordances get an explicit hover treatment.
   expect(css).toContain("[data-expand-button]:hover {");
   expect(css).toContain("[data-separator='line-info'] {");
