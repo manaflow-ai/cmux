@@ -90,11 +90,11 @@ export function EditorApp({
         // The editor has no persistent chrome; dirty state rides the page
         // title's leading dot (shown in the tab) and is mirrored to the
         // native panel so closing the tab confirms unsaved changes.
-        const baseTitle = document.title.replace(/^● /, "");
+        const baseTitle = document.title.replace(/^[●•] /, "");
         let lastNotifiedDirty: boolean | null = null;
         const syncTitle = () => {
           const dirty = saveController.getState().dirty;
-          const next = dirty ? `● ${baseTitle}` : baseTitle;
+          const next = dirty ? `• ${baseTitle}` : baseTitle;
           if (document.title !== next) {
             document.title = next;
           }
