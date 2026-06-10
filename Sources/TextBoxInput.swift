@@ -2678,6 +2678,11 @@ struct TextBoxInputContainer: View {
     @State private var hasMarkedText = false
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
+    @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
+
+    private var pendingCommentCount: Int {
+        commentPool.pendingCount(workspaceId: surface.owningWorkspace()?.id)
+    }
 
     private var textFont: NSFont {
         NSFont.systemFont(ofSize: max(14, terminalFont.pointSize + 2), weight: .regular)
@@ -2714,7 +2719,7 @@ struct TextBoxInputContainer: View {
         let background = Color(nsColor: terminalBackgroundColor)
         let canSend = shouldEnableTextBoxSubmit(
             text: text,
-            attachmentCount: attachments.count,
+            attachmentCount: attachments.count + pendingCommentCount,
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
             hasMarkedText: hasMarkedText
         )
@@ -2723,6 +2728,11 @@ struct TextBoxInputContainer: View {
             addFilesButton(foreground: foreground)
                 .offset(x: TextBoxLayout.leadingButtonHorizontalOffset)
                 .padding(.bottom, TextBoxLayout.buttonBottomPadding)
+
+            if pendingCommentCount > 0 {
+                pendingCommentsChip(count: pendingCommentCount, foreground: foreground)
+                    .padding(.bottom, TextBoxLayout.buttonBottomPadding)
+            }
 
             ZStack(alignment: .leading) {
                 TextBoxInputView(
@@ -2838,6 +2848,31 @@ struct TextBoxInputContainer: View {
         .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
     }
 
+    private func pendingCommentsChip(count: Int, foreground: Color) -> some View {
+        Text(pendingCommentsLabel(count))
+            .font(.system(size: 11, weight: .medium))
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .frame(height: TextBoxLayout.attachmentChipHeight)
+            .background(Capsule().fill(Color.accentColor.opacity(0.22)))
+            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.45), lineWidth: 1))
+            .foregroundStyle(foreground)
+            .help(String(
+                localized: "textbox.diffComments.tooltip",
+                defaultValue: "Diff review comments are included when you submit"
+            ))
+            .accessibilityLabel(pendingCommentsLabel(count))
+    }
+
+    private func pendingCommentsLabel(_ count: Int) -> String {
+        count == 1
+            ? String(localized: "textbox.diffComments.one", defaultValue: "1 comment")
+            : String(
+                format: String(localized: "textbox.diffComments.many", defaultValue: "%d comments"),
+                count
+            )
+    }
+
     private func submit() {
         let textView = textViewReference.textView
         guard shouldSubmitTextBox(
@@ -2850,9 +2885,21 @@ struct TextBoxInputContainer: View {
 
         let submittedParts = textView?.submissionParts()
             ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
-        guard TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts) else {
+        let poolWorkspaceId = surface.owningWorkspace()?.id
+        let hasTypedContent = TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts)
+        guard hasTypedContent || pendingCommentCount > 0 else {
             NSSound.beep()
             return
+        }
+        // Claim the workspace's pending diff comments: this submission carries
+        // them, and the chip clears from every other TextBox in the workspace.
+        let pendingComments = poolWorkspaceId.map {
+            DiffCommentSubmissionPool.shared.consumeAll(workspaceId: $0)
+        } ?? []
+        var partsToSend = submittedParts
+        if !pendingComments.isEmpty {
+            let bundle = pendingComments.map(\.submissionText).joined(separator: "\n")
+            partsToSend.append(.text(hasTypedContent ? "\n\n" + bundle : bundle))
         }
         let submittedTextView = textView
         let preservedContent = submittedTextView?.attributedContentForPreservation()
@@ -2868,11 +2915,17 @@ struct TextBoxInputContainer: View {
             attachmentCount: 0
         )
         TextBoxSubmit.send(
-            submittedParts,
+            partsToSend,
             via: surface,
             terminalAgentContext: terminalAgentContext
         ) { completionContext in
             guard completionContext.didSubmit else {
+                if let poolWorkspaceId, !pendingComments.isEmpty {
+                    DiffCommentSubmissionPool.shared.restorePending(
+                        pendingComments,
+                        workspaceId: poolWorkspaceId
+                    )
+                }
                 guard TextBoxFailedSubmitRollbackPolicy.shouldRestore(
                     rollbackSnapshot: rollbackSnapshot,
                     currentSnapshot: currentRollbackSnapshot()
@@ -2891,6 +2944,11 @@ struct TextBoxInputContainer: View {
                 }
                 NSSound.beep()
                 return
+            }
+            if !pendingComments.isEmpty {
+                for (repoRoot, entries) in Dictionary(grouping: pendingComments, by: \.repoRoot) {
+                    DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
+                }
             }
             let submittedAttachments = submittedParts.compactMap { part -> TextBoxAttachment? in
                 if case .attachment(let attachment) = part { return attachment }
@@ -3864,17 +3922,6 @@ final class TextBoxInputTextView: NSTextView {
         window?.makeFirstResponder(self)
 
         insertAttachments(attachments, replacementRange: selectedRange())
-    }
-
-    /// Appends attachments at the end of the current content without taking
-    /// first responder, so programmatic inserts (diff viewer comment
-    /// attachments) never steal focus from the surface the user is in.
-    func appendAttachmentsWithoutFocusing(_ attachments: [TextBoxAttachment]) {
-        guard !attachments.isEmpty else { return }
-        insertAttachments(
-            attachments,
-            replacementRange: NSRange(location: attributedString().length, length: 0)
-        )
     }
 
     func insertPendingAttachmentUploadPlaceholder(id: UUID) {

@@ -3,7 +3,8 @@ import Foundation
 import WebKit
 
 /// Native bridge for the diff viewer webview's review comments: per-repo
-/// comment persistence and attaching saved comments to a terminal TextBox.
+/// comment persistence plus registration into the workspace's pending
+/// submission pool (consumed by whichever terminal TextBox submits first).
 ///
 /// Only main-frame pages served from a registered diff viewer session (custom
 /// `cmux-diff-viewer://` scheme or the local HTTP server form) may call it;
@@ -74,8 +75,8 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
         )
     }
 
-    /// Records which browser panel owns a web view so attach targeting can
-    /// resolve the diff viewer's workspace.
+    /// Records which browser panel owns a web view so the bridge can resolve
+    /// the diff viewer's workspace for the pending submission pool.
     static func associate(panelId: UUID, workspaceId: UUID, with webView: WKWebView) {
         objc_setAssociatedObject(
             webView,
@@ -154,42 +155,53 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
 
         switch method {
         case "comments.list":
-            return ["comments": store.comments(repoRoot: repoRoot).map(Self.commentJSON)]
+            // Viewer loads repopulate the workspace's pending pool so the
+            // TextBox chips survive app restarts and page reloads.
+            let comments = store.comments(repoRoot: repoRoot)
+            if let workspace = try? resolveWorkspace(for: webView) {
+                for comment in comments {
+                    registerPending(comment, repoRoot: repoRoot, workspaceId: workspace.id)
+                }
+            }
+            return ["comments": comments.map(Self.commentJSON)]
         case "comments.save":
             guard let commentParams = params["comment"] as? [String: Any],
                   let comment = Self.comment(fromJSON: commentParams) else {
                 throw BridgeError.invalidRequest("Malformed comment")
             }
             let saved = store.upsert(comment, repoRoot: repoRoot)
+            if let workspace = try? resolveWorkspace(for: webView) {
+                registerPending(saved, repoRoot: repoRoot, workspaceId: workspace.id)
+            }
             return ["comment": Self.commentJSON(saved)]
         case "comments.delete":
             guard let rawId = params["id"] as? String, let id = UUID(uuidString: rawId) else {
                 throw BridgeError.invalidRequest("Missing comment id")
             }
+            DiffCommentSubmissionPool.shared.removePending(commentId: id)
             return ["deleted": store.delete(id: id, repoRoot: repoRoot)]
-        case "comments.attach":
-            return try handleAttach(params: params, webView: webView)
-        case "comments.targets":
-            return try handleTargets(params: params, webView: webView)
         default:
             throw BridgeError.invalidRequest("Unsupported method '\(method)'")
         }
     }
 
-    // MARK: - Attach
-
-    struct AttachCandidate {
-        let surfaceId: UUID
-        let title: String
-        let directory: String
-        let hasActiveTextBox: Bool
+    private func registerPending(_ comment: DiffComment, repoRoot: String, workspaceId: UUID) {
+        guard comment.consumedAt == nil,
+              let submissionText = comment.submissionText,
+              !submissionText.isEmpty else {
+            return
+        }
+        DiffCommentSubmissionPool.shared.setPending(
+            DiffCommentSubmissionPool.Entry(
+                commentId: comment.id,
+                repoRoot: DiffCommentStore.canonicalRepoRoot(repoRoot),
+                submissionText: submissionText
+            ),
+            workspaceId: workspaceId
+        )
     }
 
-    enum AttachResolution {
-        case attach(UUID)
-        case picker([AttachCandidate])
-        case unavailable
-    }
+    // MARK: - Workspace resolution
 
     private func resolveWorkspace(for webView: WKWebView?) throws -> Workspace {
         guard let webView,
@@ -207,134 +219,6 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
         return location.workspace
     }
 
-    private static func requestedSurfaceId(in params: [String: Any]) -> UUID? {
-        let targetParams = params["target"] as? [String: Any]
-        return (targetParams?["surfaceId"] as? String).flatMap(UUID.init(uuidString:))
-    }
-
-    /// Enumerates the terminals a comment could attach to, plus the surface
-    /// the opener-first heuristic would pick, so the composer can offer an
-    /// explicit target dropdown.
-    private func handleTargets(params: [String: Any], webView: WKWebView?) throws -> Any {
-        let workspace = try resolveWorkspace(for: webView)
-        let requested = Self.requestedSurfaceId(in: params)
-        let candidates = Self.attachCandidates(in: workspace)
-        let resolution = Self.resolveAttachTarget(requested: requested, candidates: candidates)
-        var defaultSurfaceId: String?
-        if case .attach(let surfaceId) = resolution {
-            defaultSurfaceId = surfaceId.uuidString
-        }
-        return [
-            "candidates": candidates.map(Self.candidateJSON),
-            "defaultSurfaceId": defaultSurfaceId as Any,
-            "openerSurfaceId": requested.flatMap { requested in
-                candidates.contains { $0.surfaceId == requested } ? requested.uuidString : nil
-            } as Any
-        ]
-    }
-
-    private func handleAttach(params: [String: Any], webView: WKWebView?) throws -> Any {
-        guard let attachmentParams = params["attachment"] as? [String: Any],
-              let displayName = attachmentParams["displayName"] as? String,
-              let submissionText = attachmentParams["submissionText"] as? String,
-              !submissionText.isEmpty else {
-            throw BridgeError.invalidRequest("Malformed attachment")
-        }
-        let submissionPath = attachmentParams["submissionPath"] as? String ?? displayName
-
-        let workspace = try resolveWorkspace(for: webView)
-        let requestedSurfaceId = Self.requestedSurfaceId(in: params)
-        let candidates = Self.attachCandidates(in: workspace)
-        let resolution = Self.resolveAttachTarget(
-            requested: requestedSurfaceId,
-            candidates: candidates
-        )
-
-        switch resolution {
-        case .attach(let surfaceId):
-            guard let terminal = workspace.terminalPanel(for: surfaceId) else {
-                throw BridgeError.invalidRequest("Terminal no longer exists")
-            }
-            terminal.insertTextBoxAttachments([
-                TextBoxAttachment(
-                    displayName: displayName,
-                    submissionText: submissionText,
-                    submissionPath: submissionPath,
-                    localURL: nil
-                )
-            ])
-            return [
-                "status": "attached",
-                "terminal": [
-                    "surfaceId": terminal.id.uuidString,
-                    "title": terminal.displayTitle
-                ]
-            ]
-        case .picker(let candidates):
-            return [
-                "status": "picker",
-                "candidates": candidates.map(Self.candidateJSON)
-            ]
-        case .unavailable:
-            return ["status": "unavailable"]
-        }
-    }
-
-    nonisolated private static func candidateJSON(_ candidate: AttachCandidate) -> [String: Any] {
-        [
-            "surfaceId": candidate.surfaceId.uuidString,
-            "title": candidate.title,
-            "directory": candidate.directory,
-            "hasActiveTextBox": candidate.hasActiveTextBox
-        ]
-    }
-
-    private static func attachCandidates(in workspace: Workspace) -> [AttachCandidate] {
-        workspace.panels.values
-            .compactMap { $0 as? TerminalPanel }
-            .map { panel in
-                AttachCandidate(
-                    surfaceId: panel.id,
-                    title: panel.displayTitle,
-                    directory: panel.directory,
-                    hasActiveTextBox: panel.isTextBoxActive
-                )
-            }
-            .sorted { lhs, rhs in
-                if lhs.hasActiveTextBox != rhs.hasActiveTextBox {
-                    return lhs.hasActiveTextBox
-                }
-                return lhs.surfaceId.uuidString < rhs.surfaceId.uuidString
-            }
-    }
-
-    /// Opener-first targeting: the surface the diff was opened from wins when
-    /// it is still a terminal in the diff viewer's workspace and either has
-    /// its TextBox open or no other terminal does. An opener whose TextBox is
-    /// closed must not silently win over terminals with visibly open
-    /// TextBoxes, so that case (and any other ambiguity) becomes a picker.
-    /// Without an opener: the only open TextBox wins, then the only terminal.
-    static func resolveAttachTarget(
-        requested: UUID?,
-        candidates: [AttachCandidate]
-    ) -> AttachResolution {
-        guard !candidates.isEmpty else { return .unavailable }
-        let activeTextBoxes = candidates.filter(\.hasActiveTextBox)
-        if let requested, let opener = candidates.first(where: { $0.surfaceId == requested }) {
-            if opener.hasActiveTextBox || activeTextBoxes.isEmpty {
-                return .attach(opener.surfaceId)
-            }
-            return .picker(candidates)
-        }
-        if activeTextBoxes.count == 1 {
-            return .attach(activeTextBoxes[0].surfaceId)
-        }
-        if candidates.count == 1 {
-            return .attach(candidates[0].surfaceId)
-        }
-        return .picker(candidates)
-    }
-
     // MARK: - JSON mapping
 
     nonisolated private static func commentJSON(_ comment: DiffComment) -> [String: Any] {
@@ -347,6 +231,7 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
             "endLine": comment.endLine,
             "lineText": comment.lineText,
             "message": comment.message,
+            "submissionText": comment.submissionText ?? "",
             "createdAt": formatter.string(from: comment.createdAt),
             "updatedAt": formatter.string(from: comment.updatedAt)
         ]
@@ -375,6 +260,8 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
             endSide: json["endSide"] as? String,
             lineText: json["lineText"] as? String ?? "",
             message: message,
+            submissionText: json["submissionText"] as? String,
+            consumedAt: nil,
             createdAt: now,
             updatedAt: now
         )

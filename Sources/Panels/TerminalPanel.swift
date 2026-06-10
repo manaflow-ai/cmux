@@ -64,9 +64,6 @@ final class TerminalPanel: Panel, ObservableObject {
     private var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
     private var preservedTextBoxAttributedContent: NSAttributedString?
     private var restoredTextBoxDraft: SessionTextBoxInputDraftSnapshot?
-    /// Attachments inserted programmatically (e.g. diff viewer comments) while
-    /// the TextBox view is not mounted; applied once it registers.
-    private var pendingProgrammaticTextBoxAttachments: [TextBoxAttachment] = []
     private var isClosingPanel = false
     private var didDiscardTextBoxContentForClose = false
 #if DEBUG
@@ -239,7 +236,6 @@ final class TerminalPanel: Panel, ObservableObject {
             self.preservedTextBoxAttributedContent = nil
             view.installPreservedContent(preservedTextBoxAttributedContent, notifyingTextChange: false)
         }
-        applyPendingProgrammaticTextBoxAttachmentsIfNeeded()
         focusTextBoxIfNeeded()
 #if DEBUG
         applyPendingDebugTextBoxInlineFixtureIfNeeded()
@@ -248,46 +244,12 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func textBoxInputViewDidMoveToWindow(_ view: TextBoxInputTextView) {
         guard textBoxInputView === view else { return }
-        applyPendingProgrammaticTextBoxAttachmentsIfNeeded()
         focusTextBoxIfNeeded()
 #if DEBUG
         applyPendingDebugTextBoxInlineFixtureIfNeeded()
 #endif
     }
 
-    /// Activates the TextBox (without stealing focus from the caller) and
-    /// inserts the given attachments at the end of its content. When the
-    /// TextBox view is not mounted (panel hidden or in another workspace) the
-    /// attachments are queued and applied when the view registers.
-    func insertTextBoxAttachments(_ attachments: [TextBoxAttachment]) {
-        guard !attachments.isEmpty else { return }
-        isTextBoxActive = true
-        if textBoxInputFocusIntent == .hidden {
-            textBoxInputFocusIntent = .terminal
-        }
-        shouldHideTextBoxOnNextEscape = false
-        if let textBoxInputView, textBoxInputView.window != nil {
-            textBoxInputView.appendAttachmentsWithoutFocusing(attachments)
-            textBoxContent = textBoxInputView.plainText()
-            textBoxAttachments = textBoxInputView.inlineAttachments()
-            return
-        }
-        pendingProgrammaticTextBoxAttachments.append(contentsOf: attachments)
-        // Keep the published mirror truthful so session snapshots taken before
-        // the view mounts still include the queued attachments.
-        textBoxAttachments.append(contentsOf: attachments)
-    }
-
-    private func applyPendingProgrammaticTextBoxAttachmentsIfNeeded() {
-        guard !pendingProgrammaticTextBoxAttachments.isEmpty,
-              let textBoxInputView,
-              textBoxInputView.window != nil else { return }
-        let pending = pendingProgrammaticTextBoxAttachments
-        pendingProgrammaticTextBoxAttachments = []
-        textBoxInputView.appendAttachmentsWithoutFocusing(pending)
-        textBoxContent = textBoxInputView.plainText()
-        textBoxAttachments = textBoxInputView.inlineAttachments()
-    }
 
     @discardableResult
     func toggleTextBoxInput() -> Bool {
@@ -424,7 +386,6 @@ final class TerminalPanel: Panel, ObservableObject {
         }
         restoredTextBoxDraft = nil
         preservedTextBoxAttributedContent = nil
-        pendingProgrammaticTextBoxAttachments = []
         textBoxContent = ""
         textBoxAttachments = []
         isTextBoxActive = false
@@ -477,7 +438,6 @@ final class TerminalPanel: Panel, ObservableObject {
 
         restoredTextBoxDraft = draft
         preservedTextBoxAttributedContent = nil
-        pendingProgrammaticTextBoxAttachments = []
         textBoxContent = TextBoxInputTextView.plainText(from: draft)
         textBoxAttachments = TextBoxInputTextView.attachments(from: draft)
         isTextBoxActive = draft.isActive

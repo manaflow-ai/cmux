@@ -6,7 +6,7 @@ import {
   sidebarCommentEntries,
   withCommentAnnotations,
 } from "../src/comments/annotations";
-import { attachmentForComment, commentDisplayName } from "../src/comments/format";
+import { commentDisplayName, commentSubmissionText } from "../src/comments/format";
 import { resolveCommentLabels } from "../src/comments/labels";
 import type { DiffCommentRecord } from "../src/comments/types";
 import type { DiffItem } from "../src/diff-stream";
@@ -105,24 +105,21 @@ test("commentDisplayName collapses single-line ranges", () => {
   expect(commentDisplayName(comment({ startLine: 11, endLine: 11 }))).toBe("example.ts:11");
 });
 
-test("attachmentForComment formats the submission text", () => {
-  const attachment = attachmentForComment(comment(), fileDiff);
-  expect(attachment.displayName).toBe("example.ts:10-11");
-  expect(attachment.submissionPath).toBe("src/example.ts");
-  expect(attachment.submissionText).toBe(
+test("commentSubmissionText formats the submission text", () => {
+  expect(commentSubmissionText(comment(), fileDiff)).toBe(
     "Review comment on src/example.ts lines 10-11 (new version):\n\n" +
       "10: const a = 1;\n11: const b = 2;\n\n" +
       "rename this\n",
   );
 });
 
-test("attachmentForComment marks deletion-side comments as old version", () => {
-  const attachment = attachmentForComment(
+test("commentSubmissionText marks deletion-side comments as old version", () => {
+  const submissionText = commentSubmissionText(
     comment({ side: "deletions", startLine: 28, endLine: 28, lineText: "yield a;" }),
     fileDiff,
   );
-  expect(attachment.submissionText).toContain("line 28 (old version)");
-  expect(attachment.submissionText).toContain("28: yield a;");
+  expect(submissionText).toContain("line 28 (old version)");
+  expect(submissionText).toContain("28: yield a;");
 });
 
 test("annotationsForItem anchors comments and appends the draft", () => {
@@ -180,23 +177,4 @@ test("resolveCommentLabels prefers payload labels and falls back to English", ()
   const labels = resolveCommentLabels({ labels: { comments: "コメント" } });
   expect(labels.comments).toBe("コメント");
   expect(labels.addComment).toBe("Add comment");
-});
-
-test("attachTargetOptionLabels disambiguates duplicate titles", async () => {
-  const { attachTargetOptionLabels } = await import("../src/comments/format");
-  const labels = attachTargetOptionLabels([
-    { surfaceId: "a", title: "zsh", directory: "/repo/api", hasActiveTextBox: true },
-    { surfaceId: "b", title: "zsh", directory: "/repo/web", hasActiveTextBox: false },
-    { surfaceId: "c", title: "vim", directory: "/repo/api", hasActiveTextBox: false },
-  ]);
-  expect(labels).toEqual(["zsh — api", "zsh — web", "vim"]);
-});
-
-test("attachTargetOptionLabels falls back to ordinals for identical terminals", async () => {
-  const { attachTargetOptionLabels } = await import("../src/comments/format");
-  const labels = attachTargetOptionLabels([
-    { surfaceId: "a", title: "zsh", directory: "/repo", hasActiveTextBox: true },
-    { surfaceId: "b", title: "zsh", directory: "/repo", hasActiveTextBox: false },
-  ]);
-  expect(labels).toEqual(["zsh — repo (1)", "zsh — repo (2)"]);
 });

@@ -852,14 +852,6 @@ body[data-loading="true"] #status::before {
   display: inline-flex;
   gap: 6px;
 }
-.comment-attach-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--cmux-diff-text-muted);
-  cursor: pointer;
-  user-select: none;
-}
 .comment-button {
   padding: 4px 12px;
   border: 0;
@@ -925,75 +917,4 @@ body[data-loading="true"] #status::before {
 .comment-card-message {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-.comment-attach-area {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-.comment-attach-status {
-  color: var(--cmux-diff-text-muted);
-}
-.comment-attach-muted {
-  color: var(--cmux-diff-text-muted);
-}
-.comment-attach-picker {
-  flex-direction: column;
-  align-items: stretch;
-}
-.comment-picker-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 7px;
-  border: 1px solid var(--cmux-diff-border);
-  border-radius: 5px;
-  background: transparent;
-  color: var(--cmux-diff-fg);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.comment-picker-item:hover {
-  background: var(--cmux-diff-hover-bg);
-}
-.comment-picker-title {
-  font-weight: 500;
-}
-.comment-picker-directory {
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--cmux-diff-text-muted);
-}
-.comment-picker-badge {
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--cmux-diff-accent);
-}
-.comment-attach-target {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--cmux-diff-text-muted);
-}
-.comment-attach-target-label {
-  flex: 0 0 auto;
-  font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
-}
-.comment-attach-target-select {
-  min-width: 0;
-  max-width: 240px;
-  padding: 2px 6px;
-  border: 1px solid var(--cmux-diff-border);
-  border-radius: 6px;
-  background: var(--cmux-diff-bg);
-  color: var(--cmux-diff-fg);
-  font: inherit;
-  font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
 }

@@ -402,21 +402,13 @@ extension CMUXCLI {
             DiffViewerLabels(values: [
                 "additions": CMUXDiffViewerLocalization.string("diffViewer.additions", defaultValue: "Additions"),
                 "addComment": CMUXDiffViewerLocalization.string("diffViewer.addComment", defaultValue: "Add comment"),
-                "attachComment": CMUXDiffViewerLocalization.string("diffViewer.attachComment", defaultValue: "Attach"),
-                "attachFailed": CMUXDiffViewerLocalization.string("diffViewer.attachFailed", defaultValue: "Attach failed"),
-                "attachOnSave": CMUXDiffViewerLocalization.string("diffViewer.attachOnSave", defaultValue: "Attach to terminal TextBox"),
-                "attachTo": CMUXDiffViewerLocalization.string("diffViewer.attachTo", defaultValue: "Attach to"),
-                "dontAttach": CMUXDiffViewerLocalization.string("diffViewer.dontAttach", defaultValue: "Don't attach"),
-                "attachedComment": CMUXDiffViewerLocalization.string("diffViewer.attachedComment", defaultValue: "Attached"),
                 "bars": CMUXDiffViewerLocalization.string("diffViewer.bars", defaultValue: "Bars"),
                 "cancelComment": CMUXDiffViewerLocalization.string("diffViewer.cancelComment", defaultValue: "Cancel"),
-                "chooseTerminal": CMUXDiffViewerLocalization.string("diffViewer.chooseTerminal", defaultValue: "Choose a terminal"),
                 "comments": CMUXDiffViewerLocalization.string("diffViewer.comments", defaultValue: "Comments"),
                 "commentPlaceholder": CMUXDiffViewerLocalization.string("diffViewer.commentPlaceholder", defaultValue: "Leave a comment"),
                 "deleteComment": CMUXDiffViewerLocalization.string("diffViewer.deleteComment", defaultValue: "Delete"),
                 "editComment": CMUXDiffViewerLocalization.string("diffViewer.editComment", defaultValue: "Edit"),
                 "noComments": CMUXDiffViewerLocalization.string("diffViewer.noComments", defaultValue: "No comments yet"),
-                "noTerminalForAttach": CMUXDiffViewerLocalization.string("diffViewer.noTerminalForAttach", defaultValue: "No terminal available"),
                 "outdatedComment": CMUXDiffViewerLocalization.string("diffViewer.outdatedComment", defaultValue: "Outdated"),
                 "saveComment": CMUXDiffViewerLocalization.string("diffViewer.saveComment", defaultValue: "Comment"),
                 "changedFiles": CMUXDiffViewerLocalization.string("diffViewer.changedFiles", defaultValue: "Changed files"),
@@ -858,21 +850,20 @@ extension CMUXCLI {
                 startingAt: FileManager.default.currentDirectoryPath
             )
         }
-        // Resolve the opener workspace/surface before writing the viewer HTML
-        // (for piped patches too), so the payload's commentTarget always points
-        // at the terminal the diff was opened from.
-        try resolveTargetIfNeeded()
-        var sourceContext = try canonicalDiffSourceContext(
-            workspaceHandle: workspaceHandle,
-            surfaceHandle: surfaceHandle,
-            windowHandle: windowHandle,
-            client: try connectedClient()
-        )
-        sourceContext.repoRoot = diffSourceContext.repoRoot
-        sourceContext.branchBaseRef = diffSourceContext.branchBaseRef
-        diffSourceContext = sourceContext
-        workspaceHandle = sourceContext.workspaceId ?? workspaceHandle
-        surfaceHandle = sourceContext.surfaceId ?? surfaceHandle
+        if parsedArgs.source != nil {
+            try resolveTargetIfNeeded()
+            var sourceContext = try canonicalDiffSourceContext(
+                workspaceHandle: workspaceHandle,
+                surfaceHandle: surfaceHandle,
+                windowHandle: windowHandle,
+                client: try connectedClient()
+            )
+            sourceContext.repoRoot = diffSourceContext.repoRoot
+            sourceContext.branchBaseRef = diffSourceContext.branchBaseRef
+            diffSourceContext = sourceContext
+            workspaceHandle = sourceContext.workspaceId ?? workspaceHandle
+            surfaceHandle = sourceContext.surfaceId ?? surfaceHandle
+        }
 
         let appearance = diffViewerAppearance(
             socketPath: socketPath,
@@ -3112,8 +3103,6 @@ extension CMUXCLI {
             appearance: appearance,
             sourceOptions: [],
             repoRoot: context.repoRoot,
-            commentTargetWorkspaceId: context.workspaceId,
-            commentTargetSurfaceId: context.surfaceId,
             runtime: runtime
         )
         let assets = try ensureDiffViewerAssets(nextTo: viewerFileURL, runtime: runtime)
@@ -3696,8 +3685,6 @@ extension CMUXCLI {
                 baseOptions: selectedSource == .branch ? baseOptions : [],
                 repoRoot: repoRoot,
                 branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil,
-                commentTargetWorkspaceId: selectedContext.workspaceId,
-                commentTargetSurfaceId: selectedContext.surfaceId,
                 runtime: target.runtime
             )
         } else if let selectedEmptyMessage {
@@ -4003,8 +3990,6 @@ extension CMUXCLI {
             baseOptions: baseOptions,
             repoRoot: pageContext.repoRoot,
             branchBaseRef: source == .branch ? pageContext.branchBaseRef : nil,
-            commentTargetWorkspaceId: pageContext.workspaceId,
-            commentTargetSurfaceId: pageContext.surfaceId,
             runtime: sourceSet.runtime
         )
         return DiffViewerDeferredCompletion(
@@ -5625,8 +5610,6 @@ extension CMUXCLI {
         baseOptions: [DiffViewerSourceOption] = [],
         repoRoot: String? = nil,
         branchBaseRef: String? = nil,
-        commentTargetWorkspaceId: String? = nil,
-        commentTargetSurfaceId: String? = nil,
         statusMessage: String? = nil,
         statusIsError: Bool = false,
         pollForReplacement: Bool = false,
@@ -5665,16 +5648,6 @@ extension CMUXCLI {
         }
         if let branchBaseRef {
             payload["branchBaseRef"] = branchBaseRef
-        }
-        if commentTargetWorkspaceId != nil || commentTargetSurfaceId != nil {
-            var commentTarget: [String: Any] = [:]
-            if let commentTargetWorkspaceId {
-                commentTarget["workspaceId"] = commentTargetWorkspaceId
-            }
-            if let commentTargetSurfaceId {
-                commentTarget["surfaceId"] = commentTargetSurfaceId
-            }
-            payload["commentTarget"] = commentTarget
         }
         let assets = try ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtime)
         let config: [String: Any] = [

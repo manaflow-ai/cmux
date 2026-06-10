@@ -1,12 +1,5 @@
 import { makeClientId } from "../agent-session/shared/ids";
-import type {
-  AttachResult,
-  AttachTargets,
-  CommentAttachment,
-  CommentTarget,
-  DiffCommentRecord,
-  DiffCommentSaveInput,
-} from "./types";
+import type { DiffCommentRecord, DiffCommentSaveInput } from "./types";
 
 type NativeReply<T> =
   | { ok: true; value: T }
@@ -75,40 +68,4 @@ export async function saveComment(
 
 export async function deleteComment(repoRoot: string, id: string): Promise<void> {
   await callDiffComments<unknown>("comments.delete", { repoRoot, id });
-}
-
-export async function listAttachTargets(
-  repoRoot: string,
-  target?: CommentTarget,
-): Promise<AttachTargets> {
-  const value = await callDiffComments<Partial<AttachTargets>>("comments.targets", {
-    repoRoot,
-    target: target ?? null,
-  });
-  return {
-    candidates: Array.isArray(value?.candidates) ? value.candidates : [],
-    defaultSurfaceId: typeof value?.defaultSurfaceId === "string" ? value.defaultSurfaceId : null,
-    openerSurfaceId: typeof value?.openerSurfaceId === "string" ? value.openerSurfaceId : null,
-  };
-}
-
-export async function attachComment(
-  repoRoot: string,
-  attachment: CommentAttachment,
-  target?: CommentTarget,
-  explicit?: boolean,
-): Promise<AttachResult> {
-  const value = await callDiffComments<AttachResult>("comments.attach", {
-    repoRoot,
-    attachment,
-    target: target ?? null,
-    explicit: explicit === true,
-  });
-  if (value?.status === "attached" && typeof value.terminal?.surfaceId === "string") {
-    return value;
-  }
-  if (value?.status === "picker" && Array.isArray(value.candidates)) {
-    return value;
-  }
-  return { status: "unavailable" };
 }

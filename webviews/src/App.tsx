@@ -6,7 +6,7 @@ import { preparePresortedFileTreeInput } from "@pierre/trees";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
-import { lineTextFor } from "./comments/anchor";
+import { lineTextFor, type CommentFileDiff } from "./comments/anchor";
 import {
   applyCommentAnnotations,
   sidebarCommentEntries,
@@ -15,22 +15,17 @@ import {
   type SidebarCommentEntry,
 } from "./comments/annotations";
 import {
-  attachComment,
   deleteComment as bridgeDeleteComment,
   diffCommentsBridgeAvailable,
-  listAttachTargets,
   saveComment as bridgeSaveComment,
 } from "./comments/bridge";
 import { CommentComposer } from "./comments/CommentComposer";
 import { CommentsSidebarSection } from "./comments/CommentsSection";
-import { attachmentForComment } from "./comments/format";
+import { commentSubmissionText } from "./comments/format";
 import { resolveCommentLabels, type DiffCommentLabels } from "./comments/labels";
 import { SavedComment } from "./comments/SavedComment";
 import type {
-  AttachTargets,
-  CommentAttachState,
   CommentDraft,
-  CommentTarget,
   DiffCommentRecord,
   DiffCommentSide,
 } from "./comments/types";
@@ -60,7 +55,6 @@ type ConfigProps = {
 type AppState = {
   activeItemId: string;
   activeTreePath: string;
-  attachOnSave: boolean;
   comments: DiffCommentRecord[];
   copyFeedback: string;
   draft: CommentDraft | null;
@@ -80,7 +74,6 @@ type AppAction =
   | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
   | { type: "set-active-item"; itemId: string; treePath?: string }
-  | { type: "set-attach-on-save"; value: boolean }
   | { type: "set-comments"; comments: DiffCommentRecord[] }
   | { type: "set-copy-feedback"; message: string }
   | { type: "set-draft"; draft: CommentDraft | null }
@@ -98,31 +91,13 @@ const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
 const defaultWorkerModuleURL = "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js";
 const persistedLayoutKey = "cmux.diffViewer.layout";
-const persistedAttachOnSaveKey = "cmux.diffViewer.attachToTextBox";
 type DiffViewerLayout = DiffViewerOptions["layout"];
-
-function readPersistedAttachOnSave(): boolean {
-  try {
-    return window.localStorage.getItem(persistedAttachOnSaveKey) !== "false";
-  } catch {
-    return true;
-  }
-}
-
-function persistAttachOnSave(value: boolean): void {
-  try {
-    window.localStorage.setItem(persistedAttachOnSaveKey, value ? "true" : "false");
-  } catch {
-    // Storage may be unavailable for some generated viewer origins.
-  }
-}
 
 function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStatus): AppState {
   const payload = config.payload ?? {};
   return {
     activeItemId: "",
     activeTreePath: "",
-    attachOnSave: readPersistedAttachOnSave(),
     comments: [],
     copyFeedback: "",
     draft: null,
@@ -188,9 +163,6 @@ function reducer(state: AppState, action: AppAction): AppState {
       activeItemId: action.itemId,
       activeTreePath: action.treePath ?? state.activeTreePath,
     };
-  case "set-attach-on-save":
-    persistAttachOnSave(action.value);
-    return { ...state, attachOnSave: action.value };
   case "set-comments":
     return {
       ...state,
@@ -270,18 +242,11 @@ export function App({ config, initialStatus }: ConfigProps) {
   const repoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
   const bridgeAvailable = diffCommentsBridgeAvailable() && repoRoot != null;
   const commentLabels = resolveCommentLabels(payload);
-  const commentTarget: CommentTarget | undefined = payload.commentTarget &&
-    typeof payload.commentTarget === "object"
-    ? payload.commentTarget
-    : undefined;
-  const [attachStates, setAttachStates] = useState<Record<string, CommentAttachState>>({});
   const comments = useDiffComments({
     bridgeAvailable,
-    commentTarget,
     dispatch,
     latestState,
     repoRoot,
-    setAttachStates,
   });
   const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
   renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
@@ -298,25 +263,18 @@ export function App({ config, initialStatus }: ConfigProps) {
     if (metadata.kind === "draft") {
       return (
         <CommentComposer
-          attachOnSave={bridgeAvailable && state.attachOnSave}
-          attachTargets={comments.draftTargets}
           labels={commentLabels}
-          showAttachToggle={bridgeAvailable}
-          onAttachOnSaveChange={(value) => dispatch({ type: "set-attach-on-save", value })}
           onCancel={() => dispatch({ type: "set-draft", draft: null })}
-          onSave={(message, targetSurfaceId) => comments.saveDraft(item, message, targetSurfaceId)}
+          onSave={(message) => comments.saveDraft(item, message)}
         />
       );
     }
     return (
       <SavedComment
-        attachState={attachStates[metadata.comment.id] ?? { phase: "idle" }}
-        bridgeAvailable={bridgeAvailable}
         comment={metadata.comment}
         labels={commentLabels}
-        onAttach={(target, explicit) => comments.attach(metadata.comment, item.fileDiff, target, explicit)}
         onDelete={() => comments.remove(metadata.comment)}
-        onSaveMessage={(message) => comments.editMessage(metadata.comment, message)}
+        onSaveMessage={(message) => comments.editMessage(metadata.comment, message, item.fileDiff)}
       />
     );
   };
@@ -441,29 +399,25 @@ function resolveDiffViewerAssetURL(rawURL: string | undefined): URL {
 
 /**
  * Bundles the diff comment handlers: loading persisted comments, opening a
- * draft from the gutter utility, saving/editing/deleting, and attaching a
- * saved comment to a terminal TextBox through the native bridge.
+ * draft from the gutter utility, and saving/editing/deleting. Saved comments
+ * carry a precomputed `submissionText`; native code pools them per workspace
+ * and consumes the pool on TextBox submit.
  */
 function useDiffComments({
   bridgeAvailable,
-  commentTarget,
   dispatch,
   latestState,
   repoRoot,
-  setAttachStates,
 }: {
   bridgeAvailable: boolean;
-  commentTarget: CommentTarget | undefined;
   dispatch: React.Dispatch<AppAction>;
   latestState: React.MutableRefObject<AppState>;
   repoRoot: string | null;
-  setAttachStates: React.Dispatch<React.SetStateAction<Record<string, CommentAttachState>>>;
 }) {
   const onLoaded = useCallback(
     (comments: DiffCommentRecord[]) => dispatch({ type: "set-comments", comments }),
     [dispatch],
   );
-  const [draftTargets, setDraftTargets] = useState<AttachTargets | null>(null);
 
   const onGutterUtilityClick = (range: SelectedLineRange, context: { item: DiffItem }) => {
     const side: DiffCommentSide = range.side === "deletions" ? "deletions" : "additions";
@@ -476,43 +430,9 @@ function useDiffComments({
         endLine: Math.max(range.start, range.end),
       },
     });
-    setDraftTargets(null);
-    if (bridgeAvailable && repoRoot != null) {
-      listAttachTargets(repoRoot, commentTarget)
-        .then((targets) => setDraftTargets(targets))
-        .catch((error) => console.warn("cmux diff comment targets failed", error));
-    }
   };
 
-  const attach = (
-    comment: DiffCommentRecord,
-    fileDiff: any,
-    target: CommentTarget | undefined,
-    explicit: boolean,
-  ) => {
-    if (!bridgeAvailable || repoRoot == null) {
-      return;
-    }
-    setAttachStates((previous) => ({ ...previous, [comment.id]: { phase: "attaching" } }));
-    attachComment(repoRoot, attachmentForComment(comment, fileDiff), target ?? commentTarget, explicit)
-      .then((result) => {
-        setAttachStates((previous) => ({
-          ...previous,
-          [comment.id]:
-            result.status === "attached"
-              ? { phase: "attached", terminal: result.terminal }
-              : result.status === "picker"
-                ? { phase: "picker", candidates: result.candidates }
-                : { phase: "unavailable" },
-        }));
-      })
-      .catch((error) => {
-        console.warn("cmux diff comment attach failed", error);
-        setAttachStates((previous) => ({ ...previous, [comment.id]: { phase: "failed" } }));
-      });
-  };
-
-  const saveDraft = (item: DiffItem, message: string, targetSurfaceId: string | null) => {
+  const saveDraft = (item: DiffItem, message: string) => {
     const draft = latestState.current.draft;
     if (draft == null || draft.itemId !== item.id || message.trim() === "") {
       return;
@@ -525,25 +445,28 @@ function useDiffComments({
       lineText: lineTextFor(item.fileDiff, draft.side, draft.endLine) ?? "",
       message,
     };
+    const record = { ...input, submissionText: commentSubmissionText(input, item.fileDiff) };
     const save = bridgeAvailable && repoRoot != null
-      ? bridgeSaveComment(repoRoot, input)
-      : Promise.resolve(localCommentRecord(input));
+      ? bridgeSaveComment(repoRoot, record)
+      : Promise.resolve(localCommentRecord(record));
     save
       .then((saved) => {
         dispatch({ type: "upsert-comment", comment: saved });
         dispatch({ type: "set-draft", draft: null });
-        if (bridgeAvailable && targetSurfaceId != null) {
-          attach(saved, item.fileDiff, { surfaceId: targetSurfaceId }, true);
-        }
       })
       .catch((error) => console.warn("cmux diff comment save failed", error));
   };
 
-  const editMessage = (comment: DiffCommentRecord, message: string) => {
+  const editMessage = (
+    comment: DiffCommentRecord,
+    message: string,
+    fileDiff: CommentFileDiff | null | undefined,
+  ) => {
     if (message.trim() === "") {
       return;
     }
-    const updated = { ...comment, message, updatedAt: new Date().toISOString() };
+    const edited = { ...comment, message, updatedAt: new Date().toISOString() };
+    const updated = { ...edited, submissionText: commentSubmissionText(edited, fileDiff) };
     const save = bridgeAvailable && repoRoot != null
       ? bridgeSaveComment(repoRoot, updated)
       : Promise.resolve(updated);
@@ -558,17 +481,9 @@ function useDiffComments({
         .catch((error) => console.warn("cmux diff comment delete failed", error));
     }
     dispatch({ type: "remove-comment", id: comment.id });
-    setAttachStates((previous) => {
-      if (!(comment.id in previous)) {
-        return previous;
-      }
-      const next = { ...previous };
-      delete next[comment.id];
-      return next;
-    });
   };
 
-  return { attach, draftTargets, editMessage, onGutterUtilityClick, onLoaded, remove, saveDraft };
+  return { editMessage, onGutterUtilityClick, onLoaded, remove, saveDraft };
 }
 
 function localCommentRecord(

@@ -15,6 +15,12 @@ struct DiffComment: Codable, Equatable, Identifiable {
     var endSide: String?
     var lineText: String
     var message: String
+    /// Formatted text block appended to a TextBox submission when the
+    /// workspace's pending pool is consumed.
+    var submissionText: String?
+    /// Set when a TextBox submission delivered this comment to an agent;
+    /// consumed comments never re-enter the pending pool.
+    var consumedAt: Date?
     var createdAt: Date
     var updatedAt: Date
 }
@@ -56,6 +62,22 @@ final class DiffCommentStore {
         }
         saveFile(file, repoRoot: repoRoot)
         return stored
+    }
+
+    /// Marks comments as delivered to an agent so they never re-enter the
+    /// pending submission pool.
+    func markConsumed(ids: [UUID], repoRoot: String, at date: Date = Date()) {
+        guard !ids.isEmpty else { return }
+        var file = loadFile(repoRoot: repoRoot)
+        let idSet = Set(ids)
+        var changed = false
+        for index in file.comments.indices where idSet.contains(file.comments[index].id) {
+            file.comments[index].consumedAt = date
+            changed = true
+        }
+        if changed {
+            saveFile(file, repoRoot: repoRoot)
+        }
     }
 
     @discardableResult

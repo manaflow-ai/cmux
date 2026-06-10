@@ -25,6 +25,8 @@ final class DiffCommentStoreTests: XCTestCase {
             endSide: nil,
             lineText: "    let value = compute()",
             message: message,
+            submissionText: "Review comment\n",
+            consumedAt: nil,
             createdAt: Date(timeIntervalSince1970: 1_000),
             updatedAt: Date(timeIntervalSince1970: 1_000)
         )
@@ -93,6 +95,18 @@ final class DiffCommentStoreTests: XCTestCase {
         )
     }
 
+    func testMarkConsumedPersists() throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repoRoot = "/tmp/example-repo"
+        let comment = makeComment()
+        store.upsert(comment, repoRoot: repoRoot)
+        store.markConsumed(ids: [comment.id], repoRoot: repoRoot)
+
+        let reloaded = DiffCommentStore(directoryURL: directory)
+        XCTAssertNotNil(reloaded.comments(repoRoot: repoRoot).first?.consumedAt)
+    }
+
     func testNilDirectoryStoreStaysInMemory() {
         let store = DiffCommentStore(directoryURL: nil)
         let comment = makeComment()
@@ -101,97 +115,53 @@ final class DiffCommentStoreTests: XCTestCase {
     }
 }
 
+
 @MainActor
-final class DiffCommentsAttachResolutionTests: XCTestCase {
-    private func candidate(
-        _ id: UUID,
-        textBox: Bool
-    ) -> DiffCommentsBridge.AttachCandidate {
-        DiffCommentsBridge.AttachCandidate(
-            surfaceId: id,
-            title: "terminal",
-            directory: "/tmp",
-            hasActiveTextBox: textBox
-        )
+final class DiffCommentSubmissionPoolTests: XCTestCase {
+    private func entry(_ id: UUID = UUID(), text: String = "fix this\n") -> DiffCommentSubmissionPool.Entry {
+        DiffCommentSubmissionPool.Entry(commentId: id, repoRoot: "/tmp/repo", submissionText: text)
     }
 
-    func testOpenerWithActiveTextBoxWins() {
-        let opener = UUID()
-        let other = UUID()
-        let resolution = DiffCommentsBridge.resolveAttachTarget(
-            requested: opener,
-            candidates: [candidate(other, textBox: true), candidate(opener, textBox: true)]
-        )
-        guard case .attach(let target) = resolution else {
-            return XCTFail("Expected attach, got \(resolution)")
-        }
-        XCTAssertEqual(target, opener)
+    func testSetPendingUpsertsById() {
+        let pool = DiffCommentSubmissionPool()
+        let workspace = UUID()
+        let id = UUID()
+        pool.setPending(entry(id, text: "first\n"), workspaceId: workspace)
+        pool.setPending(entry(id, text: "edited\n"), workspaceId: workspace)
+        pool.setPending(entry(), workspaceId: workspace)
+        XCTAssertEqual(pool.pendingCount(workspaceId: workspace), 2)
+        XCTAssertEqual(pool.entriesByWorkspace[workspace]?.first?.submissionText, "edited\n")
     }
 
-    func testOpenerWinsWhenNoTextBoxIsOpenAnywhere() {
-        let opener = UUID()
-        let resolution = DiffCommentsBridge.resolveAttachTarget(
-            requested: opener,
-            candidates: [candidate(UUID(), textBox: false), candidate(opener, textBox: false)]
-        )
-        guard case .attach(let target) = resolution else {
-            return XCTFail("Expected attach, got \(resolution)")
-        }
-        XCTAssertEqual(target, opener)
+    func testConsumeAllClearsTheWorkspaceOnly() {
+        let pool = DiffCommentSubmissionPool()
+        let workspaceA = UUID()
+        let workspaceB = UUID()
+        pool.setPending(entry(), workspaceId: workspaceA)
+        pool.setPending(entry(), workspaceId: workspaceB)
+        let consumed = pool.consumeAll(workspaceId: workspaceA)
+        XCTAssertEqual(consumed.count, 1)
+        XCTAssertEqual(pool.pendingCount(workspaceId: workspaceA), 0)
+        XCTAssertEqual(pool.pendingCount(workspaceId: workspaceB), 1)
     }
 
-    func testClosedOpenerYieldsPickerWhenAnotherTextBoxIsOpen() {
-        let opener = UUID()
-        let resolution = DiffCommentsBridge.resolveAttachTarget(
-            requested: opener,
-            candidates: [candidate(UUID(), textBox: true), candidate(opener, textBox: false)]
-        )
-        guard case .picker(let candidates) = resolution else {
-            return XCTFail("Expected picker, got \(resolution)")
-        }
-        XCTAssertEqual(candidates.count, 2)
+    func testRestorePendingAfterFailedSubmit() {
+        let pool = DiffCommentSubmissionPool()
+        let workspace = UUID()
+        pool.setPending(entry(), workspaceId: workspace)
+        let consumed = pool.consumeAll(workspaceId: workspace)
+        pool.restorePending(consumed, workspaceId: workspace)
+        XCTAssertEqual(pool.pendingCount(workspaceId: workspace), 1)
     }
 
-    func testSingleActiveTextBoxWinsWhenOpenerGone() {
-        let active = UUID()
-        let resolution = DiffCommentsBridge.resolveAttachTarget(
-            requested: UUID(),
-            candidates: [candidate(UUID(), textBox: false), candidate(active, textBox: true)]
-        )
-        guard case .attach(let target) = resolution else {
-            return XCTFail("Expected attach, got \(resolution)")
-        }
-        XCTAssertEqual(target, active)
-    }
-
-    func testSingleTerminalWinsWithoutActiveTextBox() {
-        let only = UUID()
-        let resolution = DiffCommentsBridge.resolveAttachTarget(
-            requested: nil,
-            candidates: [candidate(only, textBox: false)]
-        )
-        guard case .attach(let target) = resolution else {
-            return XCTFail("Expected attach, got \(resolution)")
-        }
-        XCTAssertEqual(target, only)
-    }
-
-    func testAmbiguousTerminalsBecomePicker() {
-        let resolution = DiffCommentsBridge.resolveAttachTarget(
-            requested: nil,
-            candidates: [candidate(UUID(), textBox: true), candidate(UUID(), textBox: true)]
-        )
-        guard case .picker(let candidates) = resolution else {
-            return XCTFail("Expected picker, got \(resolution)")
-        }
-        XCTAssertEqual(candidates.count, 2)
-    }
-
-    func testNoTerminalsIsUnavailable() {
-        let resolution = DiffCommentsBridge.resolveAttachTarget(requested: nil, candidates: [])
-        guard case .unavailable = resolution else {
-            return XCTFail("Expected unavailable, got \(resolution)")
-        }
+    func testRemovePendingDropsDeletedComment() {
+        let pool = DiffCommentSubmissionPool()
+        let workspace = UUID()
+        let id = UUID()
+        pool.setPending(entry(id), workspaceId: workspace)
+        pool.removePending(commentId: id)
+        XCTAssertEqual(pool.pendingCount(workspaceId: workspace), 0)
+        XCTAssertEqual(pool.pendingCount(workspaceId: nil), 0)
     }
 }
 
