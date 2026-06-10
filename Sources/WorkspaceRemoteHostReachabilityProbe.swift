@@ -58,16 +58,25 @@ enum WorkspaceRemoteHostReachabilityProbe {
     /// Resolve the effective `(host, port)` for an SSH destination using
     /// `ssh -G`. Returns nil when the endpoint cannot be probed directly
     /// (ProxyCommand transports, unparsable output, or resolution failure).
+    ///
+    /// `sshConfigFile` is a test seam: passing a path (such as `/dev/null`)
+    /// pins resolution to that config via `ssh -F`, keeping tests hermetic
+    /// against the ambient `~/.ssh/config`. Production callers leave it nil
+    /// so the user's real config (aliases, HostName, ProxyJump) is honored.
     static func resolveEndpoint(
         destination: String,
         port: Int?,
         identityFile: String?,
-        sshOptions: [String]
+        sshOptions: [String],
+        sshConfigFile: String? = nil
     ) -> Endpoint? {
         let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDestination.isEmpty, !trimmedDestination.hasPrefix("-") else { return nil }
 
         var arguments = ["-G"]
+        if let sshConfigFile, !sshConfigFile.isEmpty {
+            arguments += ["-F", sshConfigFile]
+        }
         if let port, port > 0 {
             arguments += ["-p", String(port)]
         }
@@ -89,7 +98,12 @@ enum WorkspaceRemoteHostReachabilityProbe {
             // Reachability of the first hop is the right signal for "can this
             // network reach the SSH entry point at all".
             guard let jump = parseJumpSpec(proxyJump) else { return nil }
-            guard let jumpOutput = runSSHConfigResolution(arguments: ["-G", jump.destination]) else {
+            var jumpArguments = ["-G"]
+            if let sshConfigFile, !sshConfigFile.isEmpty {
+                jumpArguments += ["-F", sshConfigFile]
+            }
+            jumpArguments.append(jump.destination)
+            guard let jumpOutput = runSSHConfigResolution(arguments: jumpArguments) else {
                 return nil
             }
             let jumpResolved = parseSSHConfigOutput(jumpOutput)

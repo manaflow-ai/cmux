@@ -7220,15 +7220,16 @@ struct CMUXCLI {
         let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
         let (_, rem1) = parseOption(rem0, name: "--window")
         let positional = rem1.first(where: { !$0.hasPrefix("--") })
+        let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
+        // With an explicit --window and no workspace argument, target that
+        // window's selected workspace on the server instead of the caller's
+        // CMUX_WORKSPACE_ID, which may live in a different window.
         let target = workspaceArg
             ?? positional
-            ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
 
         var params: [String: Any] = [:]
-        let winId = try normalizeWindowHandle(
-            windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride),
-            client: client
-        )
+        let winId = try normalizeWindowHandle(windowRaw, client: client)
         if let winId { params["window_id"] = winId }
         if let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId) {
             params["workspace_id"] = wsId

@@ -159,11 +159,14 @@ struct WorkspaceRemoteHostReachabilityProbeTests {
 
     @Test("ProxyCommand destinations cannot be probed directly")
     func proxyCommandResolvesToNil() {
+        // sshConfigFile pins resolution to an empty config so the test stays
+        // hermetic against the developer/CI user's ~/.ssh/config.
         let endpoint = WorkspaceRemoteHostReachabilityProbe.resolveEndpoint(
             destination: "nobody@127.0.0.1",
             port: 22,
             identityFile: nil,
-            sshOptions: ["ProxyCommand=/usr/bin/nc %h %p"]
+            sshOptions: ["ProxyCommand=/usr/bin/nc %h %p"],
+            sshConfigFile: "/dev/null"
         )
         #expect(endpoint == nil)
     }
@@ -174,7 +177,8 @@ struct WorkspaceRemoteHostReachabilityProbeTests {
             destination: "nobody@127.0.0.1",
             port: 2222,
             identityFile: nil,
-            sshOptions: []
+            sshOptions: [],
+            sshConfigFile: "/dev/null"
         )
         let resolved = try #require(endpoint)
         #expect(resolved.host == "127.0.0.1")
