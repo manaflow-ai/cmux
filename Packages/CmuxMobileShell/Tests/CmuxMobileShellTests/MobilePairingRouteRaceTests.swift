@@ -198,7 +198,9 @@ import Testing
         let probe = RaceProbe()
         let routes = [try route("a", host: "100.64.0.1"), try route("b", host: "100.64.0.2")]
         let race = MobilePairingRouteRace(clock: clock)
-        let credentialRejection = MobileShellConnectionError.accountMismatch("different account")
+        // The locally checked ticket expiry is the only failure that is
+        // route-independent by construction (no host is consulted).
+        let localExpiry = MobileShellConnectionError.attachTicketExpired
 
         do {
             _ = try await race.run(
@@ -207,23 +209,63 @@ import Testing
                 onDiscardedSuccess: { (value: String) in await probe.recordDiscarded(value) },
                 attempt: { route in
                     await probe.recordStart(route.id, at: clock.now.offset)
-                    throw credentialRejection
+                    throw localExpiry
                 }
             )
-            Issue.record("race should throw when a credential rejection ends it")
+            Issue.record("race should throw when a local expiry check ends it")
         } catch let failure as MobilePairingRouteRaceFailure {
-            // The route-independent rejection is the representative failure,
+            // The route-independent expiry is the representative failure,
             // and route b was cancelled out of its stagger sleep without ever
             // dialing: no clock advance was needed to resolve the race.
             #expect(failure.raceEndingFailure?.route.id == "a")
             #expect(failure.representative?.route.id == "a")
             guard let representativeError = failure.representative?.error as? MobileShellConnectionError,
-                  case .accountMismatch = representativeError else {
-                Issue.record("representative should carry the credential rejection")
+                  case .attachTicketExpired = representativeError else {
+                Issue.record("representative should carry the local expiry")
                 return
             }
         }
         #expect(await probe.startedRouteIDs == ["a"])
+    }
+
+    // An auth rejection is a HOST answer, and the answering endpoint is an
+    // unverified candidate: a stale or reassigned address can host a different
+    // Mac that rejects a ticket it never minted. The rejection must therefore
+    // stay route-local; here the sibling route reaches the right Mac after the
+    // stagger and its success must win instead of being cancelled.
+    @Test func authRejectionOnOneRouteDoesNotCancelASiblingThatSucceeds() async throws {
+        let clock = ManualTestClock()
+        let probe = RaceProbe()
+        let routes = [try route("a", host: "100.64.0.1"), try route("b", host: "100.64.0.2")]
+        let race = MobilePairingRouteRace(clock: clock)
+
+        let raceTask = Task {
+            try await race.run(
+                routes: routes,
+                endsRace: { MobilePairingRouteAttempt.failureEndsRouteRace($0) },
+                onDiscardedSuccess: { (value: String) in await probe.recordDiscarded(value) },
+                attempt: { route in
+                    await probe.recordStart(route.id, at: clock.now.offset)
+                    if route.id == "a" {
+                        // The wrong Mac at a stale address answers instantly
+                        // with a protocol-valid rejection.
+                        throw MobileShellConnectionError.authorizationFailed("not your mac")
+                    }
+                    return route.id
+                }
+            )
+        }
+
+        // Route a starts immediately and is rejected; route b must still be
+        // started out of its stagger sleep rather than cancelled.
+        await probe.waitForStarts(1)
+        await clock.waitUntilSleepers(count: 1)
+        clock.advance(by: .milliseconds(250))
+
+        let winner = try await raceTask.value
+        #expect(winner == "b")
+        #expect(await probe.startedRouteIDs == ["a", "b"])
+        #expect(await probe.discardedValues.isEmpty)
     }
 
     @Test func routeFanOutIsCappedForUntrustedTickets() async throws {
@@ -372,18 +414,21 @@ import Testing
     // MARK: - Attempt predicates
 
     @Test func routeIndependentFailuresEndTheRaceButRouteLocalFailuresDoNot() {
-        #expect(MobilePairingRouteAttempt.failureEndsRouteRace(
-            MobileShellConnectionError.authorizationFailed("no")
-        ))
-        #expect(MobilePairingRouteAttempt.failureEndsRouteRace(
-            MobileShellConnectionError.accountMismatch("other account")
-        ))
+        // Only the locally checked expiry is route-independent by construction.
         #expect(MobilePairingRouteAttempt.failureEndsRouteRace(
             MobileShellConnectionError.attachTicketExpired
         ))
-        // Route-local: the routes are unverified candidate endpoints, so a
-        // generic RPC answer on one route (stale address, wrong service, older
-        // host) must not stop a sibling route from connecting.
+        // Route-local: the routes are unverified candidate endpoints, so ANY
+        // host answer on one route (a stale or reassigned address hosting the
+        // wrong Mac, the wrong service, an older host) must not stop a sibling
+        // route from connecting. That includes auth rejections: the wrong Mac
+        // rejects a ticket it never minted.
+        #expect(!MobilePairingRouteAttempt.failureEndsRouteRace(
+            MobileShellConnectionError.authorizationFailed("no")
+        ))
+        #expect(!MobilePairingRouteAttempt.failureEndsRouteRace(
+            MobileShellConnectionError.accountMismatch("other account")
+        ))
         #expect(!MobilePairingRouteAttempt.failureEndsRouteRace(
             MobileShellConnectionError.rpcError("internal", "boom")
         ))

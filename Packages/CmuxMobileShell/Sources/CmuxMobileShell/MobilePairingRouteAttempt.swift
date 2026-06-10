@@ -184,25 +184,33 @@ struct MobilePairingRouteAttempt: Sendable {
 
     /// Whether a failed attempt ends the whole route race.
     ///
-    /// True only for failures that are route-independent: an expired ticket
-    /// (checked locally, identical on every route) and explicit credential
-    /// rejections (auth failure, account mismatch), which are about the
-    /// ticket/identity rather than the path that carried it. A generic
-    /// ``MobileShellConnectionError/rpcError`` stays route-local even though it
-    /// is a host answer: the ticket's routes are unverified candidate
-    /// endpoints, so a stale address, the wrong service on an advertised port,
-    /// or an older host can answer a fast RPC error on one route while a
-    /// sibling route would have connected (the old sequential loop kept trying
-    /// the next route after RPC errors for the same reason). Transport
-    /// failures and ``MobileShellConnectionError/insecureManualRoute`` also
-    /// stay route-local: a sibling route may still reach the host or be
-    /// trusted to carry the credential.
+    /// True only for ``MobileShellConnectionError/attachTicketExpired``: it is
+    /// checked locally against the device clock before anything is sent, so it
+    /// is identical on every route by construction. Every host-ANSWERED
+    /// failure stays route-local, including auth rejections
+    /// (``MobileShellConnectionError/authorizationFailed``,
+    /// ``MobileShellConnectionError/accountMismatch``): the ticket's routes
+    /// are unverified candidate endpoints, so a stale or reassigned address
+    /// can host a *different* Mac that answers a fast, protocol-valid auth
+    /// rejection for a ticket it never minted, while a slower sibling route
+    /// would have reached the right Mac and paired (the old sequential loop
+    /// kept trying later routes after auth rejections for the same reason).
+    /// Treating those answers as race-ending would cancel the viable route
+    /// deterministically. When the rejection is genuine, every route fails
+    /// with it inside the bounded per-attempt deadlines and
+    /// ``MobilePairingRouteRaceFailure/representative`` still surfaces it
+    /// first (auth rejections rank highest), so the user reads the same error
+    /// a moment later. Transport failures and
+    /// ``MobileShellConnectionError/insecureManualRoute`` also stay
+    /// route-local: a sibling route may still reach the host or be trusted to
+    /// carry the credential.
     static func failureEndsRouteRace(_ error: any Error) -> Bool {
         guard let connectionError = error as? MobileShellConnectionError else { return false }
         switch connectionError {
-        case .authorizationFailed, .accountMismatch, .attachTicketExpired:
+        case .attachTicketExpired:
             return true
-        case .rpcError, .requestTimedOut, .connectionClosed, .invalidResponse, .insecureManualRoute:
+        case .authorizationFailed, .accountMismatch, .rpcError, .requestTimedOut,
+             .connectionClosed, .invalidResponse, .insecureManualRoute:
             return false
         }
     }

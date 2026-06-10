@@ -55,17 +55,19 @@ struct MobilePairingRouteRace: Sendable {
     ///     delay, index `n` starts after `n * stagger`. At most ``maxRoutes``
     ///     are raced; the rest are ignored.
     ///   - endsRace: Returns `true` for failures that are route-independent
-    ///     (locally checked ticket expiry, explicit credential rejections):
-    ///     every other route would fail the same way, so the race ends
-    ///     immediately instead of waiting out the remaining attempts.
+    ///     by construction (the locally checked ticket expiry, determined
+    ///     before anything is sent): every other route would fail the same
+    ///     way, so the race ends immediately instead of waiting out the
+    ///     remaining attempts. Host-answered failures must stay route-local;
+    ///     see `MobilePairingRouteAttempt.failureEndsRouteRace`.
     ///     This short-circuit stops *waiting*; it does not override a success.
     ///     A sibling attempt that completes successfully after the race-ending
     ///     failure (cancellation is cooperative) still wins, because a live,
-    ///     authorized connection is definitive proof pairing works. With a
-    ///     one-time ticket this is the plausible race: the attempt that
-    ///     consumed the ticket succeeds while a sibling's credential rejection
-    ///     for the now-consumed ticket ends the race, and the user must get
-    ///     the connection, not the rejection.
+    ///     authorized connection is definitive proof pairing works. The
+    ///     plausible race is a ticket expiring mid-race: a later-starting
+    ///     sibling fails the local expiry check while the first attempt's
+    ///     in-flight connect succeeds, and the user must get the connection,
+    ///     not the expiry error.
     ///   - onDiscardedSuccess: Cleanup for a success that completed after the
     ///     winner was chosen (close its connection so it does not leak).
     ///   - attempt: Dials one route. Must be cancellation-responsive for losers
@@ -112,7 +114,7 @@ struct MobilePairingRouteRace: Sendable {
                         // the short-circuit stops waiting on pending attempts,
                         // but an attempt that still completed with a live,
                         // authorized connection beats any failure (see the
-                        // one-time-ticket race in `endsRace`'s documentation).
+                        // mid-race expiry case in `endsRace`'s documentation).
                         winner = value
                         group.cancelAll()
                     } else {
@@ -170,7 +172,7 @@ struct MobilePairingRouteRaceFailure: Error {
     /// Every failed attempt, in route-priority order.
     let failures: [RouteFailure]
     /// The failure that ended the race early because it was route-independent
-    /// (locally checked ticket expiry, explicit credential rejection), if any.
+    /// by construction (the locally checked ticket expiry), if any.
     let raceEndingFailure: RouteFailure?
 
     /// The single failure the pairing UI should classify and show.

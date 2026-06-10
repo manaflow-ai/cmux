@@ -152,6 +152,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // deadline would wait on the OS-default request timeout (~60s)
             // before the per-request bound even started.
             let authenticated = try await self.requestDataWithAuth(augmented)
+            // The token fetch above may ignore cancellation: when the deadline
+            // (or a route race reaping this attempt) already abandoned this
+            // task and the fetch later returns anyway, the caller has observed
+            // a failure, so the send side effect must not happen. Without this
+            // check a non-idempotent RPC (terminal input, workspace create)
+            // could execute after the UI already reported it as timed out.
+            try Task.checkCancellation()
             return try await self.session.send(payload: authenticated, requestID: id)
         }
     }
