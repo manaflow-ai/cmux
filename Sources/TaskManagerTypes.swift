@@ -588,6 +588,14 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             argumentNeedles: ["@oh-my-pi/pi-coding-agent"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
+            id: "campfire",
+            displayName: "Campfire",
+            assetName: nil,
+            launchKinds: ["campfire"],
+            directBasenames: ["campfire"],
+            argumentNeedles: ["packages/session/bin/campfire.ts", "dist/campfire"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
             id: "pi",
             displayName: "Pi",
             assetName: "AgentIcons/Pi",

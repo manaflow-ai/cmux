@@ -19,4 +19,36 @@ struct AgentLaunchEnvironmentPolicyTests {
             "PI_CONFIG_DIR": ".custom-omp",
         ])
     }
+
+    @Test("Preserves Campfire config roots and drops its self-managed package dir")
+    func preservesCampfireConfigRootsAndDropsManagedPackageDir() {
+        let selected = AgentLaunchEnvironmentPolicy.selectedEnvironment(
+            from: [
+                "OPENAI_API_KEY": "secret-should-not-persist",
+                "CAMPFIRE_CODING_AGENT_DIR": "/tmp/campfire-agent",
+                "CAMPFIRE_CODING_AGENT_SESSION_DIR": "/tmp/campfire-sessions",
+                "CAMPFIRE_RELAY_URL": "wss://relay.example/ws",
+                // Campfire recomputes its extracted pi asset cache on every
+                // boot; replaying a captured path would pin a resumed session
+                // to the previous binary's cache after an upgrade.
+                "PI_PACKAGE_DIR": "/tmp/stale-pi-cache",
+            ],
+            kind: "campfire"
+        )
+
+        #expect(selected == [
+            "CAMPFIRE_CODING_AGENT_DIR": "/tmp/campfire-agent",
+            "CAMPFIRE_CODING_AGENT_SESSION_DIR": "/tmp/campfire-sessions",
+            "CAMPFIRE_RELAY_URL": "wss://relay.example/ws",
+        ])
+    }
+
+    @Test("Keeps PI_PACKAGE_DIR for pi and omp resumes")
+    func keepsPiPackageDirForPiKinds() {
+        let selected = AgentLaunchEnvironmentPolicy.selectedEnvironment(
+            from: ["PI_PACKAGE_DIR": "/nix/store/pi-package"],
+            kind: "pi"
+        )
+        #expect(selected["PI_PACKAGE_DIR"] == "/nix/store/pi-package")
+    }
 }
