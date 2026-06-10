@@ -56,6 +56,7 @@ final class NotesTreeStore: ObservableObject {
     private var reloadCoalesceTask: Task<Void, Never>?
     private var markerRefreshTask: Task<Void, Never>?
     private var visibilityRefreshTask: Task<Void, Never>?
+    private var emptyObservationRetryTask: Task<Void, Never>?
     private var lastMarkerRefresh: Date?
     /// Floor between appear-triggered marker refreshes; Refresh bypasses it.
     private let markerRefreshMinInterval: TimeInterval = 30
@@ -111,6 +112,8 @@ final class NotesTreeStore: ObservableObject {
         // cancel it and lift the throttle so the new workspace scans immediately.
         markerRefreshTask?.cancel()
         markerRefreshTask = nil
+        emptyObservationRetryTask?.cancel()
+        emptyObservationRetryTask = nil
         lastMarkerRefresh = nil
         emptyObservationRetries = 0
         reload()
@@ -125,6 +128,8 @@ final class NotesTreeStore: ObservableObject {
         reloadCoalesceTask = nil
         markerRefreshTask?.cancel()
         markerRefreshTask = nil
+        emptyObservationRetryTask?.cancel()
+        emptyObservationRetryTask = nil
         lastMarkerRefresh = nil
         hasWorkspace = false
         projectRoot = nil
@@ -464,9 +469,11 @@ final class NotesTreeStore: ObservableObject {
             if changed { self.reload() }
             if allObserved.isEmpty, self.emptyObservationRetries < self.maxEmptyObservationRetries {
                 self.emptyObservationRetries += 1
-                Task { @MainActor [weak self] in
+                self.emptyObservationRetryTask?.cancel()
+                self.emptyObservationRetryTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .seconds(3))
-                    guard let self, self.hasWorkspace, self.resolvedRootPath == root else { return }
+                    guard let self, !Task.isCancelled,
+                          self.hasWorkspace, self.resolvedRootPath == root else { return }
                     self.refreshSessions(force: true)
                 }
             } else if !allObserved.isEmpty {
@@ -709,5 +716,6 @@ final class NotesTreeStore: ObservableObject {
         reloadCoalesceTask?.cancel()
         markerRefreshTask?.cancel()
         visibilityRefreshTask?.cancel()
+        emptyObservationRetryTask?.cancel()
     }
 }

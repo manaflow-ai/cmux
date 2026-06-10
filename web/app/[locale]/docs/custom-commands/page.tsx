@@ -226,12 +226,12 @@ export default function CustomCommandsPage() {
   }
 }`}</CodeBlock>
       <ul>
-        <li><code>cmux.vaultPane</code>: open Vault as a pane.</li>
-        <li><code>cmux.filesPane</code>: open Files as a pane.</li>
-        <li><code>cmux.findPane</code>: open Find as a pane.</li>
-        <li><code>cmux.diffViewer</code>: open Diffs for the active workspace directory.</li>
-        <li><code>cmux.revealCurrentDirectoryInFinder</code>: reveal the active pane directory in Finder.</li>
-        <li><code>cmux.customizeSurfaceTabBar</code>: open Settings to cmux.json.</li>
+        <li><code>cmux.vaultPane</code>: {t("tabBarBuiltinVaultPane")}</li>
+        <li><code>cmux.filesPane</code>: {t("tabBarBuiltinFilesPane")}</li>
+        <li><code>cmux.findPane</code>: {t("tabBarBuiltinFindPane")}</li>
+        <li><code>cmux.diffViewer</code>: {t("tabBarBuiltinDiffViewer")}</li>
+        <li><code>cmux.revealCurrentDirectoryInFinder</code>: {t("tabBarBuiltinRevealFinder")}</li>
+        <li><code>cmux.customizeSurfaceTabBar</code>: {t("tabBarBuiltinCustomize")}</li>
       </ul>
 
       <DocsHeading level={2} id="custom-actions">{t("customActions")}</DocsHeading>

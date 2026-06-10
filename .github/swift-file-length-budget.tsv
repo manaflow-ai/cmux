@@ -113,9 +113,9 @@
 739	Sources/App/MenuBarExtraController.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 724	Packages/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift
+721	Sources/NotesTreeStore.swift
 716	Sources/TaskManagerSnapshot.swift
 714	Sources/AppleScriptSupport.swift
-713	Sources/NotesTreeStore.swift
 708	Sources/TerminalSSHSessionDetector.swift
 706	Sources/RightSidebarPanelView.swift
 705	CLI/CMUXCLI+Config.swift

@@ -1011,7 +1011,13 @@
       "absolutePath": "Absolute path",
       "cwdAbsolute": "used as-is",
       "fullExample": "Full example",
-      "restartNew": "Create a new workspace (default)"
+      "restartNew": "Create a new workspace (default)",
+      "tabBarBuiltinVaultPane": "Open Vault as a pane.",
+      "tabBarBuiltinFilesPane": "Open Files as a pane.",
+      "tabBarBuiltinFindPane": "Open Find as a pane.",
+      "tabBarBuiltinDiffViewer": "Open Diffs for the active workspace directory.",
+      "tabBarBuiltinRevealFinder": "Reveal the active pane directory in Finder.",
+      "tabBarBuiltinCustomize": "Open Settings to cmux.json."
     },
     "keyboardShortcuts": {
       "title": "Keyboard Shortcuts",
