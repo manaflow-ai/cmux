@@ -40,6 +40,21 @@ public struct L10n {
         return String(format: string("mobile.workspace.terminalCountFormat.other", defaultValue: "%d terminals"), count)
     }
 
+    /// A localized "N workspaces" count label with singular/plural handling, for
+    /// the device tree's per-build workspace summary.
+    ///
+    /// - Parameter count: The number of workspaces.
+    /// - Returns: The localized count phrase.
+    public static func terminalCountWorkspaces(_ count: Int) -> String {
+        if count == 1 {
+            return string("mobile.deviceTree.workspaceCountFormat.one", defaultValue: "1 workspace")
+        }
+        return String(
+            format: string("mobile.deviceTree.workspaceCountFormat.other", defaultValue: "%d workspaces"),
+            count
+        )
+    }
+
     /// A localized default workspace name for a given 1-based index.
     ///
     /// - Parameter index: The 1-based workspace index.

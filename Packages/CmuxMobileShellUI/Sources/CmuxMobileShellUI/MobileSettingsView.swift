@@ -2,6 +2,7 @@
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileSupport
+import CmuxMobileWorkspace
 import SwiftUI
 
 /// The mobile app's settings page. Surfaces the signed-in account (so the user
@@ -27,6 +28,8 @@ struct MobileSettingsView: View {
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
     @State private var showingHostPicker = false
+    @State private var showingOnboarding = false
+    @State private var showingSetupHelp = false
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
@@ -63,36 +66,59 @@ struct MobileSettingsView: View {
                     ))
                 }
 
-                Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
-                    if !connectedHostName.isEmpty {
-                        LabeledContent(
-                            L10n.string("mobile.settings.mac", defaultValue: "Mac"),
-                            value: connectedHostName
+                // Hidden entirely when there is nothing to show (no connected
+                // Mac, no store to switch with, no rescan), so the no-devices
+                // screen's reuse of this sheet does not render an empty header.
+                if hasConnectionSection {
+                    Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
+                        if !connectedHostName.isEmpty {
+                            LabeledContent(
+                                L10n.string("mobile.settings.mac", defaultValue: "Mac"),
+                                value: connectedHostName
+                            )
+                        }
+                        if store != nil {
+                            Button {
+                                showingHostPicker = true
+                            } label: {
+                                Label(
+                                    L10n.string("mobile.settings.switchMac", defaultValue: "Switch Mac"),
+                                    systemImage: "macbook.and.iphone"
+                                )
+                            }
+                            .accessibilityIdentifier("MobileSettingsSwitchMac")
+                        }
+                        if let rescanQR {
+                            Button {
+                                rescanQR()
+                                dismiss()
+                            } label: {
+                                Label(
+                                    L10n.string("mobile.workspaces.rescan", defaultValue: "Rescan QR"),
+                                    systemImage: "qrcode.viewfinder"
+                                )
+                            }
+                            .accessibilityIdentifier("MobileSettingsRescanQR")
+                        }
+                    }
+                    Button {
+                        showingSetupHelp = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.setUpYourMac", defaultValue: "Set up your Mac"),
+                            systemImage: "macbook.and.iphone"
                         )
                     }
-                    if store != nil {
-                        Button {
-                            showingHostPicker = true
-                        } label: {
-                            Label(
-                                L10n.string("mobile.settings.switchMac", defaultValue: "Switch Mac"),
-                                systemImage: "macbook.and.iphone"
-                            )
-                        }
-                        .accessibilityIdentifier("MobileSettingsSwitchMac")
+                    .accessibilityIdentifier("MobileSettingsSetUpYourMac")
+                    Button {
+                        showingOnboarding = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.howPairingWorks", defaultValue: "How Pairing Works"),
+                            systemImage: "questionmark.circle"
+                        )
                     }
-                    if let rescanQR {
-                        Button {
-                            rescanQR()
-                            dismiss()
-                        } label: {
-                            Label(
-                                L10n.string("mobile.workspaces.rescan", defaultValue: "Rescan QR"),
-                                systemImage: "qrcode.viewfinder"
-                            )
-                        }
-                        .accessibilityIdentifier("MobileSettingsRescanQR")
-                    }
+                    .accessibilityIdentifier("MobileSettingsHowPairingWorks")
                 }
 
                 Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
@@ -168,8 +194,40 @@ struct MobileSettingsView: View {
                     MobileHostPickerView(store: store)
                 }
             }
+            .sheet(isPresented: $showingOnboarding) {
+                // Re-entry from Settings: walk the explainer again. `onComplete`
+                // only dismisses; it never touches the persisted seen flag. No
+                // current blocker is highlighted, since reaching Settings means the
+                // user got past every setup gate.
+                OnboardingFlowView(
+                    onComplete: { showingOnboarding = false },
+                    setupHelpHighlight: setupHelpHighlight
+                )
+            }
+            .sheet(isPresented: $showingSetupHelp) {
+                // Re-enterable setup help as a plain reference: every pre-pairing
+                // gate with its concrete next step. Settings is reached only from
+                // the connected workspace list, so there is no current blocker to
+                // mark "You are here".
+                SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
+            }
         }
         .accessibilityIdentifier("MobileSettingsView")
+    }
+
+    /// Which setup gate to mark as the user's current blocker. Settings is reached
+    /// only from the connected workspace list, so the user has cleared every gate
+    /// and there is no "You are here" step; the help is a plain reference. `nil`
+    /// keeps that honest instead of mislabeling a connected Mac as unreachable.
+    private var setupHelpHighlight: MobileSetupGuidanceState? {
+        nil
+    }
+
+    /// Whether the Connection section has any rows to show. When this sheet is
+    /// reused from the no-devices screen there is no connected Mac, no store to
+    /// switch with, and no rescan action, so the section is omitted entirely.
+    private var hasConnectionSection: Bool {
+        !connectedHostName.isEmpty || store != nil || rescanQR != nil
     }
 
     private var accountEmail: String {
