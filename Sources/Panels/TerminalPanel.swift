@@ -619,6 +619,13 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
+        // The shell integration deletes the replay file after a restore; a
+        // panel closed while hibernated never restores, so clean up the
+        // one-shot artifact here to keep abandoned hibernations from
+        // accumulating temp files.
+        if let replayFilePath = surfaceHibernationState?.replayFilePath {
+            try? FileManager.default.removeItem(atPath: replayFilePath)
+        }
         discardTextBoxContentForClose()
         // The surface will be cleaned up by its deinit
         // Detach from the window portal on real close so stale hosted views
@@ -663,22 +670,31 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Free the runtime surface of a plain-shell panel while keeping the panel
     /// in the layout. The captured scrollback and working directory are
     /// replayed into a fresh shell when the panel is restored.
+    @discardableResult
     func enterSurfaceHibernation(
         scrollback: String?,
         workingDirectory: String?,
         lastActivityAt: Date,
         hibernatedAt: Date = Date()
-    ) {
-        guard !isAgentHibernated, !isSurfaceHibernated else { return }
+    ) -> Bool {
+        guard !isAgentHibernated, !isSurfaceHibernated else { return false }
         let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: scrollback)
+        let replayFilePath = replayEnvironment[SessionScrollbackReplayStore.environmentKey]
+        if let scrollback, !scrollback.isEmpty, replayFilePath == nil {
+            // The replay file is the only restore artifact for the captured
+            // history; if it cannot be written, keep the surface alive and
+            // let a later evaluation retry.
+            return false
+        }
         surfaceHibernationState = SurfaceHibernationPanelState(
             hibernatedAt: hibernatedAt,
             lastActivityAt: lastActivityAt,
             scrollback: scrollback,
-            replayFilePath: replayEnvironment[SessionScrollbackReplayStore.environmentKey],
+            replayFilePath: replayFilePath,
             workingDirectory: workingDirectory
         )
         suspendSurfaceForHibernation(reason: "surfaceHibernation")
+        return true
     }
 
     /// Bring a surface-hibernated panel back: stage scrollback replay and the

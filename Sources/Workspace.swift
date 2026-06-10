@@ -12663,11 +12663,13 @@ final class Workspace: Identifiable, ObservableObject {
         let workingDirectory = panelDirectory?.isEmpty == false
             ? panelDirectory
             : (fallbackDirectory.isEmpty ? nil : fallbackDirectory)
-        terminalPanel.enterSurfaceHibernation(
+        guard terminalPanel.enterSurfaceHibernation(
             scrollback: scrollback,
             workingDirectory: workingDirectory,
             lastActivityAt: lastActivityAt
-        )
+        ) else {
+            return false
+        }
         // Seed the session-snapshot fallback immediately: an autosave can land
         // in the restore window after the hibernation state clears but before
         // a replacement surface is readable, and must not persist nil over
