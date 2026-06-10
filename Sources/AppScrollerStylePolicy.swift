@@ -32,6 +32,17 @@ import AppKit
 /// app-domain write (which posts `UserDefaults.didChangeNotification` and can
 /// nudge AppKit to re-evaluate scroller style mid-fade), the override is
 /// written only when the resolved value is not already `WhenScrolling`.
+///
+/// Caveat: because the registration domain ranks *below* `NSGlobalDomain`, a
+/// non-persistent `register(defaults:)` cannot beat a user's `Always`
+/// preference — the override must live in the persistent application domain.
+/// That value therefore outlives this code: if this policy is ever removed or
+/// replaced with a user-facing opt-out, that change must also delete the
+/// `AppleShowScrollBars` key from cmux's application domain (e.g. a one-shot
+/// `defaults.removeObject(forKey:)` migration) so stale installs stop forcing
+/// overlay. Accessibility note: this overrides a deliberate system-wide
+/// "Always" choice for cmux only; it intentionally matches the no-opt-out
+/// overlay forcing the terminal/sidebar/text-input surfaces already apply.
 enum AppScrollerStylePolicy {
     /// `AppleShowScrollBars` selects overlay vs. legacy scrollers app-wide.
     static let scrollBarsDefaultsKey = "AppleShowScrollBars"
