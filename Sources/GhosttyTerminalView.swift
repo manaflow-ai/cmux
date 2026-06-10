@@ -7365,13 +7365,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
+        // Single-character key names type editable prompt text ("a"); named
+        // special keys (enter, escape, arrows) do not.
+        let armsPendingCommandLine = keyName.count == 1
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
             recordAgentHibernationTerminalInput(
                 workspaceId: tabId,
                 panelId: id,
-                armsPendingCommandLine: false
+                armsPendingCommandLine: armsPendingCommandLine
             )
             requestBackgroundSurfaceStartIfNeeded()
             return .queued
@@ -7383,7 +7386,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         recordAgentHibernationTerminalInput(
             workspaceId: tabId,
             panelId: id,
-            armsPendingCommandLine: false
+            armsPendingCommandLine: armsPendingCommandLine
         )
         sendKeyEvent(surface: liveSurface, keycode: event.keycode, mods: event.mods)
         return .sent

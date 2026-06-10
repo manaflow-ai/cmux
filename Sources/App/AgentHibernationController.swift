@@ -583,6 +583,12 @@ extension AppDelegate {
         var records: [AgentHibernationRecord] = []
         var seenManagers: Set<ObjectIdentifier> = []
 
+        // Replay capability can be revoked mid-session: the integration
+        // setting applies to the NEXT surface launch, so a shell hibernated
+        // after disabling it would restore without its scrollback.
+        let shellIntegrationCurrentlyEnabled =
+            UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true
+
         func visit(tabManager manager: TabManager, visibleWorkspaceId: UUID?) {
             let managerId = ObjectIdentifier(manager)
             guard seenManagers.insert(managerId).inserted else { return }
@@ -618,7 +624,8 @@ extension AppDelegate {
                     let canRestartShell = agent == nil &&
                         !isRemoteTerminal &&
                         !terminalPanel.surface.hasDeferredStartupWorkForBackgroundStart() &&
-                        terminalPanel.surface.runtimeSupportsScrollbackReplay
+                        terminalPanel.surface.runtimeSupportsScrollbackReplay &&
+                        shellIntegrationCurrentlyEnabled
                     // Busy means freeing the PTY could kill live work: the
                     // shell-integration state reports a running command (or
                     // Ghostty's prompt heuristic says we are not at one), the
