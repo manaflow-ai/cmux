@@ -6241,7 +6241,20 @@ class TabManager: ObservableObject {
     @discardableResult
     func toggleReactGrabFromCurrentFocus() -> Bool {
         guard let workspace = selectedWorkspace else { return false }
+        return toggleReactGrab(in: workspace, browserSurfaceId: nil, returnTerminalSurfaceId: nil)
+    }
 
+    /// Toggles React Grab for a specific workspace. When `browserSurfaceId`/`returnTerminalSurfaceId`
+    /// are nil this mirrors the keyboard shortcut: it resolves the browser + return terminal from the
+    /// focused panel layout. An explicit browser surface (must be a browser) or return terminal
+    /// (must be a terminal) overrides that route. Used by both the Cmd+Shift+G shortcut and the
+    /// `cmux browser react-grab toggle` CLI command so both share one action path.
+    @discardableResult
+    func toggleReactGrab(
+        in workspace: Workspace,
+        browserSurfaceId: UUID?,
+        returnTerminalSurfaceId: UUID?
+    ) -> Bool {
         let snapshots = workspace.panels.values.map { panel in
             ReactGrabShortcutPanelSnapshot(
                 id: panel.id,
@@ -6249,12 +6262,44 @@ class TabManager: ObservableObject {
                 isFocused: panel.id == workspace.focusedPanelId
             )
         }
-        guard let route = resolveReactGrabShortcutRoute(panels: snapshots),
-              let browserPanel = workspace.browserPanel(for: route.browserPanelId) else {
-            return false
+        let route = resolveReactGrabShortcutRoute(panels: snapshots)
+
+        // Browser target: an explicit browser surface wins, else the route's browser.
+        let browserPanelId: UUID?
+        if let explicit = browserSurfaceId, workspace.browserPanel(for: explicit) != nil {
+            browserPanelId = explicit
+        } else {
+            browserPanelId = route?.browserPanelId
+        }
+        guard let browserPanelId else { return false }
+
+        // Return terminal: an explicit terminal surface wins. Otherwise adopt the route's return
+        // terminal only when the browser also came from the route (matching shortcut semantics).
+        let returnTerminalPanelId: UUID?
+        if let explicit = returnTerminalSurfaceId, workspace.panels[explicit]?.panelType == .terminal {
+            returnTerminalPanelId = explicit
+        } else if browserSurfaceId == nil {
+            returnTerminalPanelId = route?.returnTerminalPanelId
+        } else {
+            returnTerminalPanelId = nil
         }
 
-        if let returnTerminalPanelId = route.returnTerminalPanelId {
+        return performReactGrabToggle(
+            in: workspace,
+            browserPanelId: browserPanelId,
+            returnTerminalPanelId: returnTerminalPanelId
+        )
+    }
+
+    @discardableResult
+    private func performReactGrabToggle(
+        in workspace: Workspace,
+        browserPanelId: UUID,
+        returnTerminalPanelId: UUID?
+    ) -> Bool {
+        guard let browserPanel = workspace.browserPanel(for: browserPanelId) else { return false }
+
+        if let returnTerminalPanelId {
             browserPanel.armReactGrabRoundTrip(returnTo: returnTerminalPanelId)
         } else {
             browserPanel.clearReactGrabRoundTrip(reason: "shortcut.noReturnTarget")
@@ -6271,14 +6316,14 @@ class TabManager: ObservableObject {
             "reactGrab.pasteback h1.focusRequestResult " +
             "workspace=\(workspace.id.uuidString.prefix(5)) " +
             "browser=\(browserPanel.id.uuidString.prefix(5)) " +
-            "return=\(route.returnTerminalPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+            "return=\(returnTerminalPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
             "success=\(didRequestExplicitWebViewFocus ? 1 : 0)"
         )
 #endif
 
         Task { @MainActor [weak browserPanel] in
             guard let browserPanel else { return }
-            if route.returnTerminalPanelId != nil {
+            if returnTerminalPanelId != nil {
                 await browserPanel.ensureReactGrabActive()
             } else {
                 await browserPanel.toggleOrInjectReactGrab()

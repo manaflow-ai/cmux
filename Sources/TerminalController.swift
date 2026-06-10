@@ -2156,6 +2156,18 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserForward(params: params))
         case "browser.reload":
             return v2Result(id: id, self.v2BrowserReload(params: params))
+        case "browser.react_grab.toggle":
+            return v2Result(id: id, self.v2BrowserReactGrabToggle(params: params))
+        case "browser.devtools.toggle":
+            return v2Result(id: id, self.v2BrowserDevToolsToggle(params: params))
+        case "browser.console.show":
+            return v2Result(id: id, self.v2BrowserConsoleShow(params: params))
+        case "browser.focus_mode.set":
+            return v2Result(id: id, self.v2BrowserFocusModeSet(params: params))
+        case "browser.zoom.set":
+            return v2Result(id: id, self.v2BrowserZoomSet(params: params))
+        case "browser.history.clear":
+            return v2Result(id: id, self.v2BrowserHistoryClear(params: params))
         case "browser.url.get":
             return v2Result(id: id, self.v2BrowserGetURL(params: params))
         case "browser.focus_webview":
@@ -2573,6 +2585,12 @@ class TerminalController {
             "browser.back",
             "browser.forward",
             "browser.reload",
+            "browser.react_grab.toggle",
+            "browser.devtools.toggle",
+            "browser.console.show",
+            "browser.focus_mode.set",
+            "browser.zoom.set",
+            "browser.history.clear",
             "browser.url.get",
             "browser.snapshot",
             "browser.eval",
@@ -13031,6 +13049,164 @@ class TerminalController {
             result = .ok(payload)
         }
         return result
+    }
+
+    /// Resolves the browser panel a CLI browser action should target, mirroring the
+    /// GUI "act on the focused browser" semantics: an explicit `surface_id` browser wins,
+    /// otherwise the workspace's focused browser, otherwise the sole browser in the workspace.
+    @MainActor
+    private func v2ResolveBrowserPanelForFocusedAction(
+        workspace: Workspace,
+        params: [String: Any]
+    ) -> (panel: BrowserPanel, surfaceId: UUID)? {
+        if let sid = v2UUID(params, "surface_id"), let panel = workspace.browserPanel(for: sid) {
+            return (panel, sid)
+        }
+        if let focusedId = workspace.focusedPanelId, let panel = workspace.browserPanel(for: focusedId) {
+            return (panel, focusedId)
+        }
+        let browsers: [(UUID, BrowserPanel)] = workspace.panels.values.compactMap { panel in
+            (panel as? BrowserPanel).map { (panel.id, $0) }
+        }
+        if browsers.count == 1 { return (browsers[0].1, browsers[0].0) }
+        return nil
+    }
+
+    /// Builds the standard workspace/surface/window identity payload for a browser action.
+    @MainActor
+    private func v2BrowserActionPayload(
+        workspace: Workspace,
+        surfaceId: UUID,
+        tabManager: TabManager,
+        extra: [String: Any] = [:]
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "workspace_id": workspace.id.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "surface_id": surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
+        ]
+        for (key, value) in extra { payload[key] = value }
+        return payload
+    }
+
+    private func v2BrowserReactGrabToggle(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface to toggle React Grab on", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let browserSurfaceId = v2UUID(params, "surface_id")
+            let returnSurfaceId = v2UUID(params, "return_to")
+            guard tabManager.toggleReactGrab(
+                in: ws,
+                browserSurfaceId: browserSurfaceId,
+                returnTerminalSurfaceId: returnSurfaceId
+            ) else { return }
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws,
+                surfaceId: browserSurfaceId ?? ws.focusedPanelId ?? ws.id,
+                tabManager: tabManager,
+                extra: ["toggled": true]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserDevToolsToggle(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            let handled = target.panel.toggleDeveloperTools()
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                extra: ["handled": handled]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserConsoleShow(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            let handled = target.panel.showDeveloperToolsConsole()
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                extra: ["handled": handled]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserFocusModeSet(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        let mode = (v2String(params, "mode") ?? "toggle").lowercased()
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            let handled: Bool
+            switch mode {
+            case "enter", "on", "true", "active":
+                handled = target.panel.setBrowserFocusModeActive(true, reason: "cli.focusMode", focusWebView: true)
+            case "exit", "off", "false", "inactive":
+                handled = target.panel.setBrowserFocusModeActive(false, reason: "cli.focusMode", focusWebView: false)
+            default:
+                handled = target.panel.toggleBrowserFocusMode(reason: "cli.focusMode", focusWebView: true)
+            }
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                extra: ["handled": handled, "mode": mode]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserZoomSet(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        let direction = (v2String(params, "direction") ?? "").lowercased()
+        guard ["in", "out", "reset"].contains(direction) else {
+            return .err(code: "invalid_params", message: "direction must be one of: in, out, reset", data: nil)
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            let handled: Bool
+            switch direction {
+            case "in": handled = target.panel.zoomIn()
+            case "out": handled = target.panel.zoomOut()
+            default: handled = target.panel.resetZoom()
+            }
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                extra: ["handled": handled, "direction": direction]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserHistoryClear(params: [String: Any]) -> V2CallResult {
+        v2MainSync {
+            BrowserHistoryStore.shared.clearHistory()
+        }
+        return .ok(["cleared": true])
     }
 
     private func v2BrowserGetURL(params: [String: Any]) -> V2CallResult {

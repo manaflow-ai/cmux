@@ -11019,7 +11019,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode", "zoom", "history"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -11537,6 +11537,79 @@ struct CMUXCLI {
                 params["snapshot_after"] = true
             }
             let payload = try client.sendV2(method: methodMap[subcommand]!, params: params)
+            output(payload, fallback: "OK")
+            return
+        }
+
+        // Optional browser surface: an explicit --surface (or positional handle) targets that
+        // browser; otherwise the app acts on the workspace's focused browser, mirroring the GUI.
+        func optionalSurfaceParams() throws -> [String: Any] {
+            guard let raw = surfaceRaw else { return [:] }
+            guard let resolved = try normalizeSurfaceHandle(raw, client: client) else {
+                throw CLIError(message: "Invalid surface handle")
+            }
+            return ["surface_id": resolved]
+        }
+
+        if subcommand == "react-grab" || subcommand == "reactgrab" {
+            let verb = subArgs.first?.lowercased() ?? "toggle"
+            guard verb == "toggle" else {
+                throw CLIError(message: "Unsupported browser react-grab subcommand: \(verb) (expected: toggle)")
+            }
+            var params = try optionalSurfaceParams()
+            let (returnOpt, _) = parseOption(subArgs, name: "--return-to")
+            if let returnRaw = returnOpt,
+               let resolvedReturn = try normalizeSurfaceHandle(returnRaw, client: client) {
+                params["return_to"] = resolvedReturn
+            }
+            let payload = try client.sendV2(method: "browser.react_grab.toggle", params: params)
+            output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "devtools" || subcommand == "dev-tools" {
+            let verb = subArgs.first?.lowercased() ?? "toggle"
+            let method: String
+            switch verb {
+            case "toggle": method = "browser.devtools.toggle"
+            case "console": method = "browser.console.show"
+            default:
+                throw CLIError(message: "Unsupported browser devtools subcommand: \(verb) (expected: toggle, console)")
+            }
+            let payload = try client.sendV2(method: method, params: try optionalSurfaceParams())
+            output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "focus-mode" {
+            let mode = subArgs.first?.lowercased() ?? "toggle"
+            guard ["enter", "exit", "toggle", "on", "off"].contains(mode) else {
+                throw CLIError(message: "browser focus-mode requires one of: enter, exit, toggle")
+            }
+            var params = try optionalSurfaceParams()
+            params["mode"] = mode
+            let payload = try client.sendV2(method: "browser.focus_mode.set", params: params)
+            output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "zoom" {
+            guard let direction = subArgs.first?.lowercased(), ["in", "out", "reset"].contains(direction) else {
+                throw CLIError(message: "browser zoom requires one of: in, out, reset")
+            }
+            var params = try optionalSurfaceParams()
+            params["direction"] = direction
+            let payload = try client.sendV2(method: "browser.zoom.set", params: params)
+            output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "history" {
+            let verb = subArgs.first?.lowercased() ?? "clear"
+            guard verb == "clear" else {
+                throw CLIError(message: "Unsupported browser history subcommand: \(verb) (expected: clear)")
+            }
+            let payload = try client.sendV2(method: "browser.history.clear", params: [:])
             output(payload, fallback: "OK")
             return
         }
@@ -32453,6 +32526,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           browser open-split [url]
           browser goto|navigate <url> [--snapshot-after]
           browser back|forward|reload [--snapshot-after]
+          browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
+          browser devtools toggle|console [--surface <id>]
+          browser focus-mode enter|exit|toggle [--surface <id>]
+          browser zoom in|out|reset [--surface <id>]
+          browser history clear
           browser url|get-url
           browser snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
           browser eval <script>
