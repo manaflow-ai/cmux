@@ -221,6 +221,10 @@ final class NotesTreeStore: ObservableObject {
         // known, top-level otherwise.
         if let projectRoot, let anchorId = workspaceAnchorId {
             for ref in NotesTreeStorage.listIndexedNotes(projectRoot: projectRoot, workspaceAnchorId: anchorId) {
+                // A flat note whose body was moved INSIDE the workspace folder
+                // is already listed as a real file; skip the index ref so the
+                // note doesn't appear twice.
+                guard !NotesTreeStorage.isWithin(child: ref.path, orEqualTo: root) else { continue }
                 let node = NotesTreeNode(name: ref.title, path: ref.path, kind: .note)
                 if let anchor = ref.surfaceAnchorId,
                    let sessionId = sessionIdBySurfaceAnchor[anchor],

@@ -427,6 +427,15 @@ struct NotesTreePanelView: NSViewRepresentable {
 
         // MARK: Drop handling
 
+        /// Drops aimed at a note retarget to the note's parent directory
+        /// (Files-style) instead of being rejected — dragging "onto" a row
+        /// inside a session must file into that session.
+        private func dropDestination(for item: Any?, in outlineView: NSOutlineView) -> NotesTreeNode? {
+            guard let node = item as? NotesTreeNode else { return nil }
+            if node.kind.isDirectory { return node }
+            return outlineView.parent(forItem: node) as? NotesTreeNode
+        }
+
         func outlineView(
             _ outlineView: NSOutlineView,
             validateDrop info: NSDraggingInfo,
@@ -434,9 +443,7 @@ struct NotesTreePanelView: NSViewRepresentable {
             proposedChildIndex index: Int
         ) -> NSDragOperation {
             let pb = info.draggingPasteboard
-            let destNode = item as? NotesTreeNode
-            // Drop target must be a directory (folder/session) or the workspace root.
-            if let destNode, !destNode.kind.isDirectory { return [] }
+            let destNode = dropDestination(for: item, in: outlineView)
             guard let destFolder = destNode?.path ?? store.resolvedRootPath else { return [] }
 
             // Internal move of a note/folder/session already in this tree.
@@ -471,7 +478,7 @@ struct NotesTreePanelView: NSViewRepresentable {
             childIndex index: Int
         ) -> Bool {
             let pb = info.draggingPasteboard
-            let destNode = item as? NotesTreeNode
+            let destNode = dropDestination(for: item, in: outlineView)
             // Dropping into a virtual session row materializes its folder
             // first, so "file this note under that session" is one gesture.
             let resolvedDest: String?
@@ -482,6 +489,14 @@ struct NotesTreePanelView: NSViewRepresentable {
                 resolvedDest = destNode?.path ?? store.resolvedRootPath
             }
             guard let destFolder = resolvedDest else { return false }
+            #if DEBUG
+            cmuxDebugLog(
+                "notes.drop dest=\(((destNode?.path ?? "root") as NSString).lastPathComponent) "
+                + "virtual=\(destNode?.isVirtual ?? false) "
+                + "move=\(pb.string(forType: NotesTreePanelView.movePasteboardType) != nil) "
+                + "session=\(pb.availableType(from: [NotesTreePanelView.sessionDragPasteboardType]) != nil)"
+            )
+            #endif
             // Internal move wins (a Notes session folder carries both types, but
             // within the tree we move it rather than duplicate it). Index-owned
             // flat notes route through the flat store so the index's bodyPath
@@ -493,6 +508,12 @@ struct NotesTreePanelView: NSViewRepresentable {
                 let moved = treeOwnedSource
                     ? store.move(sourcePath: source, intoFolder: destFolder)
                     : store.moveFlatNote(path: source, intoFolder: destFolder)
+                #if DEBUG
+                cmuxDebugLog(
+                    "notes.drop.move treeOwned=\(treeOwnedSource) "
+                    + "src=\((source as NSString).lastPathComponent) ok=\(moved != nil)"
+                )
+                #endif
                 guard let moved else { return false }
                 reloadNow()
                 selectRow(forPath: moved)
