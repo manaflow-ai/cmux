@@ -45,7 +45,11 @@ struct AgentChatPresenter {
                 presentNoSessionAlert()
                 return
             }
-            AgentChatWindowController.shared.present(for: resolution)
+            let sendRouter = AgentChatTerminalSendRouter(
+                workspaceId: workspaceId,
+                panelId: panelId
+            )
+            AgentChatWindowController.shared.present(for: resolution, sendRouter: sendRouter)
         }
     }
 

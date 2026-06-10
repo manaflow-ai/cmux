@@ -10,6 +10,7 @@
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
 		A6E710010000000000000002 /* AgentChatPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E710010000000000000001 /* AgentChatPresenter.swift */; };
+		A6E710050000000000000002 /* AgentChatTerminalSendRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E710050000000000000001 /* AgentChatTerminalSendRouter.swift */; };
 		A6E710020000000000000002 /* AgentChatTranscriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E710020000000000000001 /* AgentChatTranscriptResolver.swift */; };
 		A6E710030000000000000002 /* AgentChatWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E710030000000000000001 /* AgentChatWindowController.swift */; };
 		A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000001 /* AgentExecutableResolver.swift */; };
@@ -779,6 +780,7 @@
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
 		A6E710010000000000000001 /* AgentChatPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentChatPresenter.swift; sourceTree = "<group>"; };
+		A6E710050000000000000001 /* AgentChatTerminalSendRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentChatTerminalSendRouter.swift; sourceTree = "<group>"; };
 		A6E710020000000000000001 /* AgentChatTranscriptResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentChatTranscriptResolver.swift; sourceTree = "<group>"; };
 		A6E710030000000000000001 /* AgentChatWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentChatWindowController.swift; sourceTree = "<group>"; };
 		A9F100000000000000000001 /* AgentExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolver.swift; sourceTree = "<group>"; };
@@ -1688,6 +1690,7 @@
 				A6E710020000000000000001 /* AgentChatTranscriptResolver.swift */,
 				A6E710030000000000000001 /* AgentChatWindowController.swift */,
 				A6E710040000000000000001 /* LocalTranscriptConversationSource.swift */,
+				A6E710050000000000000001 /* AgentChatTerminalSendRouter.swift */,
 				243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */,
 				D50D9BCE46701FBA91C2EFB6 /* SidebarWorkspaceSnapshotRefreshPolicy.swift */,
 				D35450020000000000000002 /* SidebarWorkspaceRowHoverTracker.swift */,
@@ -2646,6 +2649,7 @@
 			files = (
 
 				A6E710010000000000000002 /* AgentChatPresenter.swift in Sources */,
+				A6E710050000000000000002 /* AgentChatTerminalSendRouter.swift in Sources */,
 				A6E710020000000000000002 /* AgentChatTranscriptResolver.swift in Sources */,
 				A6E710030000000000000002 /* AgentChatWindowController.swift in Sources */,
 				A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */,

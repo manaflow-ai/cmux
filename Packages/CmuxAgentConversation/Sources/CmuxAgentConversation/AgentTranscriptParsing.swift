@@ -5,7 +5,9 @@ import Foundation
 /// Each agent ships one conforming struct (``ClaudeCodeTranscriptParser``,
 /// ``CodexTranscriptParser``). Parsers are pure and value-typed: the caller
 /// owns reading the file (chunked IO, size caps) and hands over already-split
-/// lines, keeping this package free of any filesystem dependency.
+/// lines, keeping the parsers free of any filesystem dependency. File-backed
+/// sources in this package (``TailingTranscriptConversationSource``) do that
+/// reading through ``TranscriptFileLineReader``.
 ///
 /// Construct the parser at the call site for the kind you have:
 ///

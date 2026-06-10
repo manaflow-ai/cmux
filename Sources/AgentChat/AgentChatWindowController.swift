@@ -5,10 +5,12 @@ import SwiftUI
 
 /// Hosts ``AgentChatView`` in a standalone window for the focused panel's agent.
 ///
-/// P1 entry point: resolves the focused panel to its transcript, builds a
-/// ``LocalTranscriptConversationSource``, and shows the parsed conversation.
-/// Re-running ``present(for:)`` swaps in a fresh source so the window always
-/// reflects the panel the user invoked it from.
+/// Builds a live `TailingTranscriptConversationSource` for the resolved
+/// transcript, so the window updates as the agent produces new turns, and
+/// wires the composer's send closure to the panel's terminal through
+/// ``AgentChatTerminalSendRouter``. Re-running ``present(for:sendRouter:)``
+/// swaps in a fresh source so the window always reflects the panel the user
+/// invoked it from.
 @MainActor
 final class AgentChatWindowController: NSWindowController, NSWindowDelegate {
     static let shared = AgentChatWindowController()
@@ -43,24 +45,35 @@ final class AgentChatWindowController: NSWindowController, NSWindowDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// Presents the chat for the given resolution, building a fresh source.
+    /// Presents the chat for the given resolution, building a fresh live source.
     ///
-    /// - Parameter resolution: The resolved agent kind, session id, and
-    ///   transcript URL for the focused panel.
-    func present(for resolution: AgentChatTranscriptResolver.Resolution) {
-        let source = LocalTranscriptConversationSource(
+    /// - Parameters:
+    ///   - resolution: The resolved agent kind, session id, and transcript URL
+    ///     for the focused panel.
+    ///   - sendRouter: The router delivering composer drafts to the panel's
+    ///     terminal, or `nil` to present a read-only transcript.
+    func present(
+        for resolution: AgentChatTranscriptResolver.Resolution,
+        sendRouter: AgentChatTerminalSendRouter? = nil
+    ) {
+        let source = TailingTranscriptConversationSource(
             agentKind: resolution.agentKind,
             sessionId: resolution.sessionId,
             transcriptURL: resolution.transcriptURL
         )
+        let composer = sendRouter.map { router in
+            ChatComposerActions(send: { text in router.send(text) })
+        }
         // `.id` ties the view's identity to this presentation so every View
         // Chat invocation forces SwiftUI to rebuild `AgentChatView` (and its
-        // `@State` model), re-reading the transcript. The generation makes
-        // reopening the same panel re-read after its transcript has grown,
-        // while still discarding a previous panel's source.
+        // `@State` model), restarting the tail. The generation makes reopening
+        // the same panel re-subscribe, while still discarding a previous
+        // panel's source.
         presentationGeneration += 1
         let identity = "\(presentationGeneration)|\(resolution.sessionId)"
-        hostingController.rootView = AnyView(AgentChatView(source: source).id(identity))
+        hostingController.rootView = AnyView(
+            AgentChatView(source: source, composer: composer).id(identity)
+        )
         showWindow()
     }
 
