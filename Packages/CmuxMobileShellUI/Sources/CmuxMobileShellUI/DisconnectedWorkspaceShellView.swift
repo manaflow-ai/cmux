@@ -8,6 +8,11 @@ import AppKit
 #endif
 
 struct DisconnectedWorkspaceShellView: View {
+    /// Whether this install has ever paired a Mac. Gates the
+    /// Tailscale-inactive callout: its copy explains an unreachable Mac, which
+    /// is misleading for a signed-in user who has not added a device yet (that
+    /// user gets the pairing-flavored callout in the auto-presented sheet).
+    let hasKnownPairedMac: Bool
     let showAddDevice: () -> Void
     let signOut: () -> Void
     /// The shell store, forwarded to the reused Settings sheet so the user can
@@ -15,6 +20,8 @@ struct DisconnectedWorkspaceShellView: View {
     /// (this screen is the terminal not-connected state, reached after a stored
     /// Mac reconnect fails). `nil` in previews.
     var store: CMUXMobileShellStore?
+
+    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
     @State private var showingSettings = false
 
@@ -28,6 +35,16 @@ struct DisconnectedWorkspaceShellView: View {
             } description: {
                 Text(L10n.string("mobile.devices.emptyDescription", defaultValue: "Add a Mac to start syncing terminal workspaces."))
             } actions: {
+                // When a paired Mac is unreachable and this device has no
+                // active tailnet, lead with that explanation instead of
+                // leaving the user staring at a generic empty state. Skip it
+                // when no Mac was ever paired: the disconnected copy assumes a
+                // Mac exists, and the pairing sheet carries its own callout.
+                if hasKnownPairedMac, tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
+                    TailscaleInactiveCallout(context: .disconnected)
+                        .frame(maxWidth: 320, alignment: .leading)
+                        .padding(.bottom, 4)
+                }
                 Button(action: showAddDevice) {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
                 }

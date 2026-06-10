@@ -26,6 +26,7 @@ struct PairingView: View {
     @State private var port = UITestConfig.addDevicePort ?? "\(CmxMobileDefaults.defaultHostPort)"
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
+    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
     @State private var validationError: String?
     @State private var isPairing = false
     @State private var pairingTaskID: UUID?
@@ -35,6 +36,14 @@ struct PairingView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // Warn before the user burns a pair attempt: without an active
+                // tailnet, the Mac's QR/tailnet route is normally unreachable.
+                if tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
+                    Section {
+                        TailscaleInactiveCallout(context: .pairing)
+                    }
+                }
+
                 Section {
                     TextField(
                         L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac"),
