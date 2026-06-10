@@ -10,9 +10,17 @@ import AppKit
 /// stranding the knob permanently visible (#3241 follow-up).
 enum SidebarScrollViewConfigurator {
     static func apply(to scrollView: NSScrollView) {
-        scrollView.hasHorizontalScroller = false
-        scrollView.scrollerStyle = .overlay
-        scrollView.autohidesScrollers = true
-        scrollView.hasVerticalScroller = true
+        if scrollView.hasHorizontalScroller {
+            scrollView.hasHorizontalScroller = false
+        }
+        if scrollView.scrollerStyle != .overlay {
+            scrollView.scrollerStyle = .overlay
+        }
+        if !scrollView.autohidesScrollers {
+            scrollView.autohidesScrollers = true
+        }
+        if !scrollView.hasVerticalScroller {
+            scrollView.hasVerticalScroller = true
+        }
     }
 }
