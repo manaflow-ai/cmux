@@ -4,7 +4,7 @@
 32655	CLI/cmux.swift
 22098	Sources/TerminalController.swift
 19820	Sources/Workspace.swift
-19209	Sources/ContentView.swift
+19222	Sources/ContentView.swift
 18044	Sources/AppDelegate.swift
 16539	Sources/GhosttyTerminalView.swift
 13589	Sources/Panels/BrowserPanel.swift
@@ -47,7 +47,7 @@
 2138	Sources/SessionPersistence.swift
 2123	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2117	cmuxTests/CmuxConfigTests.swift
-1996	Sources/KeyboardShortcutSettingsFileStore.swift
+2020	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
 1793	Sources/SessionIndexStore.swift
@@ -76,10 +76,10 @@
 1144	Sources/VaultAgentProcessScanner.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
 1107	Sources/AppDelegate+CmuxSSHURL.swift
+1096	Sources/GhosttyConfig.swift
 1084	cmuxTests/AgentHibernationTests.swift
 1068	cmuxTests/FileExplorerStoreTests.swift
 1058	cmuxUITests/BonsplitTabDragUITests.swift
-1096	Sources/GhosttyConfig.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
@@ -167,8 +167,8 @@
 539	CLI/CodexTeamsApprovalBridge.swift
 538	CLI/CMUXCLI+Themes.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
-530	cmuxUITests/AutomationSocketUITests.swift
 528	cmuxTests/CLINotifyProcessTestSupport.swift
+528	cmuxUITests/AutomationSocketUITests.swift
 527	CLI/CLISocketPathResolver.swift
 523	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
 522	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
