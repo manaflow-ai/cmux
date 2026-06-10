@@ -1437,5 +1437,10 @@
     "downloadLight": "Preuzmi svijetlu ikonu",
     "downloadDark": "Preuzmi tamnu ikonu",
     "brandPage": "Materijali brenda"
+  },
+  "afterSignIn": {
+    "title": "Prijavljeni ste u cmux",
+    "body": "Ako se cmux nije automatski otvorio, koristite dugme ispod.",
+    "button": "Vrati se u cmux"
   }
 }

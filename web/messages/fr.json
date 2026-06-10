@@ -1437,5 +1437,10 @@
     "downloadLight": "Télécharger l’icône claire",
     "downloadDark": "Télécharger l’icône sombre",
     "brandPage": "Ressources de marque"
+  },
+  "afterSignIn": {
+    "title": "Connecté à cmux",
+    "body": "Si cmux ne s’est pas ouvert automatiquement, utilisez le bouton ci-dessous.",
+    "button": "Retourner à cmux"
   }
 }

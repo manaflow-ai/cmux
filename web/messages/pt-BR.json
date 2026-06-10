@@ -1437,5 +1437,10 @@
     "downloadLight": "Baixar ícone claro",
     "downloadDark": "Baixar ícone escuro",
     "brandPage": "Assets da marca"
+  },
+  "afterSignIn": {
+    "title": "Conectado ao cmux",
+    "body": "Se o cmux não abriu automaticamente, use o botão abaixo.",
+    "button": "Voltar ao cmux"
   }
 }

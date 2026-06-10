@@ -1437,5 +1437,10 @@
     "downloadLight": "下載淺色圖示",
     "downloadDark": "下載深色圖示",
     "brandPage": "品牌素材"
+  },
+  "afterSignIn": {
+    "title": "已登入 cmux",
+    "body": "如果 cmux 沒有自動開啟，請使用下方按鈕。",
+    "button": "返回 cmux"
   }
 }

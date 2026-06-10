@@ -1437,5 +1437,10 @@
     "downloadLight": "라이트 아이콘 다운로드",
     "downloadDark": "다크 아이콘 다운로드",
     "brandPage": "브랜드 애셋"
+  },
+  "afterSignIn": {
+    "title": "cmux에 로그인했습니다",
+    "body": "cmux가 자동으로 열리지 않으면 아래 버튼을 사용하세요.",
+    "button": "cmux로 돌아가기"
   }
 }

@@ -1677,5 +1677,10 @@
     "downloadLight": "ライトアイコンをダウンロード",
     "downloadDark": "ダークアイコンをダウンロード",
     "brandPage": "ブランドアセット"
+  },
+  "afterSignIn": {
+    "title": "cmux にサインインしました",
+    "body": "cmux が自動的に開かない場合は、下のボタンを使用してください。",
+    "button": "cmux に戻る"
   }
 }

@@ -1437,5 +1437,10 @@
     "downloadLight": "Helles Icon herunterladen",
     "downloadDark": "Dunkles Icon herunterladen",
     "brandPage": "Brand-Assets"
+  },
+  "afterSignIn": {
+    "title": "Bei cmux angemeldet",
+    "body": "Wenn cmux nicht automatisch geöffnet wurde, verwende die Schaltfläche unten.",
+    "button": "Zurück zu cmux"
   }
 }
