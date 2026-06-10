@@ -26,6 +26,7 @@
     "db:url": "bash scripts/db-local.sh url",
     "start": "next start",
     "test": "bun test",
+    "test:db:behavior": "bash scripts/run-db-behavior-tests.sh",
     "lint": "eslint"
   },
   "dependencies": {

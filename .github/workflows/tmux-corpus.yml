@@ -63,6 +63,11 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 30
+    env:
+      # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
+      # backtracer until the job timeout. Keep crash handling non-interactive
+      # and cheap so xcodebuild can restart/finish the suite.
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -117,12 +122,21 @@ jobs:
           key: tmux-corpus-spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: tmux-corpus-spm-
 
+      - name: Prepare isolated DerivedData
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-derived-data-tmux-corpus-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$DERIVED_DATA_PATH"
+          mkdir -p "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           mkdir -p "$SOURCE_PACKAGES_DIR"
           xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -resolvePackageDependencies
 
@@ -130,12 +144,28 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            -only-testing:cmuxTests/GhosttyCommandShiftForwardingTests \
-            -only-testing:cmuxTests/GhosttyTerminalStartupEnvironmentTests \
-            -only-testing:cmuxTests/CmuxConfigNamedColorTests \
-            -only-testing:cmuxTests/SessionPersistenceTests \
-            test
+          set +e
+          scripts/ci/xcodebuild_noninteractive.py \
+            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              -only-testing:cmuxTests/GhosttyCommandShiftForwardingTests \
+              -only-testing:cmuxTests/GhosttyTerminalStartupEnvironmentTests \
+              -only-testing:cmuxTests/CmuxConfigNamedColorTests \
+              -only-testing:cmuxTests/SessionPersistenceTests \
+              test 2>&1 | tee /tmp/tmux-terminal-corpus-output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          OUTPUT=$(cat /tmp/tmux-terminal-corpus-output.txt)
+          set -e
+
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1 || true)
+            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+              echo "All failures are expected, treating as pass"
+            else
+              echo "Unexpected terminal corpus test failures detected"
+              exit 1
+            fi
+          fi

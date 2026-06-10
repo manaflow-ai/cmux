@@ -1226,6 +1226,22 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         )
     }
 
+    func testModeShortcutHonorsActionGate() {
+        let feedEvent = makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)
+
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: feedEvent) { action in
+                action != .switchRightSidebarToFeed
+            }
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: feedEvent) { action in
+                action == .switchRightSidebarToFeed
+            },
+            .feed
+        )
+    }
+
     func testModeShortcutUsesSettingsFileBindings() throws {
         let settingsFileURL = try XCTUnwrap(temporaryDirectoryURL)
             .appendingPathComponent("cmux.json", isDirectory: false)
