@@ -20,7 +20,7 @@
 6119	CLI/cmux_open.swift
 5948	Sources/TextBoxInput.swift
 5482	cmuxTests/BrowserConfigTests.swift
-5431	Sources/cmuxApp.swift
+5439	Sources/cmuxApp.swift
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
@@ -172,7 +172,6 @@
 527	CLI/CLISocketPathResolver.swift
 523	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
 522	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
-522	Packages/CmuxUpdaterUI/Sources/CmuxUpdaterUI/UpdatePopoverView.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift
 519	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-two-column-cockpit-sidebar.swift
