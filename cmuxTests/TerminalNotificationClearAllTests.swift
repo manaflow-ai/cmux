@@ -1,5 +1,6 @@
 import XCTest
 import Bonsplit
+import CMUXWorkstream
 import Darwin
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1148,5 +1149,86 @@ final class TerminalNotificationClearAllTests: XCTestCase {
             destinationWorkspace.restoredAgentSnapshotForTesting(panelId: movingPanelId)?.sessionId,
             "restored-only"
         )
+    }
+
+    /// Regression for #2576: a Claude "Needs input" raised by a feed-routed
+    /// blocking decision (PATH B — `FeedCoordinator.surfaceBlockingDecisionAttention`)
+    /// sets the sidebar status + needsInput lifecycle WITHOUT creating a store
+    /// notification. Focusing/interacting with the panel must still clear it,
+    /// mirroring the notification-store acknowledgement path. Before the fix,
+    /// `dismissNotification` bailed out early (no store notification to mark
+    /// read) and the badge stayed stuck on "Needs input".
+    func testFocusingWorkspaceClearsFeedRoutedNeedsInputAttention() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+        FeedCoordinatorTestHooks.attentionSurfaceObserver = nil
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            FeedCoordinatorTestHooks.attentionSurfaceObserver = nil
+        }
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        // Seed feed-routed needs-input exactly as a Claude PermissionRequest does.
+        let event = WorkstreamEvent(
+            sessionId: "claude-focus-clear-test",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"true"}"#,
+            requestId: "focus-clear-request"
+        )
+        let target = try XCTUnwrap(
+            FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                event: event,
+                resolved: (workspaceId: workspace.id, surfaceId: panelId)
+            )
+        )
+
+        XCTAssertEqual(workspace.statusEntries["claude_code"]?.value, "Needs input")
+        XCTAssertEqual(workspace.statusEntries["claude_code"]?.icon, "bell.fill")
+        XCTAssertEqual(
+            workspace.agentLifecycleStatesByPanelId[panelId]?["claude_code"],
+            .needsInput
+        )
+
+        // Clicking/interacting with the panel acknowledges the attention. This
+        // returns false and leaves the badge stuck before the fix.
+        let didDismiss = manager.dismissNotificationOnTerminalInteraction(
+            tabId: workspace.id,
+            surfaceId: panelId
+        )
+
+        XCTAssertTrue(didDismiss)
+        XCTAssertNil(workspace.statusEntries["claude_code"])
+        XCTAssertNotEqual(
+            workspace.agentLifecycleStatesByPanelId[panelId]?["claude_code"],
+            .needsInput
+        )
+
+        // Concluding the already-acknowledged decision must be a safe no-op.
+        FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+        XCTAssertNil(workspace.statusEntries["claude_code"])
     }
 }
