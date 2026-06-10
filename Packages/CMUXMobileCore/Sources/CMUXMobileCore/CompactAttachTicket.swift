@@ -16,8 +16,8 @@ struct CompactAttachTicket: Codable {
 
     init(_ ticket: CmxAttachTicket) {
         v = ticket.version
-        w = normalizedNonEmpty(ticket.workspaceID)
-        t = normalizedNonEmpty(ticket.terminalID)
+        w = Self.normalizedNonEmpty(ticket.workspaceID)
+        t = Self.normalizedNonEmpty(ticket.terminalID)
         d = ticket.macDeviceID
         r = Self.compactRoutes(ticket.routes)
     }
@@ -66,11 +66,11 @@ struct CompactAttachTicket: Codable {
     ) -> String {
         occurrence == 1 ? kind.rawValue : "\(kind.rawValue)_\(occurrence)"
     }
-}
 
-private func normalizedNonEmpty(_ value: String?) -> String? {
-    guard let value, !value.isEmpty else {
-        return nil
+    private static func normalizedNonEmpty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else {
+            return nil
+        }
+        return value
     }
-    return value
 }
