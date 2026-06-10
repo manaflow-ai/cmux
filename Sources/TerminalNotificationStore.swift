@@ -1242,7 +1242,19 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil
     ) {
+        // Hook-driven notifications (claude-hook, codex-hook, `cmux notify`)
+        // target the workspace UUID captured in the pane's spawn environment
+        // (CMUX_WORKSPACE_ID). That value goes stale once the pane is moved to
+        // another workspace, so prefer the workspace that currently owns the
+        // surface and only fall back to the caller-supplied workspace.
+        let requestedTabId = tabId
+        let tabId = Self.owningTabId(forSurfaceId: surfaceId, fallbackTabId: requestedTabId)
 #if DEBUG
+        if tabId != requestedTabId {
+            cmuxDebugLog(
+                "notification.store.add.reroute surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") from=\(requestedTabId.uuidString.prefix(8)) to=\(tabId.uuidString.prefix(8))"
+            )
+        }
         cmuxDebugLog(
             "notification.store.add workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1)"
         )
@@ -1332,6 +1344,21 @@ final class TerminalNotificationStore: ObservableObject {
                 self.reportNotificationHookFailure(failure)
             }
         }
+    }
+
+    /// Resolves the workspace that currently owns `surfaceId`, falling back to
+    /// the caller-supplied tab when the surface cannot be located (for example
+    /// when delivery races a pane close, or for workspace-level notifications
+    /// with no surface).
+    private static func owningTabId(forSurfaceId surfaceId: UUID?, fallbackTabId: UUID) -> UUID {
+        guard let surfaceId,
+              let resolved = AppDelegate.shared?.workspaceContainingPanel(
+                  panelId: surfaceId,
+                  preferredWorkspaceId: fallbackTabId
+              )?.workspace.id else {
+            return fallbackTabId
+        }
+        return resolved
     }
 
     private struct NotificationCooldownReservation: Sendable {
