@@ -1739,6 +1739,35 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertEqual(workspace.panelPullRequests[panelId]?.ciStatus, .success)
         XCTAssertEqual(workspace.panelPullRequests[panelId]?.isStale, true)
     }
+
+    func testUpdatePanelPullRequestDoesNotCarryCIStatusToDifferentPR() throws {
+        let workspace = Workspace(title: "Test")
+        let panelId = UUID()
+        let url1 = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/4244"))
+        let url2 = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/4245"))
+
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 4244,
+            label: "PR",
+            url: url1,
+            status: .open,
+            branch: "feature/ci",
+            ciStatus: .failure
+        )
+        // A CI-agnostic update (nil) reporting a *different* PR on the same
+        // panel must not inherit the prior PR's failure glyph.
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 4245,
+            label: "PR",
+            url: url2,
+            status: .open,
+            branch: "feature/ci"
+        )
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 4245)
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.ciStatus, .neutral)
+    }
 }
 
 private func restoreUserDefault(_ value: Any?, key: String) {

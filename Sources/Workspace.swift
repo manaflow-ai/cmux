@@ -12769,8 +12769,19 @@ final class Workspace: Identifiable, ObservableObject {
         let existing = panelPullRequests[panelId]
         // `nil` means "keep whatever CI status we already had" (callers that
         // don't carry CI data, e.g. CLI report_pr); the probe always passes a
-        // concrete value so a real flip is never masked.
-        let resolvedCIStatus = ciStatus ?? existing?.ciStatus ?? .neutral
+        // concrete value so a real flip is never masked. Only preserve the
+        // existing value when the update is for the *same* PR — otherwise a new
+        // PR on this panel would inherit the previous PR's check glyph until the
+        // next probe corrects it, so fall back to neutral.
+        let resolvedCIStatus: SidebarPullRequestCIStatus = {
+            if let ciStatus {
+                return ciStatus
+            }
+            if let existing, existing.number == number, existing.url == url {
+                return existing.ciStatus
+            }
+            return .neutral
+        }()
         let normalizedBranch = normalizedSidebarBranchName(branch)
         let currentPanelBranch = normalizedSidebarBranchName(panelGitBranches[panelId]?.branch)
         let resolvedBranch: String? = {

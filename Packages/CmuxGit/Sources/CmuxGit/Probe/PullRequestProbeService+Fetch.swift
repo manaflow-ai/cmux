@@ -146,8 +146,7 @@ extension PullRequestProbeService {
         }
 
         // One GraphQL request per repo per cache window for the CI rollup of
-        // all open PRs at once. Requires a token; without one the map is empty
-        // and every branch renders neutral (never anonymous REST spam).
+        // all open PRs at once (empty/neutral without a token; never anon REST).
         let ciStatusMap = await repoCIStatusByBranch(
             repoSlug: repoSlug,
             session: session,
@@ -361,13 +360,12 @@ extension PullRequestProbeService {
     // MARK: CI rollup (GraphQL)
 
     /// Fetches the CI rollup for every open PR in one repository with a single
-    /// GraphQL request, keyed by normalized head branch.
-    ///
-    /// Returns an empty map (every branch renders neutral) when there is no
-    /// token — GraphQL rejects anonymous requests, and we will not fall back to
-    /// anonymous REST — or on any transport/decoding failure. This is called
-    /// only on a fresh repo fetch (cache miss), so it adds at most one request
-    /// per repo per cache window and never scales with PR count.
+    /// GraphQL request, keyed by normalized head branch. Returns an empty map
+    /// (every branch renders neutral) without a token — GraphQL rejects
+    /// anonymous requests and we never fall back to anonymous REST — or on any
+    /// transport/decode failure. Called only on a fresh repo fetch, so it adds
+    /// at most one request per repo per cache window and never scales with PR
+    /// count.
     nonisolated func repoCIStatusByBranch(
         repoSlug: String,
         session: URLSession,
