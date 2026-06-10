@@ -439,6 +439,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
+    /// Recovers the Mac's identity post-handshake for tickets that arrived
+    /// without one (the minimal v2 pairing QR). Owned separately from the
+    /// short capability probe; see ``scheduleHostIdentityAdoptionIfNeeded(client:)``.
+    /// Cancelled on disconnect via ``cancelRemoteOperationTasks()``.
+    private var hostIdentityAdoptionTask: Task<Void, Never>?
     // Liveness watchdog for the render-grid push subscription. The `for await`
     // listener loop blocks indefinitely if the underlying connection half-dies
     // (network blip, Mac stops pushing, background/foreground cycle): the
@@ -1761,7 +1766,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return nil
     }
 
-    private func persistPairedMacFromTicket(_ ticket: CmxAttachTicket) async {
+    /// Persists `ticket` as the active paired Mac.
+    ///
+    /// `ifStillCurrent` is evaluated immediately before the store write, after
+    /// every suspension this helper performs. The status-driven identity
+    /// adoption passes it so a stale reply that survived the earlier guards
+    /// cannot commit `markActive: true` for an old Mac after the user has
+    /// started pairing a new one; the connect path leaves it `nil` (its write
+    /// is for the connection it just established).
+    private func persistPairedMacFromTicket(
+        _ ticket: CmxAttachTicket,
+        ifStillCurrent: (() -> Bool)? = nil
+    ) async {
         guard let pairedMacStore else { return }
         guard !ticket.macDeviceID.isEmpty else { return }
         // Strip routes that we can't reconnect to without server-side state
@@ -1779,6 +1795,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let knownMacs = try? await pairedMacStore.loadAll(stackUserID: nil)
                 displayName = knownMacs?.first { $0.macDeviceID == ticket.macDeviceID }?.displayName
             }
+            if let ifStillCurrent, !ifStillCurrent() { return }
             try await pairedMacStore.upsert(
                 macDeviceID: ticket.macDeviceID,
                 displayName: displayName,
@@ -1792,6 +1809,47 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             hasKnownPairedMac = true
         } catch {
             mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Recovers the Mac's identity for a connection whose ticket arrived
+    /// without a device id (the minimal v2 pairing QR), as its own
+    /// `mobile.host.status` request with the default RPC timeout.
+    ///
+    /// Identity recovery must not depend on the terminal-output capability
+    /// probe's 750ms best-effort timeout: the probe is allowed to fail fast
+    /// (the terminal just falls back to raw bytes), but the status report is
+    /// the ONLY path that persists a freshly QR-paired Mac, so a slow tailnet
+    /// link that times the probe out must not cost the paired-Mac record and
+    /// reconnect-on-launch. The probe applies identity itself when it
+    /// succeeds (no extra request in the common case) and calls this when it
+    /// cannot, so the recovery request runs with the full RPC timeout. Both
+    /// feed the same guarded
+    /// ``applyHostReportedIdentity(client:deviceID:displayName:)`` path.
+    private func scheduleHostIdentityAdoptionIfNeeded(client: MobileCoreRPCClient) {
+        guard activeTicket?.macDeviceID.isEmpty == true else { return }
+        hostIdentityAdoptionTask?.cancel()
+        hostIdentityAdoptionTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled, self.remoteClient === client else { return }
+            let data: Data
+            do {
+                data = try await client.sendRequest(
+                    MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:])
+                )
+            } catch {
+                // The connection (or a reconnect) re-schedules adoption; a
+                // failed status here means the connection itself is in
+                // trouble and its own recovery paths take over.
+                mobileShellLog.error("host identity status request failed: \(String(describing: error), privacy: .private)")
+                return
+            }
+            guard !Task.isCancelled,
+                  let payload = try? MobileHostStatusResponse.decode(data) else { return }
+            await self.applyHostReportedIdentity(
+                client: client,
+                deviceID: payload.macDeviceID,
+                displayName: payload.macDisplayName
+            )
         }
     }
 
@@ -1830,20 +1888,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // The connection is now attributable to a real Mac: persist it so
             // reconnect-on-launch and the host switcher have a record (the
             // empty-id ticket was skipped by the connect-time persist).
-            await persistPairedMacFromTicket(adopted)
+            await persistPairedMacFromTicket(
+                adopted,
+                ifStillCurrent: { [weak self] in self?.remoteClient === client }
+            )
         }
         guard remoteClient === client else { return }
-        await applyHostReportedDisplayName(displayName)
+        await applyHostReportedDisplayName(
+            displayName,
+            ifStillCurrent: { [weak self] in self?.remoteClient === client }
+        )
     }
 
     /// Adopts the Mac name reported by `mobile.host.status`. The pairing QR
     /// no longer carries the name, so this post-handshake report is what
     /// replaces the placeholder in the UI and fills in the paired-Mac store
     /// for freshly paired Macs. The caller has verified the reply belongs to
-    /// the current connection; `ticket` is captured once here so the trailing
-    /// store write stays internally consistent even if the connection changes
-    /// mid-upsert.
-    private func applyHostReportedDisplayName(_ reportedName: String?) async {
+    /// the current connection; `ticket` is captured once here so the store
+    /// write stays internally consistent, and `ifStillCurrent` is re-checked
+    /// immediately before that write so a connection change during the name
+    /// application cannot mark a stale Mac active.
+    private func applyHostReportedDisplayName(
+        _ reportedName: String?,
+        ifStillCurrent: (() -> Bool)? = nil
+    ) async {
         guard let name = reportedName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !name.isEmpty,
               let ticket = activeTicket else {
@@ -1859,6 +1927,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               !ticket.macDeviceID.hasPrefix("manual-") else {
             return
         }
+        if let ifStillCurrent, !ifStillCurrent() { return }
         do {
             try await pairedMacStore.upsert(
                 macDeviceID: ticket.macDeviceID,
@@ -2824,6 +2893,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func cancelRemoteOperationTasks() {
+        hostIdentityAdoptionTask?.cancel()
+        hostIdentityAdoptionTask = nil
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         createWorkspaceTask?.cancel()
@@ -3562,6 +3633,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 terminalOutputTransport = fallback
                 supportsWorkspaceActions = false
                 supportsDogfoodFeedback = false
+                scheduleHostIdentityAdoptionIfNeeded(client: client)
                 return fallback
             }
             supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
@@ -3581,6 +3653,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalOutputTransport = fallback
             supportsWorkspaceActions = false
             supportsDogfoodFeedback = false
+            // The probe is best-effort for the terminal transport, but a
+            // freshly QR-paired Mac still needs its identity recovered, with
+            // a real timeout instead of the probe's 750ms.
+            scheduleHostIdentityAdoptionIfNeeded(client: client)
             MobileDebugLog.anchormux("sync.transport=raw_bytes reason=status_failed")
             return fallback
         }
