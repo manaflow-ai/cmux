@@ -625,6 +625,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   align-items: baseline;
   min-width: 0;
   flex: 1 1 auto;
+  overflow: hidden;
   font-size: 12px;
   line-height: 1.3;
 }
@@ -635,14 +636,21 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   white-space: nowrap;
   direction: rtl;
   min-width: 0;
-  flex: 0 1 auto;
+  /* Shrink the directory first (high shrink factor) so the filename stays
+     visible; the filename only gives way once the directory is fully clipped. */
+  flex: 0 99999 auto;
   unicode-bidi: plaintext;
 }
 .cmux-fileheader-name {
   color: var(--cmux-diff-fg);
   font-weight: 600;
   white-space: nowrap;
-  flex: 0 0 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  /* A pathological basename still ellipsizes inside the card instead of
+     overflowing the header band and covering the language/stat metadata. */
+  flex: 0 1 auto;
 }
 .cmux-fileheader-meta {
   display: flex;
