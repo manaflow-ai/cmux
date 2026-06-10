@@ -321,7 +321,10 @@ enum NotesTreeStorage {
                 modified: now,
                 lastSeen: now
             )
-            record.lastSeen = now
+            // Coarse heartbeat: bumping lastSeen every pass would rewrite the
+            // marker on each 10s refresh, firing the folder watcher and
+            // reloading the outline — which cancels in-progress drags.
+            if now - record.lastSeen > 300 { record.lastSeen = now }
             if let anchor = observation.surfaceAnchorId { record.surfaceAnchorId = anchor }
             byKey[key] = record
         }

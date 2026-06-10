@@ -383,7 +383,23 @@ struct NotesTreePanelView: NSViewRepresentable {
 
         // MARK: Drag-to-move
 
+        func outlineView(
+            _ outlineView: NSOutlineView,
+            draggingSession session: NSDraggingSession,
+            willBeginAt screenPoint: NSPoint,
+            forItems draggedItems: [Any]
+        ) {
+            #if DEBUG
+            cmuxDebugLog("notes.drag.begin items=\(draggedItems.count)")
+            #endif
+        }
+
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
+            #if DEBUG
+            cmuxDebugLog(
+                "notes.drag.writer node=\((((item as? NotesTreeNode)?.path ?? "?") as NSString).lastPathComponent)"
+            )
+            #endif
             guard let node = item as? NotesTreeNode, !node.path.isEmpty else { return nil }
             // Notes drag like Files-tab files: the file-preview writer carries
             // the pane-drop payload (markdown viewer) and a fileURL, composed
