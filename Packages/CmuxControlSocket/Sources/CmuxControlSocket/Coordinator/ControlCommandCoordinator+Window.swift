@@ -6,6 +6,29 @@ internal import Foundation
 /// the resulting Foundation object is identical, so the encoded wire bytes
 /// match.
 extension ControlCommandCoordinator {
+    /// Dispatches the window methods this coordinator owns; returns `nil` for
+    /// anything else so the core `handle(_:)` can fall through.
+    func handleWindow(_ request: ControlRequest) -> ControlCallResult? {
+        switch request.method {
+        case "window.list":
+            return windowList()
+        case "window.current":
+            return windowCurrent(request.params)
+        case "window.focus":
+            return windowFocus(request.params)
+        case "window.create":
+            return windowCreate()
+        case "window.close":
+            return windowClose(request.params)
+        case "window.displays":
+            return windowDisplays()
+        case "window.display":
+            return windowDisplay(request.params)
+        default:
+            return nil
+        }
+    }
+
     /// `window.list` — every main window, in order.
     func windowList() -> ControlCallResult {
         let windows = context?.controlWindowSummaries() ?? []

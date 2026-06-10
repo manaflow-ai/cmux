@@ -60,24 +60,14 @@ public final class ControlCommandCoordinator {
     /// - Parameter request: The decoded request envelope.
     /// - Returns: The command result, or `nil` if not owned here.
     public func handle(_ request: ControlRequest) -> ControlCallResult? {
-        switch request.method {
-        case "window.list":
-            return windowList()
-        case "window.current":
-            return windowCurrent(request.params)
-        case "window.focus":
-            return windowFocus(request.params)
-        case "window.create":
-            return windowCreate()
-        case "window.close":
-            return windowClose(request.params)
-        case "window.displays":
-            return windowDisplays()
-        case "window.display":
-            return windowDisplay(request.params)
-        default:
-            return nil
-        }
+        // Each domain's handler (in its own `+<Domain>.swift` extension) owns its
+        // methods and returns `nil` for anything else, so the chain falls through
+        // to the next domain and finally to the legacy app-side dispatcher.
+        if let result = handleWindow(request) { return result }
+        if let result = handleAppFocus(request) { return result }
+        if let result = handleFeed(request) { return result }
+        if let result = handleNotification(request) { return result }
+        return nil
     }
 
     // MARK: - Handle registry (shared ref minting)

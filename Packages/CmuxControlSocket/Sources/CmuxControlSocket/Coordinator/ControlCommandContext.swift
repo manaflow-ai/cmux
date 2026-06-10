@@ -12,4 +12,10 @@
 /// `AnyObject` so the coordinator can hold the conformer `weak` and avoid a
 /// retain cycle with its composition owner.
 @MainActor
-public protocol ControlCommandContext: AnyObject, ControlWindowContext {}
+public protocol ControlCommandContext:
+    AnyObject,
+    ControlWindowContext,
+    ControlAppFocusContext,
+    ControlFeedContext,
+    ControlNotificationContext
+{}
