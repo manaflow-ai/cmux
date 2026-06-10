@@ -5,8 +5,8 @@
 22073	Sources/TerminalController.swift
 19820	Sources/Workspace.swift
 19209	Sources/ContentView.swift
-18011	Sources/AppDelegate.swift
-16470	Sources/GhosttyTerminalView.swift
+18044	Sources/AppDelegate.swift
+16537	Sources/GhosttyTerminalView.swift
 13589	Sources/Panels/BrowserPanel.swift
 11916	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9939	Sources/TabManager.swift
@@ -80,9 +80,9 @@
 1068	cmuxTests/FileExplorerStoreTests.swift
 1058	cmuxUITests/BonsplitTabDragUITests.swift
 1048	Sources/GhosttyConfig.swift
+1021	cmuxUITests/TerminalCmdClickUITests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
-969	cmuxUITests/TerminalCmdClickUITests.swift
 949	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
