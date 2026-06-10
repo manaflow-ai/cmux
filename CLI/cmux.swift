@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxAttach
 import CmuxFoundation
 import CmuxSocketControl
 import CoreFoundation
@@ -1618,6 +1619,23 @@ final class SocketClient {
 
     var socketPath: String {
         path
+    }
+
+    /// The live connection's file descriptor, or -1 when not connected. Exposed
+    /// so `cmux attach` can take the socket over for long-lived bidirectional
+    /// byte streaming, which the request/response `send`/`sendV2` path cannot
+    /// model. Callers must not mix raw streaming with `send`/`sendV2` on the
+    /// same client, and must stop using the fd before `close()`.
+    var rawFileDescriptor: Int32 { socketFD }
+
+    /// Switch the connection's receive timeout to blocking (no `SO_RCVTIMEO`).
+    /// `cmux attach` streams indefinitely, so a recv timeout would spuriously
+    /// abort an idle-but-healthy stream. Safe to call only while connected.
+    func makeBlockingForStreaming() {
+        guard socketFD >= 0 else { return }
+        var tv = timeval(tv_sec: 0, tv_usec: 0)
+        _ = setsockopt(socketFD, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        lastConfiguredReceiveTimeout = nil
     }
 
     var isRelayBacked: Bool {
@@ -3834,6 +3852,10 @@ struct CMUXCLI {
             )
         case "ssh-pty-attach":
             try runSSHPTYAttach(commandArgs: commandArgs, client: client)
+        case "attach":
+            try runSurfaceAttach(commandArgs: commandArgs, client: client)
+        case "list-surfaces":
+            try runListSurfaces(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
         case "ssh-session-list":
             try runSSHSessionList(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
         case "ssh-session-attach":
@@ -4998,6 +5020,7 @@ struct CMUXCLI {
         "__codex-teams-watch",
         "__tmux-compat",
         "agent-hibernation",
+        "attach",
         "auth",
         "bind-key",
         "break-pane",
@@ -5060,6 +5083,7 @@ struct CMUXCLI {
         "list-panels",
         "list-panes",
         "list-status",
+        "list-surfaces",
         "list-windows",
         "list-workspaces",
         "log",
@@ -10596,7 +10620,7 @@ struct CMUXCLI {
         return nil
     }
 
-    private func writeAll(fd: Int32, data: Data) throws {
+    private func writeAll(fd: Int32, data: Data, context: String = "ssh-pty-attach") throws {
         try data.withUnsafeBytes { rawBuffer in
             guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
             var remaining = rawBuffer.count
@@ -10609,9 +10633,349 @@ struct CMUXCLI {
                 } else if written < 0 && errno == EINTR {
                     continue
                 } else {
-                    throw CLIError(message: "ssh-pty-attach: bridge write failed")
+                    throw CLIError(message: "\(context): bridge write failed")
                 }
             }
+        }
+    }
+
+    /// Attach a bare terminal to a running GUI surface's PTY over the control
+    /// socket. The dispatch wrapper has already connected and authenticated
+    /// `client`, so this writes the `surface.attach_pty` handshake on the same
+    /// fd and then streams `AttachFrame`s in both directions until the host or
+    /// the user (Ctrl+\) detaches. The pane keeps running after detach.
+    private func runSurfaceAttach(commandArgs: [String], client: SocketClient) throws {
+        let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (windowOpt, rem1) = parseOption(rem0, name: "--window")
+        let (surfaceOpt, rem2) = parseOption(rem1, name: "--surface")
+        let readOnly = rem2.contains("--read-only")
+        let remaining = rem2.filter { $0 != "--read-only" }
+        if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
+            throw CLIError(message: "attach: unknown flag '\(unknown)'")
+        }
+        // Extra positionals are a typo-or-mistake on a targeting command; silently
+        // attaching the first and dropping the rest would hit the wrong surface.
+        let positionals = remaining.filter { !Self.isFlagToken($0) }
+        if positionals.count > 1 {
+            throw CLIError(message: "attach: too many surface arguments (\(positionals.map { "'\($0)'" }.joined(separator: ", "))). Specify exactly one surface (UUID, ref like surface:2, or index).")
+        }
+        let positional = positionals.first
+        if surfaceOpt != nil, let extra = positional {
+            throw CLIError(message: "attach: conflicting surface arguments. Use either --surface or a positional surface, not both (got --surface and '\(extra)').")
+        }
+        let envSurfaceID = Self.normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
+        let surfaceRaw = surfaceOpt ?? positional ?? envSurfaceID
+
+        // A relay-backed client closes its socket after every request/response
+        // (`send` sets shouldCloseAfterSend when relayEndpoint != nil), so the
+        // long-lived raw stream attach needs cannot run over it - rawFileDescriptor
+        // would already be -1 by the time we stream. Refuse with a clear message
+        // instead of a confusing "not connected".
+        if client.isRelayBacked {
+            throw CLIError(message: "attach: not supported over the relay/remote socket. Run `cmux attach` against a direct cmux control socket on the host.")
+        }
+
+        let winId = try normalizeWindowHandle(windowOpt, client: client)
+        let wsId = try normalizeWorkspaceHandle(workspaceOpt, client: client, windowHandle: winId)
+        guard let handle = try normalizeSurfaceHandle(
+            surfaceRaw,
+            client: client,
+            workspaceHandle: wsId,
+            windowHandle: winId,
+            allowFocused: true
+        ) else {
+            throw CLIError(message: "Usage: cmux attach <surface> [--read-only]\n\nattach requires a surface (UUID, ref like surface:2, or index). List options with `cmux list-surfaces`.")
+        }
+        let surfaceUUID = try resolveSurfaceUUIDString(handle, client: client, workspaceHandle: wsId, windowHandle: winId)
+
+        guard isatty(STDIN_FILENO) != 0, isatty(STDOUT_FILENO) != 0 else {
+            throw CLIError(message: "attach: requires an interactive terminal (stdin and stdout must be a TTY)")
+        }
+
+        // Refuse self-attach. If this terminal *is* the target surface, streaming
+        // its output back into itself loops forever (the same reason tmux refuses
+        // to attach a session to a client inside it). Detect it by comparing this
+        // process's controlling tty with the surface's tty; also honor the cheap
+        // CMUX_SURFACE_ID hint when cmux set it in this pane's environment.
+        if let envSurface = envSurfaceID,
+           envSurface.lowercased() == surfaceUUID.lowercased() {
+            throw CLIError(message: surfaceSelfAttachMessage(handle))
+        }
+        if let myTTY = ttyBasename(fd: STDIN_FILENO),
+           let surfaceTTYRaw = surfaceTTYName(uuid: surfaceUUID, client: client) {
+            // The host may report the tty as a bare name ("ttys024") or a full
+            // device path ("/dev/ttys024"); compare on the leaf so the guard
+            // holds either way.
+            let surfaceTTY = surfaceTTYRaw.split(separator: "/").last.map(String.init) ?? surfaceTTYRaw
+            if !surfaceTTY.isEmpty, myTTY == surfaceTTY {
+                throw CLIError(message: surfaceSelfAttachMessage(handle))
+            }
+        }
+
+        let fd = client.rawFileDescriptor
+        guard fd >= 0 else { throw CLIError(message: "attach: not connected") }
+        client.makeBlockingForStreaming()
+
+        let size = currentCLITerminalSize()
+        let requestObject: [String: Any] = [
+            "method": "surface.attach_pty",
+            "params": [
+                "surface": surfaceUUID,
+                "cols": size.cols,
+                "rows": size.rows,
+                "read_only": readOnly,
+                "v": AttachRequest.currentVersion,
+            ] as [String: Any],
+        ]
+        var requestLine = try JSONSerialization.data(withJSONObject: requestObject, options: [])
+        requestLine.append(0x0A)
+
+        let rawMode = TerminalRawMode()
+        defer { rawMode?.restore() }
+
+        // stdin writer and the SIGWINCH handler both write to the socket; the
+        // output reader only reads. Serialize the two writers.
+        let writeLock = NSLock()
+        let sendFrame: @Sendable (AttachFrame) -> Void = { frame in
+            writeLock.lock()
+            defer { writeLock.unlock() }
+            _ = try? self.writeAll(fd: fd, data: frame.encodedLine())
+        }
+
+        do {
+            writeLock.lock()
+            defer { writeLock.unlock() }
+            try writeAll(fd: fd, data: requestLine, context: "attach")
+        }
+
+        signal(SIGWINCH, SIG_IGN)
+        let resizeSource = DispatchSource.makeSignalSource(
+            signal: SIGWINCH,
+            queue: DispatchQueue(label: "com.cmux.surface-attach.resize")
+        )
+        resizeSource.setEventHandler {
+            let s = self.currentCLITerminalSize()
+            sendFrame(.resize(cols: s.cols, rows: s.rows))
+        }
+        resizeSource.resume()
+        defer { resizeSource.cancel() }
+
+        // Ctrl+\ (FS, 0x1C) detaches; cfmakeraw disables ISIG so it arrives as a
+        // byte rather than raising SIGQUIT.
+        let detachByte: UInt8 = 0x1C
+        DispatchQueue.global(qos: .userInteractive).async {
+            var buffer = [UInt8](repeating: 0, count: 8192)
+            while true {
+                let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
+                if count > 0 {
+                    let chunk = buffer[0..<count]
+                    if let idx = chunk.firstIndex(of: detachByte) {
+                        let head = Data(buffer[0..<idx])
+                        if !head.isEmpty, !readOnly { sendFrame(.input(bytes: head)) }
+                        sendFrame(.detach)
+                        _ = shutdown(fd, SHUT_WR)
+                        return
+                    }
+                    if !readOnly { sendFrame(.input(bytes: Data(chunk))) }
+                } else if count == 0 {
+                    sendFrame(.detach)
+                    _ = shutdown(fd, SHUT_WR)
+                    return
+                } else if errno != EINTR {
+                    return
+                }
+            }
+        }
+
+        var pending = Data()
+        var outBuffer = [UInt8](repeating: 0, count: 65536)
+        let stdout = FileHandle.standardOutput
+        let errorPrefix = Data("ERROR:".utf8)
+        // A single output frame is base64 of at most AttachFrame.maxPayloadBytes
+        // (4 MiB), so one wire line tops out near 6 MiB. Cap a little above that:
+        // beyond it the host is sending a newline-free / oversized stream, so bail
+        // instead of growing `pending` until the CLI OOMs.
+        let maxPending = 12 * 1024 * 1024
+        while true {
+            let count = Darwin.read(fd, &outBuffer, outBuffer.count)
+            if count > 0 {
+                pending.append(contentsOf: outBuffer[0..<count])
+                if pending.count > maxPending {
+                    throw CLIError(message: "attach: stream framing error (oversized line from host)")
+                }
+                // Process every complete line, then drop the consumed prefix once.
+                // Removing per line would re-shift the tail each time (quadratic on
+                // high-throughput output); a cursor keeps it linear.
+                var cursor = pending.startIndex
+                while let newline = pending[cursor...].firstIndex(of: 0x0A) {
+                    let line = Data(pending[cursor...newline])
+                    cursor = pending.index(after: newline)
+                    // The host can emit a plain-text access/mode error before any
+                    // frame (e.g. cmux-only rejection). Surface it with a hint.
+                    if line.starts(with: errorPrefix) {
+                        let text = (String(data: line, encoding: .utf8) ?? "ERROR")
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        throw CLIError(message: surfaceAttachAccessHint(text))
+                    }
+                    guard let frame = try? AttachFrame(line: line) else { continue }
+                    switch frame {
+                    case .output(_, let bytes):
+                        stdout.write(bytes)
+                    case .error(let code, let message):
+                        throw CLIError(message: "attach: \(code): \(message)")
+                    case .detach:
+                        return
+                    case .ack, .heartbeat:
+                        break
+                    default:
+                        break
+                    }
+                }
+                if cursor > pending.startIndex {
+                    pending.removeSubrange(pending.startIndex..<cursor)
+                }
+            } else if count == 0 {
+                return
+            } else if errno != EINTR {
+                if sshPTYBridgeReadErrorIsEOF(errno) { return }
+                throw CLIError(message: "attach: stream read failed")
+            }
+        }
+    }
+
+    /// Resolve a surface handle (UUID, ref like `surface:2`, or already-resolved
+    /// ref) to a concrete surface UUID string, which is what the host's
+    /// `surface.attach_pty` resolver accepts. A bare UUID passes through; a ref
+    /// is matched against `surface.list` for the resolved workspace.
+    private func resolveSurfaceUUIDString(
+        _ handle: String,
+        client: SocketClient,
+        workspaceHandle: String?,
+        windowHandle: String?
+    ) throws -> String {
+        if isUUID(handle) { return handle.lowercased() }
+        var params: [String: Any] = [:]
+        if let windowHandle { params["window_id"] = windowHandle }
+        if let workspaceHandle { params["workspace_id"] = workspaceHandle }
+        let listed = try client.sendV2(method: "surface.list", params: params)
+        let items = listed["surfaces"] as? [[String: Any]] ?? []
+        for item in items {
+            let id = item["id"] as? String
+            let ref = item["ref"] as? String
+            if ref == handle || id == handle, let id { return id }
+        }
+        throw CLIError(message: "attach: could not resolve surface '\(handle)' to an id")
+    }
+
+    private func surfaceAttachAccessHint(_ raw: String) -> String {
+        var message = raw
+        if raw.range(of: "access denied", options: .caseInsensitive) != nil
+            || raw.range(of: "verify client", options: .caseInsensitive) != nil {
+            message += "\n\nThe cmux socket only accepts processes started inside cmux. To attach from a bare SSH terminal, run cmux with the control socket in automation/allow-all mode, or set a socket password and pass --password <password>."
+        }
+        return message
+    }
+
+    private func surfaceSelfAttachMessage(_ handle: String) -> String {
+        "attach: refusing to attach \(handle) to the terminal it is already running in — that would stream the surface's output back into itself in an endless loop. Run `cmux attach` from a different terminal, or attach a different surface (see `cmux list-surfaces`)."
+    }
+
+    /// The basename of the tty backing `fd` (e.g. `ttys024`), or nil if `fd` is
+    /// not a tty. Used to detect a self-attach.
+    private func ttyBasename(fd: Int32) -> String? {
+        guard isatty(fd) != 0, let cName = ttyname(fd) else { return nil }
+        let path = String(cString: cName)
+        return path.split(separator: "/").last.map(String.init)
+    }
+
+    /// Walk every surface in a `system.tree` payload, calling `body(workspace,
+    /// surface)` for each (so callers can read workspace-level fields like the
+    /// title). Returning `true` from `body` stops the walk early.
+    private func forEachTreeSurface(
+        in payload: [String: Any],
+        _ body: (_ workspace: [String: Any], _ surface: [String: Any]) -> Bool
+    ) {
+        for window in (payload["windows"] as? [[String: Any]] ?? []) {
+            for ws in (window["workspaces"] as? [[String: Any]] ?? []) {
+                for pane in (ws["panes"] as? [[String: Any]] ?? []) {
+                    for surface in (pane["surfaces"] as? [[String: Any]] ?? []) {
+                        if body(ws, surface) { return }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The tty name (e.g. `ttys024`) the host reports for a surface, or nil if it
+    /// has none / cannot be found. Walks `system.tree` across all windows so it
+    /// resolves a surface in any workspace.
+    private func surfaceTTYName(uuid: String, client: SocketClient) -> String? {
+        guard let payload = try? client.sendV2(method: "system.tree", params: ["all_windows": true]) else {
+            return nil
+        }
+        var tty: String?
+        forEachTreeSurface(in: payload) { _, surface in
+            guard (surface["id"] as? String)?.lowercased() == uuid.lowercased() else { return false }
+            tty = (surface["tty"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return true
+        }
+        return tty
+    }
+
+    /// List terminal surfaces across the tree so a user can pick one to
+    /// `cmux attach`. Walks `system.tree` and filters to terminal surfaces,
+    /// printing each surface's handle, title, owning workspace, and tty.
+    private func runListSurfaces(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let allWindows = commandArgs.contains("--all-windows") || commandArgs.contains("--all")
+        let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (windowOpt, rem1) = parseOption(rem0, name: "--window")
+        let remaining = rem1.filter { $0 != "--all-windows" && $0 != "--all" }
+        if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
+            throw CLIError(message: "list-surfaces: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>, --all-windows")
+        }
+
+        var params: [String: Any] = ["all_windows": allWindows]
+        let winId = try normalizeWindowHandle(windowOpt, client: client)
+        if let winId { params["window_id"] = winId }
+        let wsId = try normalizeWorkspaceHandle(workspaceOpt, client: client, windowHandle: winId)
+        if let wsId { params["workspace_id"] = wsId }
+
+        let payload = try client.sendV2(method: "system.tree", params: params)
+        var rows: [[String: Any]] = []
+        forEachTreeSurface(in: payload) { ws, surface in
+            if (surface["type"] as? String) == "terminal" {
+                var row = surface
+                row["workspace_title"] = (ws["title"] as? String) ?? ""
+                rows.append(row)
+            }
+            return false
+        }
+
+        if jsonOutput {
+            print(jsonString(formatIDs(["surfaces": rows], mode: idFormat)))
+            return
+        }
+        if rows.isEmpty {
+            print("No terminal surfaces")
+            return
+        }
+        for row in rows {
+            let handle = textHandle(row, idFormat: idFormat)
+            let title = (row["title"] as? String) ?? ""
+            let tty = (row["tty"] as? String) ?? ""
+            let focused = (row["focused"] as? Bool) == true
+            let wsTitle = (row["workspace_title"] as? String) ?? ""
+            let prefix = focused ? "* " : "  "
+            var parts = [handle]
+            if !title.isEmpty { parts.append("\"\(title)\"") }
+            if !wsTitle.isEmpty { parts.append("[\(wsTitle)]") }
+            if !tty.isEmpty { parts.append("(\(tty))") }
+            print(prefix + parts.joined(separator: "  "))
         }
     }
 
@@ -13977,6 +14341,51 @@ struct CMUXCLI {
             Example:
               cmux list-panels
               cmux list-panels --workspace workspace:2
+            """
+        case "list-surfaces":
+            return """
+            Usage: cmux list-surfaces [--workspace <id|ref|index>] [--window <id|ref|index>] [--all-windows]
+
+            List terminal surfaces you can attach to with `cmux attach`.
+
+            Each row shows the surface handle, title, owning workspace, and tty.
+
+            Flags:
+              --workspace <id|ref|index>   Limit to one workspace (default: selected)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+              --all-windows                Include every open window
+
+            Example:
+              cmux list-surfaces
+              cmux list-surfaces --all-windows
+              cmux --json list-surfaces
+            """
+        case "attach":
+            return """
+            Usage: cmux attach <surface> [--read-only] [--workspace <id|ref|index>] [--window <id|ref|index>]
+
+            Attach a bare terminal to a running GUI surface's PTY. Streams the
+            pane's output and forwards your keystrokes; the pane keeps running
+            after you detach. Press Ctrl+\\ to detach.
+
+            Arguments:
+              <surface>                    Surface UUID, ref like surface:2, or index
+                                           (default: $CMUX_SURFACE_ID)
+
+            Flags:
+              --surface <id|ref|index>     Surface to attach (alternative to the positional)
+              --read-only                  View output without sending input
+              --workspace <id|ref|index>   Workspace context for surface refs and indexes
+              --window <id|ref|index>      Window context for workspace/surface refs and indexes
+
+            Example:
+              cmux attach surface:2
+              cmux attach 8B0B... --read-only
+
+            Notes:
+              The control socket must accept this process. From a bare SSH session
+              not started by cmux, run cmux with the socket in automation/allow-all
+              mode, or set a socket password and pass --password <password>.
             """
         case "focus-panel":
             return """
@@ -32390,6 +32799,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           debug-terminals
           trigger-flash [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           list-panels [--workspace <id|ref|index>] [--window <id|ref|index>]
+          list-surfaces [--workspace <id|ref|index>] [--window <id|ref|index>] [--all-windows]
+          attach <surface> [--read-only] [--workspace <id|ref|index>] [--window <id|ref|index>]
           focus-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
           close-workspace --workspace <id|ref|index> [--window <id|ref|index>]
           select-workspace --workspace <id|ref|index> [--window <id|ref|index>]

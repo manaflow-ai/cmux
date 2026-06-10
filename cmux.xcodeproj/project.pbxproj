@@ -143,6 +143,8 @@
 		A5001001 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001011 /* cmuxApp.swift */; };
 		D35110010000000000000001 /* CmuxApplicationSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */; };
 		D35110010000000000000003 /* CmuxApplicationSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */; };
+		C0FFEEA77AC400000000BEEF /* CmuxAttach in Frameworks */ = {isa = PBXBuildFile; productRef = C0FFEEA77AC400000000D00D /* CmuxAttach */; };
+		C0FFEEA77AC400000000BFFF /* CmuxAttach in Frameworks */ = {isa = PBXBuildFile; productRef = C0FFEEA77AC400000000D11D /* CmuxAttach */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */; };
 		B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */; };
@@ -586,6 +588,7 @@
 		F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */; };
 		F20F85FC5900550685FA33AD /* StackAuth in Frameworks */ = {isa = PBXBuildFile; productRef = A8BD195031FC4B82B4354297 /* StackAuth */; };
 		D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B71010000000000000002 /* StartupBreadcrumbLog.swift */; };
+		C0FFEEA77AC4000000005B12 /* SurfaceAttachSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEEA77AC4000000005A11 /* SurfaceAttachSession.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 		C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */; };
 		C3677003000000000000001 /* TabManager+CompatibilityTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677003000000000000002 /* TabManager+CompatibilityTypes.swift */; };
@@ -1316,6 +1319,7 @@
 		E3309A0E /* SplitEqualizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitEqualizer.swift; sourceTree = "<group>"; };
 		F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupSignalLifecycleTests.swift; sourceTree = "<group>"; };
 		D35B71010000000000000002 /* StartupBreadcrumbLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/StartupBreadcrumbLog.swift; sourceTree = "<group>"; };
+		C0FFEEA77AC4000000005A11 /* SurfaceAttachSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceAttachSession.swift; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
 		C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		C3677003000000000000002 /* TabManager+CompatibilityTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+CompatibilityTypes.swift"; sourceTree = "<group>"; };
@@ -1454,6 +1458,7 @@
 			files = (
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */,
+				C0FFEEA77AC400000000BEEF /* CmuxAttach in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */,
 				C750100000000000000000A3 /* CmuxControlSocket in Frameworks */,
@@ -1500,6 +1505,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
+				C0FFEEA77AC400000000BFFF /* CmuxAttach in Frameworks */,
 				C8000314C8000314C8000314 /* CmuxFileWatch in Frameworks */,
 				CF00F00000000000000000A4 /* CmuxFoundation in Frameworks */,
 				C8000304C8000304C8000304 /* CmuxProcess in Frameworks */,
@@ -1829,6 +1835,7 @@
 				617C70C2617C70C2617C70C2 /* GitPollClock.swift */,
 				E7E000000000000000000008 /* CmuxEventPublishing.swift */,
 				A5001019 /* TerminalController.swift */,
+				C0FFEEA77AC4000000005A11 /* SurfaceAttachSession.swift */,
 				E7E000000000000000000002 /* CmuxEventStream.swift */,
 				E7E00000000000000000000A /* CmuxSocketEventMapper.swift */,
 				A5001440A5001440A5001440 /* FileOpenSocketSupport.swift */,
@@ -2316,6 +2323,7 @@
 				A5001261 /* Bonsplit */,
 				A5001291 /* MarkdownUI */,
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
+				C0FFEEA77AC400000000D00D /* CmuxAttach */,
 				53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */,
 				AA11BB22CC33DD44EE550002 /* CMUXWorkstream */,
 				C0DE46000000000000000002 /* CMUXExtensionHostSupport */,
@@ -2364,6 +2372,7 @@
 				A5001251 /* Sentry */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A5354305A5354305A5354305 /* CmuxSocketControl */,
+				C0FFEEA77AC400000000D11D /* CmuxAttach */,
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
 				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
@@ -2478,6 +2487,7 @@
 				A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
 				40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */,
+				C0FFEEA77AC400000000C0DE /* XCLocalSwiftPackageReference "CmuxAttach" */,
 				53750001A0B1C2D3E4F50001 /* XCLocalSwiftPackageReference "CmuxAuthRuntime" */,
 				AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */,
 				C0DE46000000000000000003 /* XCLocalSwiftPackageReference "CMUXExtensionHostSupport" */,
@@ -2986,6 +2996,7 @@
 				A5001226 /* SocketControlMode+Display.swift in Sources */,
 				E3309A0D /* SplitEqualizer.swift in Sources */,
 				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,
+				C0FFEEA77AC4000000005B12 /* SurfaceAttachSession.swift in Sources */,
 				A5001303 /* SurfaceSearchOverlay.swift in Sources */,
 				C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */,
 				C3677003000000000000001 /* TabManager+CompatibilityTypes.swift in Sources */,
@@ -3742,6 +3753,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		C0FFEEA77AC400000000C0DE /* XCLocalSwiftPackageReference "CmuxAttach" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxAttach;
+		};
 		0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXMobileCore;
@@ -3896,6 +3911,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		C0FFEEA77AC400000000D00D /* CmuxAttach */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0FFEEA77AC400000000C0DE /* XCLocalSwiftPackageReference "CmuxAttach" */;
+			productName = CmuxAttach;
+		};
+		C0FFEEA77AC400000000D11D /* CmuxAttach */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0FFEEA77AC400000000C0DE /* XCLocalSwiftPackageReference "CmuxAttach" */;
+			productName = CmuxAttach;
+		};
 		29813FE5A6CBC1019289A251 /* CMUXAuthCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */;

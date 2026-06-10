@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import os
 
 private let mobileTerminalByteTeeLog = Logger(
     subsystem: "dev.cmux",
@@ -42,6 +43,35 @@ final class MobileTerminalByteTee {
 
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
     private let replayBudget: Int = 256 * 1024
+
+    /// Live consumers of a surface's raw bytes that are NOT the mobile host -
+    /// today, bare-terminal `cmux attach` sessions. Keyed by surface, then by an
+    /// opaque token so a session can unregister exactly its own callback. Read
+    /// and written only on the main actor (`publishFromMain`, `addConsumer`,
+    /// `removeConsumer`).
+    private var attachConsumersBySurfaceID: [UUID: [Int: AttachConsumer]] = [:]
+    private var nextAttachConsumerToken: Int = 0
+
+    /// One registered attach consumer: where live bytes go, plus how to notify the
+    /// session if the surface is dropped out from under it (so it can tear down
+    /// instead of hanging with no output and no EOF).
+    private struct AttachConsumer {
+        let deliver: @MainActor (Data) -> Void
+        let onDrop: @MainActor () -> Void
+    }
+
+    /// Per-surface count of registered attach consumers. The output hot path
+    /// (`append`, off the main actor) reads this to decide whether to capture a
+    /// *specific* surface's bytes when no phone is paired - so an attach on one
+    /// surface does not arm capture for every other surface in the app. Uses
+    /// `OSAllocatedUnfairLock` (the codebase's pattern for nonisolated hot-path
+    /// state, macOS 13+) rather than `Synchronization.Atomic`, which needs
+    /// macOS 15. Writers are only the rare attach/detach paths, so the IO thread
+    /// never meaningfully contends; the read is an O(1) dictionary membership
+    /// check under the lock. A count (not a Set) because a surface can carry
+    /// multiple attach consumers. This is a hot-path hint;
+    /// `attachConsumersBySurfaceID` (main actor) is the source of truth.
+    nonisolated private let armedSurfaces = OSAllocatedUnfairLock<[UUID: Int]>(initialState: [:])
     /// Serial queue so fan-out preserves byte order even though the
     /// upstream callback runs off the main thread.
     private let publishQueue = DispatchQueue(
@@ -71,6 +101,7 @@ final class MobileTerminalByteTee {
         guard
             MobileHostService.hasEventSubscribers(topic: "terminal.bytes")
                 || MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
+                || armedSurfaces.withLock({ $0[surfaceID] != nil })
         else {
             return
         }
@@ -95,9 +126,54 @@ final class MobileTerminalByteTee {
         statesBySurfaceID[surfaceID]?.seq
     }
 
-    /// Drop replay history for a surface (e.g. when the surface closes).
+    /// Drop replay history for a surface (e.g. when the surface closes). Also
+    /// clears any attach consumers still registered for it and clears the
+    /// surface's hot-path arm entry, so a surface closing out from under a live
+    /// attach can never strand the gate in the armed state.
     func dropSurface(surfaceID: UUID) {
         statesBySurfaceID.removeValue(forKey: surfaceID)
+        if let stranded = attachConsumersBySurfaceID.removeValue(forKey: surfaceID), !stranded.isEmpty {
+            armedSurfaces.withLock { $0.removeValue(forKey: surfaceID) }
+            // The surface closed under a live attach. Tell each session so it
+            // tears down (shuts its socket, ending the client's read) rather than
+            // leaving the client blocked forever with no output and no EOF.
+            // teardown() is idempotent and its unsubscribe is a no-op now that the
+            // entry is already removed, so this cannot double-count the gate.
+            for consumer in stranded.values { consumer.onDrop() }
+        }
+    }
+
+    /// Register a bare-terminal attach consumer for a surface's live raw bytes.
+    /// Returns a token to pass to `removeConsumer`. Registering a consumer makes
+    /// the output hot path start capturing this surface's bytes even with no
+    /// phone paired, so a cold attach can replay and then stream live.
+    func addConsumer(
+        surfaceID: UUID,
+        onBytes deliver: @escaping @MainActor (Data) -> Void,
+        onDrop: @escaping @MainActor () -> Void
+    ) -> Int {
+        nextAttachConsumerToken += 1
+        let token = nextAttachConsumerToken
+        attachConsumersBySurfaceID[surfaceID, default: [:]][token] = AttachConsumer(deliver: deliver, onDrop: onDrop)
+        armedSurfaces.withLock { $0[surfaceID, default: 0] += 1 }
+        return token
+    }
+
+    /// Remove a previously registered attach consumer. When the last consumer
+    /// for a surface goes away the surface's entry is cleared so the hot-path
+    /// gate can bail again.
+    func removeConsumer(surfaceID: UUID, token: Int) {
+        guard var consumers = attachConsumersBySurfaceID[surfaceID],
+              consumers.removeValue(forKey: token) != nil else { return }
+        if consumers.isEmpty {
+            attachConsumersBySurfaceID.removeValue(forKey: surfaceID)
+        } else {
+            attachConsumersBySurfaceID[surfaceID] = consumers
+        }
+        armedSurfaces.withLock {
+            guard let count = $0[surfaceID] else { return }
+            if count <= 1 { $0.removeValue(forKey: surfaceID) } else { $0[surfaceID] = count - 1 }
+        }
     }
 
     private func publishFromMain(surfaceID: UUID, data: Data) {
@@ -110,6 +186,15 @@ final class MobileTerminalByteTee {
         }
         statesBySurfaceID[surfaceID] = state
         MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
+
+        // Fan out raw bytes to any bare-terminal attach consumers. These get the
+        // unencoded `Data` directly (the attach session does its own framing),
+        // independent of whether a mobile client is subscribed.
+        if let consumers = attachConsumersBySurfaceID[surfaceID] {
+            for consumer in consumers.values {
+                consumer.deliver(data)
+            }
+        }
 
         // The render-grid path (the primary mobile path) only needs the seq
         // advance + `noteTerminalBytes` tick above; it never consumes the raw
