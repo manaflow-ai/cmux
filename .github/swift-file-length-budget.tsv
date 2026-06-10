@@ -22,8 +22,8 @@
 5482	cmuxTests/BrowserConfigTests.swift
 5431	Sources/cmuxApp.swift
 4460	Sources/Panels/FilePreviewPanel.swift
-4285	cmuxTests/BrowserPanelTests.swift
-4221	Sources/BrowserWindowPortal.swift
+4335	cmuxTests/BrowserPanelTests.swift
+4227	Sources/BrowserWindowPortal.swift
 3948	cmuxTests/WindowAndDragTests.swift
 3937	Sources/Feed/FeedPanelView.swift
 3760	cmuxTests/TabManagerUnitTests.swift

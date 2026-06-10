@@ -1756,6 +1756,12 @@ final class WindowBrowserSlotView: NSView {
         return false
     }
 
+#if DEBUG
+    // Test seam for #5733: exposes the slot's search-overlay view so tests can
+    // route a responder that this slot owns.
+    var browserPortalTestSearchOverlayView: NSView? { searchOverlayHostingView }
+#endif
+
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
         guard let overlay = searchOverlayHostingView else { return nil }
 
@@ -2069,16 +2075,16 @@ final class WindowBrowserPortal: NSObject {
     private var webViewByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
 
 #if DEBUG
-    // Regression tripwire for https://github.com/manaflow-ai/cmux/issues/5733.
-    // The per-keystroke find-overlay lookup must drive off the live slot view
-    // hierarchy and must NOT enumerate/copy `Entry` values: each Entry copy
-    // performs 3 `objc_copyWeak` ops (weak webView/containerView/anchorView)
-    // under the global Obj-C weak-table lock, i.e. O(panes) weak-table churn per
-    // keystroke (498 ops at 166 panes). That scan was the stack-exhaustion fault
-    // site in #5733 and a typing-latency contributor (#4405). This counter is
-    // incremented for every `Entry` materialized while scanning for a search
-    // overlay; tests assert it stays 0.
-    static var searchOverlayScanEntryMaterializations = 0
+    // Test seam for https://github.com/manaflow-ai/cmux/issues/5733. Installs a
+    // slot container into the portal host without registering an Entry, so tests
+    // can prove the find-overlay lookup resolves off the live slot view hierarchy
+    // rather than by enumerating/copying Entry values out of entriesByWebViewId
+    // (each Entry copy = 3 objc_copyWeak ops under the global weak-table lock;
+    // O(panes) per keystroke — the stack-exhaustion fault site and a
+    // typing-latency contributor, #4405).
+    func browserPortalTestInstallSlotWithoutEntry(_ slot: WindowBrowserSlotView) {
+        hostView.addSubview(slot)
+    }
 #endif
 
     init(window: NSWindow) {

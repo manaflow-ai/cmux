@@ -2987,15 +2987,67 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    private func makeBrowserSearchOverlayConfiguration(panelId: UUID) -> BrowserPortalSearchOverlayConfiguration {
+        BrowserPortalSearchOverlayConfiguration(
+            panelId: panelId,
+            searchState: BrowserSearchState(),
+            focusRequestGeneration: 0,
+            canApplyFocusRequest: { _ in false },
+            onNext: {},
+            onPrevious: {},
+            onClose: {},
+            onFieldDidFocus: {}
+        )
+    }
+
     // Regression guard for https://github.com/manaflow-ai/cmux/issues/5733.
-    // The per-keystroke find-overlay lookup (`searchOverlayPanelId`) must not
-    // enumerate/copy `Entry` values out of the portal's dictionary. Each Entry
-    // copy performs 3 `objc_copyWeak` ops under the global Obj-C weak-table lock,
-    // so the old `for entry in entriesByWebViewId.values` scan did O(panes)
-    // weak-table churn on every keystroke — the stack-exhaustion fault site in
-    // #5733 and a typing-latency contributor (#4405). The lookup must drive off
-    // the live slot view hierarchy instead, materializing zero Entry copies.
-    func testSearchOverlayLookupDoesNotMaterializeEntryCopies() {
+    // The per-keystroke find-overlay lookup (`searchOverlayPanelId`) used to scan
+    // `entriesByWebViewId.values`, copying each `Entry` struct. Every copy
+    // performs 3 `objc_copyWeak` ops (weak webView/containerView/anchorView)
+    // under the global Obj-C weak-table lock, so the lookup did O(panes)
+    // weak-table churn on every key event — the stack-exhaustion fault site in
+    // #5733 and a typing-latency contributor (#4405).
+    //
+    // The fix drives the lookup off the live slot view hierarchy instead. This
+    // test pins that structural property: a slot that is present in the portal
+    // host's view hierarchy but absent from `entriesByWebViewId` must still be
+    // found. The old dictionary scan never visited such a slot (returned nil);
+    // the hierarchy scan finds it. Reintroducing the `entriesByWebViewId.values`
+    // scan — the weak-copy bug class — would fail this test.
+    func testSearchOverlayLookupResolvesOffSlotHierarchyNotEntriesDictionary() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let panelId = UUID()
+        slot.setSearchOverlay(makeBrowserSearchOverlayConfiguration(panelId: panelId))
+        // Install the slot into the live host hierarchy WITHOUT registering an Entry.
+        portal.browserPortalTestInstallSlotWithoutEntry(slot)
+
+        guard let overlayResponder = slot.browserPortalTestSearchOverlayView else {
+            XCTFail("Expected the slot to host a search overlay view")
+            return
+        }
+
+        XCTAssertEqual(
+            portal.searchOverlayPanelId(for: overlayResponder),
+            panelId,
+            "Find-overlay lookup must resolve off the live slot view hierarchy, not the "
+                + "entries dictionary, so it materializes zero Entry weak-copies per keystroke (#5733)"
+        )
+    }
+
+    // Companion to the regression guard above: the normal path where the slot is
+    // registered via `bind` must keep resolving its own search overlay after the
+    // hierarchy-scan rewrite (#5733).
+    func testSearchOverlayLookupResolvesBoundSlotOverlay() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
             styleMask: [.titled, .closable],
@@ -3010,29 +3062,27 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        // Register several hosted browser panes, mirroring a multi-pane window.
-        let paneCount = 8
-        var webViews: [CmuxWebView] = []
-        for index in 0..<paneCount {
-            let anchor = NSView(frame: NSRect(x: 0, y: CGFloat(index) * 20, width: 120, height: 18))
-            contentView.addSubview(anchor)
-            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
-            portal.bind(webView: webView, to: anchor, visibleInUI: true)
-            portal.synchronizeWebViewForAnchor(anchor)
-            webViews.append(webView)
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 160, height: 120))
+        contentView.addSubview(anchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
         }
 
-        WindowBrowserPortal.searchOverlayScanEntryMaterializations = 0
-        // `window` is a responder that no slot's search overlay owns, forcing the
-        // lookup to consider every registered pane.
-        let panelId = portal.searchOverlayPanelId(for: window)
-        XCTAssertNil(panelId, "No search overlay is open, so the lookup should not match")
-        XCTAssertEqual(
-            WindowBrowserPortal.searchOverlayScanEntryMaterializations,
-            0,
-            "Find-overlay lookup must not copy Entry values per keystroke (issue #5733); "
-                + "it should scan the live slot view hierarchy instead"
-        )
+        let panelId = UUID()
+        slot.setSearchOverlay(makeBrowserSearchOverlayConfiguration(panelId: panelId))
+        guard let overlayResponder = slot.browserPortalTestSearchOverlayView else {
+            XCTFail("Expected the slot to host a search overlay view")
+            return
+        }
+
+        XCTAssertEqual(portal.searchOverlayPanelId(for: overlayResponder), panelId)
+        // A responder no slot owns must not match.
+        XCTAssertNil(portal.searchOverlayPanelId(for: window))
     }
 
     func testBrowserPortalHostStaysAboveTerminalPortalHostDuringPortalChurn() {
