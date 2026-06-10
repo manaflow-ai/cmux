@@ -1740,6 +1740,12 @@ class TerminalController {
         case "read_terminal_text":
             return readTerminalText(args)
 
+        case "terminal_mouse":
+            return terminalMouseDebug(args)
+
+        case "terminal_selection":
+            return terminalSelectionDebug(args)
+
         case "render_stats":
             return renderStats(args)
 
@@ -2396,6 +2402,10 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugReadTerminalText(params: params))
         case "debug.terminal.render_stats":
             return v2Result(id: id, self.v2DebugRenderStats(params: params))
+        case "debug.terminal.mouse":
+            return v2Result(id: id, self.v2DebugTerminalMouse(params: params))
+        case "debug.terminal.selection":
+            return v2Result(id: id, self.v2DebugTerminalSelection(params: params))
         case "debug.layout":
             return v2Result(id: id, self.v2DebugLayout())
         case "debug.portal.stats":
@@ -2677,6 +2687,8 @@ class TerminalController {
             "debug.terminal.is_focused",
             "debug.terminal.read_text",
             "debug.terminal.render_stats",
+            "debug.terminal.mouse",
+            "debug.terminal.selection",
             "debug.layout",
             "debug.portal.stats",
             "debug.bonsplit_underflow.count",
@@ -15865,6 +15877,39 @@ class TerminalController {
         return .ok(["stats": obj])
     }
 
+    private func v2DebugTerminalMouse(params: [String: Any]) -> V2CallResult {
+        guard let action = v2String(params, "action"),
+              let fx = (params["fx"] as? NSNumber)?.doubleValue,
+              let fy = (params["fy"] as? NSNumber)?.doubleValue else {
+            return .err(code: "invalid_params", message: "debug.terminal.mouse requires action, fx, fy", data: nil)
+        }
+        let mods = v2String(params, "mods") ?? "none"
+        let clicks = (params["clicks"] as? NSNumber)?.intValue ?? 1
+        let surfaceArg = v2String(params, "surface_id") ?? ""
+        var command = "\(action) \(fx) \(fy) \(mods) \(clicks)"
+        if !surfaceArg.isEmpty {
+            command += " \(surfaceArg)"
+        }
+        let resp = terminalMouseDebug(command)
+        guard resp.hasPrefix("OK") else {
+            return .err(code: "invalid_params", message: resp, data: nil)
+        }
+        return .ok(["delivered": true])
+    }
+
+    private func v2DebugTerminalSelection(params: [String: Any]) -> V2CallResult {
+        let surfaceArg = v2String(params, "surface_id") ?? ""
+        let resp = terminalSelectionDebug(surfaceArg)
+        guard resp.hasPrefix("OK ") else {
+            return .err(code: "internal_error", message: resp, data: nil)
+        }
+        let payload = String(resp.dropFirst(3))
+        let parts = payload.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
+        let active = parts.first == "1"
+        let b64 = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        return .ok(["active": active, "base64": b64])
+    }
+
     private func v2DebugLayout() -> V2CallResult {
         let resp = layoutDebug()
         guard resp.hasPrefix("OK ") else {
@@ -16224,6 +16269,8 @@ class TerminalController {
           send_workspace <workspace_id> <text> - Send text to a workspace's selected terminal (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
+          terminal_mouse <down|up|drag> <fx 0-1> <fy 0-1> [mods] [clicks] [id|idx] - Synthesize a left-button mouse event on the terminal (test-only)
+          terminal_selection [id|idx]     - Read selection state: "OK <0|1> <base64 text>" (test-only)
           render_stats [id|idx]           - Read terminal render stats (draw counters, test-only)
           layout_debug                    - Dump bonsplit layout + selected panel bounds (test-only)
           bonsplit_underflow_count        - Count bonsplit arranged-subview underflow events (test-only)
@@ -16886,6 +16933,93 @@ class TerminalController {
 
     private func readTerminalText(_ args: String) -> String {
         readTerminalTextBase64(surfaceArg: args)
+    }
+
+    /// `terminal_mouse <down|up|drag> <fx> <fy> [mods] [clicks] [panel]`
+    /// fx/fy are 0-1 fractions of the surface bounds with a top-left origin.
+    /// mods is a |-separated list of shift/ctrl/alt/cmd, or "none". Events are
+    /// delivered through the terminal view's real mouse handlers so selection
+    /// behavior (drag-select, shift+click extension) is exercised end to end.
+    private func terminalMouseDebug(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+        let parts = args.split(separator: " ").map(String.init)
+        guard parts.count >= 3,
+              let fx = Double(parts[1]),
+              let fy = Double(parts[2]),
+              (0...1).contains(fx),
+              (0...1).contains(fy) else {
+            return "ERROR: Usage: terminal_mouse <down|up|drag> <fx 0-1> <fy 0-1> [mods] [clicks] [panel]"
+        }
+        let action = parts[0]
+        var flags: NSEvent.ModifierFlags = []
+        if parts.count >= 4, parts[3] != "none" {
+            for token in parts[3].lowercased().split(separator: "|") {
+                switch token {
+                case "shift": flags.insert(.shift)
+                case "ctrl", "control": flags.insert(.control)
+                case "alt", "option": flags.insert(.option)
+                case "cmd", "command": flags.insert(.command)
+                default: return "ERROR: Unknown modifier: \(token)"
+                }
+            }
+        }
+        let clicks = parts.count >= 5 ? (Int(parts[4]) ?? 1) : 1
+        let panelArg = parts.count >= 6 ? parts[5] : ""
+
+        var result = "ERROR: No tab selected"
+        v2MainSync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                return
+            }
+            let panelId: UUID?
+            if panelArg.isEmpty {
+                panelId = tab.focusedPanelId
+            } else {
+                panelId = resolveSurfaceId(from: panelArg, tab: tab)
+            }
+            guard let panelId,
+                  let terminalPanel = tab.terminalPanel(for: panelId) else {
+                result = "ERROR: Terminal surface not found"
+                return
+            }
+            let delivered = terminalPanel.hostedView.debugSynthesizeMouseEventForTesting(
+                action: action,
+                atSurfaceFraction: NSPoint(x: fx, y: fy),
+                modifierFlags: flags,
+                clickCount: clicks
+            )
+            result = delivered ? "OK delivered" : "ERROR: Event not delivered"
+        }
+        return result
+    }
+
+    /// `terminal_selection [panel]` -> `OK <active 0|1> <base64 selection text>`
+    private func terminalSelectionDebug(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+        let panelArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = "ERROR: No tab selected"
+        v2MainSync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                return
+            }
+            let panelId: UUID?
+            if panelArg.isEmpty {
+                panelId = tab.focusedPanelId
+            } else {
+                panelId = resolveSurfaceId(from: panelArg, tab: tab)
+            }
+            guard let panelId,
+                  let terminalPanel = tab.terminalPanel(for: panelId) else {
+                result = "ERROR: Terminal surface not found"
+                return
+            }
+            let info = terminalPanel.hostedView.debugSelectionInfoForTesting()
+            let b64 = Data(info.text.utf8).base64EncodedString()
+            result = "OK \(info.active ? 1 : 0) \(b64)"
+        }
+        return result
     }
 
     private struct RenderStatsResponse: Codable {
