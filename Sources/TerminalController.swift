@@ -7126,47 +7126,46 @@ class TerminalController {
                 finish(["description": NSNull()])
 
             case "move_up":
-                guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
-                _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: max(currentIndex - 1, 0))
-                finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
+                // Operate on the visible sidebar list (a snoozed workspace
+                // between two visible rows must not absorb the move), matching
+                // the UI context-menu/keyboard reorder. Hidden anchors no-op.
+                _ = tabManager.reorderVisibleWorkspace(tabId: workspace.id, byVisibleDelta: -1)
+                finish(["index": v2OrNull(tabManager.visibleWorkspaceTabs.firstIndex(where: { $0.id == workspace.id }))])
 
             case "move_down":
-                guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
-                _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: min(currentIndex + 1, tabManager.tabs.count - 1))
-                finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
+                _ = tabManager.reorderVisibleWorkspace(tabId: workspace.id, byVisibleDelta: 1)
+                finish(["index": v2OrNull(tabManager.visibleWorkspaceTabs.firstIndex(where: { $0.id == workspace.id }))])
 
             case "move_top":
                 tabManager.moveTabToTop(workspace.id)
                 finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
 
             case "close_others":
-                let candidates = tabManager.tabs.filter { $0.id != workspace.id && !$0.isPinned }
+                // Snoozed (hidden) workspaces stay running, so close-others
+                // operates on the visible list only — matching the UI.
+                let candidates = tabManager.visibleWorkspaceTabs.filter { $0.id != workspace.id && !$0.isPinned }
                 let closed = closeWorkspaces(candidates)
                 finish(["closed": closed])
 
             case "close_above":
-                guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
+                // "Above" is relative to the visible sidebar. A hidden anchor
+                // has no visible position, so it closes nothing.
+                let visibleTabs = tabManager.visibleWorkspaceTabs
+                let candidates: [Workspace]
+                if let index = visibleTabs.firstIndex(where: { $0.id == workspace.id }) {
+                    candidates = Array(visibleTabs.prefix(index)).filter { !$0.isPinned }
+                } else {
+                    candidates = []
                 }
-                let candidates = Array(tabManager.tabs.prefix(index)).filter { !$0.isPinned }
                 let closed = closeWorkspaces(candidates)
                 finish(["closed": closed])
 
             case "close_below":
-                guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
+                let visibleTabs = tabManager.visibleWorkspaceTabs
                 let candidates: [Workspace]
-                if index + 1 < tabManager.tabs.count {
-                    candidates = Array(tabManager.tabs.suffix(from: index + 1)).filter { !$0.isPinned }
+                if let index = visibleTabs.firstIndex(where: { $0.id == workspace.id }),
+                   index + 1 < visibleTabs.count {
+                    candidates = Array(visibleTabs.suffix(from: index + 1)).filter { !$0.isPinned }
                 } else {
                     candidates = []
                 }
