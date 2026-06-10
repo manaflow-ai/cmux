@@ -79,13 +79,6 @@ public final class SessionAutosaveCoordinator<CachedSnapshot: Sendable> {
         return cachedSnapshot
     }
 
-    /// Loads snapshot metadata off the main actor.
-    public func loadSnapshot(_ loader: @escaping @Sendable () -> CachedSnapshot) async -> CachedSnapshot {
-        await Task.detached(priority: .utility) {
-            loader()
-        }.value
-    }
-
     /// Returns true when an unchanged autosave may be skipped within the staleness window.
     public func shouldSkipSaveForUnchangedFingerprint(
         isTerminatingApp: Bool,

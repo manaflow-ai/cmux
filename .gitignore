@@ -59,6 +59,7 @@ tmp-*/
 .iter-logs/
 .claude/
 .cursor/
+.greptile/
 
 # Local dogfood scratch (screenshots, recordings) — never commit
 artifacts/

@@ -1873,6 +1873,10 @@ extension SessionPanelSnapshot {
 
         var snapshot = self
         terminal.agent = agent
+        terminal.wasAgentRunning = restorableAgentIndex.hasLiveProcess(
+            workspaceId: workspaceId,
+            panelId: id
+        )
         terminal.tmuxStartCommand = nil
         terminal.scrollback = nil
         snapshot.terminal = terminal
@@ -1881,8 +1885,7 @@ extension SessionPanelSnapshot {
 }
 
 extension SessionWorkspaceSnapshot {
-    /// Returns a copy whose terminal panels include restorable-agent metadata from
-    /// an asynchronously loaded index.
+    /// Returns a copy whose terminal panels include restorable-agent metadata from an index.
     func applyingRestorableAgentIndex(
         _ restorableAgentIndex: RestorableAgentSessionIndex,
         workspaceId fallbackWorkspaceId: UUID? = nil
