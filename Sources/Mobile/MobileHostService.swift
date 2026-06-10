@@ -380,10 +380,7 @@ final class MobileHostService {
     /// ``DeviceRegistryClient`` mirrors it into) refreshes when the Mac moves
     /// networks or Tailscale flips, not only when the listener restarts.
     /// `nil` while stopped.
-    private var pathMonitor: NWPathMonitor?
-    /// Signature of the last observed network path, for duplicate-callback
-    /// suppression (see ``shouldRepublishRoutesForPathChange(previousSignature:newSignature:)``).
-    private var lastNetworkPathSignature: String?
+    private var pathMonitor: MobileHostNetworkPathMonitor?
     /// Injected once via `configure(auth:)` at app startup, before the
     /// listener starts accepting connections.
     private var auth: AuthCoordinator?
@@ -1600,28 +1597,13 @@ final class MobileHostService {
 
     // MARK: - Network path monitoring
 
-    /// Begin republishing routes on network path changes. Idempotent; runs for
+    /// Begin republishing routes on network path changes (observation and
+    /// dedup live in ``MobileHostNetworkPathMonitor``). Idempotent; runs for
     /// the lifetime of the listener and is stopped by ``stop()``.
-    ///
-    /// The listener stays bound across network moves (Wi-Fi switch, Tailscale
-    /// up/down), so without this trigger the advertised route set, the
-    /// `mobile.host.status` cache, and the team device registry that
-    /// ``DeviceRegistryClient`` mirrors from ``statusUpdates()`` would all keep
-    /// the old network's routes until the next listener restart. Downstream
-    /// consumers dedup unchanged routes, so a path flap that does not actually
-    /// change the route set produces no registry write.
     private func startNetworkPathMonitorIfNeeded() {
         guard pathMonitor == nil else { return }
-        let monitor = NWPathMonitor()
-        monitor.pathUpdateHandler = { path in
-            let signature = MobileHostService.networkPathSignature(
-                status: String(describing: path.status),
-                interfaceNames: path.availableInterfaces.map(\.name),
-                gateways: path.gateways.map { String(describing: $0) }
-            )
-            Task { @MainActor in
-                MobileHostService.shared.handleNetworkPathChange(signature: signature)
-            }
+        let monitor = MobileHostNetworkPathMonitor { [weak self] in
+            self?.handleNetworkPathChange()
         }
         monitor.start(queue: callbackQueue)
         pathMonitor = monitor
@@ -1630,45 +1612,10 @@ final class MobileHostService {
     private func stopNetworkPathMonitor() {
         pathMonitor?.cancel()
         pathMonitor = nil
-        lastNetworkPathSignature = nil
     }
 
-    /// Stable identity of a network path for change detection. Order-insensitive
-    /// over interfaces and gateways so enumeration order can't fake a change.
-    /// Pure for tests.
-    nonisolated static func networkPathSignature(
-        status: String,
-        interfaceNames: [String],
-        gateways: [String]
-    ) -> String {
-        let interfaces = interfaceNames.sorted().joined(separator: ",")
-        let gatewayList = gateways.sorted().joined(separator: ",")
-        return "\(status)|\(interfaces)|\(gatewayList)"
-    }
-
-    /// Whether a path observation warrants republishing routes: any observation
-    /// that differs from the previous one does, *including the first*. The
-    /// monitor's initial callback can arrive after the listener-ready publish
-    /// and describe a different path than the one those routes were computed
-    /// on (e.g. Tailscale came up in between), so treating it as a silent
-    /// baseline would swallow that first real change; republishing is cheap
-    /// because downstream consumers dedup unchanged routes. Only an
-    /// observation identical to the previous one is skipped (NWPathMonitor
-    /// can deliver duplicate callbacks). Pure for tests.
-    nonisolated static func shouldRepublishRoutesForPathChange(
-        previousSignature: String?,
-        newSignature: String
-    ) -> Bool {
-        previousSignature != newSignature
-    }
-
-    private func handleNetworkPathChange(signature: String) {
-        let shouldRepublish = Self.shouldRepublishRoutesForPathChange(
-            previousSignature: lastNetworkPathSignature,
-            newSignature: signature
-        )
-        lastNetworkPathSignature = signature
-        guard shouldRepublish, let port = listenerPort else {
+    private func handleNetworkPathChange() {
+        guard let port = listenerPort else {
             // Mid-bind (no port yet): the `.ready` handler publishes against the
             // current path when the bind completes, so nothing is lost.
             return

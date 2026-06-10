@@ -7,20 +7,21 @@ import Testing
 @testable import cmux
 #endif
 
-/// Tests the network-path-change route refresh: the trigger policy on
-/// `MobileHostService` (when a path observation should republish routes) and
+/// Tests the network-path-change route refresh: the observation policy on
+/// `MobileHostNetworkPathMonitor` (when a path observation should republish
+/// routes) and
 /// the resolved-host cache invalidation on `MobileRouteResolver` (old-network
 /// hosts must not be served, or land late, after the path changed).
 @Suite struct MobileHostNetworkPathRefreshTests {
     // MARK: - Path signature
 
     @Test func signatureIsOrderInsensitiveOverInterfacesAndGateways() {
-        let a = MobileHostService.networkPathSignature(
+        let a = MobileHostNetworkPathMonitor.signature(
             status: "satisfied",
             interfaceNames: ["en0", "utun4"],
             gateways: ["192.168.1.1", "fe80::1"]
         )
-        let b = MobileHostService.networkPathSignature(
+        let b = MobileHostNetworkPathMonitor.signature(
             status: "satisfied",
             interfaceNames: ["utun4", "en0"],
             gateways: ["fe80::1", "192.168.1.1"]
@@ -30,12 +31,12 @@ import Testing
 
     @Test func signatureChangesWhenAnInterfaceAppears() {
         // Tailscale coming up adds a utun interface; that must read as a change.
-        let withoutTailscale = MobileHostService.networkPathSignature(
+        let withoutTailscale = MobileHostNetworkPathMonitor.signature(
             status: "satisfied",
             interfaceNames: ["en0"],
             gateways: ["192.168.1.1"]
         )
-        let withTailscale = MobileHostService.networkPathSignature(
+        let withTailscale = MobileHostNetworkPathMonitor.signature(
             status: "satisfied",
             interfaceNames: ["en0", "utun4"],
             gateways: ["192.168.1.1"]
@@ -46,12 +47,12 @@ import Testing
     @Test func signatureChangesWhenGatewayChanges() {
         // Same interface set, different network (e.g. a Wi-Fi move): the
         // gateway is what distinguishes the two paths.
-        let homeNetwork = MobileHostService.networkPathSignature(
+        let homeNetwork = MobileHostNetworkPathMonitor.signature(
             status: "satisfied",
             interfaceNames: ["en0"],
             gateways: ["192.168.1.1"]
         )
-        let officeNetwork = MobileHostService.networkPathSignature(
+        let officeNetwork = MobileHostNetworkPathMonitor.signature(
             status: "satisfied",
             interfaceNames: ["en0"],
             gateways: ["10.0.0.1"]
@@ -67,7 +68,7 @@ import Testing
         // on; treating it as a silent baseline would swallow that first real
         // change. Republishing is deduped downstream, so the first observation
         // always republishes.
-        #expect(MobileHostService.shouldRepublishRoutesForPathChange(
+        #expect(MobileHostNetworkPathMonitor.shouldReportPathChange(
             previousSignature: nil,
             newSignature: "satisfied|en0|192.168.1.1"
         ) == true)
@@ -75,14 +76,14 @@ import Testing
 
     @Test func unchangedPathDoesNotRepublish() {
         let signature = "satisfied|en0|192.168.1.1"
-        #expect(MobileHostService.shouldRepublishRoutesForPathChange(
+        #expect(MobileHostNetworkPathMonitor.shouldReportPathChange(
             previousSignature: signature,
             newSignature: signature
         ) == false)
     }
 
     @Test func changedPathRepublishes() {
-        #expect(MobileHostService.shouldRepublishRoutesForPathChange(
+        #expect(MobileHostNetworkPathMonitor.shouldReportPathChange(
             previousSignature: "satisfied|en0|192.168.1.1",
             newSignature: "satisfied|en0,utun4|192.168.1.1"
         ) == true)
