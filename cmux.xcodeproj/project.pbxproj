@@ -450,6 +450,7 @@
 		CAFE000000000000000000B5 /* NotesTreePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A5 /* NotesTreePanelView.swift */; };
 		CAFE000000000000000000B2 /* NotesTreeStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A2 /* NotesTreeStorage.swift */; };
 		CAFE000000000000000000B7 /* NotesTreeStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A7 /* NotesTreeStorageTests.swift */; };
+		CAFE000000000000000000B8 /* NotesMarkdownRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A8 /* NotesMarkdownRenderingTests.swift */; };
 		CAFE000000000000000000B3 /* NotesTreeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A3 /* NotesTreeStore.swift */; };
 		EF1062F821F44048A0FC119E /* NoteSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86D8BE9B5C29429F8AF0D2D4 /* NoteSupport.swift */; };
 		734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */; };
@@ -1219,6 +1220,7 @@
 		CAFE000000000000000000A5 /* NotesTreePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreePanelView.swift; sourceTree = "<group>"; };
 		CAFE000000000000000000A2 /* NotesTreeStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeStorage.swift; sourceTree = "<group>"; };
 		CAFE000000000000000000A7 /* NotesTreeStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeStorageTests.swift; sourceTree = "<group>"; };
+		CAFE000000000000000000A8 /* NotesMarkdownRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesMarkdownRenderingTests.swift; sourceTree = "<group>"; };
 		CAFE000000000000000000A3 /* NotesTreeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeStore.swift; sourceTree = "<group>"; };
 		86D8BE9B5C29429F8AF0D2D4 /* NoteSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteSupport.swift; sourceTree = "<group>"; };
 		D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
@@ -2299,6 +2301,7 @@
 				4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
 				CAFE000000000000000000A7 /* NotesTreeStorageTests.swift */,
+				CAFE000000000000000000A8 /* NotesMarkdownRenderingTests.swift */,
 				C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */,
 				FEED49850000000000000002 /* FeedEventClassificationTests.swift */,
 				42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */,
@@ -3375,6 +3378,7 @@
 				9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */,
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				CAFE000000000000000000B7 /* NotesTreeStorageTests.swift in Sources */,
+				CAFE000000000000000000B8 /* NotesMarkdownRenderingTests.swift in Sources */,
 				734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,
 				4E5F60720000000000000001 /* NotificationSoundSettingsTests.swift in Sources */,
 				4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */,

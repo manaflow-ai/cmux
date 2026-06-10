@@ -2741,11 +2741,18 @@ struct ContentView: View {
         // Notes is local-only and independent of the file-explorer sync gate
         // below, so bind it before that early-returns for non-Files/Find modes.
         if let workspace = tabManager.selectedWorkspace {
+            let normalizedDir = (dir as NSString).standardizingPath
+            let cwdSiblings = tabManager.tabs.contains { tab in
+                tab.id != workspace.id
+                    && !tab.isRemoteWorkspace
+                    && (tab.currentDirectory as NSString).standardizingPath == normalizedDir
+            }
             notesTreeStore.setWorkspace(
                 title: workspace.title,
                 projectRoot: NoteSupport.projectRoot(forCwd: dir),
                 currentDirectory: dir,
                 anchorId: workspace.noteAnchorId,
+                hasCwdSiblings: cwdSiblings,
                 observedSessions: { [weak workspace] in
                     workspace?.notesTreeObservedAgentSessions() ?? []
                 }

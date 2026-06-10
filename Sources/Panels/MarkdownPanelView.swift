@@ -115,7 +115,46 @@ struct MarkdownPanelView: View {
                 MarkdownTypographyControl(panel: panel)
             }
             markdownModeButton
+            moreActionsMenu
         }
+    }
+
+    /// Viewer utilities shared by notes and plain markdown: copy the source
+    /// markdown, copy the rendered HTML (the same DOM the user is reading),
+    /// and hand the file to the system (default app / Finder).
+    private var moreActionsMenu: some View {
+        Menu {
+            Button(String(localized: "markdown.toolbar.copyMarkdown", defaultValue: "Copy as Markdown")) {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(panel.content, forType: .string)
+            }
+            Button(String(localized: "markdown.toolbar.copyHTML", defaultValue: "Copy as HTML")) {
+                Task { @MainActor in
+                    guard let html = await panel.rendererSession.renderedHTML() else { return }
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.declareTypes([.html, .string], owner: nil)
+                    pasteboard.setString(html, forType: .html)
+                    pasteboard.setString(html, forType: .string)
+                }
+            }
+            Divider()
+            Button(FileExternalOpenText.openExternally) {
+                NSWorkspace.shared.open(URL(fileURLWithPath: panel.filePath))
+            }
+            Button(FileExternalOpenText.revealInFinder) {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: panel.filePath)])
+            }
+        } label: {
+            PanelHeaderIconGlyph(systemName: "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .foregroundColor(.secondary)
+        .help(String(localized: "markdown.toolbar.more", defaultValue: "More Actions"))
+        .accessibilityLabel(String(localized: "markdown.toolbar.more", defaultValue: "More Actions"))
     }
 
     private var markdownModeButton: some View {
