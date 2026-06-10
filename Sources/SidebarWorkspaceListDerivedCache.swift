@@ -61,6 +61,9 @@ final class SidebarWorkspaceListDerivedCache {
             workspaceGroupIds: tabs.map(\.groupId),
             groups: workspaceGroups
         )
+        if let cachedDerived, cachedFingerprint == fingerprint {
+            return cachedDerived
+        }
         let derived = Self.build(tabs: tabs, workspaceGroups: workspaceGroups)
         cachedFingerprint = fingerprint
         cachedDerived = derived
