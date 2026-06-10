@@ -790,6 +790,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileExplorer": {
+          "doubleClickAction": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
@@ -801,6 +804,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Double-click a file: preview (default), defaultEditor (macOS default app), or preferredEditor (the app.preferredEditor command).",
       "shortcutsWhenIntro": "Predicati di contesto opzionali per azione (clausole when in stile VS Code), indicizzati per id azione cmux. Un'associazione si attiva — ed entra in conflitto con un'altra associazione sulla stessa pressione — solo quando la sua clausola è vera. Ometti la clausola per mantenere il contesto integrato dell'azione. Il vocabolario delle clausole:",
       "shortcutsWhenBooleanKeys": "chiavi booleane. Una chiave sconosciuta o assente vale false; sono accettati anche i letterali true e false.",
       "shortcutsWhenTypedKeys": "chiavi tipizzate per i confronti: la modalità attiva della barra laterale destra (stringa) e i conteggi di riquadri e spazi di lavoro (interi).",

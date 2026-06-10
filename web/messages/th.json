@@ -790,6 +790,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileExplorer": {
+          "doubleClickAction": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
@@ -801,6 +804,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Double-click a file: preview (default), defaultEditor (macOS default app), or preferredEditor (the app.preferredEditor command).",
       "shortcutsWhenIntro": "เพรดิเคตบริบทแบบไม่บังคับสำหรับแต่ละแอ็กชัน (คลอส when แบบ VS Code) โดยใช้ id แอ็กชันของ cmux เป็นคีย์ การผูกจะทำงาน — และชนกับการผูกอื่นบนปุ่มเดียวกัน — เฉพาะเมื่อคลอสของมันเป็นจริงเท่านั้น หากไม่ระบุคลอส แอ็กชันจะใช้บริบทในตัวตามเดิม คำศัพท์ที่ใช้ในคลอส:",
       "shortcutsWhenBooleanKeys": "คีย์บูลีน คีย์ที่ไม่รู้จักหรือไม่มีอยู่จะถูกอ่านเป็น false และยอมรับลิเทอรัล true กับ false ด้วย",
       "shortcutsWhenTypedKeys": "คีย์แบบมีชนิดสำหรับการเปรียบเทียบ: โหมดปัจจุบันของแถบด้านข้างขวา (สตริง) และจำนวนเพนกับเวิร์กสเปซ (จำนวนเต็ม)",

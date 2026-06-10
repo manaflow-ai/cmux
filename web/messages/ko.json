@@ -790,6 +790,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileExplorer": {
+          "doubleClickAction": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
@@ -801,6 +804,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Double-click a file: preview (default), defaultEditor (macOS default app), or preferredEditor (the app.preferredEditor command).",
       "shortcutsWhenIntro": "액션별 선택적 컨텍스트 조건자(VS Code 스타일 when 절)이며 cmux 액션 ID를 키로 사용합니다. 바인딩은 해당 절이 참일 때만 실행되고, 같은 키 입력의 다른 바인딩과도 그때만 충돌합니다. 절을 생략하면 액션의 기본 컨텍스트가 유지됩니다. 절에서 사용할 수 있는 어휘:",
       "shortcutsWhenBooleanKeys": "불리언 키. 알 수 없거나 존재하지 않는 키는 false로 평가되며, 리터럴 true와 false도 사용할 수 있습니다.",
       "shortcutsWhenTypedKeys": "비교용 타입 키: 오른쪽 사이드바의 활성 모드(문자열)와 패널 및 워크스페이스 개수(정수)입니다.",
