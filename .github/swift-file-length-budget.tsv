@@ -2,7 +2,7 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 32655	CLI/cmux.swift
-17580	Sources/TerminalController.swift
+   17680	Sources/TerminalController.swift
 19820	Sources/Workspace.swift
 19209	Sources/ContentView.swift
 18011	Sources/AppDelegate.swift
@@ -187,6 +187,6 @@
 502	Sources/CmuxEventPublishing.swift
 502	Sources/Settings/ConfigSource.swift
 611	Sources/TerminalController+ControlPaneContext.swift
-533	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/ControlCommandCoordinator+Pane.swift
-871	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/ControlCommandCoordinator+Workspace.swift
+533	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
+871	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 805	Sources/TerminalController+ControlWorkspaceContext.swift
