@@ -9,6 +9,12 @@
 /* Begin PBXBuildFile section */
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
+		A6E810010000000000000002 /* AgentChatPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E810010000000000000001 /* AgentChatPresenter.swift */; };
+		A6E810020000000000000002 /* AgentChatTranscriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E810020000000000000001 /* AgentChatTranscriptResolver.swift */; };
+		A6E810040000000000000002 /* AgentChatWebViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E810040000000000000001 /* AgentChatWebViewController.swift */; };
+		A6E810030000000000000002 /* AgentChatWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E810030000000000000001 /* AgentChatWindowController.swift */; };
+		A6E810060000000000000002 /* AgentDaemonBinaryLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E810060000000000000001 /* AgentDaemonBinaryLocator.swift */; };
+		A6E810050000000000000002 /* AgentDaemonClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E810050000000000000001 /* AgentDaemonClient.swift */; };
 		A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000001 /* AgentExecutableResolver.swift */; };
 		A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000002 /* AgentExecutableResolverError.swift */; };
 		A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000005 /* AgentExecutableResolverTests.swift */; };
@@ -783,6 +789,12 @@
 /* Begin PBXFileReference section */
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
+		A6E810010000000000000001 /* AgentChatPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentChatPresenter.swift; sourceTree = "<group>"; };
+		A6E810020000000000000001 /* AgentChatTranscriptResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentChatTranscriptResolver.swift; sourceTree = "<group>"; };
+		A6E810040000000000000001 /* AgentChatWebViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentChatWebViewController.swift; sourceTree = "<group>"; };
+		A6E810030000000000000001 /* AgentChatWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentChatWindowController.swift; sourceTree = "<group>"; };
+		A6E810060000000000000001 /* AgentDaemonBinaryLocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentDaemonBinaryLocator.swift; sourceTree = "<group>"; };
+		A6E810050000000000000001 /* AgentDaemonClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentDaemonClient.swift; sourceTree = "<group>"; };
 		A9F100000000000000000001 /* AgentExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolver.swift; sourceTree = "<group>"; };
 		A9F100000000000000000002 /* AgentExecutableResolverError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverError.swift; sourceTree = "<group>"; };
 		A9E010000000000000000005 /* AgentExecutableResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverTests.swift; sourceTree = "<group>"; };
@@ -1919,6 +1931,12 @@
 				A9F100000000000000000018 /* OpenCodeEventTextAccumulator.swift */,
 				A9F100000000000000000019 /* OpenCodeProcessOutputDisposition.swift */,
 				A9E01000000000000000000F /* AgentSessionRendererKind.swift */,
+				A6E810010000000000000001 /* AgentChatPresenter.swift */,
+				A6E810020000000000000001 /* AgentChatTranscriptResolver.swift */,
+				A6E810030000000000000001 /* AgentChatWindowController.swift */,
+				A6E810040000000000000001 /* AgentChatWebViewController.swift */,
+				A6E810050000000000000001 /* AgentDaemonClient.swift */,
+				A6E810060000000000000001 /* AgentDaemonBinaryLocator.swift */,
 				A9E010000000000000000002 /* AgentSessionPanel.swift */,
 				A9E010000000000000000008 /* AgentSessionBridge.swift */,
 				A9E010000000000000000009 /* AgentSessionProcessStore.swift */,
@@ -2654,6 +2672,12 @@
 			buildActionMask = 2147483647;
 			files = (
 
+				A6E810010000000000000002 /* AgentChatPresenter.swift in Sources */,
+				A6E810020000000000000002 /* AgentChatTranscriptResolver.swift in Sources */,
+				A6E810040000000000000002 /* AgentChatWebViewController.swift in Sources */,
+				A6E810030000000000000002 /* AgentChatWindowController.swift in Sources */,
+				A6E810060000000000000002 /* AgentDaemonBinaryLocator.swift in Sources */,
+				A6E810050000000000000002 /* AgentDaemonClient.swift in Sources */,
 				A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */,
 				A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */,
 				C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */,
