@@ -218,10 +218,30 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 )
             }
         }
+        // The status probe is deliberately unauthenticated (it must answer
+        // before the phone has anything to present), but the host reports its
+        // identity (`mac_device_id`, `mac_display_name`) only to a verified
+        // same-account caller, so attach the Stack token opportunistically
+        // when policy allows sending it on this route. Never fail the probe
+        // over a missing token: reachability and capabilities don't need one,
+        // and a QR-pairing connect (where the identity matters) is always
+        // signed in, so the token is present there.
+        if !requestNeedsAuth,
+           Self.isHostStatusRequest(request),
+           allowsStackAuthFallback,
+           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+           let stackAccessToken = try? await runtime.stackAccessTokenProvider() {
+            auth["stack_access_token"] = stackAccessToken
+        }
         if !auth.isEmpty {
             request["auth"] = auth
         }
         return try JSONSerialization.data(withJSONObject: request)
+    }
+
+    private static func isHostStatusRequest(_ request: [String: Any]) -> Bool {
+        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return method == "mobile.host.status"
     }
 
     private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
