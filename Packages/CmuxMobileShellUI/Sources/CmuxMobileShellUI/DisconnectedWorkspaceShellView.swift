@@ -7,6 +7,11 @@ import AppKit
 #endif
 
 struct DisconnectedWorkspaceShellView: View {
+    /// Whether this install has ever paired a Mac. Gates the
+    /// Tailscale-inactive callout: its copy explains an unreachable Mac, which
+    /// is misleading for a signed-in user who has not added a device yet (that
+    /// user gets the pairing-flavored callout in the auto-presented sheet).
+    let hasKnownPairedMac: Bool
     let showAddDevice: () -> Void
     let signOut: () -> Void
 
@@ -27,10 +32,12 @@ struct DisconnectedWorkspaceShellView: View {
             } description: {
                 Text(L10n.string("mobile.devices.emptyDescription", defaultValue: "Add a Mac to start syncing terminal workspaces."))
             } actions: {
-                // When the Mac is unreachable and this device has no active
-                // tailnet, lead with that explanation instead of leaving the
-                // user staring at a generic empty state.
-                if tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
+                // When a paired Mac is unreachable and this device has no
+                // active tailnet, lead with that explanation instead of
+                // leaving the user staring at a generic empty state. Skip it
+                // when no Mac was ever paired: the disconnected copy assumes a
+                // Mac exists, and the pairing sheet carries its own callout.
+                if hasKnownPairedMac, tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
                     TailscaleInactiveCallout(context: .disconnected)
                         .frame(maxWidth: 320, alignment: .leading)
                         .padding(.bottom, 4)

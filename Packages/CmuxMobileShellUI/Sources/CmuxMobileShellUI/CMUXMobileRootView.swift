@@ -141,6 +141,7 @@ struct CMUXMobileRootView: View {
             }
         } else if store.connectionState != .connected {
             DisconnectedWorkspaceShellView(
+                hasKnownPairedMac: store.hasKnownPairedMac,
                 showAddDevice: showAddDevice,
                 signOut: signOut
             )
