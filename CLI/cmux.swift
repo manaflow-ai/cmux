@@ -4853,7 +4853,10 @@ struct CMUXCLI {
         if let target, !target.isEmpty {
             params["target"] = target
         }
-        if let surfaceRaw = surfaceOpt {
+        // Default to the calling surface so `cmux tmux attach` replaces the
+        // current terminal in place rather than creating a new one.
+        let surfaceRaw = surfaceOpt ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+        if let surfaceRaw {
             if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = surface
             }

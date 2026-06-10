@@ -51,7 +51,7 @@ struct TmuxControlModeSessionCoreTests {
         // capture-pane response -> snapshot.
         let afterCapture = core.consume(Array("%begin 3 3 0\nrow1\nrow2\n%end 3 3 0\n".utf8))
         let result = bytes(afterCapture)
-        #expect(result.snapshots == [Array("row1\r\nrow2\r\n".utf8)])
+        #expect(result.snapshots == [Array("row1\r\nrow2".utf8)])
     }
 
     @Test func liveOutputBeforeSnapshotIsBufferedThenFlushed() {
@@ -67,7 +67,7 @@ struct TmuxControlModeSessionCoreTests {
         // Snapshot completes -> snapshot first, then buffered live output.
         let afterCapture = core.consume(Array("%begin 3 3 0\nscreen\n%end 3 3 0\n".utf8))
         let result = bytes(afterCapture)
-        #expect(result.snapshots == [Array("screen\r\n".utf8)])
+        #expect(result.snapshots == [Array("screen".utf8)])
         #expect(result.outputs == [Array("early".utf8)])
 
         // Subsequent output is emitted directly.

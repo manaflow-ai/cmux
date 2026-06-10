@@ -116,8 +116,15 @@ public struct TmuxControlModeSessionCore: Sendable {
     }
 
     private mutating func deliverSnapshot(output: [String], into effects: inout [Effect]) {
-        var bytes = Array(output.joined(separator: "\r\n").utf8)
-        if !output.isEmpty { bytes.append(contentsOf: [0x0D, 0x0A]) } // trailing CRLF
+        // Trim trailing blank rows (capture-pane pads to the screen height) and
+        // emit no trailing newline, so the snapshot anchors at the top of the
+        // surface with the cursor right after the last real line — matching how
+        // the pane looks in tmux instead of sinking to the bottom.
+        var lines = output
+        while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty {
+            lines.removeLast()
+        }
+        let bytes = Array(lines.joined(separator: "\r\n").utf8)
         effects.append(.snapshot(bytes))
         if !pendingLiveOutput.isEmpty {
             effects.append(.output(pendingLiveOutput))

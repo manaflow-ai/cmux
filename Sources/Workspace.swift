@@ -14933,25 +14933,24 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
-    /// Convenience: attach a local tmux control-mode session in the focused
-    /// pane of this workspace.
+    /// Attach a local tmux control-mode session by **replacing** an existing
+    /// terminal surface in place (same pane and tab — no new tab). When the
+    /// session ends, the surface reverts to a normal shell.
     @discardableResult
     func attachLocalTmuxControlMode(
         target: TmuxAttachTarget,
-        inPane paneId: PaneID? = nil,
+        replacingPanelId panelId: UUID,
         focus: Bool? = nil
     ) -> TerminalPanel? {
         guard let tmuxPath = TmuxControlModeGateway.resolveTmuxExecutable() else {
             return nil
         }
-        let resolvedPane = paneId ?? bonsplitController.focusedPaneId
-        guard let resolvedPane else { return nil }
         let session = TmuxControlModeGateway(
             target: target,
             tmuxExecutablePath: tmuxPath,
             environment: ProcessInfo.processInfo.environment
         )
-        return newControlModeTerminalSurface(inPane: resolvedPane, session: session, focus: focus)
+        return respawnTerminalSurface(panelId: panelId, command: "", controlModeSession: session, focus: focus)
     }
 
     /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
@@ -14961,7 +14960,8 @@ final class Workspace: Identifiable, ObservableObject {
         command: String,
         workingDirectory: String? = nil,
         tmuxStartCommand: String? = nil,
-        focus: Bool? = nil
+        focus: Bool? = nil,
+        controlModeSession: (any ControlModeSessionSource)? = nil
     ) -> TerminalPanel? {
         guard let oldPanel = terminalPanel(for: panelId),
               let tabId = surfaceIdFromPanelId(panelId),
@@ -14970,7 +14970,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedCommand.isEmpty else { return nil }
+        // A control-mode surface has no command (the session drives IO), so a
+        // command is only required for a normal exec respawn.
+        guard controlModeSession != nil || !trimmedCommand.isEmpty else { return nil }
 
         let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         let requestedWorkingDirectory: String? = {
@@ -15028,15 +15030,24 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             workingDirectory: requestedWorkingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: trimmedCommand,
-            tmuxStartCommand: replacementTmuxStartCommand,
+            initialCommand: controlModeSession == nil ? trimmedCommand : nil,
+            tmuxStartCommand: controlModeSession == nil ? replacementTmuxStartCommand : nil,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement
+            focusPlacement: focusPlacement,
+            controlModeSession: controlModeSession
         )
         configureNewTerminalPanel(replacementPanel)
         panels[panelId] = replacementPanel
         panelTitles[panelId] = replacementPanel.displayTitle
+        if controlModeSession != nil {
+            // When the control-mode session ends, respawn a normal shell in the
+            // same surface so the pane reverts to a usable terminal in place.
+            let revertPanelId = panelId
+            replacementPanel.surface.onControlModeSessionEnded = { [weak self] _ in
+                self?.respawnTerminalSurface(panelId: revertPanelId, command: "exec ${SHELL:-/bin/zsh} -l")
+            }
+        }
         if let customTitle {
             panelCustomTitles[panelId] = customTitle
         }

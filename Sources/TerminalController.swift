@@ -7982,10 +7982,19 @@ class TerminalController {
                 )
                 return
             }
+            // Replace the calling surface in place (or the focused one).
+            guard let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId else {
+                result = .err(
+                    code: "not_found",
+                    message: String(localized: "rpc.v2.tmux.attach.noSurface", defaultValue: "No surface to attach tmux into"),
+                    data: nil
+                )
+                return
+            }
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
-            guard let panel = ws.attachLocalTmuxControlMode(target: target, focus: focus) else {
+            guard let panel = ws.attachLocalTmuxControlMode(target: target, replacingPanelId: surfaceId, focus: focus) else {
                 result = .err(
                     code: "internal_error",
                     message: String(localized: "rpc.v2.tmux.attach.failed", defaultValue: "Failed to attach tmux session"),
