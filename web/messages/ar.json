@@ -739,12 +739,23 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "diffViewer": {
+          "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "مسندات سياق اختيارية لكل إجراء (عبارات `when` على نمط VS Code)، مفهرسة بمعرّف إجراء cmux. كل قيمة هي تعبير منطقي فوق مفاتيح السياق، مدمجة باستخدام ! و && و || والأقواس. المفاتيح المنطقية: sidebarFocus و browserFocus و markdownFocus و terminalFocus و commandPaletteVisible و terminalFindVisible. تدعم المفاتيح المصنّفة المقارنات: السلسلة النصية sidebarMode (files أو find أو sessions أو feed أو dock) والعددان الصحيحان paneCount و workspaceCount. عوامل المقارنة هي == و != و =~ (تعبير نمطي) و < و <= و > و >= و `in [a, b]`؛ المفتاح غير المعروف أو الغائب يُقرأ على أنه false. تُقبل أيضًا القيمتان المنطقيتان الحرفيتان true و false؛ و`key == false` تكافئ `!key`. لا يعمل اختصار الإجراء (ولا يتعارض مع اختصارات أخرى) إلا عندما تكون العبارة صحيحة. أمثلة: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } يحدد مساحات العمل بواسطة Ctrl+1–9 في كل مكان ما عدا عندما يكون الشريط الجانبي الأيمن مركزًا؛ { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } يقصر الارتباط على الشريط الجانبي للبحث عندما تحتوي مساحة العمل على عدة ألواح."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "shortcutsWhenIntro": "مسندات سياق اختيارية لكل إجراء (عبارات when على نمط VS Code)، مفهرسة بمعرّف إجراء cmux. لا يعمل الارتباط — ولا يتعارض مع ارتباط آخر على نفس الضغطة — إلا عندما تتحقق عبارته. احذف العبارة للإبقاء على السياق المضمّن للإجراء. مفردات العبارات:",
+      "shortcutsWhenBooleanKeys": "مفاتيح منطقية. المفتاح غير المعروف أو الغائب يُقرأ على أنه false؛ وتُقبل أيضًا القيمتان الحرفيتان true و false.",
+      "shortcutsWhenTypedKeys": "مفاتيح مصنّفة للمقارنات: الوضع النشط للشريط الجانبي الأيمن (سلسلة نصية) وعددا الألواح ومساحات العمل (أعداد صحيحة).",
+      "shortcutsWhenOperators": "عوامل منطقية ومقارنات مصنّفة ومطابقة بتعبير نمطي وعضوية قائمة. ترتبط المقارنات بشكل أوثق من && و ||.",
+      "shortcutsWhenExample": "على سبيل المثال، يجعل هذا Ctrl+1–9 يحدد مساحات العمل في كل مكان إلا عندما يكون التركيز على الشريط الجانبي الأيمن (تاركًا Ctrl+1–5 لمبدّل أوضاع الشريط الجانبي)، ويقصر اختيار السطح على الشريط الجانبي للبحث عندما تحتوي مساحة العمل على عدة ألواح:"
     },
     "customCommands": {
       "title": "أوامر مخصصة",
@@ -1426,5 +1437,10 @@
     "downloadLight": "تنزيل أيقونة الوضع الفاتح",
     "downloadDark": "تنزيل أيقونة الوضع الداكن",
     "brandPage": "أصول العلامة"
+  },
+  "afterSignIn": {
+    "title": "تم تسجيل الدخول إلى cmux",
+    "body": "إذا لم يفتح cmux تلقائيًا، استخدم الزر أدناه.",
+    "button": "العودة إلى cmux"
   }
 }

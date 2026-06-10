@@ -739,12 +739,23 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "diffViewer": {
+          "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "เพรดิเคตบริบทแบบไม่บังคับสำหรับแต่ละแอ็กชัน (คลอส `when` แบบ VS Code) โดยใช้ id แอ็กชันของ cmux เป็นคีย์ แต่ละค่าเป็นนิพจน์บูลีนเหนือคีย์บริบท รวมด้วย !, &&, || และวงเล็บ คีย์บูลีน: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible คีย์แบบมีชนิดรองรับการเปรียบเทียบ: สตริง sidebarMode (files, find, sessions, feed หรือ dock) และจำนวนเต็ม paneCount กับ workspaceCount ตัวดำเนินการเปรียบเทียบคือ ==, !=, =~ (นิพจน์ปรกติ), <, <=, >, >= และ `in [a, b]` คีย์ที่ไม่รู้จักหรือไม่มีอยู่จะถูกอ่านเป็น false ยอมรับลิเทอรัลบูลีน true และ false ด้วย โดย `key == false` มีความหมายเดียวกับ `!key` ทางลัดของแอ็กชันจะทำงาน (และจะชนกับทางลัดอื่น) เฉพาะเมื่อคลอสเป็นจริงเท่านั้น ตัวอย่าง: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } เลือกเวิร์กสเปซด้วย Ctrl+1–9 ได้ทุกที่ยกเว้นเมื่อแถบด้านข้างขวาอยู่ในโฟกัส; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } จำกัดการผูกไว้กับแถบด้านข้างค้นหาเมื่อเวิร์กสเปซมีหลายเพน"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "shortcutsWhenIntro": "เพรดิเคตบริบทแบบไม่บังคับสำหรับแต่ละแอ็กชัน (คลอส when แบบ VS Code) โดยใช้ id แอ็กชันของ cmux เป็นคีย์ การผูกจะทำงาน — และชนกับการผูกอื่นบนปุ่มเดียวกัน — เฉพาะเมื่อคลอสของมันเป็นจริงเท่านั้น หากไม่ระบุคลอส แอ็กชันจะใช้บริบทในตัวตามเดิม คำศัพท์ที่ใช้ในคลอส:",
+      "shortcutsWhenBooleanKeys": "คีย์บูลีน คีย์ที่ไม่รู้จักหรือไม่มีอยู่จะถูกอ่านเป็น false และยอมรับลิเทอรัล true กับ false ด้วย",
+      "shortcutsWhenTypedKeys": "คีย์แบบมีชนิดสำหรับการเปรียบเทียบ: โหมดปัจจุบันของแถบด้านข้างขวา (สตริง) และจำนวนเพนกับเวิร์กสเปซ (จำนวนเต็ม)",
+      "shortcutsWhenOperators": "ตัวดำเนินการบูลีน การเปรียบเทียบตามชนิด การจับคู่ regex และการเป็นสมาชิกของรายการ การเปรียบเทียบยึดเหนี่ยวแน่นกว่า && และ ||",
+      "shortcutsWhenExample": "ตัวอย่างเช่น การตั้งค่านี้ทำให้ Ctrl+1–9 เลือกเวิร์กสเปซได้ทุกที่ยกเว้นเมื่อแถบด้านข้างขวาอยู่ในโฟกัส (เหลือ Ctrl+1–5 ให้ตัวสลับโหมดของแถบด้านข้าง) และจำกัดการเลือกเซอร์เฟซไว้กับแถบด้านข้างค้นหาเมื่อเวิร์กสเปซมีหลายเพน:"
     },
     "customCommands": {
       "title": "คำสั่งที่กำหนดเอง",
@@ -1426,5 +1437,10 @@
     "downloadLight": "ดาวน์โหลดไอคอนโหมดสว่าง",
     "downloadDark": "ดาวน์โหลดไอคอนโหมดมืด",
     "brandPage": "แอสเซ็ตแบรนด์"
+  },
+  "afterSignIn": {
+    "title": "ลงชื่อเข้าใช้ cmux แล้ว",
+    "body": "หาก cmux ไม่เปิดโดยอัตโนมัติ ให้ใช้ปุ่มด้านล่าง",
+    "button": "กลับไปที่ cmux"
   }
 }

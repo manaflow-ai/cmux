@@ -13,9 +13,11 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `e610c8e16`, merging the iOS render bounded-acquire
-line (`f78189ac1`) with the cmd-click link refresh under mouse reporting
-(`df789cd4b`, manaflow-ai/ghostty#71 and PRs #74 through #79) for
+Current cmux pinned fork head: `34cbf180d`, merging the surface registry
+serialization for https://github.com/manaflow-ai/cmux/issues/5458 (`e5c962a72`,
+landed on cmux `main`) into the iOS render bounded-acquire line (`f78189ac1`)
+combined with the cmd-click link refresh under mouse reporting (`df789cd4b`,
+manaflow-ai/ghostty#71 and PRs #74 through #79) for
 https://github.com/manaflow-ai/cmux/issues/5128. This keeps the previous head's
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
 the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369,
@@ -28,7 +30,7 @@ path, and lets Cmd-click open links even while a mouse-reporting alt-screen TUI
 (Claude Code, Codex) has grabbed the mouse.
 It also supports Ctrl-N and Ctrl-P in the cmux theme picker.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e610c8e166ce3ac2dc13f36e542b287bb78f9cd3-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-34cbf180d8917b802d61d9929cfb493594f2ab52-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -290,15 +292,37 @@ tend to conflict together during rebases.
     user who reconfigures `link.highlight.hover_mods` to a non-default chord would
     not get the under-mouse-reporting bypass. Out of scope for #5128.
 
-The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` through the
-`xcframework-e610c8e166ce3ac2dc13f36e542b287bb78f9cd3-crashsubdir-cmux-crash-v1`
-release tag and is the current `manaflow-ai/ghostty` `main` head after PR #80
-merged the `df789cd4b` link-click fix line with `f78189ac1`.
-Published `xcframework-e610c8e166ce3ac2dc13f36e542b287bb78f9cd3-crashsubdir-cmux-crash-v1` and pinned its
-archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
-pin must be regenerated whenever this commit changes, even for comment-only
-amends, because the release tag is keyed by the Ghostty commit SHA.
+### 14) Embedded surface registry serialization
+
+- Commits:
+  - `c9b61a8af` (Add surface registry mutation serialization test)
+  - `e5c962a72` (Serialize Ghostty surface registry mutations)
+- Files:
+  - `src/App.zig`
+- Summary:
+  - Adds a deterministic regression test for concurrent embedded runtime
+    surface registry mutation.
+  - Protects the native `App.surfaces` list and `focused_surface` pointer with
+    one mutex so an off-main `ghostty_surface_free` cannot overlap the main
+    actor `ghostty_surface_new` insertion path.
+  - Keeps callbacks such as the quit timer outside the registry mutex to avoid
+    re-entrancy through the embedder.
+- Conflict notes:
+  - Any upstream change to `App.addSurface`, `App.deleteSurface`,
+    `App.focusedSurface`, or the embedded surface close path should preserve
+    serialization of registry/focus mutation across create and free.
+
+The current cmux pin is the merged head `34cbf180d`, which merges the surface
+registry serialization (`e5c962a72`, section 14, landed on cmux `main` via
+branch `issue-5458-surface-registry-lock`) into the Cmd-click link fix line
+(`df789cd4b`, section 13) on top of the iOS render bounded-acquire pin
+(`f78189ac1`). It is reachable from `manaflow-ai/ghostty` through branch
+`issue-5128-alt-screen-link-open`. Published
+`xcframework-34cbf180d8917b802d61d9929cfb493594f2ab52-crashsubdir-cmux-crash-v1`
+and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The
+release and checksum pin must be regenerated whenever this commit changes, even
+for comment-only amends, because the release tag is keyed by the Ghostty commit
+SHA.
 
 ## Upstreamed fork changes
 

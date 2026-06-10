@@ -739,12 +739,23 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "diffViewer": {
+          "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "shortcutsWhenIntro": "Opcionalni kontekstni predikati po radnji (when klauzule u VS Code stilu), indeksirani cmux ID-jem radnje. Vezivanje se pokreće — i sukobljava s drugim vezivanjem na istom pritisku — samo kada je njegova klauzula ispunjena. Izostavite klauzulu da radnja zadrži ugrađeni kontekst. Rječnik klauzula:",
+      "shortcutsWhenBooleanKeys": "Booleovi ključevi. Nepoznat ili odsutan ključ čita se kao false; prihvataju se i literali true i false.",
+      "shortcutsWhenTypedKeys": "tipizirani ključevi za poređenja: aktivni način desne bočne trake (string) te broj okana i radnih prostora (cijeli brojevi).",
+      "shortcutsWhenOperators": "Booleovi operatori, tipizirana poređenja, regex podudaranje i pripadnost listi. Poređenja se vezuju jače od && i ||.",
+      "shortcutsWhenExample": "Na primjer, ovo čini da Ctrl+1–9 bira radne prostore svuda osim kada desna bočna traka ima fokus (ostavljajući Ctrl+1–5 prebacivaču načina bočne trake), i ograničava izbor površine na bočnu traku za pretragu kada radni prostor ima više okana:"
     },
     "customCommands": {
       "title": "Prilagođene komande",
@@ -1426,5 +1437,10 @@
     "downloadLight": "Preuzmi svijetlu ikonu",
     "downloadDark": "Preuzmi tamnu ikonu",
     "brandPage": "Materijali brenda"
+  },
+  "afterSignIn": {
+    "title": "Prijavljeni ste u cmux",
+    "body": "Ako se cmux nije automatski otvorio, koristite dugme ispod.",
+    "button": "Vrati se u cmux"
   }
 }

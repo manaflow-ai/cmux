@@ -78,6 +78,86 @@ import Testing
         #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-4")
     }
 
+    @Test func createTerminalUsesExplicitWorkspaceContextOverStaleSelection() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+        // Selection drifts to a different workspace than the one the "+" was tapped on.
+        store.selectedWorkspaceID = "workspace-docs"
+
+        store.createTerminal(in: "workspace-main")
+
+        // The new terminal lands in the explicitly-targeted workspace, not the selected one.
+        #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
+        #expect(store.selectedWorkspace?.terminals.count == 4)
+        #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-4")
+    }
+
+    @Test func createdTerminalIsAutoFocusSuppressedUntilConsumed() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        store.createTerminal()
+
+        // A freshly created terminal must not grab the keyboard on mount.
+        let created = try #require(store.selectedTerminalID).rawValue
+        #expect(store.shouldAutoFocusTerminalSurface(created) == false)
+        // Its surface appearing consumes the one-shot suppression.
+        store.consumeTerminalAutoFocusSuppression(for: created)
+        #expect(store.shouldAutoFocusTerminalSurface(created) == true)
+    }
+
+    @Test func createdWorkspaceTerminalIsAutoFocusSuppressed() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        store.createWorkspace()
+
+        #expect(store.selectedTerminalID?.rawValue == "workspace-3-terminal-1")
+        #expect(store.shouldAutoFocusTerminalSurface("workspace-3-terminal-1") == false)
+    }
+
+    @Test func pushNavigationSelectionStaysAutoFocusable() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        // A chrome create suppresses the new terminal...
+        store.createTerminal()
+        let created = try #require(store.selectedTerminalID).rawValue
+        #expect(store.shouldAutoFocusTerminalSurface(created) == false)
+
+        // ...but a push-notification deep link to an existing terminal is a
+        // focus intent and must still autofocus: suppression attaches to the
+        // created id, not to "whatever selection comes next".
+        store.selectTerminal("terminal-agent")
+        #expect(store.shouldAutoFocusTerminalSurface("terminal-agent") == true)
+    }
+
+    @Test func chromeTerminalSwitchSuppressesTargetButNotReconfirm() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        // Re-confirming the already-selected terminal from the picker re-attaches
+        // nothing, so it must not leave a dangling suppression.
+        let current = try #require(store.selectedTerminalID)
+        store.selectTerminalFromChrome(current)
+        #expect(store.shouldAutoFocusTerminalSurface(current.rawValue) == true)
+
+        // Switching to a different terminal IS chrome: suppress its autofocus.
+        store.selectTerminalFromChrome("terminal-agent")
+        #expect(store.selectedTerminalID?.rawValue == "terminal-agent")
+        #expect(store.shouldAutoFocusTerminalSurface("terminal-agent") == false)
+    }
+
     @Test func selectingWorkspaceReconcilesTerminalSelection() {
         let store = MobileShellComposite.preview()
         store.signIn()

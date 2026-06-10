@@ -341,6 +341,16 @@ func TestRunStdioHelloAndPing(t *testing.T) {
 	if !sawPersistentPTYCapability {
 		t.Fatalf("hello should advertise pty.session.persistent_daemon: %v", firstResult)
 	}
+	var sawPTYWriteNotificationCapability bool
+	for _, capability := range capabilities {
+		if capability == "pty.write.notification" {
+			sawPTYWriteNotificationCapability = true
+			break
+		}
+	}
+	if !sawPTYWriteNotificationCapability {
+		t.Fatalf("hello should advertise pty.write.notification: %v", firstResult)
+	}
 
 	var second map[string]any
 	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
@@ -348,6 +358,105 @@ func TestRunStdioHelloAndPing(t *testing.T) {
 	}
 	if ok, _ := second["ok"].(bool); !ok {
 		t.Fatalf("second response should be ok=true: %v", second)
+	}
+}
+
+func TestRunStdioPTYWriteNotificationDoesNotEmitResponse(t *testing.T) {
+	input := strings.NewReader(
+		`{"method":"pty.write","params":{"session_id":"missing","attachment_id":"missing","client_attachment_token":"token","data_base64":"YQ=="}}` + "\n" +
+			`{"id":2,"method":"ping","params":{}}` + "\n",
+	)
+	var out bytes.Buffer
+	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("run serve exit code = %d, want 0", code)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d frame lines, want pty.error event plus ping response: %q", len(lines), out.String())
+	}
+
+	var event map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &event); err != nil {
+		t.Fatalf("failed to decode pty.write error event: %v", err)
+	}
+	if _, hasID := event["id"]; hasID {
+		t.Fatalf("pty.write notification should not emit an RPC response id: %v", event)
+	}
+	if got := event["event"]; got != "pty.error" {
+		t.Fatalf("first frame = %v, want pty.error event; payload=%v", got, event)
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &response); err != nil {
+		t.Fatalf("failed to decode ping response: %v", err)
+	}
+	if got := response["id"]; got != float64(2) {
+		t.Fatalf("response id = %v, want ping id 2; payload=%v", got, response)
+	}
+	if ok, _ := response["ok"].(bool); !ok {
+		t.Fatalf("ping response should be ok=true after pty.write notification: %v", response)
+	}
+}
+
+func TestRunStdioNoIDNonPTYRequestStillEmitsResponse(t *testing.T) {
+	input := strings.NewReader(`{"method":"ping","params":{}}` + "\n")
+	var out bytes.Buffer
+	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("run serve exit code = %d, want 0", code)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("got %d response lines, want ping response: %q", len(lines), out.String())
+	}
+	var response map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &response); err != nil {
+		t.Fatalf("failed to decode ping response: %v", err)
+	}
+	if ok, _ := response["ok"].(bool); !ok {
+		t.Fatalf("no-id ping should still emit an ok response: %v", response)
+	}
+}
+
+func TestRunStdioNullIDPTYWriteStillEmitsResponse(t *testing.T) {
+	input := strings.NewReader(
+		`{"id":null,"method":"pty.write","params":{"session_id":"missing","attachment_id":"missing","client_attachment_token":"token","data_base64":"YQ=="}}` + "\n" +
+			`{"id":2,"method":"ping","params":{}}` + "\n",
+	)
+	var out bytes.Buffer
+	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("run serve exit code = %d, want 0", code)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d frame lines, want pty.write response plus ping response: %q", len(lines), out.String())
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &response); err != nil {
+		t.Fatalf("failed to decode pty.write response: %v", err)
+	}
+	if eventName, _ := response["event"].(string); eventName != "" {
+		t.Fatalf("id:null pty.write should emit an RPC response, got event: %v", response)
+	}
+	if ok, _ := response["ok"].(bool); ok {
+		t.Fatalf("missing pty.write target should fail: %v", response)
+	}
+
+	var ping map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &ping); err != nil {
+		t.Fatalf("failed to decode ping response: %v", err)
+	}
+	if got := ping["id"]; got != float64(2) {
+		t.Fatalf("response id = %v, want ping id 2; payload=%v", got, ping)
+	}
+	if ok, _ := ping["ok"].(bool); !ok {
+		t.Fatalf("ping response should be ok=true after id:null pty.write: %v", ping)
 	}
 }
 
@@ -711,6 +820,42 @@ func TestPersistentDaemonAcceptsRotatedTokenFile(t *testing.T) {
 	}
 	conn, _, _ := openPersistentTestClient(t, socketPath, "new-token")
 	_ = conn.Close()
+}
+
+func TestPersistentDaemonPTYWriteNotificationDoesNotEmitResponse(t *testing.T) {
+	socketPath, stop := startPersistentDaemonForTest(t, "good-token")
+	defer stop()
+
+	conn, reader, writer := openPersistentTestClient(t, socketPath, "good-token")
+	defer conn.Close()
+
+	writePersistentTestFrame(t, writer, map[string]any{
+		"method": "pty.write",
+		"params": map[string]any{
+			"session_id":              "missing",
+			"attachment_id":           "missing",
+			"client_attachment_token": "token",
+			"data_base64":             base64.StdEncoding.EncodeToString([]byte("a")),
+		},
+	})
+	event := readPersistentTestFrame(t, conn, reader)
+	if _, hasID := event["id"]; hasID {
+		t.Fatalf("pty.write notification should not emit an RPC response id: %v", event)
+	}
+	if got := event["event"]; got != "pty.error" {
+		t.Fatalf("first frame = %v, want pty.error event; payload=%v", got, event)
+	}
+	ping := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
+		ID:     2,
+		Method: "ping",
+		Params: map[string]any{},
+	})
+	if got := ping["id"]; got != float64(2) {
+		t.Fatalf("response id = %v, want ping id 2; payload=%v", got, ping)
+	}
+	if ok, _ := ping["ok"].(bool); !ok {
+		t.Fatalf("ping response should be ok=true after pty.write notification: %v", ping)
+	}
 }
 
 func TestAuthenticatePersistentDaemonClientReadDeadline(t *testing.T) {

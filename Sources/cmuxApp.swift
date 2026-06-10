@@ -508,6 +508,11 @@ struct cmuxApp: App {
                     appDelegate.openDebugScrollbackTab(nil)
                 }
 
+                AgentSessionDebugMenuButtons(
+                    openReact: { appDelegate.openDebugAgentSessionReact(nil) },
+                    openSolid: { appDelegate.openDebugAgentSessionSolid(nil) }
+                )
+
                 Button("Open Workspaces for All Workspace Colors") {
                     appDelegate.openDebugColorComparisonWorkspaces(nil)
                 }
@@ -985,6 +990,10 @@ struct cmuxApp: App {
 
             // Numbered workspace selection (9 = last workspace)
             ForEach(1...9, id: \.self) { number in
+                // `menuShortcut(for:)` already returns `.unbound` when the action
+                // carries a configured `shortcuts.when` clause, so a context-gated
+                // workspace shortcut takes the no-key-equivalent branch and the
+                // gated keyDown handler owns dispatch (issue #5189).
                 let selectWorkspaceByNumberShortcut = menuShortcut(for: .selectWorkspaceByNumber)
                 if selectWorkspaceByNumberShortcut.isUnbound || selectWorkspaceByNumberShortcut.hasChord {
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
@@ -5416,78 +5425,6 @@ enum CmuxUITestCapture {
     }
 }
 
-enum CmuxRuntimeDebugCapture {
-    private struct Configuration {
-        let baseURL: URL
-        let token: String
-        let sessionID: String
-    }
-
-    private static let configuration: Configuration? = {
-        let env = ProcessInfo.processInfo.environment
-        guard let baseURLString = env["CMUX_RUNTIME_DEBUG_BASE_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let baseURL = URL(string: baseURLString),
-              let token = env["CMUX_RUNTIME_DEBUG_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !token.isEmpty,
-              let sessionID = env["CMUX_RUNTIME_DEBUG_SESSION_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !sessionID.isEmpty else {
-            return nil
-        }
-        return Configuration(baseURL: baseURL, token: token, sessionID: sessionID)
-    }()
-
-    private static let lock = NSLock()
-    private static var sequence: Int = 0
-
-    static func logIfConfigured(
-        hypothesisID: String,
-        source: String,
-        name: String,
-        expected: String? = nil,
-        actual: String? = nil,
-        data: [String: Any] = [:]
-    ) {
-        guard let configuration else { return }
-
-        var payload: [String: Any] = [
-            "session_id": configuration.sessionID,
-            "hypothesis_id": hypothesisID,
-            "service": "cmux-macos",
-            "source": source,
-            "name": name,
-            "ts": ISO8601DateFormatter().string(from: Date()),
-            "mono_ms": ProcessInfo.processInfo.systemUptime * 1000,
-            "seq": nextSequence(),
-            "data": data
-        ]
-        if let expected {
-            payload["expected"] = expected
-        }
-        if let actual {
-            payload["actual"] = actual
-        }
-
-        guard JSONSerialization.isValidJSONObject(payload),
-              let requestBody = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
-            return
-        }
-
-        var request = URLRequest(url: configuration.baseURL.appendingPathComponent("api/logs"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(configuration.token, forHTTPHeaderField: "X-Debug-Token")
-        request.httpBody = requestBody
-
-        URLSession.shared.dataTask(with: request).resume()
-    }
-
-    private static func nextSequence() -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        sequence += 1
-        return sequence
-    }
-}
 func openCmuxSettingsFileInEditor() {
     let url = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
     PreferredEditorSettings.open(url)
