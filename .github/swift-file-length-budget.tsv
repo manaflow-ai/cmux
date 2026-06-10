@@ -44,7 +44,7 @@
 2290	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
 2208	Sources/Mobile/MobileHostService.swift
-2162	Sources/SessionPersistence.swift
+2188	Sources/SessionPersistence.swift
 2123	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2117	cmuxTests/CmuxConfigTests.swift
 2039	Sources/KeyboardShortcutSettingsFileStore.swift

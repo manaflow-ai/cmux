@@ -2000,11 +2000,37 @@ enum SessionScrollbackReplayStore {
     /// Replay files from a previous process are dead weight: restores write
     /// fresh ones and the shell integration deletes them after replaying, but
     /// quitting with hibernated panels leaves theirs behind. Purge leftovers
-    /// once per process before the first write of this session.
+    /// once per process before the first write of this session. The first
+    /// caller can be on the main actor (session restore, the hibernation
+    /// timer), so the calling thread only pays a single O(1) rename that
+    /// moves the stale tree aside; the recursive delete — unbounded with
+    /// many leftover files — runs detached. Renaming before the first write
+    /// also keeps the delete from racing freshly written replay files.
     private static let purgeStaleReplayFilesOnce: Void = {
-        try? FileManager.default.removeItem(
-            at: replayDirectory(tempDirectory: FileManager.default.temporaryDirectory)
-        )
+        let fileManager = FileManager.default
+        let staleDirectory = replayDirectory(tempDirectory: fileManager.temporaryDirectory)
+        let discardPrefix = "\(bundleScopedDirectoryComponent)-stale-"
+        let discardDirectory = staleDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                "\(discardPrefix)\(ProcessInfo.processInfo.processIdentifier)",
+                isDirectory: true
+            )
+        try? fileManager.moveItem(at: staleDirectory, to: discardDirectory)
+        Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            // Sweep discard directories from earlier crashes too; the prefix
+            // is bundle-scoped, so tagged debug instances never cross paths.
+            let parent = discardDirectory.deletingLastPathComponent()
+            let leftovers = (try? fileManager.contentsOfDirectory(
+                at: parent,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )) ?? []
+            for leftover in leftovers where leftover.lastPathComponent.hasPrefix(discardPrefix) {
+                try? fileManager.removeItem(at: leftover)
+            }
+        }
     }()
 
     static func replayEnvironment(
