@@ -2,11 +2,12 @@ import AppKit
 import os
 
 @MainActor
-enum SettingsWindowPresenter {
+struct SettingsWindowPresenter {
     static let windowID = "settings"
     static let windowIdentifier = "cmux.settings"
     static let minimumSize = NSSize(width: 820, height: 540)
     private static let visibleAreaInset: CGFloat = 18
+    private static let sharedPresenter = SettingsWindowPresenter()
     /// Release-safe diagnostics so intermittent "Settings won't open" reports
     /// (https://github.com/manaflow-ai/cmux/issues/5770) become attributable
     /// from `log show --predicate 'subsystem == "com.cmuxterm.app" && category == "Settings"'`.
@@ -16,47 +17,77 @@ enum SettingsWindowPresenter {
     /// silently no-op mid-teardown, which is the "nothing happens" symptom.
     static let maxOpenAttempts = 2
 
-    private static var openWindow: (@MainActor () -> Void)?
-    private static var parentWindowProvider: (@MainActor () -> NSWindow?)?
-    private static weak var settingsWindow: NSWindow?
-    private static var pendingNavigationTarget: SettingsNavigationTarget?
-    private static var pendingContentNavigationTarget: SettingsNavigationTarget?
-    private static var shouldOpenWhenConfigured = false
-    private static var openVerificationInFlight = false
-#if DEBUG
-    private static var focusHandlerForTests: (@MainActor (NSWindow) -> Void)?
-#endif
+    private final class State {
+        var openWindow: (@MainActor () -> Void)?
+        var parentWindowProvider: (@MainActor () -> NSWindow?)?
+        var settingsWindow: NSWindow?
+        var pendingNavigationTarget: SettingsNavigationTarget?
+        var pendingContentNavigationTarget: SettingsNavigationTarget?
+        var shouldOpenWhenConfigured = false
+        var openVerificationInFlight = false
+    }
+
+    private let state: State
+
+    init() {
+        state = State()
+    }
 
     static func configure(
         openWindow: @escaping @MainActor () -> Void,
         parentWindowProvider: @escaping @MainActor () -> NSWindow? = { nil }
     ) {
-        self.openWindow = openWindow
-        self.parentWindowProvider = parentWindowProvider
-        if shouldOpenWhenConfigured {
-            shouldOpenWhenConfigured = false
+        sharedPresenter.configure(
+            openWindow: openWindow,
+            parentWindowProvider: parentWindowProvider
+        )
+    }
+
+    func configure(
+        openWindow: @escaping @MainActor () -> Void,
+        parentWindowProvider: @escaping @MainActor () -> NSWindow? = { nil }
+    ) {
+        state.openWindow = openWindow
+        state.parentWindowProvider = parentWindowProvider
+        if state.shouldOpenWhenConfigured {
+            state.shouldOpenWhenConfigured = false
             openWindow()
         }
     }
 
     static func configure(window: NSWindow) {
-        let shouldFocusAfterConfiguration = settingsWindow !== window
-        settingsWindow = window
-        window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
+        sharedPresenter.configure(window: window)
+    }
+
+    func configure(window: NSWindow) {
+        let shouldFocusAfterConfiguration = state.settingsWindow !== window
+        state.settingsWindow = window
+        window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
+        window.isReleasedWhenClosed = false
         window.isRestorable = false
-        window.minSize = minimumSize
-        window.contentMinSize = minimumSize
+        window.minSize = Self.minimumSize
+        window.contentMinSize = Self.minimumSize
         window.adoptCmuxPeerWindowLevel()
         clampToVisibleAreaIfNeeded(window)
         if shouldFocusAfterConfiguration {
             Task { @MainActor in
-                guard settingsWindow === window else { return }
+                guard state.settingsWindow === window else { return }
                 focus(window)
             }
         }
     }
 
     static func show(
+        navigationTarget: SettingsNavigationTarget? = nil,
+        openWindowOverride: (@MainActor () -> Void)? = nil
+    ) {
+        sharedPresenter.show(
+            navigationTarget: navigationTarget,
+            openWindowOverride: openWindowOverride
+        )
+    }
+
+    func show(
         navigationTarget: SettingsNavigationTarget? = nil,
         openWindowOverride: (@MainActor () -> Void)? = nil
     ) {
@@ -70,15 +101,15 @@ enum SettingsWindowPresenter {
             payload["used_open_window_override"] = openWindowOverride != nil
         }
 #endif
-        pendingNavigationTarget = navigationTarget
-        pendingContentNavigationTarget = navigationTarget
+        state.pendingNavigationTarget = navigationTarget
+        state.pendingContentNavigationTarget = navigationTarget
 
         if let window = existingWindow() {
-            logExistingWindowState(window)
+            Self.logExistingWindowState(window)
             let shouldDeferNavigation = window.isMiniaturized
             if !shouldDeferNavigation {
-                pendingNavigationTarget = nil
-                pendingContentNavigationTarget = nil
+                state.pendingNavigationTarget = nil
+                state.pendingContentNavigationTarget = nil
             }
             focus(window)
             if let navigationTarget, !shouldDeferNavigation {
@@ -92,50 +123,45 @@ enum SettingsWindowPresenter {
             return
         }
 
-        guard let openWindow else {
-            shouldOpenWhenConfigured = true
+        guard let openWindow = state.openWindow else {
+            state.shouldOpenWhenConfigured = true
             return
         }
-        log.notice("settings.window.show no existing window; requesting new settings window")
+        Self.log.notice("settings.window.show no existing window; requesting new settings window")
         openWindow()
         scheduleOpenVerification(attempt: 1)
     }
 
     static func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
-        let target = pendingNavigationTarget
-        pendingNavigationTarget = nil
+        sharedPresenter.consumePendingNavigationTarget()
+    }
+
+    func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
+        let target = state.pendingNavigationTarget
+        state.pendingNavigationTarget = nil
         return target
     }
 
     static func consumePendingContentNavigationTarget() -> SettingsNavigationTarget? {
-        let target = pendingContentNavigationTarget
-        pendingContentNavigationTarget = nil
+        sharedPresenter.consumePendingContentNavigationTarget()
+    }
+
+    func consumePendingContentNavigationTarget() -> SettingsNavigationTarget? {
+        let target = state.pendingContentNavigationTarget
+        state.pendingContentNavigationTarget = nil
         return target
     }
 
     static func refocusIfVisible() {
+        sharedPresenter.refocusIfVisible()
+    }
+
+    func refocusIfVisible() {
         guard let window = existingWindow() else { return }
         focus(window)
     }
 
-#if DEBUG
-    static func resetForTests() {
-        openWindow = nil
-        parentWindowProvider = nil
-        settingsWindow = nil
-        pendingNavigationTarget = nil
-        pendingContentNavigationTarget = nil
-        shouldOpenWhenConfigured = false
-        openVerificationInFlight = false
-        focusHandlerForTests = nil
-    }
-
-    static func setFocusHandlerForTests(_ handler: @escaping @MainActor (NSWindow) -> Void) {
-        focusHandlerForTests = handler
-    }
-#endif
-
-    private static func existingWindow() -> NSWindow? {
+    private func existingWindow() -> NSWindow? {
         // Return the settings window whenever it still exists, even if it
         // is currently ordered out (closed). SwiftUI's single `Window`
         // scene does not destroy the window on close — it just hides it
@@ -144,11 +170,11 @@ enum SettingsWindowPresenter {
         // made every reopen-after-close fall through to a dead `openWindow`
         // call and the window never came back. Reusing the hidden window
         // lets `show()` re-front it via `makeKeyAndOrderFront`.
-        if let settingsWindow {
+        if let settingsWindow = state.settingsWindow {
             return settingsWindow
         }
         return NSApp.windows.first {
-            $0.identifier?.rawValue == windowIdentifier
+            $0.identifier?.rawValue == Self.windowIdentifier
         }
     }
 
@@ -156,23 +182,23 @@ enum SettingsWindowPresenter {
     /// produced no window. `openWindow(id:)` on a single `Window` scene can
     /// silently no-op while the scene is mid-teardown; without this the open
     /// request is lost and "nothing happens" (issue #5770 / #4053).
-    private static func scheduleOpenVerification(attempt: Int) {
-        guard !openVerificationInFlight else { return }
-        openVerificationInFlight = true
+    private func scheduleOpenVerification(attempt: Int) {
+        guard !state.openVerificationInFlight else { return }
+        state.openVerificationInFlight = true
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 500_000_000)
-            openVerificationInFlight = false
-            switch openOutcome(windowExists: existingWindow() != nil, attempt: attempt) {
+            state.openVerificationInFlight = false
+            switch Self.openOutcome(windowExists: existingWindow() != nil, attempt: attempt) {
             case .materialized:
                 return
             case .retry:
-                log.error(
+                Self.log.error(
                     "settings.window.open no window after attempt \(attempt, privacy: .public); retrying"
                 )
-                openWindow?()
+                state.openWindow?()
                 scheduleOpenVerification(attempt: attempt + 1)
             case .giveUp:
-                log.error(
+                Self.log.error(
                     "settings.window.open gave up after \(attempt, privacy: .public) attempts; no window materialized"
                 )
             }
@@ -207,17 +233,11 @@ enum SettingsWindowPresenter {
         )
     }
 
-    private static func focus(_ window: NSWindow) {
-#if DEBUG
-        if let focusHandlerForTests {
-            focusHandlerForTests(window)
-            return
-        }
-#endif
+    private func focus(_ window: NSWindow) {
         performFocus(window)
     }
 
-    private static func performFocus(_ window: NSWindow) {
+    private func performFocus(_ window: NSWindow) {
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }
@@ -232,7 +252,7 @@ enum SettingsWindowPresenter {
         // https://github.com/manaflow-ai/cmux/issues/5081). One-time front
         // ordering gives the same initial layering while leaving normal
         // click-to-raise window ordering fully intact afterwards.
-        if let parentWindow = parentWindowProvider?(), parentWindow !== window {
+        if let parentWindow = state.parentWindowProvider?(), parentWindow !== window {
             if parentWindow.isMiniaturized {
                 parentWindow.deminiaturize(nil)
             }
@@ -243,10 +263,10 @@ enum SettingsWindowPresenter {
         window.orderFrontRegardless()
     }
 
-    private static func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
+    private func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
         let screenVisibleFrames = NSScreen.screens.map(\.visibleFrame)
         let fallbackVisibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
-        guard let visibleFrame = targetVisibleFrame(
+        guard let visibleFrame = Self.targetVisibleFrame(
             windowFrame: window.frame,
             screenVisibleFrames: screenVisibleFrames,
             mouseLocation: NSEvent.mouseLocation,
@@ -258,18 +278,18 @@ enum SettingsWindowPresenter {
             height: max(window.minSize.height, window.contentMinSize.height)
         )
         let originalFrame = window.frame
-        let clamped = clampedFrame(
+        let clamped = Self.clampedFrame(
             originalFrame,
             minimumSize: minimumFrameSize,
             into: visibleFrame,
-            inset: visibleAreaInset
+            inset: Self.visibleAreaInset
         )
         guard clamped != originalFrame else { return }
 
         let wasOffAllScreens = window.screen == nil
         window.setFrame(clamped, display: true)
         if wasOffAllScreens {
-            log.notice(
+            Self.log.notice(
                 """
                 settings.window.clamp recovered an offscreen frame onto a visible screen \
                 from=\(NSStringFromRect(originalFrame), privacy: .public) \
