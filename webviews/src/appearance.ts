@@ -90,11 +90,18 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   const rootStyle = document.documentElement.style;
 
   // `--cmux-diff-bg` stays opaque: it is the base color the page blends against
-  // for text, borders, and floating overlays (menus). Transparency is owned by
-  // the native cmux window backdrop, not the page (matching the markdown and
-  // terminal panels), so the page never bakes opacity into its own fill.
+  // for text, borders, and floating overlays (menus).
   rootStyle.setProperty("--cmux-diff-bg-light", colorString(lightTheme.background, "#ffffff"));
   rootStyle.setProperty("--cmux-diff-bg-dark", colorString(darkTheme.background, "#000000"));
+  // Page fill behind the diff surface. Opaque themes (background-opacity 1) paint
+  // the terminal color so loading and empty regions match the theme: the browser
+  // pane behind a transparent diff page is a plain gray window backdrop, not the
+  // terminal color (only transparent themes get a terminal-colored window-root
+  // backdrop behind every pane). Transparent themes keep this clear so the blurred
+  // backdrop shows. Mirrors `appearanceBackgroundColor`.
+  const surfaceFillOpaque = normalizedOpacity(appearance.backgroundOpacity) >= 0.999;
+  rootStyle.setProperty("--cmux-diff-surface-fill-light", surfaceFillOpaque ? colorString(lightTheme.background, "#ffffff") : "transparent");
+  rootStyle.setProperty("--cmux-diff-surface-fill-dark", surfaceFillOpaque ? colorString(darkTheme.background, "#000000") : "transparent");
   rootStyle.setProperty("--cmux-diff-fg-light", colorString(lightTheme.foreground, "#000000"));
   rootStyle.setProperty("--cmux-diff-fg-dark", colorString(darkTheme.foreground, "#ffffff"));
   rootStyle.setProperty("--cmux-diff-addition-fg-light", semanticPaletteColor(lightTheme, ["10", "2"], "#257a3e"));

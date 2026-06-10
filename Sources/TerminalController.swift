@@ -952,6 +952,18 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+        case "auth.sign_in_url":
+            var signInURL: String?
+            v2MainSync {
+                MainActor.assumeIsolated {
+                    signInURL = self.browserSignInFlow?.manualSignInURL.absoluteString
+                }
+            }
+            var result: [String: Any] = [:]
+            if let signInURL {
+                result["url"] = signInURL
+            }
+            return v2Ok(id: request.id, result: result)
         case "auth.begin_sign_in":
             let timeoutSeconds = (request.params["timeout_seconds"] as? Double) ?? 300
             let semaphore = DispatchSemaphore(value: 0)
@@ -1142,25 +1154,32 @@ class TerminalController {
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
 
-                if isEventsStreamRequest(trimmed) {
-                    if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
-                        guard writeSocketResponse(response, to: socket) else {
+                var shouldCloseSocket = false
+                autoreleasepool {
+                    if isEventsStreamRequest(trimmed) {
+                        if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                            if !writeSocketResponse(response, to: socket) {
+                                shouldCloseSocket = true
+                            }
                             return
                         }
-                        continue
-                    }
-                    handleEventsStreamRequest(trimmed, socket: socket)
-                    return
-                }
-
-                let result = processSocketLine(trimmed, authenticated: authenticated)
-                authenticated = result.authenticated
-                if let response = result.response {
-                    let didWriteResponse = writeSocketResponse(response, to: socket)
-                    publishSocketEvents(command: trimmed, response: response)
-                    guard didWriteResponse else {
+                        handleEventsStreamRequest(trimmed, socket: socket)
+                        shouldCloseSocket = true
                         return
                     }
+
+                    let result = processSocketLine(trimmed, authenticated: authenticated)
+                    authenticated = result.authenticated
+                    if let response = result.response {
+                        let didWriteResponse = writeSocketResponse(response, to: socket)
+                        publishSocketEvents(command: trimmed, response: response)
+                        if !didWriteResponse {
+                            shouldCloseSocket = true
+                        }
+                    }
+                }
+                if shouldCloseSocket {
+                    return
                 }
             }
         }
@@ -1254,17 +1273,145 @@ class TerminalController {
         if trimmed.hasPrefix("ERROR:") {
             return "error"
         }
-        if trimmed.hasPrefix("{"),
-           let data = trimmed.data(using: .utf8),
-           let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] {
-            if let ok = dict["ok"] as? Bool {
-                return ok ? "ok" : "error"
-            }
-            if dict["error"] != nil {
+        if trimmed.hasPrefix("{") {
+            let prefix = trimmed.prefix(4096)
+            if topLevelJSONResponseStatus(in: prefix) == "error" {
                 return "error"
             }
         }
         return "ok"
+    }
+
+    private nonisolated static func topLevelJSONResponseStatus(in text: Substring) -> String? {
+        var index = text.startIndex
+        skipJSONWhitespace(in: text, index: &index)
+        guard index < text.endIndex, text[index] == "{" else { return nil }
+        index = text.index(after: index)
+
+        while index < text.endIndex {
+            skipJSONWhitespace(in: text, index: &index)
+            if index >= text.endIndex { return nil }
+            if text[index] == "}" { return nil }
+            if text[index] == "," {
+                index = text.index(after: index)
+                continue
+            }
+            guard text[index] == "\"",
+                  let key = scanJSONString(in: text, index: &index) else {
+                return nil
+            }
+            skipJSONWhitespace(in: text, index: &index)
+            guard index < text.endIndex, text[index] == ":" else { return nil }
+            index = text.index(after: index)
+            skipJSONWhitespace(in: text, index: &index)
+
+            if key == "error" {
+                return "error"
+            }
+            if key == "ok" {
+                if text[index...].hasPrefix("false") {
+                    return "error"
+                }
+                if text[index...].hasPrefix("true") {
+                    return "ok"
+                }
+            }
+            guard skipJSONValue(in: text, index: &index) else {
+                return nil
+            }
+        }
+        return nil
+    }
+
+    private nonisolated static func scanJSONString(in text: Substring, index: inout String.Index) -> String? {
+        guard index < text.endIndex, text[index] == "\"" else { return nil }
+        index = text.index(after: index)
+        var result = ""
+        var isEscaped = false
+        while index < text.endIndex {
+            let char = text[index]
+            index = text.index(after: index)
+            if isEscaped {
+                result.append(char)
+                isEscaped = false
+                continue
+            }
+            if char == "\\" {
+                isEscaped = true
+                continue
+            }
+            if char == "\"" {
+                return result
+            }
+            result.append(char)
+        }
+        return nil
+    }
+
+    private nonisolated static func skipJSONValue(in text: Substring, index: inout String.Index) -> Bool {
+        guard index < text.endIndex else { return false }
+        switch text[index] {
+        case "\"":
+            return scanJSONString(in: text, index: &index) != nil
+        case "{", "[":
+            return skipJSONContainer(in: text, index: &index)
+        default:
+            while index < text.endIndex {
+                switch text[index] {
+                case ",", "}":
+                    return true
+                default:
+                    index = text.index(after: index)
+                }
+            }
+            return true
+        }
+    }
+
+    private nonisolated static func skipJSONContainer(in text: Substring, index: inout String.Index) -> Bool {
+        guard index < text.endIndex else { return false }
+        let opener = text[index]
+        let closer: Character = opener == "{" ? "}" : "]"
+        var depth = 1
+        index = text.index(after: index)
+        var isInString = false
+        var isEscaped = false
+        while index < text.endIndex {
+            let char = text[index]
+            index = text.index(after: index)
+            if isInString {
+                if isEscaped {
+                    isEscaped = false
+                } else if char == "\\" {
+                    isEscaped = true
+                } else if char == "\"" {
+                    isInString = false
+                }
+                continue
+            }
+            if char == "\"" {
+                isInString = true
+            } else if char == opener {
+                depth += 1
+            } else if char == closer {
+                depth -= 1
+                if depth == 0 {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private nonisolated static func skipJSONWhitespace(in text: Substring, index: inout String.Index) {
+        while index < text.endIndex {
+            switch text[index] {
+            case " ", "\t", "\n", "\r":
+                index = text.index(after: index)
+            default:
+                return
+            }
+        }
     }
 
     private nonisolated static func debugLogSocketCommandEndIfNeeded(
@@ -2302,6 +2449,7 @@ class TerminalController {
             "terminal.viewport",
             "auth.login",
             "auth.status",
+            "auth.sign_in_url",
             "auth.begin_sign_in",
             "auth.sign_out",
             "vm.list",
@@ -4839,16 +4987,16 @@ class TerminalController {
         }
         let childIds = parsedChildIds
         // When the caller explicitly listed children, refuse to create an
-        // anchor-only group if every one of them was ineligible (pinned or
-        // already an anchor of another group). The keyboard-shortcut path
+        // anchor-only group if every one of them was already an anchor of
+        // another group. The keyboard-shortcut path
         // already enforces this; the socket/CLI path used to return OK with
         // a fresh empty group, hiding the real failure.
         if childrenExplicit, !parsedChildIds.isEmpty {
             let ineligible: [String] = v2MainSync {
                 let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
                 return parsedChildIds.compactMap { id -> String? in
-                    guard let tab = tabManager.tabs.first(where: { $0.id == id }) else { return nil }
-                    if tab.isPinned || existingAnchorIds.contains(id) {
+                    guard tabManager.tabs.contains(where: { $0.id == id }) else { return nil }
+                    if existingAnchorIds.contains(id) {
                         return id.uuidString
                     }
                     return nil
@@ -4857,7 +5005,10 @@ class TerminalController {
             if ineligible.count == parsedChildIds.count {
                 return .err(
                     code: "invalid_state",
-                    message: "All requested children are ineligible (pinned or already an anchor); ungroup or unpin them first",
+                    message: String(
+                        localized: "workspaceGroup.error.allChildrenAreAnchors",
+                        defaultValue: "All requested children are ineligible because they are already group anchors; ungroup them first"
+                    ),
                     data: ["ineligible_workspace_ids": ineligible]
                 )
             }
@@ -5002,20 +5153,19 @@ class TerminalController {
             guard let tab = tabManager.tabs.first(where: { $0.id == wsId }), hasGroup else {
                 return
             }
-            // addWorkspaceToGroup silently no-ops for pinned workspaces and
-            // for anchors of other groups. Confirm membership actually
-            // changed before reporting success so scripts don't get OK on a
-            // no-op.
+            // addWorkspaceToGroup silently no-ops for anchors of other
+            // groups. Confirm membership actually changed before reporting
+            // success so scripts don't get OK on a no-op.
             tabManager.addWorkspaceToGroup(workspaceId: wsId, groupId: gid)
             if tab.groupId == gid {
                 ok = true
             } else {
-                if tab.isPinned {
+                if tabManager.workspaceGroups.contains(where: { $0.id != gid && $0.anchorWorkspaceId == wsId }) {
                     failureCode = "invalid_state"
-                    failureMessage = "Workspace is pinned and cannot join a group"
-                } else if tabManager.workspaceGroups.contains(where: { $0.id != gid && $0.anchorWorkspaceId == wsId }) {
-                    failureCode = "invalid_state"
-                    failureMessage = "Workspace is the anchor of another group; ungroup it first"
+                    failureMessage = String(
+                        localized: "workspaceGroup.error.workspaceIsOtherGroupAnchor",
+                        defaultValue: "Workspace is the anchor of another group; ungroup it first"
+                    )
                 }
             }
         }
@@ -21075,10 +21225,6 @@ class TerminalController {
         createdWorkspaceID: String? = nil,
         createdTerminalID: String? = nil
     ) -> V2CallResult {
-        guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
-        }
-
         let requestedWorkspaceID = v2UUID(params, "workspace_id")
         if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceID == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -21094,54 +21240,87 @@ class TerminalController {
         case .conflict:
             return .err(code: "invalid_params", message: "Conflicting terminal identifiers", data: nil)
         }
-        let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
-            tabManager.tabs.filter { $0.id == workspaceID }
-        } ?? tabManager.tabs
-        if let requestedWorkspaceID, visibleWorkspaces.isEmpty {
-            return .err(
-                code: "not_found",
-                message: "Workspace not found",
-                data: ["workspace_id": requestedWorkspaceID.uuidString]
-            )
-        }
 
-        let workspaces = visibleWorkspaces.enumerated().map { _, workspace in
-            let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
-                if let requestedTerminalID, terminal.id != requestedTerminalID {
-                    return nil
-                }
-                return [
-                    "id": terminal.id.uuidString,
-                    "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
-                    "current_directory": v2OrNull(
-                        mobileNonEmpty(workspace.panelDirectories[terminal.id])
-                            ?? mobileNonEmpty(terminal.directory)
-                            ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
-                    ),
-                    "is_ready": terminal.surface.surface != nil,
-                    "is_focused": terminal.id == workspace.focusedPanelId
-                ]
+        // The phone shows workspaces from *every* open Mac window. Enumerate all
+        // registered main windows and flatten their workspaces into one list,
+        // but only when the caller has not named a specific target. When a
+        // `workspace_id`, `window_id`, terminal alias, or an explicit
+        // `resolvedTabManager` (the create/terminal-create paths pass one) is
+        // present, keep today's single-window scoped behavior so those requests
+        // resolve exactly the named target.
+        let scopeToSingleWindow = resolvedTabManager != nil
+            || requestedWorkspaceID != nil
+            || v2HasNonNullParam(params, "window_id")
+            || requestedTerminalID != nil
+
+        // `is_selected` has no single answer across multiple windows. Mark only
+        // the frontmost/key window's selected workspace as selected; in the old
+        // single-window path this is exactly the one selected workspace. Using
+        // `currentScriptableMainWindow()` (not `isKeyWindow`) means a backgrounded
+        // app, where no window is key, still reports the same selection the old
+        // path would have, instead of marking nothing selected.
+        let selectedWorkspaceID = scopeToSingleWindow
+            ? nil
+            : AppDelegate.shared?.currentScriptableMainWindow()?.tabManager.selectedTabId
+
+        let workspaces: [[String: Any]]
+        if scopeToSingleWindow {
+            guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
+                return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
             }
-
-            return [
-                "id": workspace.id.uuidString,
-                "title": workspace.title,
-                "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
-                "is_selected": workspace.id == tabManager.selectedTabId,
-                "is_pinned": workspace.isPinned,
-                "terminals": terminals
-            ]
-        }
-        if let requestedTerminalID,
-           !workspaces.contains(where: { workspace in
-               guard let terminals = workspace["terminals"] as? [[String: Any]] else { return false }
-               return terminals.contains { ($0["id"] as? String) == requestedTerminalID.uuidString }
-           }) {
-            return .err(
-                code: "not_found",
-                message: "Terminal not found",
-                data: ["surface_id": requestedTerminalID.uuidString]
-            )
+            let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
+                tabManager.tabs.filter { $0.id == workspaceID }
+            } ?? tabManager.tabs
+            if let requestedWorkspaceID, visibleWorkspaces.isEmpty {
+                return .err(
+                    code: "not_found",
+                    message: "Workspace not found",
+                    data: ["workspace_id": requestedWorkspaceID.uuidString]
+                )
+            }
+            let scopedWorkspaces = visibleWorkspaces.map { workspace in
+                mobileWorkspacePayload(
+                    workspace: workspace,
+                    isSelected: workspace.id == tabManager.selectedTabId,
+                    requestedTerminalID: requestedTerminalID
+                )
+            }
+            if let requestedTerminalID,
+               !scopedWorkspaces.contains(where: { workspace in
+                   guard let terminals = workspace["terminals"] as? [[String: Any]] else { return false }
+                   return terminals.contains { ($0["id"] as? String) == requestedTerminalID.uuidString }
+               }) {
+                return .err(
+                    code: "not_found",
+                    message: "Terminal not found",
+                    data: ["surface_id": requestedTerminalID.uuidString]
+                )
+            }
+            workspaces = scopedWorkspaces
+        } else {
+            guard let app = AppDelegate.shared else {
+                return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
+            }
+            var flattened: [[String: Any]] = []
+            // `listMainWindowSummaries()` already dedupes window ids, but guard
+            // against the same window or workspace appearing twice anyway: a
+            // workspace lives in exactly one window, and ids are globally unique.
+            var seenWindowIDs: Set<UUID> = []
+            var seenWorkspaceIDs: Set<UUID> = []
+            for summary in app.listMainWindowSummaries() {
+                guard seenWindowIDs.insert(summary.windowId).inserted else { continue }
+                guard let windowTabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+                for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+                    flattened.append(
+                        mobileWorkspacePayload(
+                            workspace: workspace,
+                            isSelected: workspace.id == selectedWorkspaceID,
+                            requestedTerminalID: requestedTerminalID
+                        )
+                    )
+                }
+            }
+            workspaces = flattened
         }
 
         var payload: [String: Any] = [
@@ -21154,6 +21333,46 @@ class TerminalController {
             payload["created_terminal_id"] = createdTerminalID
         }
         return .ok(payload)
+    }
+
+    /// Serializes one workspace into the iOS-facing mobile workspace list shape.
+    ///
+    /// Shared by the single-window (scoped) and all-windows enumeration branches
+    /// of `v2MobileWorkspaceList` so the two never diverge. When
+    /// `requestedTerminalID` is non-nil the terminals array is filtered to that
+    /// one terminal (only the scoped branch passes it; the all-windows branch
+    /// always passes nil, so it lists every terminal). The scoped
+    /// terminal-not-found check is enforced by the caller after the list is built.
+    private func mobileWorkspacePayload(
+        workspace: Workspace,
+        isSelected: Bool,
+        requestedTerminalID: UUID?
+    ) -> [String: Any] {
+        let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
+            if let requestedTerminalID, terminal.id != requestedTerminalID {
+                return nil
+            }
+            return [
+                "id": terminal.id.uuidString,
+                "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
+                "current_directory": v2OrNull(
+                    mobileNonEmpty(workspace.panelDirectories[terminal.id])
+                        ?? mobileNonEmpty(terminal.directory)
+                        ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
+                ),
+                "is_ready": terminal.surface.surface != nil,
+                "is_focused": terminal.id == workspace.focusedPanelId
+            ]
+        }
+
+        return [
+            "id": workspace.id.uuidString,
+            "title": workspace.title,
+            "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
+            "is_selected": isSelected,
+            "is_pinned": workspace.isPinned,
+            "terminals": terminals
+        ]
     }
 
     private enum MobileTerminalAliasUUID {

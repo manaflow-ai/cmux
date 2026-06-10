@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Foundation
 import Testing
 
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/5427.
@@ -60,5 +61,64 @@ struct ClaudeResumeHookSettingsTests {
             arguments: ["/opt/homebrew/bin/claude", "--settings", "/home/me/settings.json"]
         )
         #expect(argv == ["claude", "--resume", "s", "--settings", "/home/me/settings.json"])
+    }
+
+    @Test("Merged hook --settings keeps user keys when resuming")
+    func mergedHookSettingsKeepsUserKeysOnResume() throws {
+        let mergedSettings = #"{"effortLevel":"max","preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"cmux hooks claude session-start","timeout":10}]}]}}"#
+
+        let argv = try #require(
+            AgentResumeArgv().builtInKind(
+                kind: "claude",
+                sessionId: "s",
+                executablePath: "/opt/homebrew/bin/claude",
+                arguments: ["/opt/homebrew/bin/claude", "--settings", mergedSettings]
+            )
+        )
+
+        let settingsIndex = try #require(argv.firstIndex(of: "--settings"))
+        try #require(settingsIndex + 1 < argv.count)
+        try assertUserSettingsJSON(argv[settingsIndex + 1])
+    }
+
+    @Test("Merged inline hook --settings keeps user keys when resuming")
+    func mergedInlineHookSettingsKeepsUserKeysOnResume() throws {
+        let mergedSettings = #"{"effortLevel":"max","preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"cmux hooks claude session-start","timeout":10}]}]}}"#
+
+        let argv = try #require(
+            AgentResumeArgv().builtInKind(
+                kind: "claude",
+                sessionId: "s",
+                executablePath: "/opt/homebrew/bin/claude",
+                arguments: ["/opt/homebrew/bin/claude", "--settings=\(mergedSettings)"]
+            )
+        )
+
+        let prefix = "--settings="
+        let settingsArgument = try #require(argv.first { $0.hasPrefix(prefix) })
+        try assertUserSettingsJSON(String(settingsArgument.dropFirst(prefix.count)))
+    }
+
+    @Test("User JSON that only mentions hook text is preserved")
+    func userJSONMentioningHookTextPreserved() {
+        let userSettings = #"{"effortLevel":"max","note":"docs mention hooks claude"}"#
+
+        let argv = AgentResumeArgv().builtInKind(
+            kind: "claude",
+            sessionId: "s",
+            executablePath: "/opt/homebrew/bin/claude",
+            arguments: ["/opt/homebrew/bin/claude", "--settings", userSettings]
+        )
+
+        #expect(argv == ["claude", "--resume", "s", "--settings", userSettings])
+    }
+
+    private func assertUserSettingsJSON(_ settingsJSON: String) throws {
+        let settingsData = try #require(settingsJSON.data(using: .utf8))
+        let settingsObject = try #require(JSONSerialization.jsonObject(with: settingsData) as? [String: Any])
+
+        #expect(settingsObject["effortLevel"] as? String == "max")
+        #expect(!settingsObject.keys.contains("hooks"))
+        #expect(!settingsObject.keys.contains("preferredNotifChannel"))
     }
 }
