@@ -15041,11 +15041,21 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] = replacementPanel
         panelTitles[panelId] = replacementPanel.displayTitle
         if controlModeSession != nil {
-            // When the control-mode session ends, respawn a normal shell in the
-            // same surface so the pane reverts to a usable terminal in place.
+            // When the control-mode session ends (detach / exit), respawn a
+            // normal shell in the same surface so the pane reverts to a usable
+            // terminal in place, in the original working directory.
+            // NOTE: this is the interim revert. Preserving the *exact* original
+            // shell (scrollback/state) is a planned follow-up that requires
+            // keeping the original surface suspended in the background; see
+            // docs/tmux-control-mode.md.
             let revertPanelId = panelId
+            let revertWorkingDirectory = requestedWorkingDirectory
             replacementPanel.surface.onControlModeSessionEnded = { [weak self] _ in
-                self?.respawnTerminalSurface(panelId: revertPanelId, command: "exec ${SHELL:-/bin/zsh} -l")
+                self?.respawnTerminalSurface(
+                    panelId: revertPanelId,
+                    command: "exec ${SHELL:-/bin/zsh} -l",
+                    workingDirectory: revertWorkingDirectory
+                )
             }
         }
         if let customTitle {
