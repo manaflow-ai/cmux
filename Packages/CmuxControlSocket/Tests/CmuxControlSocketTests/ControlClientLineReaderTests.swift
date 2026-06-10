@@ -107,7 +107,7 @@ struct ControlClientLineReaderTests {
         pair.closeWriteEnd()
 
         let reader = ControlClientLineReader(socket: pair.readEnd)
-        nonisolated(unsafe) var polls = 0
+        var polls = 0
         let countingPoll: () -> Bool = {
             polls += 1
             return true

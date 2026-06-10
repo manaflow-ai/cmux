@@ -306,8 +306,8 @@ class TerminalController {
     }
 
     @discardableResult
-    nonisolated func reserveStartupSocketPath(_ path: String) -> String {
-        socketServer.performSync { $0.reserveStartupSocketPath(path) }
+    func reserveStartupSocketPath(_ path: String) -> String {
+        socketServer.reserveStartupSocketPath(path)
     }
 
     nonisolated func activeSocketPath(preferredPath: String) -> String {
@@ -661,16 +661,8 @@ class TerminalController {
                 sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
             },
             listenerDidStart: { path, _ in
-                // Fires on the listener queue (the actor's executor); the
-                // notification + PortScanner wiring are main-actor state.
-                // Re-check before posting: a stop or rebind can land before
-                // this hop runs.
-                Task { @MainActor in
-                    guard let controller = target.controller,
-                          controller.socketServer.isRunning,
-                          controller.socketServer.currentSocketPath == path else { return }
-                    controller.socketListenerDidStart(path: path)
-                }
+                // @MainActor closure, invoked synchronously inside start().
+                target.controller?.socketListenerDidStart(path: path)
             },
             recordLastSocketPath: { path in
                 SocketControlSettings.recordLastSocketPath(path)
@@ -707,15 +699,16 @@ class TerminalController {
         preserveAcceptFailureStreak: Bool = false
     ) {
         self.tabManager = tabManager
-        _ = socketServer.performSync {
-            $0.start(socketPath: socketPath, accessMode: accessMode, preserveAcceptFailureStreak: preserveAcceptFailureStreak)
-        }
+        socketServer.start(
+            socketPath: socketPath,
+            accessMode: accessMode,
+            preserveAcceptFailureStreak: preserveAcceptFailureStreak
+        )
     }
 
-    /// Invoked at the lifecycle point the legacy `start` posted
-    /// `.socketListenerDidStart`, via an async main-actor hop (the server
-    /// emits from its listener-queue executor), so the notification posts
-    /// just after the start facade returns instead of during it.
+    /// Invoked synchronously inside the server's `start()` on the main
+    /// actor, at the exact lifecycle point the legacy implementation posted
+    /// `.socketListenerDidStart`.
     private func socketListenerDidStart(path: String) {
         NotificationCenter.default.post(
             name: .socketListenerDidStart,
@@ -777,9 +770,9 @@ class TerminalController {
         start(tabManager: tabManager, socketPath: path, accessMode: restartMode)
     }
 
-    nonisolated func stop() {
+    func stop() {
         // Synchronous by contract: termination needs the unlink before exit.
-        socketServer.performSync { $0.stop() }
+        socketServer.stop()
     }
 
     private nonisolated func writeSocketResponse(_ response: String, to socket: Int32) -> Bool {
@@ -1089,25 +1082,29 @@ class TerminalController {
         consecutiveFailures: Int,
         delayMs: Int
     ) {
-        let deadline = DispatchTime.now() + .milliseconds(delayMs)
-        DispatchQueue.main.asyncAfter(deadline: deadline) { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
-            MainActor.assumeIsolated {
-                guard let tabManager = self.tabManager else { return }
-                guard let restartPath = self.socketServer.performSync({
-                    $0.claimPendingRearm(generation: generation, errnoCode: errnoCode, consecutiveFailures: consecutiveFailures, delayMs: delayMs)
-                }) else { return }
+            // Bounded rearm delay on the server's injected recovery clock
+            // (replaces the legacy main-queue asyncAfter); a stale fire is a
+            // no-op via the pending-rearm generation guard in the claim.
+            try? await self.socketServer.recoveryClock.sleep(forMilliseconds: delayMs)
+            guard let tabManager = self.tabManager else { return }
+            guard let restartPath = self.socketServer.claimPendingRearm(
+                generation: generation,
+                errnoCode: errnoCode,
+                consecutiveFailures: consecutiveFailures,
+                delayMs: delayMs
+            ) else { return }
 
-                let restartMode = self.socketServer.accessMode
+            let restartMode = self.socketServer.accessMode
 
-                self.stop()
-                self.start(
-                    tabManager: tabManager,
-                    socketPath: restartPath,
-                    accessMode: restartMode,
-                    preserveAcceptFailureStreak: true
-                )
-            }
+            self.stop()
+            self.start(
+                tabManager: tabManager,
+                socketPath: restartPath,
+                accessMode: restartMode,
+                preserveAcceptFailureStreak: true
+            )
         }
     }
 
@@ -21990,6 +21987,8 @@ class TerminalController {
         if let browserDownloadObserver {
             NotificationCenter.default.removeObserver(browserDownloadObserver)
         }
-        stop()
+        // No stop() here: the controller is an app-lifetime singleton, so
+        // deinit never runs; listener teardown is applicationWillTerminate's
+        // synchronous stop() on the main actor.
     }
 }

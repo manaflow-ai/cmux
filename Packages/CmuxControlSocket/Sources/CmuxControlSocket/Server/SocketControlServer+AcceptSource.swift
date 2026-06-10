@@ -5,28 +5,20 @@ extension SocketControlServer {
     /// Arms the accept read source for `listenerSocket` under `generation`.
     ///
     /// `DispatchSource.makeReadSource` carve-out: low-level socket I/O event
-    /// delivery with no async-native equivalent. The source delivers on the
-    /// listener queue — this actor's executor — so its handlers enter
-    /// isolation synchronously via `assumeIsolated`.
+    /// delivery with no async-native equivalent. The handlers are state-free:
+    /// the event handler drains accepts against the published snapshot, and
+    /// the cancel handler closes the descriptor it owns. All source
+    /// suspend/resume/cancel calls happen on the main actor.
     func startAcceptSource(listenerSocket: Int32, generation: UInt64) {
         let source = DispatchSource.makeReadSource(fileDescriptor: listenerSocket, queue: socketListenerQueue)
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            self.assumeIsolated { isolatedServer in
-                isolatedServer.drainPendingSocketClients(
-                    listenerSocket: listenerSocket,
-                    generation: generation
-                )
-            }
+        source.setEventHandler { @Sendable [weak self] in
+            self?.drainPendingSocketClients(listenerSocket: listenerSocket, generation: generation)
         }
-        source.setCancelHandler { [weak self] in
+        source.setCancelHandler { @Sendable [weak self] in
             close(listenerSocket)
             guard let self else { return }
-            self.assumeIsolated { isolatedServer in
-                isolatedServer.finishAcceptSourceCancel(
-                    listenerSocket: listenerSocket,
-                    generation: generation
-                )
+            Task { @MainActor in
+                self.finishAcceptSourceCancel(listenerSocket: listenerSocket, generation: generation)
             }
         }
 
@@ -71,8 +63,12 @@ extension SocketControlServer {
         }
     }
 
-    private func drainPendingSocketClients(listenerSocket: Int32, generation: UInt64) {
-        while shouldContinueAcceptLoop(generation: generation) {
+    /// Drains pending accepts on the listener queue. State-free apart from
+    /// the ``AcceptRecoveryState`` streak: staleness is checked against the
+    /// published snapshot (the same window the legacy lock release between
+    /// iterations allowed), and recovery decisions hop to the main actor.
+    private nonisolated func drainPendingSocketClients(listenerSocket: Int32, generation: UInt64) {
+        while shouldContinueAcceptLoop(listenerSocket: listenerSocket, generation: generation) {
             let clientSocket = accept(listenerSocket, nil, nil)
 
             guard clientSocket >= 0 else {
@@ -83,7 +79,7 @@ extension SocketControlServer {
                 if errnoCode == EINTR || errnoCode == ECONNABORTED {
                     continue
                 }
-                handleAcceptSourceFailure(
+                handleAcceptFailure(
                     listenerSocket: listenerSocket,
                     generation: generation,
                     errnoCode: errnoCode
@@ -91,8 +87,10 @@ extension SocketControlServer {
                 return
             }
 
-            withListenerState { state in
-                state.acceptSourceConsecutiveFailures = 0
+            acceptRecovery.withLock { recovery in
+                if recovery.generation == generation {
+                    recovery.consecutiveFailures = 0
+                }
             }
 
             if let failure = transport.configureAcceptedClientSocket(clientSocket) {
@@ -112,26 +110,44 @@ extension SocketControlServer {
 
             // Capture peer PID immediately, before short-lived clients can disconnect.
             let peerPid = transport.peerProcessID(of: clientSocket)
-            connectionsContinuation.yield(
+            let yielded = connectionsContinuation.yield(
                 ControlConnection(socket: clientSocket, peerProcessID: peerPid)
             )
+            if case .enqueued = yielded {} else {
+                // Terminated or dropped stream: nobody owns the fd now.
+                close(clientSocket)
+            }
         }
     }
 
-    private func handleAcceptSourceFailure(
+    private nonisolated func shouldContinueAcceptLoop(listenerSocket: Int32, generation: UInt64) -> Bool {
+        let snapshot = listenerStateSnapshot()
+        return snapshot.isRunning
+            && snapshot.serverSocket == listenerSocket
+            && generation == snapshot.activeGeneration
+    }
+
+    /// Classifies a hard accept failure on the listener queue, maintains the
+    /// streak, and hops the recovery decision to the main actor at most once
+    /// at a time. While a hop is in flight the source stays armed and may
+    /// re-fire on a hot errno; those re-fires return here without counting
+    /// or emitting, matching the legacy cadence where the source was already
+    /// suspended by this point.
+    private nonisolated func handleAcceptFailure(
         listenerSocket: Int32,
         generation: UInt64,
         errnoCode: Int32
     ) {
-        let errnoClass = listenerPolicy.acceptErrorClassification(errnoCode: errnoCode)
-        let consecutiveFailures = withListenerState { state in
-            guard state.activeAcceptLoopGeneration == generation,
-                  state.serverSocket == listenerSocket else { return 0 }
-            state.acceptSourceConsecutiveFailures += 1
-            return state.acceptSourceConsecutiveFailures
+        let consecutiveFailures = acceptRecovery.withLock { recovery -> Int? in
+            guard recovery.generation == generation, !recovery.recoveryHopInFlight else {
+                return nil
+            }
+            recovery.consecutiveFailures += 1
+            return recovery.consecutiveFailures
         }
-        guard consecutiveFailures > 0 else { return }
+        guard let consecutiveFailures else { return }
 
+        let errnoClass = listenerPolicy.acceptErrorClassification(errnoCode: errnoCode)
         let recoveryAction = listenerPolicy.acceptFailureRecoveryAction(
             errnoCode: errnoCode,
             consecutiveFailures: consecutiveFailures
@@ -151,6 +167,44 @@ extension SocketControlServer {
             )
         )
 
+        if case .retryImmediately = recoveryAction {
+            return
+        }
+
+        acceptRecovery.withLock { recovery in
+            if recovery.generation == generation {
+                recovery.recoveryHopInFlight = true
+            }
+        }
+        Task { @MainActor in
+            self.applyAcceptRecovery(
+                recoveryAction,
+                listenerSocket: listenerSocket,
+                generation: generation,
+                errnoCode: errnoCode,
+                consecutiveFailures: consecutiveFailures
+            )
+        }
+    }
+
+    /// Applies a queue-reported recovery decision on the main actor, then
+    /// releases the recovery latch. Stale reports (stop or restart landed
+    /// first) are no-ops via the generation/descriptor guards.
+    private func applyAcceptRecovery(
+        _ recoveryAction: AcceptFailureRecoveryAction,
+        listenerSocket: Int32,
+        generation: UInt64,
+        errnoCode: Int32,
+        consecutiveFailures: Int
+    ) {
+        defer {
+            acceptRecovery.withLock { recovery in
+                if recovery.generation == generation {
+                    recovery.recoveryHopInFlight = false
+                }
+            }
+        }
+
         switch recoveryAction {
         case .retryImmediately:
             return
@@ -162,7 +216,6 @@ extension SocketControlServer {
                 consecutiveFailures: consecutiveFailures,
                 delayMs: delayMs
             )
-            return
         case .rearmAfterDelay(let delayMs):
             let cleanup = withListenerState { state -> (didCleanup: Bool, sourceToCancel: (any DispatchSourceRead)?, sourceWasSuspended: Bool) in
                 guard state.activeAcceptLoopGeneration == generation,
@@ -240,7 +293,7 @@ extension SocketControlServer {
             } catch {
                 return
             }
-            await self?.resumeSuspendedAcceptSource(
+            self?.resumeSuspendedAcceptSource(
                 listenerSocket: listenerSocket,
                 generation: generation,
                 suspendedSourceID: suspendedSourceID

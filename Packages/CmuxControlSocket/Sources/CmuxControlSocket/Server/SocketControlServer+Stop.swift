@@ -7,9 +7,9 @@ extension SocketControlServer {
     /// server socket, unlinks the socket path when the listener still owns
     /// it, and releases the path lock.
     ///
-    /// Fully synchronous on the actor's executor. The app's termination and
-    /// updater-relaunch paths reach it through ``performSync(_:)``, so the
-    /// unlink and lock release still complete before the process exits.
+    /// Synchronous on the main actor, where every caller already lives — the
+    /// app's termination and updater-relaunch paths call it directly, so the
+    /// unlink and lock release complete before the process exits.
     public func stop() {
         acceptResumeTask?.cancel()
         acceptResumeTask = nil

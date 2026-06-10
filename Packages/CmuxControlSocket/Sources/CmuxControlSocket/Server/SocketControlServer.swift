@@ -14,31 +14,49 @@ internal import os
 /// ``SocketControlServerEvents`` seam, and accepted client connections are
 /// surfaced through ``connections``.
 ///
-/// ## Isolation design: an actor on the listener queue
+/// ## Isolation design: state separated by its drivers
 ///
-/// The server is an actor whose serial executor **is** the listener
-/// `DispatchSerialQueue`. That one choice resolves every synchronous driver
-/// that previously forced the lock-based core:
+/// The listener's state has exactly three kinds of driver, and each kind owns
+/// its own data; nothing needs an isolation bridge:
 ///
-/// - The accept and path-monitor `DispatchSource` handlers already run on the
-///   listener queue, so they enter actor isolation synchronously via
-///   `assumeIsolated` — no task hop, no event reordering.
-/// - Hosts with synchronous contracts (app-termination teardown, startup path
-///   reservation, main-thread restarts) bridge through ``performSync(_:)``,
-///   which runs an isolated closure via `queue.sync`. The graceful-quit
-///   unlink still completes before the process exits.
-/// - Hot-path synchronous reads (``isRunning`` polled per client read,
-///   ``activeSocketPath(preferredPath:)`` on the surface-spawn path) never
-///   touch the queue: every isolated mutation publishes a snapshot to a
-///   lock-guarded mirror, and the read API serves from that mirror at the
-///   same cost as the previous lock.
+/// - **Lifecycle mutations** (start, stop, reserve, rearm claim) are all
+///   driven from the main thread — app startup, `applicationWillTerminate`,
+///   the updater relaunch hook, settings-driven restarts, and the recovery
+///   callbacks all live there. The full ``ListenerState`` machine, including
+///   the `DispatchSource` references and their suspend flags, is therefore
+///   `@MainActor`: the legacy threading, made compiler-checked. Termination
+///   teardown and startup path reservation stay synchronous for their
+///   callers by construction.
+/// - **Hot synchronous reads** (``isRunning`` polled per client read,
+///   ``activeSocketPath(preferredPath:)`` on the surface-spawn path, listener
+///   health) come from arbitrary threads and must not wait on anything.
+///   Every mutation publishes a ``ListenerStateSnapshot`` to a lock-guarded
+///   mirror; readers pay one short uncontended lock acquire, the same cost
+///   profile as the stage-2 lock core.
+/// - **The accept drain and path monitor** run on the listener queue as
+///   `DispatchSource` handlers (the sanctioned carve-out; there is no
+///   async-native replacement short of a transport rewrite). The handlers
+///   are state-free: they capture the listener descriptor and generation as
+///   values, consult the published snapshot for staleness, perform syscalls,
+///   and yield connections. The one piece of genuinely accept-side state —
+///   the consecutive-failure streak and a one-in-flight recovery latch — is
+///   a tiny lock-guarded value (``AcceptRecoveryState``), because a
+///   per-accept main-thread hop to maintain a counter would be wrong and a
+///   hot errno must not spin while a recovery decision hops to main.
+///   Recovery *decisions* (suspend/backoff/rearm) mutate lifecycle state, so
+///   they hop to the main actor, guarded against staleness by generation,
+///   descriptor, and suspension checks.
 ///
-/// All mutable listener state — including the `DispatchSource` references and
-/// their suspend/cancel invariants — is actor-isolated; the manual lock state
-/// machine is gone.
-public actor SocketControlServer {
-    /// The full listener state machine, actor-isolated. One value, mirroring
-    /// the legacy field block.
+/// Suspend/resume balance note: the suspended flag and every `suspend()`/
+/// `resume()`/`cancel()` call on the sources live on the main actor, one
+/// isolation domain, so the balance cannot be split by a race. The listener
+/// descriptor is closed only by the accept source's cancel handler (or
+/// directly when no source was ever armed), never from the main actor, so
+/// the queue-side drain can never `accept(2)` on a recycled descriptor.
+@MainActor
+public final class SocketControlServer {
+    /// The full listener state machine, main-actor isolated. One value,
+    /// mirroring the legacy field block.
     struct ListenerState {
         var socketPath: String
         var boundSocketPathIdentity: SocketPathIdentity?
@@ -55,12 +73,11 @@ public actor SocketControlServer {
         var listenerReadSource: (any DispatchSourceRead)?
         var listenerReadSourceSuspended = false
         var socketPathMonitorSource: (any DispatchSourceFileSystemObject)?
-        var acceptSourceConsecutiveFailures = 0
         var accessMode: SocketControlMode = .cmuxOnly
     }
 
     /// Sendable snapshot of the listener state, published to the read mirror
-    /// after every isolated mutation and served by the synchronous read API.
+    /// after every mutation and served by the synchronous read API.
     struct ListenerStateSnapshot: Sendable {
         let socketPath: String
         let boundSocketPathIdentity: SocketPathIdentity?
@@ -75,23 +92,35 @@ public actor SocketControlServer {
         let accessMode: SocketControlMode
     }
 
-    /// Authoritative state; actor-isolated, mutated only through
-    /// ``withListenerState(_:)`` so every change publishes to the mirror.
+    /// The accept path's own state: the consecutive-failure streak (legacy
+    /// `acceptSourceConsecutiveFailures`) and a latch that bounds re-fires
+    /// while one recovery decision is in flight to the main actor. Keyed by
+    /// generation so a stale drain can never pollute a newer listener's
+    /// streak.
+    struct AcceptRecoveryState: Sendable {
+        var generation: UInt64 = 0
+        var consecutiveFailures = 0
+        var recoveryHopInFlight = false
+    }
+
+    /// Authoritative state; mutated only through ``withListenerState(_:)``
+    /// so every change publishes to the mirror.
     private var state: ListenerState
 
     /// Last-published state snapshot for the nonisolated synchronous reads.
-    /// Single writer (the actor); readers pay one unfair-lock acquire, exactly
-    /// the cost profile of the previous lock-based core.
+    /// Lock carve-out: single writer (the main-actor mutators), short
+    /// critical sections over an immutable value; readers are per-client-read
+    /// and surface-spawn hot paths that must never wait on other work.
     private nonisolated let stateMirror: OSAllocatedUnfairLock<ListenerStateSnapshot>
 
-    /// The serial queue that is this actor's executor. Also the delivery
-    /// queue for the accept read source and the path-monitor source, whose
-    /// handlers enter isolation synchronously via `assumeIsolated`.
-    nonisolated let socketListenerQueue: DispatchSerialQueue
+    /// Accept-path streak + recovery latch. Lock carve-out: a tiny counter
+    /// and flag shared between the queue-side drain (increment/reset) and
+    /// the main-actor recovery and start/stop paths (seed/clear).
+    nonisolated let acceptRecovery: OSAllocatedUnfairLock<AcceptRecoveryState>
 
-    public nonisolated var unownedExecutor: UnownedSerialExecutor {
-        socketListenerQueue.asUnownedSerialExecutor()
-    }
+    /// Serial delivery queue for the accept read source and the path-monitor
+    /// source. Event delivery only — it protects no state.
+    nonisolated let socketListenerQueue = DispatchQueue(label: "com.cmux.socket.listener")
 
     /// Stateless syscall surface (bind, locks, probes, client config).
     public nonisolated let transport: SocketTransport
@@ -100,20 +129,22 @@ public actor SocketControlServer {
     /// Host callbacks; see ``SocketControlServerEvents``.
     nonisolated let events: SocketControlServerEvents
     /// Recovery-delay clock (accept-source resume backoff).
-    nonisolated let recoveryClock: any SocketRecoveryClock
+    public nonisolated let recoveryClock: any SocketRecoveryClock
 
     /// Accepted, configured client connections, in accept order.
     ///
     /// The composition root must run exactly one long-lived consumer over
-    /// this stream; descriptor ownership transfers with each yielded
-    /// ``ControlConnection``. The stream spans listener restarts and never
-    /// finishes for the server's lifetime.
+    /// this stream for the server's lifetime; descriptor ownership transfers
+    /// with each yielded ``ControlConnection``. The stream spans listener
+    /// restarts and never finishes. Connections buffered but never consumed
+    /// keep their descriptors open, so a host without an eternal consumer
+    /// leaks descriptors by construction.
     public nonisolated let connections: AsyncStream<ControlConnection>
     nonisolated let connectionsContinuation: AsyncStream<ControlConnection>.Continuation
 
-    /// Pending accept-source resume deadline; cancelled by ``stop()``. At most
-    /// one is in flight because a suspended source cannot produce the accept
-    /// failures that schedule another.
+    /// Pending accept-source resume deadline; cancelled by ``stop()``. At
+    /// most one is in flight: the source is suspended while it waits, so no
+    /// further accept failures can schedule another.
     var acceptResumeTask: Task<Void, Never>?
 
     /// Creates a control-socket server.
@@ -137,7 +168,7 @@ public actor SocketControlServer {
         let initialState = ListenerState(socketPath: initialSocketPath)
         self.state = initialState
         self.stateMirror = OSAllocatedUnfairLock(initialState: Self.snapshot(of: initialState))
-        self.socketListenerQueue = DispatchSerialQueue(label: "com.cmux.socket.listener")
+        self.acceptRecovery = OSAllocatedUnfairLock(initialState: AcceptRecoveryState())
         self.transport = transport
         self.listenerPolicy = listenerPolicy
         self.recoveryClock = recoveryClock
@@ -171,30 +202,6 @@ public actor SocketControlServer {
             socketPathLockHeld: state.socketPathLockFD >= 0,
             accessMode: state.accessMode
         )
-    }
-
-    // MARK: - Synchronous bridge
-
-    /// Synchronously runs `body` isolated on the server's executor.
-    ///
-    /// The bridge for the host's synchronous contracts: app-termination
-    /// teardown (the socket unlink and path-lock release must complete before
-    /// the process exits), startup path reservation (terminal surfaces spawn
-    /// with the reserved path in their environment in the same main-thread
-    /// turn), and main-thread stop/start restarts. The closure runs after any
-    /// in-flight listener-queue work drains; it must not be called from the
-    /// listener queue itself (enforced by precondition).
-    /// - Parameter body: Isolated work; runs synchronously on the executor.
-    /// - Returns: The closure's value.
-    public nonisolated func performSync<T: Sendable>(
-        _ body: @Sendable (isolated SocketControlServer) throws -> T
-    ) rethrows -> T {
-        dispatchPrecondition(condition: .notOnQueue(socketListenerQueue))
-        return try socketListenerQueue.sync {
-            try assumeIsolated { isolatedServer in
-                try body(isolatedServer)
-            }
-        }
     }
 
     // MARK: - Synchronous reads
@@ -270,10 +277,6 @@ public actor SocketControlServer {
 
     nonisolated func listenerStateSnapshot() -> ListenerStateSnapshot {
         stateMirror.withLock { $0 }
-    }
-
-    func shouldContinueAcceptLoop(generation: UInt64) -> Bool {
-        state.isRunning && generation == state.activeAcceptLoopGeneration
     }
 
     // MARK: - Telemetry helpers

@@ -6,9 +6,12 @@ extension SocketControlServer {
     /// socket file disappears, so the host can restart the listener.
     ///
     /// `DispatchSource.makeFileSystemObjectSource` carve-out: file watching
-    /// with no Foundation async equivalent. The source delivers on the
-    /// listener queue — this actor's executor — so its handler enters
-    /// isolation synchronously via `assumeIsolated`.
+    /// with no Foundation async equivalent. The event handler is state-free:
+    /// it validates against the published snapshot and stats the filesystem
+    /// on the listener queue, never touching main-actor state. The host's
+    /// restart path re-validates with
+    /// ``shouldRestartForMissingPath(path:generation:)`` before acting, so a
+    /// stale report is harmless.
     func startSocketPathMonitor(path: String, generation: UInt64) {
         let directoryPath = URL(fileURLWithPath: path).deletingLastPathComponent().path
         let fd = open(directoryPath, O_EVTONLY)
@@ -32,13 +35,10 @@ extension SocketControlServer {
             eventMask: [.write, .delete, .rename],
             queue: socketListenerQueue
         )
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            self.assumeIsolated { isolatedServer in
-                isolatedServer.handleSocketPathDirectoryEvent(path: path, generation: generation)
-            }
+        source.setEventHandler { @Sendable [weak self] in
+            self?.handleSocketPathDirectoryEvent(path: path, generation: generation)
         }
-        source.setCancelHandler {
+        source.setCancelHandler { @Sendable in
             close(fd)
         }
 
@@ -63,17 +63,14 @@ extension SocketControlServer {
         source.resume()
     }
 
-    private func handleSocketPathDirectoryEvent(path: String, generation: UInt64) {
-        let pathState = withListenerState { state -> (shouldCheck: Bool, boundIdentity: SocketPathIdentity?) in
-            guard state.isRunning,
-                  state.activeAcceptLoopGeneration == generation,
-                  state.socketPath == path else {
-                return (false, nil)
-            }
-            return (true, state.boundSocketPathIdentity)
+    private nonisolated func handleSocketPathDirectoryEvent(path: String, generation: UInt64) {
+        let snapshot = listenerStateSnapshot()
+        guard snapshot.isRunning,
+              snapshot.activeGeneration == generation,
+              snapshot.socketPath == path else {
+            return
         }
-        guard pathState.shouldCheck else { return }
-        guard !transport.pathExists(path, matching: pathState.boundIdentity) else { return }
+        guard !transport.pathExists(path, matching: snapshot.boundSocketPathIdentity) else { return }
 
         reportSocketListenerFailure(
             message: "socket.listener.path.missing",
@@ -86,9 +83,9 @@ extension SocketControlServer {
 
     /// Re-validates a ``SocketControlServerEvents/pathMissingDetected`` report
     /// from the host's restart context. Reads the published snapshot — every
-    /// consulted field is mirror-published, so the host's main-thread check
-    /// never waits on the listener queue (the legacy check was a bare lock
-    /// read with the same last-committed-state semantics).
+    /// consulted field is mirror-published, so the check never waits on
+    /// anything (the legacy check was a bare lock read with the same
+    /// last-committed-state semantics).
     /// - Parameters:
     ///   - path: The path the monitor reported missing.
     ///   - generation: The generation the report was issued under.

@@ -298,9 +298,6 @@ extension SocketControlServer {
         let generation = withListenerState { state in
             state.isRunning = true
             state.pendingAcceptLoopRearmGeneration = nil
-            if !preserveAcceptFailureStreak {
-                state.acceptSourceConsecutiveFailures = 0
-            }
             state.nextAcceptLoopGeneration &+= 1
             let generation = state.nextAcceptLoopGeneration
             state.activeAcceptLoopGeneration = generation
@@ -309,6 +306,13 @@ extension SocketControlServer {
             state.socketPathLockFD = activeSocketPathLockFD
             state.listenerStartInProgress = false
             return generation
+        }
+        acceptRecovery.withLock { recovery in
+            recovery = AcceptRecoveryState(
+                generation: generation,
+                consecutiveFailures: preserveAcceptFailureStreak ? recovery.consecutiveFailures : 0,
+                recoveryHopInFlight: false
+            )
         }
         if displacedSocketPathLockFD >= 0, displacedSocketPathLockFD != transferredSocketPathLockFD {
             transport.releaseSocketPathLock(displacedSocketPathLockFD)
