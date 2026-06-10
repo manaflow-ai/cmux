@@ -9,10 +9,14 @@ import {
 import { summarizeApnsSendResults } from "../services/apns/response";
 import { sendApnsNotification, signApnsJwt, normalizeP8 } from "../services/apns/sender";
 import {
+  MAX_MUTE_REQUEST_BYTES,
   MAX_PUSH_BODY_CHARS,
+  MAX_PUSH_ID_CHARS,
   normalizeApnsBundle,
+  parseMuteMutationPayload,
   parsePushPayload,
   readBoundedJsonObject,
+  shouldDeliverToWorkspace,
 } from "../services/apns/routePolicy";
 
 describe("apns payload", () => {
@@ -185,6 +189,53 @@ describe("apns route policy", () => {
         64,
       ),
     ).resolves.toEqual({ ok: true, value: { title: "agent" } });
+  });
+});
+
+describe("apns per-workspace mute", () => {
+  test("delivers when the workspace is not muted, suppresses when it is", () => {
+    const muted = new Set(["ws-muted"]);
+    expect(shouldDeliverToWorkspace("ws-active", muted)).toBe(true);
+    expect(shouldDeliverToWorkspace("ws-muted", muted)).toBe(false);
+  });
+
+  test("always delivers when the push carries no workspace id", () => {
+    expect(shouldDeliverToWorkspace(null, new Set(["ws-muted"]))).toBe(true);
+  });
+
+  test("always delivers when nothing is muted", () => {
+    expect(shouldDeliverToWorkspace("ws-active", new Set())).toBe(true);
+  });
+
+  test("parses and trims a per-workspace mute mutation", () => {
+    expect(parseMuteMutationPayload({ workspaceId: " ws-a ", muted: true })).toEqual({
+      ok: true,
+      value: { workspaceId: "ws-a", muted: true },
+    });
+    expect(parseMuteMutationPayload({ workspaceId: "ws-a", muted: false })).toEqual({
+      ok: true,
+      value: { workspaceId: "ws-a", muted: false },
+    });
+  });
+
+  test("rejects a missing/oversized workspace id and a non-boolean muted", () => {
+    expect(parseMuteMutationPayload({ muted: true })).toEqual({
+      ok: false,
+      error: "workspace_id_required",
+    });
+    expect(parseMuteMutationPayload({ workspaceId: "x".repeat(MAX_PUSH_ID_CHARS + 1), muted: true })).toEqual({
+      ok: false,
+      error: "workspace_id_too_long",
+    });
+    expect(parseMuteMutationPayload({ workspaceId: "ws-a", muted: "yes" })).toEqual({
+      ok: false,
+      error: "muted_not_boolean",
+    });
+  });
+
+  test("a single mutation body fits the mute byte limit", () => {
+    const body = JSON.stringify({ workspaceId: "w".repeat(MAX_PUSH_ID_CHARS), muted: true });
+    expect(Buffer.byteLength(body, "utf8")).toBeLessThanOrEqual(MAX_MUTE_REQUEST_BYTES);
   });
 });
 

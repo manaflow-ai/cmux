@@ -1,4 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { getTableName } from "drizzle-orm";
+import { deviceTokens, notificationWorkspaceMutes } from "../db/schema";
 
 const envKeys = [
   "SKIP_ENV_VALIDATION",
@@ -21,9 +23,37 @@ const getUser = mock(async () => ({
   selectedTeam: null,
 }));
 const checkRateLimit = mock(async () => ({ rateLimited: true, error: null }));
-const cloudDb = mock(() => {
+
+// `cloudDb` delegates to a swappable factory: the rate-limit-first test leaves it
+// throwing (DB must never be reached), the mute tests point it at a fake DB.
+let cloudDbFactory: () => unknown = () => {
   throw new Error("cloudDb should not be reached after a push rate-limit block");
-});
+};
+const cloudDb = mock((): unknown => cloudDbFactory());
+
+// Mute-test DB scaffolding: records which tables the route touched so we can
+// prove the muted path returns before the device-token lookup / APNs send.
+const selectedTables: string[] = [];
+let mutedRows: { workspaceId: string }[] = [];
+const mutesTable = getTableName(notificationWorkspaceMutes);
+const deviceTokensTable = getTableName(deviceTokens);
+
+function fakeDb() {
+  return {
+    select() {
+      return {
+        from(table: unknown) {
+          const name = getTableName(table as Parameters<typeof getTableName>[0]);
+          selectedTables.push(name);
+          if (name === mutesTable) {
+            return { where: async () => mutedRows };
+          }
+          return { where: () => ({ limit: async () => [] }) };
+        },
+      };
+    },
+  };
+}
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
@@ -37,6 +67,11 @@ mock.module("@vercel/firewall", () => ({
 mock.module("../db/client", () => ({
   cloudDb,
 }));
+
+// The sender is NOT mocked (mock.module is process-global in bun and would break
+// `apns.test.ts`'s real-sender transport tests). The mute tests prove no send by
+// asserting the route never reaches the device-token lookup, and the no-token
+// path returns before any APNs traffic on its own.
 
 const pushRoute = await import("../app/api/notifications/push/route");
 
@@ -56,6 +91,11 @@ beforeEach(() => {
   checkRateLimit.mockClear();
   checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
   cloudDb.mockClear();
+  cloudDbFactory = () => {
+    throw new Error("cloudDb should not be reached after a push rate-limit block");
+  };
+  selectedTables.length = 0;
+  mutedRows = [];
 });
 
 describe("notifications push route", () => {
@@ -83,5 +123,52 @@ describe("notifications push route", () => {
       rateLimitKey: "user-1",
     });
     expect(cloudDb).not.toHaveBeenCalled();
+  });
+});
+
+// Behavior-level gate for per-workspace mute: a push for a muted workspace must
+// be dropped BEFORE any device-token lookup or APNs send. The rate limiter is
+// allowed through here (mockResolvedValue) so the route reaches the mute gate.
+function mutePushRequest(workspaceId: string): Request {
+  return new Request("https://cmux.test/api/notifications/push", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer access-token",
+      "x-stack-refresh-token": "refresh-token",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ title: "Agent done", body: "Build finished", workspaceId }),
+  });
+}
+
+describe("notifications push route per-workspace mute", () => {
+  beforeEach(() => {
+    checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
+    cloudDbFactory = () => fakeDb();
+  });
+
+  test("drops the push for a muted workspace before any device-token lookup or APNs send", async () => {
+    mutedRows = [{ workspaceId: "ws-muted" }];
+
+    const response = await pushRoute.POST(mutePushRequest("ws-muted"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ muted: true });
+    // The mute lookup ran; the device-token lookup (and thus any APNs send) did not.
+    expect(selectedTables).toContain(mutesTable);
+    expect(selectedTables).not.toContain(deviceTokensTable);
+  });
+
+  test("delivers (reaches the device-token lookup) for a workspace that is not muted", async () => {
+    mutedRows = [{ workspaceId: "ws-other" }];
+
+    const response = await pushRoute.POST(mutePushRequest("ws-active"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).not.toMatchObject({ muted: true });
+    // Not muted => the route proceeds to the device-token lookup (no tokens here,
+    // so it no-ops without sending), proving the mute gate did not suppress it.
+    expect(selectedTables).toContain(mutesTable);
+    expect(selectedTables).toContain(deviceTokensTable);
   });
 });

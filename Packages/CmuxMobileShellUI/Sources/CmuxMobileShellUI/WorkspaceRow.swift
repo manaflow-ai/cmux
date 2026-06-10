@@ -9,6 +9,11 @@ struct WorkspaceRow: View {
     /// When `true`, the workspace title wraps onto multiple lines instead of
     /// truncating to one (driven by the "Wrap Workspace Titles" setting).
     let wrapWorkspaceTitles: Bool
+    /// When `true`, the user has muted phone push for this workspace; the row
+    /// shows a `bell.slash` glyph so the muted state is visible at a glance.
+    /// Passed as a value snapshot so no `@Observable` store crosses the `List`
+    /// boundary.
+    var isMuted: Bool = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -18,6 +23,13 @@ struct WorkspaceRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     if workspace.isPinned {
                         Image(systemName: "pin.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                    }
+
+                    if isMuted {
+                        Image(systemName: "bell.slash.fill")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .accessibilityHidden(true)

@@ -101,6 +101,11 @@ public struct MobileAuthComposition {
             apnsEnvironment: Self.apnsEnvironment,
             session: .shared
         )
+        // Re-upload the cached device token on sign-in. The per-workspace muted
+        // set is NOT pushed from local here: it is hydrated FROM the server by
+        // the push coordinator (`refreshMutedWorkspacesFromServer`) so a new user
+        // never re-uploads a previous user's cached mutes (and the same user
+        // never wipes their own server set by PUTing an empty local cache).
         deferredSignIn.set { await push.syncTokenIfPossible() }
         self.coordinator = coordinator
         self.pushRegistration = push

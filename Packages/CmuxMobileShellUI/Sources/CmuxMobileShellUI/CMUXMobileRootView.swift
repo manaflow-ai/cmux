@@ -50,6 +50,12 @@ struct CMUXMobileRootView: View {
             store.resumeForegroundRefresh()
             #if os(iOS)
             pushCoordinator.bind(store: store)
+            // Already-authenticated launch (cached session): pull the muted set
+            // from the server so the list reflects this account's server state,
+            // not a stale local cache from a previous account.
+            if isAuthenticated {
+                pushCoordinator.refreshMutedWorkspacesFromServer()
+            }
             #endif
             // If the view mounts already authenticated (cached session, or a
             // mock/fixture launch), `onChange(of: isAuthenticated)` never fires,
@@ -86,6 +92,11 @@ struct CMUXMobileRootView: View {
             guard isAuthenticated else {
                 return
             }
+            #if os(iOS)
+            // Fresh sign-in: replace any locally cached muted set with this
+            // account's authoritative server set (scopes mutes per user).
+            pushCoordinator.refreshMutedWorkspacesFromServer()
+            #endif
             if let rawURL = pendingAttachURL {
                 pendingAttachURL = nil
                 Task {
@@ -256,7 +267,9 @@ struct CMUXMobileRootView: View {
     private func signOut() {
         #if os(iOS)
         let pushCoordinator = pushCoordinator
-        let onSignedOut: @Sendable () async -> Void = { await pushCoordinator.unregisterFromServer() }
+        // Sign-out clears the token server-side AND the locally cached muted set,
+        // so the next user does not inherit this account's per-workspace mutes.
+        let onSignedOut: @Sendable () async -> Void = { await pushCoordinator.handleSignedOut() }
         #else
         let onSignedOut: @Sendable () async -> Void = {}
         #endif

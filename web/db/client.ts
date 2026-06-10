@@ -12,7 +12,7 @@ function createPostgresJsDb(sql: Sql) {
   return drizzle({ client: sql, schema });
 }
 
-type CloudDb = ReturnType<typeof createPostgresJsDb>;
+export type CloudDb = ReturnType<typeof createPostgresJsDb>;
 type CloudDbState = {
   db: CloudDb;
   close: () => Promise<void>;

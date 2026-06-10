@@ -17,7 +17,9 @@ import {
   MAX_PUSH_REQUEST_BYTES,
   parsePushPayload,
   readBoundedJsonObject,
+  shouldDeliverToWorkspace,
 } from "../../../../services/apns/routePolicy";
+import { readMutedWorkspaceIds } from "../../../../services/apns/mutedWorkspaces";
 import { sendApnsNotification, type ApnsConfig } from "../../../../services/apns/sender";
 import { summarizeApnsSendResults } from "../../../../services/apns/response";
 
@@ -78,6 +80,18 @@ async function sendPush(request: Request): Promise<Response> {
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
 
   const db = cloudDb();
+
+  // Per-workspace mute: if the user muted this workspace on their phone, drop
+  // the push before any APNs traffic so the workspace stays silent even while
+  // the phone is backgrounded/locked. Fails open (treats lookup errors as "not
+  // muted"), so a missing table or DB hiccup never suppresses notifications.
+  if (payload.value.workspaceId) {
+    const muted = await readMutedWorkspaceIds(db, user.id);
+    if (!shouldDeliverToWorkspace(payload.value.workspaceId, muted)) {
+      return jsonResponse({ ...summarizeApnsSendResults([]), muted: true });
+    }
+  }
+
   const tokens = await db
     .select({
       deviceToken: deviceTokens.deviceToken,

@@ -145,6 +145,26 @@ export const notificationSendEvents = pgTable(
   ],
 );
 
+// Per-user set of workspaces the user muted for phone push. A row's presence
+// means "do not relay push for this workspace to this user's devices". The
+// muted set is replaced wholesale by the iOS app via PUT /api/notifications/mutes.
+export const notificationWorkspaceMutes = pgTable(
+  "notification_workspace_mutes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("notification_workspace_mutes_user_idx").on(table.userId),
+    uniqueIndex("notification_workspace_mutes_user_workspace_unique").on(
+      table.userId,
+      table.workspaceId,
+    ),
+  ],
+);
+
 export const cloudVmBillingGrants = pgTable(
   "cloud_vm_billing_grants",
   {
