@@ -1,5 +1,6 @@
 import Combine
 import CmuxFileWatch
+import CmuxSettings
 import CmuxSocketControl
 import Foundation
 import os
@@ -69,6 +70,7 @@ final class CmuxSettingsFileStore {
     private var socketPasswordObserver: NSObjectProtocol?
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
+    private var whenClausesByAction: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeLegacyDerivedManagedUserDefaultKeys: Set<String> = []
@@ -151,6 +153,7 @@ final class CmuxSettingsFileStore {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
+                whenClauses: whenClausesByAction,
                 importedManagedDefaults: importedManagedDefaults,
                 sourcePath: activeSourcePath
             )
@@ -168,6 +171,7 @@ final class CmuxSettingsFileStore {
         )
         synchronized {
             shortcutsByAction = resolved.shortcuts
+            whenClausesByAction = resolved.whenClauses
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
             activeLegacyDerivedManagedUserDefaultKeys = resolved.legacyDerivedManagedUserDefaultKeys
@@ -176,13 +180,22 @@ final class CmuxSettingsFileStore {
         }
         saveImportedManagedDefaults(resolved.managedUserDefaults)
 
-        if previousState.shortcuts != resolved.shortcuts || previousState.sourcePath != resolved.path {
+        if previousState.shortcuts != resolved.shortcuts
+            || previousState.whenClauses != resolved.whenClauses
+            || previousState.sourcePath != resolved.path {
             KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
         }
     }
 
     func override(for action: KeyboardShortcutSettings.Action) -> StoredShortcut? {
         synchronized { shortcutsByAction[action] }
+    }
+
+    /// The `when`-clause override for an action parsed from `shortcuts.when` in
+    /// cmux.json, or `nil` when the action has no configured override (so the
+    /// caller falls back to the action's built-in ``shortcutContext``).
+    func whenClause(for action: KeyboardShortcutSettings.Action) -> ShortcutWhenClause? {
+        synchronized { whenClausesByAction[action] }
     }
 
     func isManagedByFile(_ action: KeyboardShortcutSettings.Action) -> Bool {
@@ -245,6 +258,7 @@ final class CmuxSettingsFileStore {
                 ResolvedSettingsSnapshot(
                     path: activeSourcePath,
                     shortcuts: shortcutsByAction,
+                    whenClauses: whenClausesByAction,
                     managedUserDefaults: activeManagedUserDefaults,
                     legacyDerivedManagedUserDefaultKeys: activeLegacyDerivedManagedUserDefaultKeys,
                     managedCustomSettings: activeManagedCustomSettings
@@ -1029,7 +1043,7 @@ final class CmuxSettingsFileStore {
         }
 
         var bindings = section["bindings"] as? [String: Any] ?? [:]
-        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" {
+        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" {
             bindings[key] = rawValue
         }
 
@@ -1043,6 +1057,37 @@ final class CmuxSettingsFileStore {
                 continue
             }
             snapshot.shortcuts[action] = shortcut
+        }
+
+        parseShortcutWhenClauses(section["when"], sourcePath: sourcePath, snapshot: &snapshot)
+    }
+
+    /// Parses the optional `shortcuts.when` map — `{ "<actionId>": "<predicate>" }`
+    /// — into per-action ``ShortcutWhenClause`` overrides. A binding's `when`
+    /// clause gates it to a focus context, letting the same keystroke drive
+    /// different actions in different contexts (e.g. `⌃1` selects a workspace
+    /// unless the sidebar is focused). Invalid entries are logged and skipped.
+    private func parseShortcutWhenClauses(
+        _ rawValue: Any?,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard let rawValue else { return }
+        guard let whenSection = rawValue as? [String: Any] else {
+            logInvalid("shortcuts.when", sourcePath: sourcePath)
+            return
+        }
+        for (rawAction, rawClause) in whenSection {
+            guard let action = KeyboardShortcutSettings.Action(rawValue: rawAction) else {
+                cmuxSettingsFileStoreLogger.warning("ignoring shortcuts.when for unknown action '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+                continue
+            }
+            guard let expression = jsonString(rawClause),
+                  let clause = ShortcutWhenClause.parse(expression) else {
+                cmuxSettingsFileStoreLogger.warning("ignoring invalid shortcuts.when clause for '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+                continue
+            }
+            snapshot.whenClauses[action] = clause
         }
     }
 
@@ -1769,6 +1814,9 @@ typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
 private struct ResolvedSettingsSnapshot {
     var path: String?
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
+    /// Per-action `when`-clause overrides parsed from `shortcuts.when` — gate a
+    /// binding to a focus context (see ``ShortcutWhenClause``).
+    var whenClauses: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
     var managedUserDefaults: [String: ManagedSettingsValue] = [:]
     var legacyDerivedManagedUserDefaultKeys: Set<String> = []
     var managedCustomSettings = ManagedCustomSettings()
@@ -1781,6 +1829,9 @@ private struct ResolvedSettingsSnapshot {
         }
         for (action, shortcut) in fallback.shortcuts where shortcuts[action] == nil {
             shortcuts[action] = shortcut
+        }
+        for (action, clause) in fallback.whenClauses where whenClauses[action] == nil {
+            whenClauses[action] = clause
         }
         for (key, value) in fallback.managedUserDefaults where managedUserDefaults[key] == nil {
             managedUserDefaults[key] = value

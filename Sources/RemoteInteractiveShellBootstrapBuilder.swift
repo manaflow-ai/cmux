@@ -6,7 +6,8 @@ enum RemoteInteractiveShellBootstrapBuilder {
         shellFeatures: String,
         terminfoSource: String? = nil,
         bundledZshIntegration: String? = nil,
-        bundledBashIntegration: String? = nil
+        bundledBashIntegration: String? = nil,
+        bundledFishIntegration: String? = nil
     ) -> String {
         let shellStateDir = shellStateDirForRemoteRelayPort(remoteRelayPort)
         let commonShellExportLines = commonShellLines(
@@ -43,6 +44,14 @@ enum RemoteInteractiveShellBootstrapBuilder {
                 "cat > \"$cmux_shell_dir/cmux-bash-integration.bash\" <<'CMUXCMUXBASH'",
                 bundledBashIntegration,
                 "CMUXCMUXBASH",
+            ]
+        }
+        if let bundledFishIntegration {
+            outerLines += [
+                "mkdir -p \"$cmux_shell_dir/fish\"",
+                "cat > \"$cmux_shell_dir/fish/config.fish\" <<'CMUXCMUXFISH'",
+                bundledFishIntegration,
+                "CMUXCMUXFISH",
             ]
         }
         outerLines.append(contentsOf: commonShellExportLines)
@@ -98,6 +107,14 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
         outerLines += [
             "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
+            "    ;;",
+            "  fish)",
+        ]
+        outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
+        outerLines += [
+            "    export CMUX_FISH_INTEGRATION_FILE=\"$cmux_shell_dir/fish/config.fish\"",
+            "    export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1",
+            "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command 'source \"$CMUX_FISH_INTEGRATION_FILE\"'",
             "    ;;",
             "  *)",
         ]
@@ -202,7 +219,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "    cat <<'CMUXTERMINFO' | tic -x - >/dev/null 2>&1",
             trimmedTerminfoSource,
             "CMUXTERMINFO",
-            "  ) >/dev/null 2>&1 &",
+            "  ) </dev/null >/dev/null 2>&1 &",
             "fi",
         ]
         return lines
@@ -245,14 +262,16 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "  printf '%s' \"$cmux_relay_tty\" > \"$HOME/.cmux/relay/\(remoteRelayPort).tty\" 2>/dev/null || true",
             "fi",
             "if [ -n \"$cmux_relay_cli\" ] && [ -n \"$CMUX_WORKSPACE_ID\" ] && [ -n \"$cmux_relay_tty\" ] && [ \"$cmux_relay_tty\" != \"not a tty\" ]; then",
-            "  cmux_relay_report_tty=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"tty_name\\\":\\\"$cmux_relay_tty\\\"}\"",
-            "  cmux_relay_ports_kick=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"reason\\\":\\\"command\\\"}\"",
-            "  if [ -n \"$CMUX_SURFACE_ID\" ]; then",
-            "    cmux_relay_report_tty=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"tty_name\\\":\\\"$cmux_relay_tty\\\"}\"",
-            "    cmux_relay_ports_kick=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"reason\\\":\\\"command\\\"}\"",
-            "  fi",
-            "  \"$cmux_relay_cli\" rpc surface.report_tty \"$cmux_relay_report_tty\" >/dev/null 2>&1 || true",
-            "  \"$cmux_relay_cli\" rpc surface.ports_kick \"$cmux_relay_ports_kick\" >/dev/null 2>&1 || true",
+            "  (",
+            "    cmux_relay_report_tty=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"tty_name\\\":\\\"$cmux_relay_tty\\\"}\"",
+            "    cmux_relay_ports_kick=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"reason\\\":\\\"command\\\"}\"",
+            "    if [ -n \"$CMUX_SURFACE_ID\" ]; then",
+            "      cmux_relay_report_tty=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"tty_name\\\":\\\"$cmux_relay_tty\\\"}\"",
+            "      cmux_relay_ports_kick=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"reason\\\":\\\"command\\\"}\"",
+            "    fi",
+            "    \"$cmux_relay_cli\" rpc surface.report_tty \"$cmux_relay_report_tty\" >/dev/null 2>&1 || true",
+            "    \"$cmux_relay_cli\" rpc surface.ports_kick \"$cmux_relay_ports_kick\" >/dev/null 2>&1 || true",
+            "  ) </dev/null >/dev/null 2>&1 &",
             "fi",
             "unset CMUX_BOOTSTRAP_TTY cmux_relay_cli cmux_relay_tty cmux_relay_report_tty cmux_relay_ports_kick",
         ]

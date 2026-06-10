@@ -14,6 +14,16 @@ enum SidebarWorkspaceRenderItem {
             return "workspace.\(workspace.id.uuidString)"
         }
     }
+
+    var rowWorkspaceId: UUID {
+        switch self {
+        case .groupHeader(let group, _):
+            return group.anchorWorkspaceId
+        case .workspace(let workspace):
+            return workspace.id
+        }
+    }
+
     static func renderItems(
         tabs: [Workspace],
         groupsById: [UUID: WorkspaceGroup]
