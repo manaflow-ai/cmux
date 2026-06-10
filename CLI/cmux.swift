@@ -25924,7 +25924,16 @@ struct CMUXCLI {
         let resumeCommandParts = kind == "hermes-agent"
             ? hermesAgentArgumentsByReplacingOpenAICodexProvider(sanitizedCommandParts)
             : sanitizedCommandParts
-        var command = resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        // Route the claude executable through the wrapper shim token so the executed
+        // command re-injects cmux hooks even when run via the `$SHELL -lic` restore
+        // launcher (where the integration's PATH shim / `claude()` function are not
+        // active). The token is POSIX-only and the launcher dispatches through the
+        // user's shell (fish/csh/tcsh included), so token-bearing commands are wrapped
+        // in `/bin/sh -c '…'` to parse everywhere; the cwd guard below stays outside so
+        // cd-prefix rewriting keeps composing. https://github.com/manaflow-ai/cmux/issues/5639
+        var command = kind == "claude"
+            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: resumeCommandParts, quote: cliShellQuote)
+            : resumeCommandParts.map(cliShellQuote).joined(separator: " ")
         if kind == "hermes-agent" {
             command = hermesAgentSubrouterResumeCommand(
                 command,

@@ -15847,6 +15847,9 @@ final class Workspace: Identifiable, ObservableObject {
         // reuse an already-attached note — otherwise repeated New Note actions
         // (and the case where the prior note was dragged to another pane) would
         // just refocus the existing note instead of creating another one.
+        // Surface-scoped notes open as a RIGHT SPLIT of the source surface
+        // (the CLI's `cmux note new` default), keeping the conversation and
+        // its note side by side instead of burying the note as a tab.
         return await openOrCreateNoteSurface(
             inPane: paneId,
             slug: nil,
@@ -15855,7 +15858,8 @@ final class Workspace: Identifiable, ObservableObject {
             createIfMissing: true,
             focus: focus,
             reuseExisting: false,
-            preferAttachedExisting: false
+            preferAttachedExisting: false,
+            splitFromPanelId: panelId
         )
     }
 
@@ -15887,7 +15891,8 @@ final class Workspace: Identifiable, ObservableObject {
         createIfMissing: Bool = true,
         focus: Bool? = nil,
         reuseExisting: Bool = true,
-        preferAttachedExisting: Bool = false
+        preferAttachedExisting: Bool = false,
+        splitFromPanelId: UUID? = nil
     ) async -> MarkdownPanel? {
         let workspaceCurrentDirectory = currentDirectory
         let workspaceIsRemote = isRemoteWorkspace
@@ -15927,7 +15932,18 @@ final class Workspace: Identifiable, ObservableObject {
             panel?.setDisplayMode(.text, focusTextEditor: focus ?? false)
             return panel
         }
-        let panel = newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        let panel: MarkdownPanel?
+        if let splitFromPanelId {
+            // Right split of the source surface (matches `cmux note new`).
+            panel = newMarkdownSplit(
+                from: splitFromPanelId,
+                orientation: .horizontal,
+                filePath: filePath,
+                focus: focus ?? false
+            ) ?? newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        } else {
+            panel = newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        }
         panel?.markAsProjectNote(
             slug: noteResult.note.slug,
             id: noteResult.note.id,

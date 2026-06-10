@@ -60,7 +60,7 @@ final class NotesTreeContainerView: NSView {
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
         scrollView.automaticallyAdjustsContentInsets = false
-        scrollView.contentInsets = NSEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
+        scrollView.contentInsets = NSEdgeInsets(top: 2, left: 0, bottom: 4, right: 0)
         scrollView.documentView = outlineView
         addSubview(scrollView)
 

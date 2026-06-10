@@ -132,11 +132,13 @@ struct MarkdownPanelView: View {
             Button(String(localized: "markdown.toolbar.copyHTML", defaultValue: "Copy as HTML")) {
                 Task { @MainActor in
                     guard let html = await panel.rendererSession.renderedHTML() else { return }
+                    // Plain-text targets get readable text, not raw markup.
+                    let plainText = await panel.rendererSession.renderedText() ?? panel.content
                     let pasteboard = NSPasteboard.general
                     pasteboard.clearContents()
                     pasteboard.declareTypes([.html, .string], owner: nil)
                     pasteboard.setString(html, forType: .html)
-                    pasteboard.setString(html, forType: .string)
+                    pasteboard.setString(plainText, forType: .string)
                 }
             }
             Divider()

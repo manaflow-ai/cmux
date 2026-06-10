@@ -169,6 +169,60 @@ enum CmuxNoteStore {
     }
 
     @discardableResult
+    /// Move a note's body file into `directory` (confined to `.cmux/notes`)
+    /// and update the index's `bodyPath` in the same locked transaction, so
+    /// `cmux note` and the Notes tree stay consistent — moving only the file
+    /// would orphan the index record. Returns the new absolute body path.
+    static func relocateBody(
+        slug rawSlug: String,
+        projectRoot: String,
+        toDirectory directory: String
+    ) throws -> String {
+        try withStoreLock {
+            let slug = try NoteSupport.validateSlug(rawSlug)
+            var index = try loadIndex(projectRoot: projectRoot)
+            guard let recordIndex = index.notes.firstIndex(where: { $0.slug == slug }) else {
+                throw CmuxNoteStoreError.noteNotFound(slug: slug)
+            }
+            let notesRoot = ((NoteSupport.notesDirectory(forProjectRoot: projectRoot) as NSString)
+                .standardizingPath as NSString).resolvingSymlinksInPath
+            let destDir = (((directory as NSString).standardizingPath as NSString)
+                .resolvingSymlinksInPath)
+            guard destDir == notesRoot || destDir.hasPrefix(notesRoot + "/") else {
+                throw CmuxNoteStoreError.noteNotFound(slug: slug)
+            }
+            let currentPath = absoluteBodyPath(bodyPath: index.notes[recordIndex].bodyPath, projectRoot: projectRoot)
+            let fm = FileManager.default
+            try fm.createDirectory(atPath: destDir, withIntermediateDirectories: true)
+            let baseName = (currentPath as NSString).lastPathComponent
+            var destPath = (destDir as NSString).appendingPathComponent(baseName)
+            var counter = 2
+            while fm.fileExists(atPath: destPath) {
+                let stem = (baseName as NSString).deletingPathExtension
+                let ext = (baseName as NSString).pathExtension
+                let candidate = ext.isEmpty ? "\(stem)-\(counter)" : "\(stem)-\(counter).\(ext)"
+                destPath = (destDir as NSString).appendingPathComponent(candidate)
+                counter += 1
+            }
+            if fm.fileExists(atPath: currentPath) {
+                try fm.moveItem(atPath: currentPath, toPath: destPath)
+            } else {
+                try ensureBodyFile(atPath: destPath)
+            }
+            // bodyPath is stored relative to `<projectRoot>/.cmux`.
+            let cmuxDir = ((projectRoot as NSString).appendingPathComponent(".cmux") as NSString)
+                .standardizingPath
+            var relative = destPath
+            if relative.hasPrefix(cmuxDir + "/") {
+                relative = String(relative.dropFirst(cmuxDir.count + 1))
+            }
+            index.notes[recordIndex].bodyPath = relative
+            index.notes[recordIndex].updatedAt = Date().timeIntervalSince1970
+            try writeIndex(index, projectRoot: projectRoot)
+            return destPath
+        }
+    }
+
     static func delete(slug rawSlug: String, projectRoot: String) throws -> Bool {
         try withStoreLock {
             let slug = try NoteSupport.validateSlug(rawSlug)

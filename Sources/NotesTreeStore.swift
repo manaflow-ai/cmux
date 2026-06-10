@@ -547,6 +547,28 @@ final class NotesTreeStore: ObservableObject {
         reload()
     }
 
+    /// Move an index-owned flat note into `destinationFolder` through the flat
+    /// store, which relocates the body AND rewrites the index's bodyPath in
+    /// one transaction (a bare file move would orphan the record). Returns the
+    /// new path.
+    @discardableResult
+    func moveFlatNote(path: String, intoFolder destinationFolder: String) -> String? {
+        guard let projectRoot,
+              let notesDir = notesDirPath,
+              NotesTreeStorage.isWithin(child: destinationFolder, orEqualTo: notesDir),
+              let records = try? CmuxNoteStore.list(projectRoot: projectRoot) else { return nil }
+        let target = (path as NSString).standardizingPath
+        guard let record = records.first(where: {
+            (CmuxNoteStore.noteBodyPath(for: $0, projectRoot: projectRoot) as NSString)
+                .standardizingPath == target
+        }) else { return nil }
+        let moved = try? CmuxNoteStore.relocateBody(
+            slug: record.slug, projectRoot: projectRoot, toDirectory: destinationFolder
+        )
+        reload()
+        return moved
+    }
+
     /// Delete an index-owned flat note through the flat store so the body and
     /// its index record/attachments go together — trashing only the body file
     /// would leave `cmux note list` showing a note whose `read` fails.

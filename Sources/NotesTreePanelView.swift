@@ -383,15 +383,11 @@ struct NotesTreePanelView: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
             guard let node = item as? NotesTreeNode, !node.path.isEmpty else { return nil }
             // Notes drag like Files-tab files: the file-preview writer carries
-            // the pane-drop payload (markdown viewer) and a fileURL. Tree-owned
-            // notes compose the move type for in-tree drags; index-owned flat
-            // notes must not move (the index's bodyPath would orphan), so they
-            // drag as preview/export only.
+            // the pane-drop payload (markdown viewer) and a fileURL, composed
+            // with the move type for in-tree drags. Index-owned flat notes
+            // move through the flat store on drop (body + index together).
             if case .note = node.kind {
-                if isTreeOwned(node) {
-                    return NotesTreePanelView.NoteDragWriter(filePath: node.path, displayTitle: node.displayName)
-                }
-                return FilePreviewDragPasteboardWriter(filePath: node.path, displayTitle: node.displayName)
+                return NotesTreePanelView.NoteDragWriter(filePath: node.path, displayTitle: node.displayName)
             }
             let pbItem = NSPasteboardItem()
             // Virtual session rows have nothing on disk to move; they drag as
@@ -487,9 +483,17 @@ struct NotesTreePanelView: NSViewRepresentable {
             }
             guard let destFolder = resolvedDest else { return false }
             // Internal move wins (a Notes session folder carries both types, but
-            // within the tree we move it rather than duplicate it).
+            // within the tree we move it rather than duplicate it). Index-owned
+            // flat notes route through the flat store so the index's bodyPath
+            // moves with the file.
             if let source = pb.string(forType: NotesTreePanelView.movePasteboardType) {
-                guard let moved = store.move(sourcePath: source, intoFolder: destFolder) else { return false }
+                let treeOwnedSource = store.resolvedRootPath.map {
+                    NotesTreeStorage.isWithin(child: source, orEqualTo: $0)
+                } ?? false
+                let moved = treeOwnedSource
+                    ? store.move(sourcePath: source, intoFolder: destFolder)
+                    : store.moveFlatNote(path: source, intoFolder: destFolder)
+                guard let moved else { return false }
                 reloadNow()
                 selectRow(forPath: moved)
                 return true
