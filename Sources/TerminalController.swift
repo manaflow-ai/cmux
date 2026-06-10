@@ -11619,16 +11619,26 @@ class TerminalController {
         // so an unparseable raw string fails loudly instead of silently opening about:blank.
         let url: URL?
         if let urlStr {
-            let resolved = resolveBrowserNavigableURL(urlStr)
-                ?? BrowserSearchSettings.currentConfiguration().searchURL(query: urlStr)
-            guard let resolved else {
-                return .err(
-                    code: "invalid_params",
-                    message: "Could not resolve URL or search query",
-                    data: ["url": urlStr]
-                )
+            // An explicit about:blank means "open a blank surface", which the rest
+            // of the browser code treats as a valid blank page. resolveBrowserNavigableURL
+            // rejects the about: scheme, so preserve it here instead of letting the
+            // search fallback turn it into a query.
+            if urlStr.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare("about:blank") == .orderedSame,
+               let blank = URL(string: "about:blank") {
+                url = blank
+            } else {
+                let resolved = resolveBrowserNavigableURL(urlStr)
+                    ?? BrowserSearchSettings.currentConfiguration().searchURL(query: urlStr)
+                guard let resolved else {
+                    return .err(
+                        code: "invalid_params",
+                        message: "Could not resolve URL or search query",
+                        data: ["url": urlStr]
+                    )
+                }
+                url = resolved
             }
-            url = resolved
         } else {
             url = nil
         }
@@ -11809,12 +11819,12 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing url", data: nil)
         }
 
-        var result: V2CallResult = .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
+        var basePayload: [String: Any]?
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let browserPanel = ws.browserPanel(for: surfaceId) else { return }
             browserPanel.navigateSmart(url)
-            var payload: [String: Any] = [
+            basePayload = [
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                 "surface_id": surfaceId.uuidString,
@@ -11822,10 +11832,16 @@ class TerminalController {
                 "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
             ]
-            v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
-            result = .ok(payload)
         }
-        return result
+        guard var payload = basePayload else {
+            return .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
+        }
+        // Run the optional --snapshot-after walk on the worker thread (not inside
+        // v2MainSync) so a slow accessibility-tree snapshot on a fresh surface
+        // can't block SwiftUI and recreate mount deadlocks. Standalone
+        // browser.snapshot already runs here; keep the post-action path identical.
+        v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
+        return .ok(payload)
     }
 
     private nonisolated func v2BrowserBack(params: [String: Any]) -> V2CallResult {
@@ -13125,7 +13141,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
 
-        var result: V2CallResult = .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
+        var basePayload: [String: Any]?
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let browserPanel = ws.browserPanel(for: surfaceId) else { return }
@@ -13139,7 +13155,7 @@ class TerminalController {
             default:
                 break
             }
-            var payload: [String: Any] = [
+            basePayload = [
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                 "surface_id": surfaceId.uuidString,
@@ -13147,10 +13163,14 @@ class TerminalController {
                 "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
             ]
-            v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
-            result = .ok(payload)
         }
-        return result
+        guard var payload = basePayload else {
+            return .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
+        }
+        // Run --snapshot-after off the main thread (see v2BrowserNavigate): the
+        // accessibility-tree walk must not block SwiftUI on a fresh surface.
+        v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
+        return .ok(payload)
     }
 
     private func v2BrowserGetURL(params: [String: Any]) -> V2CallResult {
