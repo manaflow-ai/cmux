@@ -25,6 +25,31 @@ import Testing
         #expect(AuthError(displaySafe: StackAuthError(code: "oauth_cancelled", message: "cancelled")) == .cancelled)
     }
 
+    @Test func anyErrorCaughtOnACancelledTaskMapsToCancelled() async {
+        // URLSession-backed phases surface task cancellation as
+        // URLError(.cancelled) or a wrapped Stack transport error rather than
+        // CancellationError. The mapping runs in the cancelled flow's own
+        // catch, so on a cancelled task those shapes are the cancellation,
+        // not a failure to render as the generic/network error.
+        let task = Task { () -> [AuthError?] in
+            // Park until cancelled (sleep resumes by throwing on cancel).
+            try? await Task.sleep(for: .seconds(3600))
+            return [
+                AuthError(displaySafe: URLError(.cancelled)),
+                AuthError(displaySafe: StackAuthError(code: "network_error", message: "cancelled")),
+            ]
+        }
+        task.cancel()
+        let mapped = await task.value
+        #expect(mapped == [.cancelled, .cancelled])
+    }
+
+    @Test func urlCancellationOnALiveTaskStaysNetworkError() {
+        // Outside a cancelled flow, a cancelled URL load is just a transport
+        // failure; only the flow's own cancellation goes silent.
+        #expect(AuthError(displaySafe: URLError(.cancelled)) == .networkError)
+    }
+
     @Test func mapsUnknownCodesToGenericServerError() {
         #expect(
             AuthError(displaySafe: StackAuthError(code: "UNEXPECTED", message: "raw server detail"))

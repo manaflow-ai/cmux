@@ -25,9 +25,19 @@ public struct CmxAttachTicketInput {
               let data = base64URLDecode(encodedPayload) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let ticket = try decoder.decode(CmxAttachTicket.self, from: data)
+        // Two payload grammars share the attach envelope: the compact
+        // short-key form newer Macs put in the pairing QR (top-level "v"),
+        // and the legacy full-key Codable form (top-level "version") that
+        // older Macs, stored tickets, and UITest fixtures still produce.
+        let ticket: CmxAttachTicket
+        let compactCoder = CmxAttachTicketCompactCoder()
+        if compactCoder.isCompactPayload(data) {
+            ticket = try compactCoder.decode(data)
+        } else {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            ticket = try decoder.decode(CmxAttachTicket.self, from: data)
+        }
         try ticket.validate()
         return ticket
     }
