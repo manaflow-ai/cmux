@@ -1747,7 +1747,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // with a short priority stagger, the first success wins, and losers are
         // cancelled and torn down. With the per-attempt bounds (3s TCP connect,
         // 4s pairing request) the worst case is a few seconds instead of every
-        // route's timeout stacking sequentially.
+        // route's timeout stacking sequentially. The race is two-phase so the
+        // concurrency never widens credential exposure: phase 1 races only the
+        // unauthenticated `mobile.host.status` probe, and the credentialed
+        // workspace list goes to the single winning endpoint only.
         let routeAttempt = MobilePairingRouteAttempt(
             runtime: runtime,
             ticket: ticket,
@@ -1756,11 +1759,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         let win: MobilePairingRouteAttempt.Win
         do {
-            win = try await MobilePairingRouteRace(clock: pairingRouteRaceClock).run(
+            win = try await MobilePairingTwoPhaseRace(
+                race: MobilePairingRouteRace(clock: pairingRouteRaceClock)
+            ).run(
                 routes: supportedRoutes,
                 endsRace: { MobilePairingRouteAttempt.failureEndsRouteRace($0) },
-                onDiscardedSuccess: { await $0.client.disconnect() },
-                attempt: { try await routeAttempt.run(route: $0) }
+                probe: { try await routeAttempt.probe(route: $0) },
+                onDiscardedProbe: { await $0.disconnect() },
+                finalize: { route, client in
+                    try await routeAttempt.finalize(route: route, client: client)
+                }
             )
         } catch let raceFailure as MobilePairingRouteRaceFailure {
             guard generation == connectionGeneration, isSignedIn else { return nil }

@@ -83,15 +83,21 @@ struct MobilePairingWorkspaceListRequest: Sendable {
     }
 }
 
-/// A single route's pairing attempt: dial, send the initial workspace list
-/// shapes, decode the first success.
+/// A single route's pairing attempt, split into the two phases the
+/// ``MobilePairingTwoPhaseRace`` orchestrates:
 ///
-/// Owns the client lifecycle for the attempt: on any failure (including
-/// cancellation when this attempt loses the ``MobilePairingRouteRace``) the
-/// client is disconnected before the error propagates, so a losing route never
-/// leaks its transport. On success the live client is handed back in ``Win``.
+/// - ``probe(route:)`` dials the route and sends ONLY the unauthenticated
+///   `mobile.host.status` request, so the race can contact many unverified
+///   candidate endpoints without handing any of them a credential.
+/// - ``finalize(route:client:)`` sends the credentialed initial workspace
+///   list shapes over the single winning probe's connection.
+///
+/// The probe owns its client on failure (disconnects before the error
+/// propagates, including cancellation when it loses the race); a successful
+/// probe hands ownership to the orchestrator, which tears it down via its
+/// discard hook when the probe does not become the final win.
 struct MobilePairingRouteAttempt: Sendable {
-    /// A successful attempt: the connected client plus the response that proved it.
+    /// A successful pairing: the connected client plus the response that proved it.
     struct Win: Sendable {
         /// The route that won.
         let route: CmxAttachRoute
@@ -107,18 +113,23 @@ struct MobilePairingRouteAttempt: Sendable {
     let runtime: any MobileSyncRuntime
     /// The attach ticket being connected.
     let ticket: CmxAttachTicket
-    /// The ordered request shapes to try on the route.
+    /// The ordered request shapes to try on the winning route.
     let requests: [MobilePairingWorkspaceListRequest]
     /// Whether the client may fall back to Stack auth on trusted routes.
     let allowsStackAuthFallback: Bool
 
-    /// Dials `route` and returns the first request shape that decodes.
-    /// - Parameter route: The route to attempt.
-    /// - Returns: The win carrying the connected client.
-    /// - Throws: The last request's error; the client is disconnected first.
-    func run(route: CmxAttachRoute) async throws -> Win {
+    /// Dials `route` and proves it speaks the cmux mobile protocol with the
+    /// unauthenticated `mobile.host.status` probe. No credential (neither the
+    /// Stack bearer token nor the attach ticket's token) is attached:
+    /// `mobile.host.status` is the one method exempt from auth on both ends,
+    /// so racing this probe across unverified candidate endpoints leaks
+    /// nothing to a stale or reassigned address.
+    /// - Parameter route: The route to probe.
+    /// - Returns: The connected client, ready for ``finalize(route:client:)``.
+    /// - Throws: The dial/probe error; the client is disconnected first.
+    func probe(route: CmxAttachRoute) async throws -> MobileCoreRPCClient {
         pairingAttemptLog.info(
-            "pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)"
+            "pairing probing route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)"
         )
         let client = MobileCoreRPCClient(
             runtime: runtime,
@@ -127,14 +138,32 @@ struct MobilePairingRouteAttempt: Sendable {
             allowsStackAuthFallback: allowsStackAuthFallback
         )
         do {
-            return try await send(over: client, route: route)
+            _ = try await client.sendRequest(
+                try MobileCoreRPCClient.requestData(method: "mobile.host.status"),
+                timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
+            )
+            return client
         } catch {
+            pairingAttemptLog.error(
+                "pairing probe failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private): \(String(describing: error), privacy: .private)"
+            )
             await client.disconnect()
             throw error
         }
     }
 
-    private func send(over client: MobileCoreRPCClient, route: CmxAttachRoute) async throws -> Win {
+    /// Sends the credentialed initial workspace list shapes over the winning
+    /// probe's connection and returns the first shape that decodes.
+    ///
+    /// Does NOT disconnect `client` on failure: the orchestrator owns the
+    /// probe's lifecycle and tears it down through its discard hook, keeping a
+    /// single owner for the connection.
+    /// - Parameters:
+    ///   - route: The route `client` is connected over.
+    ///   - client: The winning probe's connected client.
+    /// - Returns: The win carrying the live connection and decoded list.
+    /// - Throws: The last request shape's error.
+    func finalize(route: CmxAttachRoute, client: MobileCoreRPCClient) async throws -> Win {
         var lastError: (any Error)?
         for request in requests {
             do {
