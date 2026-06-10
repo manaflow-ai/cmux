@@ -63,8 +63,11 @@ public final class AuthCoordinator {
     private let anchor: any AuthPresentationAnchoring
     private let config: AuthConfig
     private let launch: AuthLaunchOptions
+    private let timeouts: AuthTimeouts
+    private let clock: any Clock<Duration>
     private let isOnline: @Sendable () async -> Bool
     private let onSignedIn: @Sendable () async -> Void
+    private let log = AuthDebugLog()
 
     private var pendingNonce: String?
     private var debugCredentials: CMUXAuthAutoLoginCredentials?
@@ -81,6 +84,12 @@ public final class AuthCoordinator {
     ///   - anchor: Presentation anchor provider for OAuth flows.
     ///   - config: Resolved auth configuration (callback URL, project, API base).
     ///   - launch: Launch-time priming inputs (UI-test fixtures, dev-auth flag).
+    ///   - timeouts: Per-phase deadlines for the sign-in/session flows. Every
+    ///     phase that holds a loading state is bounded so the UI can never spin
+    ///     forever; a phase that hits its deadline fails with the localized,
+    ///     retryable ``AuthError/timedOut``. Defaults to ``AuthTimeouts/default``.
+    ///   - clock: The clock the phase deadlines sleep on. Injected so tests
+    ///     drive timeouts with virtual time. Defaults to `ContinuousClock`.
     ///   - isOnline: Connectivity probe; sign-in flows fail fast when offline.
     ///     Defaults to always-online so tests need not supply it.
     ///   - onSignedIn: Hook run after a successful sign-in / session restore, for
@@ -94,6 +103,8 @@ public final class AuthCoordinator {
         anchor: any AuthPresentationAnchoring,
         config: AuthConfig,
         launch: AuthLaunchOptions,
+        timeouts: AuthTimeouts = .default,
+        clock: any Clock<Duration> = ContinuousClock(),
         isOnline: @escaping @Sendable () async -> Bool = { true },
         onSignedIn: @escaping @Sendable () async -> Void = {}
     ) {
@@ -104,6 +115,8 @@ public final class AuthCoordinator {
         self.anchor = anchor
         self.config = config
         self.launch = launch
+        self.timeouts = timeouts
+        self.clock = clock
         self.isOnline = isOnline
         self.onSignedIn = onSignedIn
         self.selectedTeamID = teamSelection.selectedTeamID
@@ -280,7 +293,11 @@ public final class AuthCoordinator {
 
     private func validateCachedSession() async {
         do {
-            if let user = try await client.currentUser(throwOnMissing: true) {
+            let client = self.client
+            let user = try await runPhase(.validateSession, timeout: timeouts.network) {
+                try await client.currentUser(throwOnMissing: true)
+            }
+            if let user {
                 await applySignedInUser(user)
                 return
             }
@@ -340,10 +357,11 @@ public final class AuthCoordinator {
         }
 
         do {
-            let nonce = try await client.sendMagicLinkEmail(
-                email: email,
-                callbackURL: config.magicLinkCallbackURL
-            )
+            let client = self.client
+            let callbackURL = config.magicLinkCallbackURL
+            let nonce = try await runPhase(.sendCode, timeout: timeouts.network) {
+                try await client.sendMagicLinkEmail(email: email, callbackURL: callbackURL)
+            }
             pendingNonce = nonce
         } catch {
             throw AuthError(displaySafe: error) ?? error
@@ -361,7 +379,10 @@ public final class AuthCoordinator {
 
         let fullCode = CMUXAuthMagicLinkCode(code: code, nonce: nonce).composed
         do {
-            try await client.signInWithMagicLink(code: fullCode)
+            let client = self.client
+            try await runPhase(.verifyCode, timeout: timeouts.network) {
+                try await client.signInWithMagicLink(code: fullCode)
+            }
             try await completeSignIn()
         } catch {
             throw AuthError(displaySafe: error) ?? error
@@ -376,7 +397,10 @@ public final class AuthCoordinator {
         defer { if setLoading { isLoading = false } }
 
         do {
-            try await client.signInWithCredential(email: email, password: password)
+            let client = self.client
+            try await runPhase(.passwordSignIn, timeout: timeouts.network) {
+                try await client.signInWithCredential(email: email, password: password)
+            }
             try await completeSignIn()
         } catch {
             throw AuthError(displaySafe: error) ?? error
@@ -398,15 +422,28 @@ public final class AuthCoordinator {
         isLoading = true
         defer { isLoading = false }
         do {
-            try await client.signInWithOAuth(provider: provider, anchor: anchor)
+            // Interactive deadline: ASAuthorizationController (Sign in with
+            // Apple) and ASWebAuthenticationSession callbacks are not
+            // guaranteed to fire; without a bound a stuck system sheet left
+            // the sign-in screen loading forever with no error and no way out.
+            let client = self.client
+            let anchor = self.anchor
+            try await runPhase(.oauth, timeout: timeouts.interactiveFlow) {
+                try await client.signInWithOAuth(provider: provider, anchor: anchor)
+            }
             try await completeSignIn()
         } catch {
+            log.log("auth.oauth provider=\(provider) failed: \(error)")
             throw AuthError(displaySafe: error) ?? error
         }
     }
 
     private func completeSignIn() async throws {
-        guard let user = try await client.currentUser(throwOnMissing: true) else {
+        let client = self.client
+        let user = try await runPhase(.fetchUser, timeout: timeouts.network) {
+            try await client.currentUser(throwOnMissing: true)
+        }
+        guard let user else {
             throw AuthError.unauthorized
         }
         await applySignedInUser(user)
@@ -585,14 +622,24 @@ public final class AuthCoordinator {
         saveCachedUser(user)
         sessionCache.setHasTokens(true)
         await refreshTeams()
-        await onSignedIn()
+        // Bound the post-sign-in hook (e.g. push token re-upload) too: it runs
+        // while `isLoading` is still true, so an unbounded hook would hold the
+        // sign-in spinner after the session is already published. Failure and
+        // timeout are tolerated; the hook is a side effect, not a gate.
+        let onSignedIn = self.onSignedIn
+        _ = try? await runPhase(.postSignIn, timeout: timeouts.network) {
+            await onSignedIn()
+        }
     }
 
     /// Refresh ``availableTeams`` from the client, tolerating failure so a
     /// flaky team fetch never blocks or unwinds a successful sign-in.
     private func refreshTeams() async {
         do {
-            let teams = try await client.listTeams()
+            let client = self.client
+            let teams = try await runPhase(.listTeams, timeout: timeouts.network) {
+                try await client.listTeams()
+            }
             availableTeams = teams
             selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
         } catch {
@@ -645,6 +692,22 @@ public final class AuthCoordinator {
         guard await isOnline() else {
             throw AuthError.offline
         }
+    }
+
+    /// Race `operation` against the phase deadline on the injected clock.
+    /// See ``withAuthPhaseTimeout(_:duration:clock:log:operation:)``.
+    private func runPhase<T: Sendable>(
+        _ phase: AuthPhase,
+        timeout: Duration,
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withAuthPhaseTimeout(
+            phase,
+            duration: timeout,
+            clock: clock,
+            log: log,
+            operation: operation
+        )
     }
 
     private func apply(_ state: CMUXAuthState) {

@@ -256,6 +256,23 @@
         }
       }
     },
+    "auth.error.timed_out": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in timed out. Check your connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインがタイムアウトしました。接続を確認してもう一度お試しください。"
+          }
+        }
+      }
+    },
     "auth.error.unauthorized": {
       "extractionState": "manual",
       "localizations": {
@@ -1629,6 +1646,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "サインイン"
+          }
+        }
+      }
+    },
+    "mobile.signIn.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
           }
         }
       }
