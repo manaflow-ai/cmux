@@ -13,10 +13,14 @@ public import Foundation
 ///
 /// It is a pure value type with no I/O so it can be unit-tested in isolation,
 /// which is where the address-bar correctness actually lives.
-public enum BrowserURLResolver {
+public struct BrowserURLResolver {
     /// The default search-engine query template. `%@` is replaced with the
     /// percent-encoded query.
     public static let defaultSearchTemplate = "https://duckduckgo.com/?q=%@"
+
+    /// The resolver is a unit of pure static functions; it is never
+    /// instantiated.
+    private init() {}
 
     /// Resolve raw address-bar text into a URL to load.
     ///
