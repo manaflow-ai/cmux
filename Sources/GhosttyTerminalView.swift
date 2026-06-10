@@ -6128,6 +6128,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         markPortalLifecycleClosed(reason: "teardown")
         closeHeadlessStartupWindowIfNeeded()
 
+        // Stop the control-mode gateway (e.g. tmux -CC) so it does not outlive
+        // the surface when the surface is closed, respawned, or the app quits.
+        // Clear the end handler first so tearing the surface down (close / quit)
+        // does not trigger the detach-revert (which would respawn a shell in a
+        // pane the user is closing). Detach-revert still runs on a real session
+        // end while the surface is alive.
+        onControlModeSessionEnded = nil
+        controlModeSession?.stop()
+
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
         let teeContext = mobileByteTeeContext
