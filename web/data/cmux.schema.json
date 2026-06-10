@@ -444,6 +444,7 @@
             "enabled": {
               "type": "boolean",
               "default": true,
+              "descriptionKey": "schemaDescriptions.terminal.surfaceHibernation.enabled",
               "description": "Enable Surface Hibernation."
             },
             "idleSeconds": {
@@ -451,6 +452,7 @@
               "minimum": 30,
               "maximum": 604800,
               "default": 300,
+              "descriptionKey": "schemaDescriptions.terminal.surfaceHibernation.idleSeconds",
               "description": "Minimum seconds without input or focus before the live-surface cap may reclaim a background shell terminal. A short confirmation settle window (~60s) still applies on top of this."
             },
             "unmountedIdleSeconds": {
@@ -458,6 +460,7 @@
               "minimum": 60,
               "maximum": 2592000,
               "default": 1800,
+              "descriptionKey": "schemaDescriptions.terminal.surfaceHibernation.unmountedIdleSeconds",
               "description": "Seconds a workspace must stay unmounted (hidden) — with its terminal quiet — before its idle shell surfaces hibernate even when the live-surface cap is not exceeded."
             },
             "maxLiveSurfaces": {
@@ -465,6 +468,7 @@
               "minimum": 1,
               "maximum": 256,
               "default": 12,
+              "descriptionKey": "schemaDescriptions.terminal.surfaceHibernation.maxLiveSurfaces",
               "description": "Maximum simultaneously live terminal surfaces to keep before cmux hibernates eligible background terminals, oldest first. Every live surface counts toward the limit; only idle, non-busy, non-visible ones are reclaimed."
             }
           }
