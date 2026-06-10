@@ -63,6 +63,8 @@
 		A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAA000000000000000001 /* AppearanceSettingsTests.swift */; };
 		D1320AA0D1320AA0D1320AA1 /* AppIconDockTilePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */; };
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
+		C9A57517C9A57517C9A57517 /* AppScrollerStylePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57518C9A57518C9A57518 /* AppScrollerStylePolicy.swift */; };
+		C9A57515C9A57515C9A57515 /* AppScrollerStylePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57516C9A57516C9A57516 /* AppScrollerStylePolicyTests.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */; };
 		A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A47E00010000000000000002 /* AuthEnvironmentTests.swift */; };
@@ -856,6 +858,8 @@
 		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
 		D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconDockTilePlugin.swift; sourceTree = "<group>"; };
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
+		C9A57518C9A57518C9A57518 /* AppScrollerStylePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppScrollerStylePolicy.swift; sourceTree = "<group>"; };
+		C9A57516C9A57516C9A57516 /* AppScrollerStylePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppScrollerStylePolicyTests.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthEnvironment.swift; sourceTree = "<group>"; };
 		A47E00010000000000000002 /* AuthEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthEnvironmentTests.swift; sourceTree = "<group>"; };
@@ -1749,6 +1753,7 @@
 				D5037010000000000000002 /* RenderableSystemSymbol.swift */,
 				C9A57202C9A57202C9A57202 /* SidebarWorkspaceRenderItem.swift */,
 				C9A57512C9A57512C9A57512 /* SidebarScrollViewConfigurator.swift */,
+				C9A57518C9A57518C9A57518 /* AppScrollerStylePolicy.swift */,
 				C9A57502C9A57502C9A57502 /* SidebarWorkspaceRowsHeightPreferenceKey.swift */,
 				C9A57504C9A57504C9A57504 /* SidebarWorkspaceRowsMeasurement.swift */,
 				C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */,
@@ -2216,6 +2221,7 @@
 				EF7347934AB1BD387686EE43 /* WorkspaceActionDispatcherTests.swift */,
 				F016B5C09357B3226FA2E014 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift */,
 				C9A57514C9A57514C9A57514 /* SidebarScrollViewConfiguratorTests.swift */,
+				C9A57516C9A57516C9A57516 /* AppScrollerStylePolicyTests.swift */,
 				C9A57506C9A57506C9A57506 /* SidebarWorkspaceScrollLayoutTests.swift */,
 				C0DEF0B30000000000000002 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift */,
 				E3337002E3337002E3337002 /* KeyboardShortcutSettingsFileStoreStartupTests.swift */,
@@ -2753,6 +2759,7 @@
 				A5001093 /* AppDelegate.swift in Sources */,
 				A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
+				C9A57517C9A57517C9A57517 /* AppScrollerStylePolicy.swift in Sources */,
 				D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */,
 				C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */,
 				A50012F1 /* Backport.swift in Sources */,
@@ -3231,6 +3238,7 @@
 				C34670010000000000000001 /* AppDelegateRenameShortcutContextTests.swift in Sources */,
 				F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */,
 				A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */,
+				C9A57515C9A57515C9A57515 /* AppScrollerStylePolicyTests.swift in Sources */,
 				A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */,
 				D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */,
 				BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */,

@@ -1,0 +1,49 @@
+import AppKit
+
+/// Forces overlay (auto-fading) scrollers across all of cmux's AppKit and
+/// WKWebView scroll views by overriding a system-wide "Show scroll bars:
+/// Always" (legacy) preference for cmux's process only.
+///
+/// In legacy-scroller environments — a mouse connected, or System Settings →
+/// Appearance → Show scroll bars → Always (`defaults write -g
+/// AppleShowScrollBars Always`) — macOS draws persistent, always-visible
+/// scrollbars in every scroll view app-wide, including the page content of
+/// `WKWebView`. That reserves a permanent bright track over browser panes and
+/// other cmux chrome, which is the persistent-scrollbar symptom reported in
+/// https://github.com/manaflow-ai/cmux/issues/3241.
+///
+/// AppKit resolves `NSScroller.preferredScrollerStyle` from the
+/// `AppleShowScrollBars` default. Writing `WhenScrolling` into cmux's *own*
+/// application defaults domain takes precedence over `NSGlobalDomain` for this
+/// process only, so every cmux scroll view (the sidebar list, browser-pane web
+/// content, settings panes, the file explorer) adopts the overlay style while
+/// the user's system-wide preference is left untouched for every other app.
+///
+/// This is the same intent already applied surface-by-surface elsewhere
+/// (terminals, the sidebar, text inputs all force `scrollerStyle = .overlay`);
+/// this policy makes overlay the process default so AppKit-created scrollers
+/// that cmux does not directly own — most importantly `WKWebView` page
+/// scrollers — match instead of inheriting the legacy style.
+///
+/// It composes with `SidebarScrollViewConfigurator`: that type still forces
+/// `.overlay` directly on the sidebar scroll view and tolerates no same-value
+/// rewrites; this policy only changes the *default* AppKit reads when it
+/// creates a scroller, so the two never fight. To avoid a redundant
+/// app-domain write (which posts `UserDefaults.didChangeNotification` and can
+/// nudge AppKit to re-evaluate scroller style mid-fade), the override is
+/// written only when the resolved value is not already `WhenScrolling`.
+enum AppScrollerStylePolicy {
+    /// `AppleShowScrollBars` selects overlay vs. legacy scrollers app-wide.
+    static let scrollBarsDefaultsKey = "AppleShowScrollBars"
+
+    /// The value AppKit maps to the modern overlay (auto-fading) scroller style.
+    static let overlayValue = "WhenScrolling"
+
+    /// Registers the per-app overlay-scroller override. Must run during launch
+    /// before any scroll view (terminal, sidebar, browser pane) is created so
+    /// `NSScroller.preferredScrollerStyle` resolves to overlay from the start.
+    static func applyAtLaunch(defaults: UserDefaults = .standard) {
+        // Intentionally unimplemented in this commit so the regression test
+        // fails (red). The override is added in the following commit (green).
+    }
+}
