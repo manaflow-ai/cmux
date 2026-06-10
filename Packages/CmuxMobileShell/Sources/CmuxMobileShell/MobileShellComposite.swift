@@ -1353,6 +1353,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// `true` on a physical iPhone/iPad; `false` in the simulator and in
+    /// macOS-hosted package tests. Drives the loopback-pairing rejection:
+    /// the simulator's 127.0.0.1 is the host Mac and dev auto-pair depends
+    /// on it, while a physical device dialing loopback only ever reaches
+    /// itself.
+    private static var isPhysicalDevice: Bool {
+        #if os(iOS) && !targetEnvironment(simulator)
+        true
+        #else
+        false
+        #endif
+    }
+
     private static func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
         let routeKind = MobileShellRouteAuthPolicy.manualRouteKind(for: host)
         return try CmxAttachRoute(
@@ -1374,6 +1387,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let ticket: CmxAttachTicket
         do {
             ticket = try CmxAttachTicketInput.decode(rawURL)
+            // The v2 grammar rejects loopback inside the decoder; the legacy
+            // grammars must keep decoding loopback for the simulator dev flow
+            // (where 127.0.0.1 IS the host Mac). On a physical phone no
+            // grammar may pair to loopback: the route would dial the phone
+            // itself, and loopback is Stack-auth-trusted, so the bearer token
+            // would be handed to whatever local process answers. Pure policy,
+            // unit tested for both device values; only this wiring is
+            // compile-time.
+            if MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+                ticket.routes,
+                isPhysicalDevice: Self.isPhysicalDevice
+            ) {
+                throw MobileSyncPairingPayloadError.loopbackRouteRejected
+            }
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             if case MobileSyncPairingPayloadError.loopbackRouteRejected = error {
