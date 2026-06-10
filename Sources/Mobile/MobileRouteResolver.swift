@@ -55,15 +55,34 @@ final class MobileRouteResolver: @unchecked Sendable {
             }
         }
 
+        // Prefer raw CGNAT IP routes over MagicDNS `.ts.net` names: connecting by
+        // literal IP skips a DNS resolution on the phone (which, for a `.ts.net`
+        // name, depends on Tailscale MagicDNS being active and adds avoidable
+        // latency to the pairing critical path). Both kinds reach the same Mac
+        // over the same WireGuard tunnel, so the only difference is the lookup.
+        // All IP routes get a lower priority value (tried first) than any DNS
+        // route; a within-class counter keeps ordering stable when there are
+        // several of either. The `id` stays keyed to the input index so persisted
+        // reconnect routes are unaffected.
+        var ipLiteralRank = 0
+        var dnsNameRank = 0
         for (index, tailscaleHost) in tailscaleHosts.enumerated() {
             let id = index == 0
                 ? CmxAttachTransportKind.tailscale.rawValue
                 : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)"
+            let priority: Int
+            if Self.isTailscaleDNSName(tailscaleHost) {
+                priority = 100 + dnsNameRank
+                dnsNameRank += 1
+            } else {
+                priority = 10 + ipLiteralRank
+                ipLiteralRank += 1
+            }
             if let tailscaleRoute = try? CmxAttachRoute(
                 id: id,
                 kind: .tailscale,
                 endpoint: .hostPort(host: tailscaleHost, port: port),
-                priority: 10 + (index * 10)
+                priority: priority
             ) {
                 resolved.append(tailscaleRoute)
             }

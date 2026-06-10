@@ -2,6 +2,12 @@ public import CMUXMobileCore
 internal import CmuxMobileShellModel
 internal import CmuxMobileSupport
 public import Foundation
+#if DEBUG
+import Dispatch
+import OSLog
+
+private let mobileRPCLog = Logger(subsystem: "dev.cmux", category: "mobile-rpc")
+#endif
 
 /// A multiplexed RPC client over a single persistent transport to a paired Mac.
 ///
@@ -195,7 +201,19 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
+                #if DEBUG
+                let tokenFetchStartNanoseconds = DispatchTime.now().uptimeNanoseconds
+                #endif
                 auth["stack_access_token"] = try await runtime.stackAccessTokenProvider()
+                #if DEBUG
+                // RT-A timing: the SDK refreshes a >75s-old token here. Log only
+                // when slow so steady-state per-keystroke cache hits (~0ms) don't
+                // spam; a pre-warmed pair should make this fast at the first send.
+                let tokenFetchMilliseconds = Double(DispatchTime.now().uptimeNanoseconds - tokenFetchStartNanoseconds) / 1_000_000
+                if tokenFetchMilliseconds > 50 {
+                    mobileRPCLog.debug("pairing.rtA stackTokenFetch ms=\(tokenFetchMilliseconds, privacy: .public)")
+                }
+                #endif
             } catch let error as MobileShellConnectionError {
                 // The provider already classified the failure: a transient
                 // token-fetch failure (offline / refresh server hiccup, session

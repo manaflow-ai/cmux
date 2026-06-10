@@ -268,6 +268,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
+    /// Warms the Stack access token concurrently with the route TCP connect so
+    /// the SDK's >75s-old-token refresh overlaps the connect instead of
+    /// serializing in front of the first authorized send. Best-effort: result
+    /// ignored. Cancelled on the next connect / pairing attempt.
+    private var tokenPrewarmTask: Task<Void, Never>?
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
@@ -1705,6 +1710,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // therefore cannot authorize, which is intended.
         let routeAllowsStackAuthFallback = allowsStackAuthFallback
             ?? supportedRoutes.allSatisfy(MobileShellRouteAuthPolicy.routeAllowsStackAuth)
+        // Pre-warm the Stack access token concurrently with the upcoming route
+        // TCP connect. The vendored SDK refreshes any token older than ~75s on
+        // the first authorized send; starting that refresh now overlaps it with
+        // the local connect (hiding one Stack round-trip) instead of paying it
+        // serially in front of the first workspace.list. Best-effort only: the
+        // authoritative fetch still runs in the RPC layer, which preserves the
+        // transient-vs-definitive error classification, so a failed pre-warm is
+        // swallowed here and never drives the re-auth prompt.
+        if routeAllowsStackAuthFallback {
+            prewarmStackAccessToken(runtime: runtime)
+        }
         var lastError: (any Error)?
         for route in supportedRoutes {
             activeRoute = route
@@ -1920,6 +1936,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTaskID = nil
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = nil
+        tokenPrewarmTask?.cancel()
+        tokenPrewarmTask = nil
+    }
+
+    /// Kicks off a best-effort Stack access-token mint so it overlaps the route
+    /// TCP connect instead of blocking the first authorized send. The result is
+    /// intentionally discarded: this only warms the SDK's token cache. Any
+    /// failure is swallowed so it never surfaces as an auth error (the real send
+    /// does the authoritative, classification-preserving fetch).
+    private func prewarmStackAccessToken(runtime: any MobileSyncRuntime) {
+        tokenPrewarmTask?.cancel()
+        let provider = runtime.stackAccessTokenProvider
+        tokenPrewarmTask = Task.detached(priority: .userInitiated) {
+            #if DEBUG
+            let start = DispatchTime.now().uptimeNanoseconds
+            #endif
+            let didSucceed = ((try? await provider()) != nil)
+            #if DEBUG
+            let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+            mobileShellLog.debug("pairing.prewarm stackToken finished ms=\(elapsedMs, privacy: .public) ok=\(didSucceed ? 1 : 0, privacy: .public)")
+            #endif
+        }
     }
 
     private func resetTerminalOutputTracking() {
