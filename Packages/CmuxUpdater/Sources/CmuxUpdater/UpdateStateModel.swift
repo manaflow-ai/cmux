@@ -121,30 +121,6 @@ public final class UpdateStateModel {
         detectedUpdateItem = nil
         detectedUpdateVersion = version
     }
-
-    /// Overrides the state with a synthetic "updater agent couldn't start" install failure so the
-    /// error popover's launchd-failure copy and the manual-download button can be previewed from
-    /// the debug menu.
-    ///
-    /// Mirrors the real wedged-launchd failure: ``SUInstallationError`` (4005) wrapping an
-    /// "agent connection was never initiated" timeout.
-    public func debugShowInstallerAgentError() {
-        let underlying = NSError(domain: SUSparkleErrorDomain, code: 10, userInfo: [
-            NSLocalizedDescriptionKey: "Timeout: agent connection was never initiated",
-        ])
-        let error = NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
-            NSLocalizedDescriptionKey: "An error occurred while running the updater. Please try again later.",
-            NSLocalizedFailureReasonErrorKey: "The remote port connection was invalidated from the updater.",
-            NSUnderlyingErrorKey: underlying,
-        ])
-        setOverrideState(.error(.init(
-            error: error,
-            retry: { [weak self] in self?.setOverrideState(nil) },
-            dismiss: { [weak self] in self?.setOverrideState(nil) },
-            technicalDetails: "underlying=SUSparkleErrorDomain(10) Timeout: agent connection was never initiated",
-            feedURLString: "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
-        )))
-    }
     #endif
 
     /// Dismisses a detected available update, replying `.dismiss` to Sparkle for whichever of

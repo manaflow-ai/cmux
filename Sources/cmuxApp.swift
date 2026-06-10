@@ -446,8 +446,12 @@ struct cmuxApp: App {
                 Button("Show Loading State") {
                     appDelegate.showUpdatePillLoading(nil)
                 }
-                Button("Show Installer Agent Error") {
-                    appDelegate.updateViewModel.debugShowInstallerAgentError()
+                Menu("Show Update Error…") {
+                    ForEach(DebugUpdateErrorScenario.allCases, id: \.self) { scenario in
+                        Button(scenario.menuTitle) {
+                            appDelegate.updateViewModel.debugShowUpdateError(scenario)
+                        }
+                    }
                 }
                 Button("Hide Update Pill") {
                     appDelegate.hideUpdatePill(nil)
