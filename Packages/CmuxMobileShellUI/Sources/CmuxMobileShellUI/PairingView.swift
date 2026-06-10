@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
@@ -22,12 +23,15 @@ struct PairingView: View {
     let connectManualHost: (String, String, Int) async -> Void
     let cancelPairing: () -> Void
     let cancel: () -> Void
+    /// Builds a connection doctor for the failure section's checkup entrance.
+    let makeConnectionDoctor: @MainActor () -> ConnectionDoctor
 
     /// The Founders Edition page (Mac download + TestFlight enrollment) the
     /// "Download via TestFlight" link points at while TestFlight is private.
     private static let testFlightURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
 
     @State private var isShowingScanner = false
+    @State private var isShowingConnectionDoctor = false
     @State private var deviceName = UITestConfig.addDeviceName
         ?? L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac")
     @State private var host = UITestConfig.addDeviceHost ?? ""
@@ -168,6 +172,15 @@ struct PairingView: View {
                                 .textSelection(.enabled)
                                 .accessibilityIdentifier("MobilePairingErrorSignedInAccount")
                         }
+                        Button {
+                            isShowingConnectionDoctor = true
+                        } label: {
+                            Label(
+                                L10n.string("mobile.doctor.entry.pairing", defaultValue: "Run a connection checkup"),
+                                systemImage: "stethoscope"
+                            )
+                        }
+                        .accessibilityIdentifier("MobilePairingConnectionDoctorButton")
                     }
                 }
             }
@@ -211,6 +224,12 @@ struct PairingView: View {
                 }
                 #endif
             }
+        }
+        .sheet(isPresented: $isShowingConnectionDoctor) {
+            ConnectionDoctorView(
+                makeDoctor: makeConnectionDoctor,
+                done: { isShowingConnectionDoctor = false }
+            )
         }
         #if os(iOS)
         .sheet(isPresented: $isShowingScanner) {

@@ -133,7 +133,8 @@ struct CMUXMobileRootView: View {
         } else if store.connectionState != .connected {
             DisconnectedWorkspaceShellView(
                 showAddDevice: showAddDevice,
-                signOut: signOut
+                signOut: signOut,
+                makeConnectionDoctor: makeConnectionDoctor
             )
             .sheet(isPresented: $isShowingAddDeviceSheet) {
                 PairingView(
@@ -147,7 +148,8 @@ struct CMUXMobileRootView: View {
                         await store.connectManualHost(name: name, host: host, port: port)
                     },
                     cancelPairing: store.cancelPairing,
-                    cancel: { isShowingAddDeviceSheet = false }
+                    cancel: { isShowingAddDeviceSheet = false },
+                    makeConnectionDoctor: makeConnectionDoctor
                 )
                 #if os(iOS)
                 .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
@@ -228,6 +230,15 @@ struct CMUXMobileRootView: View {
         addDeviceSheetDetent = .large
         #endif
         isShowingAddDeviceSheet = true
+    }
+
+    /// Builds a connection doctor over the store's live seams, supplying the
+    /// signed-in email (only the auth coordinator knows it) for the account row.
+    private func makeConnectionDoctor() -> ConnectionDoctor {
+        let authManager = authManager
+        return store.makeConnectionDoctor(accountEmail: {
+            authManager.currentUser?.primaryEmail
+        })
     }
 
     private func connectAttachURL(_ rawURL: String) {

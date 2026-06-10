@@ -1,3 +1,4 @@
+import CmuxMobileShell
 import CmuxMobileSupport
 import SwiftUI
 #if os(iOS)
@@ -9,6 +10,10 @@ import AppKit
 struct DisconnectedWorkspaceShellView: View {
     let showAddDevice: () -> Void
     let signOut: () -> Void
+    /// Builds a connection doctor for the "Connection checkup" entrance.
+    let makeConnectionDoctor: @MainActor () -> ConnectionDoctor
+
+    @State private var isShowingConnectionDoctor = false
 
     /// The Founders Edition page (Mac download + TestFlight enrollment) the
     /// onboarding "Download via TestFlight" link points at while TestFlight is
@@ -31,6 +36,13 @@ struct DisconnectedWorkspaceShellView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.blue)
                 .accessibilityIdentifier("MobileShowAddDeviceButton")
+                Button {
+                    isShowingConnectionDoctor = true
+                } label: {
+                    Text(L10n.string("mobile.doctor.entry", defaultValue: "Connection checkup"))
+                }
+                .font(.callout)
+                .accessibilityIdentifier("MobileDisconnectedConnectionDoctorButton")
                 Link(
                     L10n.string("mobile.testflight.link", defaultValue: "Download via TestFlight"),
                     destination: Self.testFlightURL
@@ -58,6 +70,12 @@ struct DisconnectedWorkspaceShellView: View {
                 #endif
             }
             .accessibilityIdentifier("MobileDisconnectedWorkspaceShell")
+        }
+        .sheet(isPresented: $isShowingConnectionDoctor) {
+            ConnectionDoctorView(
+                makeDoctor: makeConnectionDoctor,
+                done: { isShowingConnectionDoctor = false }
+            )
         }
     }
 

@@ -834,6 +834,652 @@
         }
       }
     },
+    "mobile.doctor.check.account": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウント"
+          }
+        }
+      }
+    },
+    "mobile.doctor.check.listener": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux running on the Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでのcmuxの実行"
+          }
+        }
+      }
+    },
+    "mobile.doctor.check.localNetwork": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Network permission"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルネットワークの許可"
+          }
+        }
+      }
+    },
+    "mobile.doctor.check.macReachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac reachable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macへの到達性"
+          }
+        }
+      }
+    },
+    "mobile.doctor.check.network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internet connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターネット接続"
+          }
+        }
+      }
+    },
+    "mobile.doctor.check.routes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存されたアドレス"
+          }
+        }
+      }
+    },
+    "mobile.doctor.check.tailnetPhone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale on this device"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この端末のTailscale"
+          }
+        }
+      }
+    },
+    "mobile.doctor.check.ticket": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングリンク"
+          }
+        }
+      }
+    },
+    "mobile.doctor.detail.reachedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reached %@:%d."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@:%d に到達しました。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.entry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection checkup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続チェック"
+          }
+        }
+      }
+    },
+    "mobile.doctor.entry.pairing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run a connection checkup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続チェックを実行"
+          }
+        }
+      }
+    },
+    "mobile.doctor.fix.accountMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is signed in to a different cmux account. Use the same account on both devices."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacは別のcmuxアカウントにサインインしています。両方の端末で同じアカウントを使用してください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.fix.authFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac couldn't verify this account. Sign out and back in on both devices, then pair again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macがこのアカウントを確認できませんでした。両方の端末でサインアウトして再度サインインし、もう一度ペアリングしてください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.fix.listenerOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac is reachable, but cmux isn't running there (or iPhone connections are off). Open cmux on the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macには到達できますが、cmuxが実行されていません(またはiPhone接続がオフです)。Macでcmuxを開いてください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.fix.localNetwork": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS is blocking the connection. Allow cmux to use the Local Network in iOS Settings, then run the checkup again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSが接続をブロックしています。iOSの設定でcmuxにローカルネットワークの使用を許可してから、もう一度チェックを実行してください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.fix.macDNS": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't resolve the Mac's address. Check that Tailscale is connected on both devices."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのアドレスを解決できませんでした。両方の端末でTailscaleが接続されているか確認してください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.fix.macDialFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't reach the Mac at its saved address. Check the Mac's network, then run the checkup again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存されたアドレスでMacに接続できませんでした。Macのネットワークを確認してから、もう一度チェックを実行してください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.fix.macTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac didn't answer. It may be asleep: wake it and keep Tailscale connected on it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macが応答しませんでした。スリープ中の可能性があります。Macを起こして、Tailscaleを接続したままにしてください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.fix.macUnreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac isn't reachable at its saved address. Turn Tailscale on for the Mac and make sure both devices are on the same tailnet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存されたアドレスでMacに到達できません。MacのTailscaleをオンにし、両方の端末が同じtailnetにあることを確認してください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.fix.noRoutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Mac is paired on this device. Pair with a QR or link from the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この端末にはペアリングされたMacがありません。MacのQRコードまたはリンクでペアリングしてください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.fix.notSignedIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not signed in on this device. Sign in to cmux, then run the checkup again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この端末ではサインインしていません。cmuxにサインインしてから、もう一度チェックを実行してください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.fix.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device is offline. Connect to Wi-Fi or cellular, then run the checkup again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この端末はオフラインです。Wi-Fiまたはモバイルデータに接続してから、もう一度チェックを実行してください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.fix.staleRoutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac's address changed since pairing. Reconnect to refresh it, or pair again from the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング後にMacのアドレスが変わりました。再接続して更新するか、Macからもう一度ペアリングしてください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.fix.tailscaleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale is off on this device (or not installed). Open the Tailscale app, turn it on, then run the checkup again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この端末のTailscaleがオフ(または未インストール)です。Tailscaleアプリを開いてオンにしてから、もう一度チェックを実行してください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.fix.ticketExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The pairing QR/link expired. Open pairing on the Mac and scan a fresh one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング用のQR/リンクの有効期限が切れました。Macでペアリング画面を開き、新しいものをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.note.blockedDial": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The dial was blocked before reaching the network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続はネットワークに到達する前にブロックされました。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.note.needsReachableMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't check until the Mac is reachable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macに到達できるまで確認できません。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.note.noDial": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No saved address to dial yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ接続を試せる保存済みアドレスがありません。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.note.noPairedMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to check yet. Pair from the Mac first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ確認するものがありません。先にMacからペアリングしてください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.note.notTailnetRoute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The saved address doesn't use Tailscale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存されたアドレスはTailscaleを使用していません。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.note.pairingOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only checked while pairing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング中のみ確認します。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.note.undialable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The saved route can't be checked with a direct dial."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存されたルートは直接接続では確認できません。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.runAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度実行"
+          }
+        }
+      }
+    },
+    "mobile.doctor.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your setup…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セットアップを確認中…"
+          }
+        }
+      }
+    },
+    "mobile.doctor.startHere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここから開始"
+          }
+        }
+      }
+    },
+    "mobile.doctor.summary.fixFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix the highlighted item first, then run the checkup again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まずハイライトされた項目を修正してから、もう一度チェックを実行してください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.summary.healthy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything checks out. If you still can't connect, quit and reopen cmux on the Mac, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "問題は見つかりませんでした。それでも接続できない場合は、Macでcmuxを終了して開き直し、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.doctor.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Checkup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続チェック"
+          }
+        }
+      }
+    },
     "mobile.hostPicker.active": {
       "extractionState": "manual",
       "localizations": {
