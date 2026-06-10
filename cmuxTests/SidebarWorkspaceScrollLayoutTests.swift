@@ -92,8 +92,10 @@ struct SidebarWorkspaceScrollLayoutTests {
                 viewportHeight: viewportHeight,
                 insets: insets
             )
-            // Simulate AppKit rounding the laid-out document view up to a whole
-            // backing-store pixel.
+            // Simulate AppKit rounding the laid-out document view up to the next
+            // whole point. This is conservative (AppKit aligns to backing-store
+            // pixels, which are <= 1 pt on Retina displays), so the assertion
+            // holds regardless of the display scale factor.
             let roundedDocumentHeight = contentMinHeight.rounded(.up)
             #expect(roundedDocumentHeight + insets.total <= viewportHeight)
         }
