@@ -18,8 +18,10 @@ struct ShellStartupMatrixTests {
     }
 
     @Test
-    func zshStartupPreservesUserZdotdirAndLoadsGhosttyIntegration() {
-        let integrationDir = "/Applications/cmux.app/Contents/Resources/shell-integration"
+    func zshStartupPreservesUserZdotdirAndLoadsGhosttyIntegration() throws {
+        let bundled = try makeBundledIntegrationDir(files: [".zshenv": "# cmux zsh bootstrap stub\n"])
+        defer { try? FileManager.default.removeItem(at: bundled.root) }
+        let integrationDir = bundled.integrationDir
         var environment = [
             "ZDOTDIR": "/Users/example/.zsh",
             "GHOSTTY_RESOURCES_DIR": "/Applications/Ghostty.app/Contents/Resources",
@@ -42,7 +44,9 @@ struct ShellStartupMatrixTests {
     }
 
     @Test
-    func zshStartupDoesNotPreserveGhosttyInjectedZdotdir() {
+    func zshStartupDoesNotPreserveGhosttyInjectedZdotdir() throws {
+        let bundled = try makeBundledIntegrationDir(files: [".zshenv": "# cmux zsh bootstrap stub\n"])
+        defer { try? FileManager.default.removeItem(at: bundled.root) }
         let ghosttyResources = "/Applications/Ghostty.app/Contents/Resources"
         var environment = [
             "ZDOTDIR": "\(ghosttyResources)/shell-integration/zsh",
@@ -52,7 +56,7 @@ struct ShellStartupMatrixTests {
 
         _ = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
             shell: "/bin/zsh",
-            integrationDir: "/Applications/cmux.app/Contents/Resources/shell-integration",
+            integrationDir: bundled.integrationDir,
             userGhosttyShellIntegrationMode: "detect",
             to: &environment,
             protectedKeys: &protectedKeys
@@ -93,8 +97,10 @@ struct ShellStartupMatrixTests {
     }
 
     @Test
-    func fishStartupReturnsManagedCommandAndPreservesUserConfigHome() {
-        let integrationDir = "/Applications/cmux.app/Contents/Resources/shell-integration"
+    func fishStartupReturnsManagedCommandAndPreservesUserConfigHome() throws {
+        let bundled = try makeBundledIntegrationDir(files: ["fish/config.fish": "# cmux fish bootstrap stub\n"])
+        defer { try? FileManager.default.removeItem(at: bundled.root) }
+        let integrationDir = bundled.integrationDir
         let shell = "/opt/homebrew/bin/fish"
         var environment = ["XDG_CONFIG_HOME": "/Users/example/.config"]
         var protectedKeys: Set<String> = []
@@ -310,6 +316,28 @@ struct ShellStartupMatrixTests {
         """
         .write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    /// Creates a real on-disk stand-in for the app bundle's
+    /// `Resources/shell-integration` dir containing the given relative files,
+    /// since the production code now verifies the bundled bootstrap exists
+    /// before redirecting shell startup at it.
+    private func makeBundledIntegrationDir(
+        files: [String: String]
+    ) throws -> (root: URL, integrationDir: String) {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-shell-matrix-bundle-\(UUID().uuidString)")
+        let integrationDir = root.appendingPathComponent("shell-integration")
+        for (relativePath, contents) in files {
+            let fileURL = integrationDir.appendingPathComponent(relativePath)
+            try fileManager.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+        }
+        return (root, integrationDir.path)
     }
 
     private func formatSeconds(_ value: TimeInterval) -> String {

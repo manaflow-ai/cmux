@@ -6627,10 +6627,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
         }
 
-        // Shell integration: inject startup wrappers for supported shells.
-        let shellIntegrationEnabled = UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true
-        if shellIntegrationEnabled,
-           let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path {
+        // Shell integration: inject startup wrappers for supported shells; skipped when the bundled dir is missing (deleted app bundle), see shellIntegrationDirectoryExists.
+        if UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
+           let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path,
+           Self.shellIntegrationDirectoryExists(integrationDir) {
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION", "1")
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION_DIR", integrationDir)
             Self.applyManagedGitWatchEnvironment(
