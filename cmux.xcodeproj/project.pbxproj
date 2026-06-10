@@ -234,6 +234,7 @@
 		C7A512000000000000000002 /* CmuxTopProcessSnapshotCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A512000000000000000001 /* CmuxTopProcessSnapshotCache.swift */; };
 		C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A501000000000000000001 /* CmuxTopSnapshot.swift */; };
 		C7A508000000000000000002 /* CmuxTopSnapshotScopeCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */; };
+		C7A5090000000000000005A2 /* CmuxTopSnapshotScopeCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A5090000000000000005A1 /* CmuxTopSnapshotScopeCacheTests.swift */; };
 		C7A509000000000000000002 /* CmuxTopSnapshotScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */; };
 		CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */ = {isa = PBXBuildFile; productRef = CDFEED0200000000CDFEED02 /* CmuxUpdater */; };
 		CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */ = {isa = PBXBuildFile; productRef = CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */; };
@@ -986,6 +987,7 @@
 		C7A512000000000000000001 /* CmuxTopProcessSnapshotCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessSnapshotCache.swift; sourceTree = "<group>"; };
 		C7A501000000000000000001 /* CmuxTopSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshot.swift; sourceTree = "<group>"; };
 		C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeCache.swift; sourceTree = "<group>"; };
+		C7A5090000000000000005A1 /* CmuxTopSnapshotScopeCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeCacheTests.swift; sourceTree = "<group>"; };
 		C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeTests.swift; sourceTree = "<group>"; };
 		7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D7AB0000000000000000000A /* CmuxWebView+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/CmuxWebView+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
@@ -2250,6 +2252,7 @@
 				C7A507000000000000000001 /* TaskManagerResourcesTests.swift */,
 				C7A507000000000000004530 /* TaskManagerViewSnapshotBoundaryTests.swift */,
 				C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */,
+				C7A5090000000000000005A1 /* CmuxTopSnapshotScopeCacheTests.swift */,
 				C7A50C000000000000000001 /* CmuxTopProcessCPUTests.swift */,
 				D7AB34300000000000000006 /* SidebarWorkspaceDropPlannerTests.swift */,
 				D7AB34300000000000000106 /* SidebarTabDropIndicatorPredicateTests.swift */,
@@ -3238,6 +3241,7 @@
 				C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */,
 				C3677001000000000000001 /* CmuxSSHURLRequestTests.swift in Sources */,
 				C7A50C000000000000000002 /* CmuxTopProcessCPUTests.swift in Sources */,
+				C7A5090000000000000005A2 /* CmuxTopSnapshotScopeCacheTests.swift in Sources */,
 				C7A509000000000000000002 /* CmuxTopSnapshotScopeTests.swift in Sources */,
 				D0B1000CA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift in Sources */,
 				7D5DA4DC51454ECDBF9AC978 /* CmuxWebViewMouseNavigationButtonTests.swift in Sources */,
