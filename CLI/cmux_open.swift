@@ -1099,7 +1099,12 @@ extension CMUXCLI {
             // directory (0600 sidecar), never through socket params: only a
             // real `cmux edit` can mint it, so browser.open_split callers
             // cannot point an editor token at an arbitrary file.
-            let sidecar: [String: Any] = ["token": mapper.token, "path": filePath]
+            let servingOrigin = origin.absoluteString
+            let sidecar: [String: Any] = [
+                "token": mapper.token,
+                "path": filePath,
+                "origin": servingOrigin
+            ]
             let sidecarURL = directory.appendingPathComponent(".editor-\(mapper.token).json", isDirectory: false)
             let sidecarData = try JSONSerialization.data(withJSONObject: sidecar, options: [.sortedKeys])
             try sidecarData.write(to: sidecarURL, options: .atomic)
