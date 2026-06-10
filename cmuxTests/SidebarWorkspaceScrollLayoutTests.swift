@@ -71,17 +71,19 @@ struct SidebarWorkspaceScrollLayoutTests {
     @Test func contentHeightStaysWithinViewportAfterPixelRounding() {
         // Real sidebar viewport heights are frequently fractional on
         // Retina/scaled displays and with fractional window heights. SwiftUI
-        // lays the scroll content out to `contentMinHeight`, but AppKit rounds
-        // the document view's frame UP to the next backing-store pixel. If
+        // lays the scroll content out to `contentMinHeight`, but AppKit aligns
+        // the document view's frame to the backing store (rounding up). If
         // `contentMinHeight` is fractional, that round-up pushes
-        // `document + insets` a sub-pixel past the viewport, so the content
+        // `document + insets` a sub-point past the viewport, so the content
         // becomes (barely) scrollable and the auto-hiding overlay scroller is
         // shown even when only a single workspace is present — the phantom
         // sidebar scrollbar (https://github.com/manaflow-ai/cmux/issues/3241).
         //
-        // Guard the invariant directly: the content height must stay pixel
-        // aligned so that, even after AppKit rounds it up to a whole pixel,
-        // `content + insets` never exceeds the viewport.
+        // Guard the invariant directly: the content height must stay point
+        // aligned. Rounding up to a whole point is a conservative
+        // over-approximation of AppKit's backing-store alignment (which is
+        // finer on Retina), so if `content + insets` survives a whole-point
+        // round-up it survives the real, finer one too.
         let insets = SidebarWorkspaceScrollInsets(top: 28, bottom: 48)
         let fractionalViewportHeights: [CGFloat] = [948.7, 720.5, 1033.25, 600.999]
 
