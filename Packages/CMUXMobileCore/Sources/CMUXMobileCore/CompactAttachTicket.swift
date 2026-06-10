@@ -24,6 +24,7 @@ struct CompactAttachTicket: Codable {
 
     func ticket() throws -> CmxAttachTicket {
         try CmxAttachTicket(
+            version: v,
             workspaceID: w ?? "",
             terminalID: t,
             macDeviceID: d,
