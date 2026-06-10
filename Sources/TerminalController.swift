@@ -19599,7 +19599,9 @@ class TerminalController {
         if AgentHibernationLifecycleStatusKeys.isAllowed(key) {
             return true
         }
-        guard let tab = resolveSidebarMutationTab(target),
+        // Validate against the panel's current workspace so registry lookups
+        // use the moved pane's project config, not the stale --tab target.
+        guard let tab = sidebarMutationTab(for: target, panelId: panelId),
               CmuxVaultAgentRegistration.isValidID(key) else {
             return false
         }
