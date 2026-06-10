@@ -6264,9 +6264,11 @@ class TabManager: ObservableObject {
         }
         let route = resolveReactGrabShortcutRoute(panels: snapshots)
 
-        // Browser target: an explicit browser surface wins, else the route's browser.
+        // Browser target: an explicit surface is authoritative (it must be a browser, no
+        // fallback to a different browser); otherwise resolve the route's browser from focus.
         let browserPanelId: UUID?
-        if let explicit = browserSurfaceId, workspace.browserPanel(for: explicit) != nil {
+        if let explicit = browserSurfaceId {
+            guard workspace.browserPanel(for: explicit) != nil else { return false }
             browserPanelId = explicit
         } else {
             browserPanelId = route?.browserPanelId

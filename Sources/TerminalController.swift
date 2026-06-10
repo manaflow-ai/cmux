@@ -13059,7 +13059,10 @@ class TerminalController {
         workspace: Workspace,
         params: [String: Any]
     ) -> (panel: BrowserPanel, surfaceId: UUID)? {
-        if let sid = v2UUID(params, "surface_id"), let panel = workspace.browserPanel(for: sid) {
+        // An explicit surface is authoritative: it must resolve to a browser in this workspace.
+        // Never silently fall back to a different browser (a terminal/typo'd ref must error).
+        if let sid = v2UUID(params, "surface_id") {
+            guard let panel = workspace.browserPanel(for: sid) else { return nil }
             return (panel, sid)
         }
         if let focusedId = workspace.focusedPanelId, let panel = workspace.browserPanel(for: focusedId) {

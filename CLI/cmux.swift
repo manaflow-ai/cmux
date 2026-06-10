@@ -11542,13 +11542,30 @@ struct CMUXCLI {
         }
 
         // Optional browser surface: an explicit --surface (or positional handle) targets that
-        // browser; otherwise the app acts on the workspace's focused browser, mirroring the GUI.
+        // browser; otherwise the app acts on the focused browser of the CALLER's workspace.
+        // When no surface is given we still scope to the invoking workspace (--workspace, or
+        // CMUX_WORKSPACE_ID) so a background agent never acts on whatever workspace happens to
+        // be selected in the foreground.
         func optionalSurfaceParams() throws -> [String: Any] {
-            guard let raw = surfaceRaw else { return [:] }
-            guard let resolved = try normalizeSurfaceHandle(raw, client: client) else {
-                throw CLIError(message: "Invalid surface handle")
+            if let raw = surfaceRaw {
+                guard let resolved = try normalizeSurfaceHandle(raw, client: client) else {
+                    throw CLIError(message: "Invalid surface handle")
+                }
+                return ["surface_id": resolved]
             }
-            return ["surface_id": resolved]
+            var params: [String: Any] = [:]
+            let (workspaceOpt, _) = parseOption(subArgs, name: "--workspace")
+            let (windowOpt, _) = parseOption(subArgs, name: "--window")
+            if let windowRaw = windowOpt,
+               let window = try normalizeWindowHandle(windowRaw, client: client) {
+                params["window_id"] = window
+            }
+            let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            if let workspaceRaw,
+               let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
+                params["workspace_id"] = workspace
+            }
+            return params
         }
 
         if subcommand == "react-grab" || subcommand == "reactgrab" {
