@@ -1150,7 +1150,10 @@ func browserShouldPersistInsecureHTTPAllowlistSelection(
 func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
     var preparedRequest = request
     // Match browser behavior for ordinary loads while preserving method/body/headers.
-    preparedRequest.cachePolicy = .useProtocolCachePolicy
+    // Dev hosts skip the local cache so stale dev-server assets are never reused.
+    preparedRequest.cachePolicy = BrowserDevHostCachePolicy.shouldBypassCache(for: request.url)
+        ? .reloadIgnoringLocalCacheData
+        : .useProtocolCachePolicy
     return preparedRequest
 }
 
@@ -6758,6 +6761,10 @@ extension BrowserPanel {
                 )
                 return
             }
+        }
+        if BrowserDevHostCachePolicy.shouldBypassCache(for: webView.url) {
+            webView.reloadFromOrigin()
+            return
         }
         webView.reload()
     }
