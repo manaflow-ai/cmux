@@ -173,6 +173,13 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
     /// file's own directory.
     private static func replacePreservingMetadata(fileURL: URL, with data: Data) throws {
         let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            // Force-save after the file was deleted on disk: there is no
+            // original to preserve metadata from, so recreate it directly
+            // (this is the resolution path for the file-missing conflict).
+            try data.write(to: fileURL, options: .atomic)
+            return
+        }
         let replacementDirectory = try fileManager.url(
             for: .itemReplacementDirectory,
             in: .userDomainMask,
