@@ -589,7 +589,7 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
 
         panel.enterSurfaceHibernation(
             scrollback: "hibernated-autosave-content",
-            workingDirectory: nil,
+            workingDirectory: "/tmp/cmux-hibernated-autosave-dir",
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
 
@@ -597,6 +597,7 @@ final class SurfaceHibernationPolicyTests: XCTestCase {
         let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
 
         XCTAssertEqual(panelSnapshot.terminal?.scrollback, "hibernated-autosave-content")
+        XCTAssertEqual(panelSnapshot.terminal?.workingDirectory, "/tmp/cmux-hibernated-autosave-dir")
     }
 
     @MainActor

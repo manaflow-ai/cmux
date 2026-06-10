@@ -615,8 +615,15 @@ extension Workspace {
                     allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
                 )
             }
+            // A hibernated panel's captured directory travels with the panel
+            // (e.g. across workspace moves), so prefer it over workspace
+            // metadata, which may be missing or stale for the freed surface.
+            let hibernatedWorkingDirectory = surfaceHibernationState?.workingDirectory?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             terminalSnapshot = SessionTerminalPanelSnapshot(
-                workingDirectory: directory,
+                workingDirectory: hibernatedWorkingDirectory?.isEmpty == false
+                    ? hibernatedWorkingDirectory
+                    : directory,
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
