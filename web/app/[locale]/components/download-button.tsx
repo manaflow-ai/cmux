@@ -37,11 +37,11 @@ export function DownloadButton({
   // an over-wide 16:19 / 12:14 box (which left uneven slack beside the label).
   const logoHeight = isSmall ? 14 : 19;
   const logoWidth = (logoHeight * 814) / 1000;
-  // Optically center the mark with the label: its solid body anchors low while
-  // the leaf extends the bounding box upward, so a geometrically-centered logo
-  // reads as riding high. A small downward nudge (scaled with the size) lands
-  // the body on the text's cap-height midline at both sizes.
-  const logoNudge = isSmall ? 0.75 : 1;
+  // Optically center the mark with the label by aligning its center to the
+  // text's cap-height midline (which sits slightly above the flex line-box
+  // center the box is otherwise centered on). A small size-scaled upward nudge
+  // lands the glyph on that midline at both sizes.
+  const logoNudge = isSmall ? -0.25 : -0.5;
   const icon = (
     <svg
       width={logoWidth}
