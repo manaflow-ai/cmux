@@ -175,6 +175,46 @@ import Testing
         await gate.open()
     }
 
+    // A token fetch that ends in cancellation (the caller was reaped by the
+    // route race, superseded, or dismissed) must surface as cancellation, not
+    // be remapped into a definitive `.authorizationFailed`: callers treat
+    // definitive auth failures as session evidence and would trip the re-auth
+    // prompt on a mere cancel.
+    @Test func cancelledStackTokenFetchSurfacesAsCancellationNotAuthFailure() async throws {
+        let transport = QueuedCancellationProbeTransport()
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59124)
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessTokenProvider: { throw CancellationError() }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:])
+
+        do {
+            _ = try await client.sendRequest(request)
+            Issue.record("Expected the cancelled token fetch to fail the request")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+        // Cancellation aborted auth before anything reached the wire.
+        #expect(try await transport.sentRequests().isEmpty)
+    }
+
     // A task group joins every child before returning, so a deadline built on
     // one only delivers when the operation honors cancellation. The deadline
     // must fire even when the operation never does (a stuck SDK call), by

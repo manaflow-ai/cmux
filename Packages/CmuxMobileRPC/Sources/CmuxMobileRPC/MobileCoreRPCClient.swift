@@ -118,6 +118,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             }
         } catch let error as MobileShellConnectionError {
             throw error
+        } catch is CancellationError {
+            // Caller cancellation (a reaped race loser, a superseded attempt,
+            // a dismissed UI) says nothing about the session. Mapping it to
+            // `.authorizationFailed` would skip the callers' silent-cancel
+            // handling and trip the re-auth prompt on a mere cancel.
+            throw CancellationError()
         } catch {
             throw MobileShellConnectionError.authorizationFailed(
                 L10n.string(
@@ -226,6 +232,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 // everything to `.authorizationFailed` here is what made retry
                 // fail permanently.
                 throw error
+            } catch is CancellationError {
+                // Same rule as the force-refresh path: cancellation is not
+                // session evidence and must surface as cancellation.
+                throw CancellationError()
             } catch {
                 throw MobileShellConnectionError.authorizationFailed(
                     L10n.string(
