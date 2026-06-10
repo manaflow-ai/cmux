@@ -202,10 +202,12 @@ class TerminalController {
         "feed.jump"
     ]
 
-    /// Mints/resolves the stable `kind:N` handle refs handed to v2 callers
-    /// (`ControlHandleKind` + `ControlHandleRegistry` live in
-    /// CmuxControlSocket; main-actor isolation is provided here).
-    private var v2Handles = ControlHandleRegistry()
+    /// The main-actor RPC dispatch coordinator (CmuxControlSocket). Owns the
+    /// `kind:N` handle registry and the moved command domains (window so far,
+    /// growing per stage-3c sub-stage); this controller is its interim
+    /// composition owner and ``ControlCommandContext`` conformer. Constructed in
+    /// `init`; its `context` is wired to `self` once `self` is available.
+    let controlCommandCoordinator = ControlCommandCoordinator()
 
     private struct V2BrowserElementRefEntry {
         let surfaceId: UUID
@@ -247,7 +249,7 @@ class TerminalController {
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
 
-            v2Handles.removeRef(kind: .surface, uuid: surfaceId)
+            controlCommandCoordinator.removeRef(kind: .surface, uuid: surfaceId)
         }
     }
 
@@ -286,6 +288,7 @@ class TerminalController {
             }
         }
         serverEventTarget.controller = self
+        controlCommandCoordinator.context = self
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
             object: nil,
@@ -1886,6 +1889,15 @@ class TerminalController {
 
             v2MainSync { self.v2RefreshKnownRefs() }
 
+            // Domains migrated into CmuxControlSocket's ControlCommandCoordinator
+            // (window so far) answer here, on the main actor, and encode through
+            // the same encoder/id; everything else falls through to the legacy
+            // switch below. processV2Command already runs on main, so the
+            // coordinator's bodies need no per-read v2MainSync hop.
+            if let coordinatorResult = controlCommandCoordinator.handle(request) {
+                return Self.v2Encoder.response(id: request.id, coordinatorResult)
+            }
+
             switch method {
         case "system.ping":
             return v2Ok(id: id, result: ["pong": true])
@@ -1929,21 +1941,7 @@ class TerminalController {
                 ]
             )
 
-        // Windows
-        case "window.list":
-            return v2Result(id: id, self.v2WindowList(params: params))
-        case "window.current":
-            return v2Result(id: id, self.v2WindowCurrent(params: params))
-        case "window.focus":
-            return v2Result(id: id, self.v2WindowFocus(params: params))
-        case "window.create":
-            return v2Result(id: id, self.v2WindowCreate(params: params))
-        case "window.close":
-            return v2Result(id: id, self.v2WindowClose(params: params))
-        case "window.displays":
-            return v2Result(id: id, self.v2WindowDisplays(params: params))
-        case "window.display":
-            return v2Result(id: id, self.v2WindowDisplay(params: params))
+        // Windows (`window.*`) are handled above by ControlCommandCoordinator.
 
         // Workspaces
         case "workspace.list":
@@ -3832,11 +3830,11 @@ class TerminalController {
     }
 
     private func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
-        v2Handles.ensureRef(kind: kind, uuid: uuid)
+        controlCommandCoordinator.ensureRef(kind: kind, uuid: uuid)
     }
 
     func v2ResolveHandleRef(_ handle: String) -> UUID? {
-        v2Handles.uuid(forRef: handle)
+        controlCommandCoordinator.resolveRef(handle)
     }
 
     func v2Ref(kind: ControlHandleKind, uuid: UUID?) -> Any {
@@ -3991,6 +3989,37 @@ class TerminalController {
         return nil
     }
 
+    /// Mirrors the former `v2ResolveTabManager` precedence for the
+    /// ``ControlCommandContext`` window resolution, operating on selectors the
+    /// coordinator already resolved through the shared handle registry: explicit
+    /// `window_id` wins (a present-but-unresolvable one yields no target), then
+    /// group, workspace, surface, pane, then the caller's window, then the
+    /// active scriptable window. Lives here so it can read the controller's
+    /// `private` `tabManager` / `v2LocateTabManager`.
+    func resolveTabManager(routing: ControlRoutingSelectors) -> TabManager? {
+        if routing.hasWindowIDParam {
+            guard let windowId = routing.windowID else { return nil }
+            return AppDelegate.shared?.tabManagerFor(windowId: windowId)
+        }
+        if let groupId = routing.groupID,
+           let tm = v2LocateTabManager(forGroupId: groupId) {
+            return tm
+        }
+        if let workspaceId = routing.workspaceID,
+           let tm = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) {
+            return tm
+        }
+        if let surfaceId = routing.surfaceID,
+           let tm = AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager {
+            return tm
+        }
+        if let paneId = routing.paneID,
+           let tm = v2LocatePane(paneId)?.tabManager {
+            return tm
+        }
+        return tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager
+    }
+
     func v2ResolveWindowId(tabManager: TabManager?) -> UUID? {
         guard let tabManager else { return nil }
         return v2MainSync { AppDelegate.shared?.windowId(for: tabManager) }
@@ -3998,156 +4027,6 @@ class TerminalController {
 
     private func v2ResolveWorkspaceOwner(_ workspaceId: UUID) -> TabManager? {
         v2MainSync { AppDelegate.shared?.tabManagerFor(tabId: workspaceId) }
-    }
-
-    // MARK: - V2 Window Methods
-
-    private func v2WindowList(params _: [String: Any]) -> V2CallResult {
-        let windows = v2MainSync { AppDelegate.shared?.listMainWindowSummaries() } ?? []
-        let payload: [[String: Any]] = windows.enumerated().map { index, item in
-            return [
-                "id": item.windowId.uuidString,
-                "ref": v2Ref(kind: .window, uuid: item.windowId),
-                "index": index,
-                "key": item.isKeyWindow,
-                "visible": item.isVisible,
-                "workspace_count": item.workspaceCount,
-                "selected_workspace_id": v2OrNull(item.selectedWorkspaceId?.uuidString),
-                "selected_workspace_ref": v2Ref(kind: .workspace, uuid: item.selectedWorkspaceId)
-            ]
-        }
-        return .ok(["windows": payload])
-    }
-
-    private func v2WindowCurrent(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
-        guard let windowId = v2ResolveWindowId(tabManager: tabManager) else {
-            return .err(code: "not_found", message: "Current window not found", data: nil)
-        }
-        return .ok([
-            "window_id": windowId.uuidString,
-            "window_ref": v2Ref(kind: .window, uuid: windowId)
-        ])
-    }
-
-    private func v2WindowFocus(params: [String: Any]) -> V2CallResult {
-        guard let windowId = v2UUID(params, "window_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
-        }
-        let ok = v2MainSync { AppDelegate.shared?.focusMainWindow(windowId: windowId) ?? false }
-        return ok
-            ? .ok([
-                "window_id": windowId.uuidString,
-                "window_ref": v2Ref(kind: .window, uuid: windowId)
-            ])
-            : .err(code: "not_found", message: "Window not found", data: [
-                "window_id": windowId.uuidString,
-                "window_ref": v2Ref(kind: .window, uuid: windowId)
-            ])
-    }
-
-    private func v2WindowCreate(params _: [String: Any]) -> V2CallResult {
-        guard let windowId = v2MainSync({ AppDelegate.shared?.createMainWindow() }) else {
-            return .err(code: "internal_error", message: "Failed to create window", data: nil)
-        }
-        // The new window should become key, but setActiveTabManager defensively.
-        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
-            setActiveTabManager(tm)
-        }
-        return .ok([
-            "window_id": windowId.uuidString,
-            "window_ref": v2Ref(kind: .window, uuid: windowId)
-        ])
-    }
-
-    private func v2WindowClose(params: [String: Any]) -> V2CallResult {
-        guard let windowId = v2UUID(params, "window_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
-        }
-        let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId) ?? false }
-        return ok
-            ? .ok([
-                "window_id": windowId.uuidString,
-                "window_ref": v2Ref(kind: .window, uuid: windowId)
-            ])
-            : .err(code: "not_found", message: "Window not found", data: [
-                "window_id": windowId.uuidString,
-                "window_ref": v2Ref(kind: .window, uuid: windowId)
-            ])
-    }
-
-    private func v2WindowDisplays(params _: [String: Any]) -> V2CallResult {
-        let displays = v2MainSync { AppDelegate.shared?.availableDisplays() } ?? []
-        let payload: [[String: Any]] = displays.map { display in
-            [
-                "name": display.name,
-                "index": display.index,
-                "display_id": v2OrNull(display.displayID.map { Int($0) }),
-                "main": display.isMain,
-                "frame": [
-                    "x": Int(display.frame.origin.x),
-                    "y": Int(display.frame.origin.y),
-                    "width": Int(display.frame.width),
-                    "height": Int(display.frame.height)
-                ]
-            ]
-        }
-        return .ok(["displays": payload])
-    }
-
-    private func v2WindowDisplay(params: [String: Any]) -> V2CallResult {
-        guard let displayQuery = (params["display"] as? String)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-              !displayQuery.isEmpty else {
-            return .err(code: "invalid_params", message: "Missing or invalid display", data: nil)
-        }
-
-        // Explicit window target moves just that window; otherwise move every main
-        // window of this instance (a dev build usually has one).
-        if let windowId = v2UUID(params, "window_id") {
-            let resolved = v2MainSync {
-                AppDelegate.shared?.moveMainWindow(windowId: windowId, toDisplayMatching: displayQuery)
-            }
-            if let display = resolved {
-                return .ok([
-                    "display": display,
-                    "window_id": windowId.uuidString,
-                    "window_ref": v2Ref(kind: .window, uuid: windowId),
-                    "moved": [windowId.uuidString]
-                ])
-            }
-            let windowExists = v2MainSync {
-                AppDelegate.shared?.windowForMainWindowId(windowId) != nil
-            }
-            if !windowExists {
-                return .err(code: "not_found", message: "Window not found", data: [
-                    "window_id": windowId.uuidString,
-                    "window_ref": v2Ref(kind: .window, uuid: windowId)
-                ])
-            }
-            return v2DisplayNotFound(displayQuery)
-        }
-
-        guard let result = v2MainSync({
-            AppDelegate.shared?.moveAllMainWindows(toDisplayMatching: displayQuery)
-        }) else {
-            return v2DisplayNotFound(displayQuery)
-        }
-        return .ok([
-            "display": result.display,
-            "moved": result.windowIds.map { $0.uuidString }
-        ])
-    }
-
-    private func v2DisplayNotFound(_ requested: String) -> V2CallResult {
-        let names = v2MainSync { AppDelegate.shared?.availableDisplays().map(\.name) } ?? []
-        return .err(
-            code: "not_found",
-            message: "Display not found: \(requested)",
-            data: ["requested": requested, "available": names]
-        )
     }
 
     // MARK: - V2 Workspace Methods
