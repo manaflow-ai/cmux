@@ -16,8 +16,8 @@
 6948	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6469	cmuxTests/GhosttyConfigTests.swift
 6299	cmuxTests/TerminalAndGhosttyTests.swift
-6119	CLI/cmux_open.swift
 6220	cmuxTests/SessionPersistenceTests.swift
+6119	CLI/cmux_open.swift
 5948	Sources/TextBoxInput.swift
 5482	cmuxTests/BrowserConfigTests.swift
 5431	Sources/cmuxApp.swift
@@ -39,7 +39,7 @@
 2545	cmuxTests/WorkspaceManualUnreadTests.swift
 2513	cmuxTests/CommandPaletteSearchEngineTests.swift
 2509	Sources/KeyboardShortcutSettings.swift
-2378	Sources/TerminalNotificationStore.swift
+2474	Sources/TerminalNotificationStore.swift
 2327	cmuxTests/CJKIMEInputTests.swift
 2290	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
@@ -53,7 +53,7 @@
 1793	Sources/SessionIndexStore.swift
 1751	Sources/WindowDragHandleView.swift
 1721	cmuxTests/TerminalControllerSocketSecurityTests.swift
-1726	Sources/RestorableAgentSession.swift
+1720	Sources/RestorableAgentSession.swift
 1693	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
 1643	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
@@ -140,16 +140,16 @@
 621	cmuxUITests/RightSidebarChromeHeightUITests.swift
 620	cmuxTests/TerminalNotificationQueueTests.swift
 619	cmuxTests/FinderFileDropRegressionTests.swift
-613	Sources/PortScanner.swift
 614	cmuxTests/SessionIndexViewTests.swift
+613	Sources/PortScanner.swift
 599	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
 596	cmuxTests/CmuxEventBusTests.swift
+594	Sources/SessionIndexModels.swift
 594	cmuxTests/PortalTabDragRoutingTests.swift
 589	Sources/SettingsNavigation.swift
 588	cmuxTests/CommandPaletteShortcutCustomizationTests.swift
 586	Sources/JSONCParser.swift
 585	Sources/Cloud/VMClient.swift
-594	Sources/SessionIndexModels.swift
 580	Packages/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
 578	cmuxUITests/FeedSidebarUITests.swift
