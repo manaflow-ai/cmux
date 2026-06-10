@@ -119,14 +119,13 @@ cmux browser surface:2 url
 cmux browser surface:2 focus-webview
 cmux browser surface:2 is-webview-focused
 
-# View actions (target the focused browser when no surface is given)
 cmux browser react-grab toggle
 cmux browser devtools toggle
 cmux browser devtools console
 cmux browser focus-mode toggle
 cmux browser zoom in
 cmux browser zoom reset
-cmux browser history clear`}</CodeBlock>
+cmux browser history clear --force`}</CodeBlock>
 
       <DocsHeading level={2} id="waiting-section">{t("waitingSection")}</DocsHeading>
       <p>{t("waitingDesc")}</p>

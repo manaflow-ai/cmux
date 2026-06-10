@@ -6275,10 +6275,13 @@ class TabManager: ObservableObject {
         }
         guard let browserPanelId else { return false }
 
-        // Return terminal: an explicit terminal surface wins. Otherwise adopt the route's return
-        // terminal only when the browser also came from the route (matching shortcut semantics).
+        // Return terminal: an explicit return surface is authoritative (must be a terminal in
+        // this workspace, no fallback) so pasteback never silently goes to the wrong terminal.
+        // With no explicit return, adopt the route's terminal only when the browser also came
+        // from the route (matching shortcut semantics).
         let returnTerminalPanelId: UUID?
-        if let explicit = returnTerminalSurfaceId, workspace.panels[explicit]?.panelType == .terminal {
+        if let explicit = returnTerminalSurfaceId {
+            guard workspace.panels[explicit]?.panelType == .terminal else { return false }
             returnTerminalPanelId = explicit
         } else if browserSurfaceId == nil {
             returnTerminalPanelId = route?.returnTerminalPanelId

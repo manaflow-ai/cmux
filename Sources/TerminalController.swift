@@ -13206,6 +13206,11 @@ class TerminalController {
     }
 
     private func v2BrowserHistoryClear(params: [String: Any]) -> V2CallResult {
+        // Destructive + global: require explicit deletion intent so a mistyped command or
+        // background agent cannot silently wipe the user's browser history.
+        guard v2Bool(params, "force") == true else {
+            return .err(code: "invalid_params", message: "browser.history.clear requires force=true", data: nil)
+        }
         v2MainSync {
             BrowserHistoryStore.shared.clearHistory()
         }

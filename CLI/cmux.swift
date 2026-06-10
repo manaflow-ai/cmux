@@ -11626,7 +11626,10 @@ struct CMUXCLI {
             guard verb == "clear" else {
                 throw CLIError(message: "Unsupported browser history subcommand: \(verb) (expected: clear)")
             }
-            let payload = try client.sendV2(method: "browser.history.clear", params: [:])
+            guard hasFlag(subArgs, name: "--force") || hasFlag(subArgs, name: "--yes") else {
+                throw CLIError(message: "browser history clear permanently deletes ALL browser history; pass --force to confirm")
+            }
+            let payload = try client.sendV2(method: "browser.history.clear", params: ["force": true])
             output(payload, fallback: "OK")
             return
         }
@@ -32547,7 +32550,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           browser devtools toggle|console [--surface <id>]
           browser focus-mode enter|exit|toggle [--surface <id>]
           browser zoom in|out|reset [--surface <id>]
-          browser history clear
+          browser history clear --force
           browser url|get-url
           browser snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
           browser eval <script>
