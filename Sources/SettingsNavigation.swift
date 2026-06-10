@@ -519,6 +519,7 @@ enum SettingsSearchIndex {
         "browser.customSearchEngineName": settingID(for: .browser, idSuffix: "search-engine"),
         "browser.customSearchEngineURLTemplate": settingID(for: .browser, idSuffix: "search-engine"),
         "browser.showSearchSuggestions": settingID(for: .browser, idSuffix: "search-suggestions"),
+        "browser.disableCacheForDevHosts": settingID(for: .browser, idSuffix: "dev-host-no-cache"),
         "browser.theme": settingID(for: .browser, idSuffix: "theme"),
         "browser.discardHiddenWebViews": settingID(for: .browser, idSuffix: "hidden-webview-discard"),
         "browser.hiddenWebViewDiscardDelaySeconds": settingID(for: .browser, idSuffix: "hidden-webview-discard-delay"),

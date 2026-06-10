@@ -773,6 +773,17 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: BrowserSearchSettings.searchSuggestionsEnabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "browserDisableCacheForDevHosts",
+                settingsKey: "browser.disableCacheForDevHosts",
+                title: {
+                    String(localized: "settings.browser.devHostNoCache", defaultValue: "Always Fetch Fresh Content from Local Dev Servers")
+                },
+                sectionTitle: browser,
+                keywords: ["browser.disableCacheForDevHosts", "browser", "cache", "localhost", "dev", "server", "fresh", "reload"],
+                defaultValue: BrowserDevHostCachePolicy.defaultEnabled,
+                defaultsKey: BrowserDevHostCachePolicy.enabledKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "openTerminalLinksInCmuxBrowser",
                 settingsKey: "browser.openTerminalLinksInCmuxBrowser",
                 title: {

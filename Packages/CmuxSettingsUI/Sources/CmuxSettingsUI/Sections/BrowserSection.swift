@@ -21,6 +21,7 @@ public struct BrowserSection: View {
     @State private var customName: DefaultsValueModel<String>
     @State private var customURL: DefaultsValueModel<String>
     @State private var suggestions: DefaultsValueModel<Bool>
+    @State private var devHostNoCache: DefaultsValueModel<Bool>
     @State private var theme: DefaultsValueModel<BrowserThemeMode>
     @State private var discardEnabled: DefaultsValueModel<Bool>
     @State private var discardDelay: DefaultsValueModel<Double>
@@ -51,6 +52,7 @@ public struct BrowserSection: View {
         _customName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineName))
         _customURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate))
         _suggestions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showSearchSuggestions))
+        _devHostNoCache = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.disableCacheForDevHosts))
         _theme = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.theme))
         _discardEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews))
         _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
@@ -151,6 +153,19 @@ public struct BrowserSection: View {
                 String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions")
             ) {
                 Toggle("", isOn: Binding(get: { suggestions.current }, set: { suggestions.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Always Fetch Fresh Content from Local Dev Servers
+            SettingsCardRow(
+                configurationReview: .json("browser.disableCacheForDevHosts"),
+                searchAnchorID: "setting:browser:dev-host-no-cache",
+                String(localized: "settings.browser.devHostNoCache", defaultValue: "Always Fetch Fresh Content from Local Dev Servers"),
+                subtitle: String(localized: "settings.browser.devHostNoCache.subtitle", defaultValue: "Reloads bypass the cache for localhost and other local dev hosts, so stale dev-server assets are never shown.")
+            ) {
+                Toggle("", isOn: Binding(get: { devHostNoCache.current }, set: { devHostNoCache.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }
