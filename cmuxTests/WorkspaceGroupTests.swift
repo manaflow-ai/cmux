@@ -204,6 +204,40 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func snoozedGroupAnchorIsNotRenderedAsVisibleRow() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let anchorId = group.anchorWorkspaceId
+
+        // Snooze the group's anchor while visible children remain. The hidden
+        // anchor must not leak back into the sidebar as the group header.
+        #expect(manager.setWorkspaceHidden(tabId: anchorId, hidden: true))
+        #expect(manager.hiddenWorkspaceTabs.map(\.id).contains(anchorId))
+
+        let items = SidebarWorkspaceRenderItem.renderItems(
+            tabs: manager.visibleWorkspaceTabs,
+            groupsById: Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
+        )
+        let rowIds = items.map(\.rowWorkspaceId)
+
+        #expect(!rowIds.contains(anchorId))
+        for item in items {
+            if case .groupHeader = item {
+                Issue.record("group header rendered for snoozed anchor")
+            }
+        }
+        // Visible children still render as plain rows.
+        #expect(rowIds.contains(originalIds[1]))
+        #expect(rowIds.contains(originalIds[2]))
+    }
+
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)

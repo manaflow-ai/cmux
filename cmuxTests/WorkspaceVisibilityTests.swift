@@ -40,6 +40,26 @@ final class WorkspaceVisibilityTests: XCTestCase {
         XCTAssertFalse(third.isHidden)
     }
 
+    func testFocusingHiddenWorkspaceRevealsIt() throws {
+        // Reveal must happen at the shared selection choke point, not only in
+        // selectWorkspace(_:). focusTab routes through selectWorkspaceId (the
+        // path used by notification jump-to-unread and move-with-focus), so a
+        // hidden workspace that becomes focused must never stay hidden.
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace(select: false)
+
+        XCTAssertTrue(manager.setWorkspaceHidden(tabId: second.id, hidden: true))
+        XCTAssertTrue(second.isHidden)
+        XCTAssertEqual(manager.selectedTabId, first.id)
+
+        manager.focusTab(second.id)
+
+        XCTAssertEqual(manager.selectedTabId, second.id)
+        XCTAssertFalse(second.isHidden)
+        XCTAssertEqual(manager.visibleWorkspaceTabs.map(\.id), [first.id, second.id])
+    }
+
     func testHidingLastWorkspaceSelectsNearestPreviousVisibleWorkspace() throws {
         let manager = TabManager()
         _ = try XCTUnwrap(manager.tabs.first)

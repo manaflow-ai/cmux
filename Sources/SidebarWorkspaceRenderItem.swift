@@ -29,6 +29,12 @@ enum SidebarWorkspaceRenderItem {
         groupsById: [UUID: WorkspaceGroup]
     ) -> [SidebarWorkspaceRenderItem] {
         guard !tabs.isEmpty else { return [] }
+        // `tabs` is the visible workspace list, so a group whose anchor is
+        // snoozed (hidden) is absent here. Such a group has no representable
+        // header — emitting one would surface the hidden anchor's id as a
+        // visible, interactive row. Treat those groups as headerless and render
+        // their visible children as plain rows until the anchor is woken.
+        let visibleTabIds = Set(tabs.map(\.id))
         var memberWorkspaceIdsByGroupId: [UUID: [UUID]] = [:]
         for tab in tabs {
             if let gid = tab.groupId {
@@ -46,7 +52,9 @@ enum SidebarWorkspaceRenderItem {
             if groupId != lastEmittedGroupId {
                 lastEmittedGroupId = groupId
                 skipChildrenUntilNextGroup = false
-                if let groupId, let group = groupsById[groupId] {
+                if let groupId,
+                   let group = groupsById[groupId],
+                   visibleTabIds.contains(group.anchorWorkspaceId) {
                     if !emittedHeaders.contains(groupId) {
                         let memberWorkspaceIds = memberWorkspaceIdsByGroupId[groupId] ?? []
                         items.append(.groupHeader(group, memberWorkspaceIds: memberWorkspaceIds))
@@ -58,8 +66,12 @@ enum SidebarWorkspaceRenderItem {
                     skipChildrenUntilNextGroup = collapsedByGroupId[groupId] ?? false
                 }
             }
-            // Anchor workspaces are represented exclusively by the group header.
-            if let groupId, let group = groupsById[groupId], group.anchorWorkspaceId == tab.id {
+            // Anchor workspaces are represented exclusively by the group header
+            // (only when that header is actually emitted, i.e. anchor visible).
+            if let groupId,
+               let group = groupsById[groupId],
+               visibleTabIds.contains(group.anchorWorkspaceId),
+               group.anchorWorkspaceId == tab.id {
                 continue
             }
             if groupId == nil || !skipChildrenUntilNextGroup {

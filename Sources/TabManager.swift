@@ -6877,6 +6877,15 @@ class TabManager: ObservableObject {
         _ tabId: UUID,
         notificationDismissalContext: NotificationDismissalContext?
     ) {
+        // Reveal a hidden workspace whenever it becomes selected, regardless of
+        // the entrypoint. This is the shared choke point for selection
+        // (notification jump-to-unread, move-with-focus, CLI/socket focus, and
+        // sidebar clicks all route here), so a hidden workspace can never end up
+        // the active terminal with no sidebar row. Unhiding is a no-op when the
+        // workspace is already visible and never re-enters this method.
+        if let workspace = tabs.first(where: { $0.id == tabId }), workspace.isHidden {
+            _ = setWorkspaceHidden(workspace, hidden: false)
+        }
         guard selectedTabId != tabId else {
             pendingSelectedTabNotificationDismissContext = nil
             if let notificationDismissalContext {
