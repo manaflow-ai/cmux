@@ -2810,6 +2810,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
     private static func isAllowedMimeType(_ mimeType: String) -> Bool {
         mimeType == "text/html" || mimeType == "text/javascript" || mimeType == "text/x-diff"
+            || mimeType == "text/css"
     }
 
     private static func pathExtensionMatchesMimeType(path: String, mimeType: String) -> Bool {
@@ -2821,6 +2822,11 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         if mimeType == "text/x-diff" {
             return path.hasSuffix(".patch")
+        }
+        // `text/css` is served (non-executable, nosniff) so the Monaco editor
+        // surface can fetch and inline its stylesheet over the custom scheme.
+        if mimeType == "text/css" {
+            return path.hasSuffix(".css")
         }
         return false
     }
