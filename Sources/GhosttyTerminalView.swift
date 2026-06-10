@@ -12361,14 +12361,20 @@ final class GhosttySurfaceScrollView: NSView {
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
     private var lastSentRow: Int?
-    /// Tracks whether the user has scrolled away from the bottom to review scrollback.
-    /// When true, auto-scroll should be suspended to prevent the "doomscroll" bug
-    /// where the terminal fights the user's scroll position.
-    private var userScrolledAwayFromBottom = false
+    private enum ScrollViewportAnchor: Equatable {
+        case tail
+        case row(Int)
+    }
+    /// Single source of truth for whether this terminal should follow live output
+    /// or preserve a specific review row across output, layout, and portal visibility.
+    private var scrollViewportAnchor: ScrollViewportAnchor = .tail
+    private var pendingVisibilityRestoreAnchor: ScrollViewportAnchor?
+    private var pendingVisibilityRestoreSynchronizationsRemaining = 0
     private var pendingExplicitWheelScroll = false
     private var allowExplicitScrollbarSync = false
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
+    private static let maxPendingVisibilityRestoreSynchronizations = 3
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var lastRequestedPortalOcclusionVisible: Bool?
@@ -13937,6 +13943,13 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
+        if wasVisible != visible {
+            if visible {
+                prepareVisibilityRestore()
+            } else {
+                captureViewportAnchorBeforeHiding()
+            }
+        }
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
@@ -15310,6 +15323,159 @@ final class GhosttySurfaceScrollView: NSView {
         layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
+    private func scrollOffsetFromBottom(
+        visibleRect: NSRect,
+        documentHeight: CGFloat = CGFloat.nan
+    ) -> CGFloat {
+        let resolvedDocumentHeight = documentHeight.isFinite ? documentHeight : documentView.frame.height
+        return max(0, resolvedDocumentHeight - visibleRect.origin.y - visibleRect.height)
+    }
+
+    private func currentScrollRow(visibleRect: NSRect? = nil, documentHeight: CGFloat = CGFloat.nan) -> Int? {
+        let cellHeight = surfaceView.cellSize.height
+        guard cellHeight > 0 else { return nil }
+        let rect = visibleRect ?? scrollView.contentView.documentVisibleRect
+        return max(0, Int(scrollOffsetFromBottom(visibleRect: rect, documentHeight: documentHeight) / cellHeight))
+    }
+
+    private func viewportAnchor(
+        visibleRect: NSRect? = nil,
+        documentHeight: CGFloat = CGFloat.nan
+    ) -> ScrollViewportAnchor? {
+        let cellHeight = surfaceView.cellSize.height
+        guard cellHeight > 0 else { return nil }
+        let rect = visibleRect ?? scrollView.contentView.documentVisibleRect
+        let scrollOffset = scrollOffsetFromBottom(visibleRect: rect, documentHeight: documentHeight)
+        guard scrollOffset > Self.scrollToBottomThreshold else { return .tail }
+        return .row(max(0, Int(scrollOffset / cellHeight)))
+    }
+
+    private func viewportAnchor(for scrollbar: GhosttyScrollbar) -> ScrollViewportAnchor {
+        if scrollbar.offset + scrollbar.len >= scrollbar.total {
+            return .tail
+        }
+        return .row(Int(scrollbar.offset))
+    }
+
+    private func updateScrollViewportAnchorFromVisibleRect(
+        _ visibleRect: NSRect? = nil,
+        replacingPendingRestore: Bool = false
+    ) {
+        guard surfaceView.isVisibleInUI, !isHidden else { return }
+        if pendingVisibilityRestoreAnchor != nil {
+            guard replacingPendingRestore else { return }
+            clearPendingVisibilityRestore()
+        }
+        guard let anchor = viewportAnchor(visibleRect: visibleRect) else { return }
+        scrollViewportAnchor = anchor
+    }
+
+    private func clearPendingVisibilityRestore() {
+        pendingVisibilityRestoreAnchor = nil
+        pendingVisibilityRestoreSynchronizationsRemaining = 0
+    }
+
+    private func captureViewportAnchorBeforeHiding() {
+        if let anchor = viewportAnchor() {
+            scrollViewportAnchor = anchor
+        }
+        clearPendingVisibilityRestore()
+    }
+
+    private func prepareVisibilityRestore() {
+        switch scrollViewportAnchor {
+        case .tail:
+            clearPendingVisibilityRestore()
+        case .row(let row):
+            let anchor = ScrollViewportAnchor.row(row)
+            pendingVisibilityRestoreAnchor = anchor
+            pendingVisibilityRestoreSynchronizationsRemaining = Self.maxPendingVisibilityRestoreSynchronizations
+            _ = applyLocalViewportAnchor(anchor)
+            lastSentRow = row
+            _ = surfaceView.performBindingAction("scroll_to_row:\(row)")
+        }
+    }
+
+    private func localOriginY(
+        for anchor: ScrollViewportAnchor,
+        documentHeight: CGFloat
+    ) -> CGFloat? {
+        switch anchor {
+        case .tail:
+            return nil
+        case .row(let row):
+            let cellHeight = surfaceView.cellSize.height
+            guard cellHeight > 0 else { return nil }
+            let viewportHeight = scrollView.contentView.bounds.height
+            let maxOriginY = max(0, documentHeight - viewportHeight)
+            let originY = documentHeight - (CGFloat(max(0, row)) * cellHeight) - viewportHeight
+            return min(max(originY, 0), maxOriginY)
+        }
+    }
+
+    @discardableResult
+    private func applyLocalViewportAnchor(
+        _ anchor: ScrollViewportAnchor,
+        documentHeight requestedDocumentHeight: CGFloat? = nil
+    ) -> Bool {
+        let resolvedDocumentHeight = requestedDocumentHeight ?? documentHeight()
+        if abs(documentView.frame.height - resolvedDocumentHeight) > 0.5 {
+            documentView.frame.size.height = resolvedDocumentHeight
+        }
+        guard let originY = localOriginY(for: anchor, documentHeight: resolvedDocumentHeight) else {
+            return false
+        }
+        let targetOrigin = CGPoint(x: 0, y: originY)
+        guard !pointApproximatelyEqual(scrollView.contentView.bounds.origin, targetOrigin) else {
+            return false
+        }
+        scrollView.contentView.scroll(to: targetOrigin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        synchronizeSurfaceView()
+        return true
+    }
+
+    private func clampedScrollRow(_ row: Int, for scrollbar: GhosttyScrollbar) -> Int {
+        let maxRow = scrollbar.total > scrollbar.len ? Int(scrollbar.total - scrollbar.len) : 0
+        return min(max(row, 0), maxRow)
+    }
+
+    private func pendingRestoreMatches(_ anchor: ScrollViewportAnchor, scrollbar: GhosttyScrollbar) -> Bool {
+        switch anchor {
+        case .tail:
+            return scrollbar.offset + scrollbar.len >= scrollbar.total
+        case .row(let row):
+            return Int(scrollbar.offset) == clampedScrollRow(row, for: scrollbar)
+        }
+    }
+
+    private func localViewportMatches(_ anchor: ScrollViewportAnchor, documentHeight: CGFloat) -> Bool {
+        switch anchor {
+        case .tail:
+            let visibleRect = scrollView.contentView.documentVisibleRect
+            return scrollOffsetFromBottom(
+                visibleRect: visibleRect,
+                documentHeight: documentHeight
+            ) <= Self.scrollToBottomThreshold
+        case .row:
+            guard let originY = localOriginY(for: anchor, documentHeight: documentHeight) else {
+                return false
+            }
+            return pointApproximatelyEqual(
+                scrollView.contentView.bounds.origin,
+                CGPoint(x: 0, y: originY)
+            )
+        }
+    }
+
+    private func consumePendingVisibilityRestoreSynchronization() {
+        guard pendingVisibilityRestoreAnchor != nil else { return }
+        pendingVisibilityRestoreSynchronizationsRemaining -= 1
+        if pendingVisibilityRestoreSynchronizationsRemaining <= 0 {
+            clearPendingVisibilityRestore()
+        }
+    }
+
     private func synchronizeScrollView() {
         var didChangeGeometry = false
         let targetDocumentHeight = documentHeight()
@@ -15320,7 +15486,21 @@ final class GhosttySurfaceScrollView: NSView {
 
         if !isLiveScrolling {
             let cellHeight = surfaceView.cellSize.height
+            var shouldConsumePendingRestoreSynchronization = false
+            if let pendingVisibilityRestoreAnchor,
+               applyLocalViewportAnchor(pendingVisibilityRestoreAnchor, documentHeight: targetDocumentHeight) {
+                didChangeGeometry = true
+                shouldConsumePendingRestoreSynchronization = true
+            } else if pendingVisibilityRestoreAnchor != nil {
+                shouldConsumePendingRestoreSynchronization = true
+            }
+
             if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
+                if let pendingVisibilityRestoreAnchor,
+                   pendingRestoreMatches(pendingVisibilityRestoreAnchor, scrollbar: scrollbar),
+                   localViewportMatches(pendingVisibilityRestoreAnchor, documentHeight: targetDocumentHeight) {
+                    clearPendingVisibilityRestore()
+                }
                 let offsetY =
                     CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
                 let targetOrigin = CGPoint(x: 0, y: offsetY)
@@ -15332,21 +15512,31 @@ final class GhosttySurfaceScrollView: NSView {
                 let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
                 let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
 
-                // Update userScrolledAwayFromBottom based on current position
-                if isAtBottom {
-                    userScrolledAwayFromBottom = false
+                if surfaceView.isVisibleInUI,
+                   !isHidden,
+                   isAtBottom,
+                   pendingVisibilityRestoreAnchor == nil {
+                    scrollViewportAnchor = .tail
                 }
 
                 // Passive bottom packets should not override an explicit scrollback review,
                 // but the first scrollbar packet caused by the user's own wheel input should
                 // still move the viewport to the requested scrollback position.
-                let shouldAutoScroll = !userScrolledAwayFromBottom || allowExplicitScrollbarSync
+                let shouldAutoScroll =
+                    scrollViewportAnchor == .tail ||
+                    allowExplicitScrollbarSync
 
-                if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
+                if pendingVisibilityRestoreAnchor == nil,
+                   shouldAutoScroll,
+                   !pointApproximatelyEqual(currentOrigin, targetOrigin) {
                     scrollView.contentView.scroll(to: targetOrigin)
                     didChangeGeometry = true
                 }
                 lastSentRow = Int(scrollbar.offset)
+            }
+
+            if shouldConsumePendingRestoreSynchronization {
+                consumePendingVisibilityRestoreSynchronization()
             }
         }
 
@@ -15359,24 +15549,13 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollChange() {
         synchronizeSurfaceView()
+        updateScrollViewportAnchorFromVisibleRect()
     }
 
     private func handleLiveScroll() {
-        let cellHeight = surfaceView.cellSize.height
-        guard cellHeight > 0 else { return }
-
         let visibleRect = scrollView.contentView.documentVisibleRect
-        let documentHeight = documentView.frame.height
-        let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
-
-        // Track if user has scrolled away from bottom to review scrollback
-        if scrollOffset > Self.scrollToBottomThreshold {
-            userScrolledAwayFromBottom = true
-        } else if scrollOffset <= 0 {
-            userScrolledAwayFromBottom = false
-        }
-
-        let row = Int(scrollOffset / cellHeight)
+        updateScrollViewportAnchorFromVisibleRect(visibleRect, replacingPendingRestore: true)
+        guard let row = currentScrollRow(visibleRect: visibleRect) else { return }
 
         guard row != lastSentRow else { return }
         lastSentRow = row
@@ -15389,7 +15568,8 @@ final class GhosttySurfaceScrollView: NSView {
         }
         let wasVisible = scrollView.hasVerticalScroller
         if pendingExplicitWheelScroll {
-            userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
+            scrollViewportAnchor = viewportAnchor(for: scrollbar)
+            clearPendingVisibilityRestore()
             allowExplicitScrollbarSync = true
             pendingExplicitWheelScroll = false
         }
