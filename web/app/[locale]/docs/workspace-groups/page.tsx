@@ -58,6 +58,9 @@ export default function WorkspaceGroupsPage() {
       <DocsHeading level={3} id="from-a-workspace-context-menu">{t("contextMenuTitle")}</DocsHeading>
       <p>{t("contextMenuDesc")}</p>
 
+      <DocsHeading level={2} id="managing-a-group">{t("managingTitle")}</DocsHeading>
+      <p>{t("managingIntro")}</p>
+
       <DocsHeading level={3} id="from-the-group-header-context-menu">{t("headerMenuTitle")}</DocsHeading>
       <p>{t("headerMenuDesc")}</p>
 
@@ -81,7 +84,11 @@ cmux workspace-group unpin <group-id>
 cmux workspace-group add --group <group-id> --workspace <workspace-id>
 cmux workspace-group remove --workspace <workspace-id>
 cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
-cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]`}</CodeBlock>
+cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
+cmux workspace-group set-color <group-id> --hex "#7A4FD8"   # omit value to clear
+cmux workspace-group set-icon  <group-id> --symbol ladybug.fill   # omit value to clear
+cmux workspace-group move <group-id> (--to-index <n> | --before <group-id> | --after <group-id>)
+cmux workspace-group focus <group-id>`}</CodeBlock>
       <p>{t("cliCreateNote")}</p>
 
       <DocsHeading level={3} id="examples">{t("cliExamplesTitle")}</DocsHeading>
