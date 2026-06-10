@@ -425,20 +425,25 @@ public final class AuthCoordinator {
 
     /// Clear the persisted token store and published auth state on behalf of
     /// a validation flow that captured `generation` and `storeWriteHighWater`
-    /// at entry, re-checking staleness around the suspension points: the
-    /// store clear is skipped when a newer sign-in exchange has written the
-    /// store since (the new owner's tokens must survive), and the
-    /// published-state clear is skipped when a newer session transition
-    /// landed while the store clear was suspended (a fresh sign-in must not
-    /// be unpublished by a stale failure). Residual: a store clear already
-    /// executing when a faster sign-in writes cannot be unwound from here;
-    /// that would need a compare-and-clear inside the token store itself, and
-    /// the exposure is a single keychain write.
+    /// at entry, re-checking staleness around the suspension points.
+    ///
+    /// When a newer sign-in exchange has written the store since the flow
+    /// began, the store has a new in-flight owner and the failed validation
+    /// of the OLD session must touch nothing at all: clearing the store
+    /// would wipe the new owner's tokens, and clearing the published state
+    /// would bump the epoch and spuriously cancel the in-flight sign-in
+    /// while leaving its tokens orphaned for the next launch restore. The
+    /// published-state clear also re-checks both markers after the awaited
+    /// store clear, so a session transition landing inside that suspension
+    /// is not unpublished by the stale failure. Residual: a store clear
+    /// already executing when a faster sign-in writes cannot be unwound from
+    /// here; that would need a compare-and-clear inside the token store
+    /// itself, and the exposure is a single keychain write.
     private func clearStaleSessionState(generation: UInt64, storeWriteHighWater: UInt64) async {
-        if tokenStoreWriteHighWater == storeWriteHighWater {
-            await clearPersistedStackSession()
-        }
-        guard generation == sessionGeneration else { return }
+        guard tokenStoreWriteHighWater == storeWriteHighWater else { return }
+        await clearPersistedStackSession()
+        guard generation == sessionGeneration,
+              tokenStoreWriteHighWater == storeWriteHighWater else { return }
         clearAuthState()
     }
 
