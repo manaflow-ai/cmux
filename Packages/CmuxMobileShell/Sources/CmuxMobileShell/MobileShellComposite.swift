@@ -257,6 +257,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// short capability probe; see ``scheduleHostIdentityAdoptionIfNeeded(client:)``.
     /// Cancelled on disconnect via ``cancelRemoteOperationTasks()``.
     private var hostIdentityAdoptionTask: Task<Void, Never>?
+    /// Tail of the serialized paired-Mac store write chain; see
+    /// ``performSerializedPairedMacWrite(ifStillCurrent:_:)``.
+    private var pairedMacWriteChain: Task<Void, Never>?
     // Liveness watchdog for the render-grid push subscription. The `for await`
     // listener loop blocks indefinitely if the underlying connection half-dies
     // (network blip, Mac stops pushing, background/foreground cycle): the
@@ -1178,14 +1181,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return nil
     }
 
+    /// Runs one paired-Mac store mutation on the serialized write chain.
+    ///
+    /// All `markActive` writes go through here so they execute strictly in
+    /// submission order, and `ifStillCurrent` is re-evaluated at EXECUTION
+    /// time (after every earlier write has fully landed), not at submission.
+    /// That closes the check-then-await race: a stale status-adoption task
+    /// either observes it lost currency and skips, or it is still current
+    /// and any newer connection's write is queued strictly behind it and
+    /// overwrites the active mark. The chain is deliberately not cancelled
+    /// on disconnect; in-flight writes complete or skip via their own check.
+    private func performSerializedPairedMacWrite(
+        ifStillCurrent: (() -> Bool)?,
+        _ operation: @escaping @MainActor () async -> Void
+    ) async {
+        let previous = pairedMacWriteChain
+        let task = Task { @MainActor in
+            await previous?.value
+            if let ifStillCurrent, !ifStillCurrent() { return }
+            await operation()
+        }
+        pairedMacWriteChain = task
+        await task.value
+    }
+
     /// Persists `ticket` as the active paired Mac.
     ///
-    /// `ifStillCurrent` is evaluated immediately before the store write, after
-    /// every suspension this helper performs. The status-driven identity
-    /// adoption passes it so a stale reply that survived the earlier guards
-    /// cannot commit `markActive: true` for an old Mac after the user has
-    /// started pairing a new one; the connect path leaves it `nil` (its write
-    /// is for the connection it just established).
+    /// The write runs on the serialized paired-Mac chain. The status-driven
+    /// identity adoption passes `ifStillCurrent` so a stale reply cannot
+    /// commit `markActive: true` for an old Mac after the user has started
+    /// pairing a new one; the connect path leaves it `nil` (its write is for
+    /// the connection it just established).
     private func persistPairedMacFromTicket(
         _ ticket: CmxAttachTicket,
         ifStillCurrent: (() -> Bool)? = nil
@@ -1197,30 +1223,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard ticket.macDeviceID != "manual-ticket-request",
               !ticket.macDeviceID.hasPrefix("manual-") else { return }
         let stackUserID = identityProvider?.currentUserID
-        do {
-            // The compact pairing QR carries no display name; the name arrives
-            // post-handshake via `mobile.host.status`. Until it does, keep any
-            // name we already know for this Mac instead of clobbering it with
-            // nil (the store's upsert overwrites the column unconditionally).
-            var displayName = ticket.macDisplayName
-            if displayName == nil {
-                let knownMacs = try? await pairedMacStore.loadAll(stackUserID: nil)
-                displayName = knownMacs?.first { $0.macDeviceID == ticket.macDeviceID }?.displayName
+        // The compact pairing QR carries no display name; the name arrives
+        // post-handshake via `mobile.host.status`. Until it does, keep any
+        // name we already know for this Mac instead of clobbering it with
+        // nil (the store's upsert overwrites the column unconditionally).
+        var displayName = ticket.macDisplayName
+        if displayName == nil {
+            let knownMacs = try? await pairedMacStore.loadAll(stackUserID: nil)
+            displayName = knownMacs?.first { $0.macDeviceID == ticket.macDeviceID }?.displayName
+        }
+        let resolvedDisplayName = displayName
+        await performSerializedPairedMacWrite(ifStillCurrent: ifStillCurrent) { [weak self] in
+            guard let self else { return }
+            do {
+                try await pairedMacStore.upsert(
+                    macDeviceID: ticket.macDeviceID,
+                    displayName: resolvedDisplayName,
+                    routes: ticket.routes,
+                    markActive: true,
+                    stackUserID: stackUserID
+                )
+                // A real, reconnectable Mac is now the active paired Mac: record
+                // the persisted hint so the next launch shows RestoringSessionView
+                // during the reconnect window instead of the empty add-device sheet.
+                self.hasKnownPairedMac = true
+            } catch {
+                mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
             }
-            if let ifStillCurrent, !ifStillCurrent() { return }
-            try await pairedMacStore.upsert(
-                macDeviceID: ticket.macDeviceID,
-                displayName: displayName,
-                routes: ticket.routes,
-                markActive: true,
-                stackUserID: stackUserID
-            )
-            // A real, reconnectable Mac is now the active paired Mac: record the
-            // persisted hint so the next launch shows RestoringSessionView during
-            // the reconnect window instead of the empty add-device sheet.
-            hasKnownPairedMac = true
-        } catch {
-            mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -1339,17 +1368,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               !ticket.macDeviceID.hasPrefix("manual-") else {
             return
         }
-        if let ifStillCurrent, !ifStillCurrent() { return }
-        do {
-            try await pairedMacStore.upsert(
-                macDeviceID: ticket.macDeviceID,
-                displayName: name,
-                routes: ticket.routes,
-                markActive: true,
-                stackUserID: identityProvider?.currentUserID
-            )
-        } catch {
-            mobileShellLog.error("paired mac display-name upsert failed: \(String(describing: error), privacy: .public)")
+        let stackUserID = identityProvider?.currentUserID
+        await performSerializedPairedMacWrite(ifStillCurrent: ifStillCurrent) {
+            do {
+                try await pairedMacStore.upsert(
+                    macDeviceID: ticket.macDeviceID,
+                    displayName: name,
+                    routes: ticket.routes,
+                    markActive: true,
+                    stackUserID: stackUserID
+                )
+            } catch {
+                mobileShellLog.error("paired mac display-name upsert failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 
