@@ -12294,12 +12294,21 @@ final class Workspace: Identifiable, ObservableObject {
         // agent gets stuck at `unknown` and never re-hibernates. Any definitive
         // incoming state still wins, so a real new turn (`running`)/block
         // (`needsInput`)/turn-end (`idle`) updates normally.
-        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] =
-            AgentHibernationLifecycleState.preservingDefinitive(
-                existing: agentLifecycleStatesByPanelId[targetPanelId]?[key],
-                incoming: lifecycle
-            )
-        recordAgentLifecycleChange(panelId: targetPanelId)
+        let existing = agentLifecycleStatesByPanelId[targetPanelId]?[key]
+        let resolved = AgentHibernationLifecycleState.preservingDefinitive(
+            existing: existing,
+            incoming: lifecycle
+        )
+        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = resolved
+        // Only advance the lifecycle-change timestamp when the stored value actually
+        // changes. Suppressing an incoming `.unknown` (because `existing` is already
+        // definitive) must not advance `lifecycleChangeAt`: the planner uses
+        // `terminalInputAt > lifecycleChangeAt` to detect unconfirmed input, so a
+        // phantom timestamp update would clear that guard and could make a no-emit
+        // agent hibernation-eligible while it is still running.
+        if resolved != existing {
+            recordAgentLifecycleChange(panelId: targetPanelId)
+        }
     }
 
     @discardableResult
