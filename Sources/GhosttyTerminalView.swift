@@ -7146,16 +7146,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let surface = surface else { return }
         ghostty_surface_set_focus(surface, focused)
 
-        // If we focus a surface while it is being rapidly reparented (closing splits, etc),
-        // Ghostty's CVDisplayLink can end up started before the display id is valid, leaving
-        // hasVsync() true but with no callbacks ("stuck-vsync-no-frames"). Reasserting the
-        // display id *after* focusing lets Ghostty restart the display link when needed.
-        if focused {
-            if let view = attachedView,
-               let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
-               displayID != 0 {
-                ghostty_surface_set_display_id(surface, displayID)
-            }
+        // Reassert the display id on every focus transition (both gain and loss).
+        // Ghostty's CVDisplayLink can end up started before the display id is valid,
+        // leaving hasVsync() true but with no callbacks ("stuck-vsync-no-frames").
+        // For unfocused split panes this keeps the display link running so the
+        // terminal output continues to render while the pane is visible.
+        if let view = attachedView,
+           let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
+           displayID != 0 {
+            ghostty_surface_set_display_id(surface, displayID)
         }
     }
 
@@ -9789,6 +9788,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let deltaMs = (now - lastScrollEventTime) * 1000
             Self.focusLog("resignFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
             ghostty_surface_set_focus(surface, false)
+
+            // Keep the display link alive for unfocused split panes so they
+            // continue rendering. Mirrors the reassertion in setFocus(_:).
+            if let displayID = (window?.screen ?? NSScreen.main)?.displayID, displayID != 0 {
+                ghostty_surface_set_display_id(surface, displayID)
+            }
         }
         return result
     }
