@@ -126,10 +126,10 @@ public struct TmuxControlModeSessionCore: Sendable {
         }
         let bytes = Array(lines.joined(separator: "\r\n").utf8)
         effects.append(.snapshot(bytes))
-        if !pendingLiveOutput.isEmpty {
-            effects.append(.output(pendingLiveOutput))
-            pendingLiveOutput.removeAll(keepingCapacity: false)
-        }
+        // Any pane output buffered before the capture-pane result is already
+        // reflected in the snapshot, so drop it rather than replaying it (which
+        // would duplicate the last line, e.g. a second prompt).
+        pendingLiveOutput.removeAll(keepingCapacity: false)
     }
 
     // MARK: - Helpers

@@ -54,21 +54,21 @@ struct TmuxControlModeSessionCoreTests {
         #expect(result.snapshots == [Array("row1\r\nrow2".utf8)])
     }
 
-    @Test func liveOutputBeforeSnapshotIsBufferedThenFlushed() {
+    @Test func liveOutputBeforeSnapshotIsDiscardedNotDuplicated() {
         var core = TmuxControlModeSessionCore()
         _ = core.start(initialSize: TerminalSize(columns: 80, rows: 24))
         _ = core.consume(Array("%begin 1 1 0\n%end 1 1 0\n".utf8))          // refresh-client
         _ = core.consume(Array("%begin 2 2 0\n1:%5\n%end 2 2 0\n".utf8))    // list-panes -> capture-pane queued
 
-        // Live output for the target pane arrives before the snapshot completes.
+        // Pre-snapshot output is already reflected in capture-pane, so it must
+        // not be replayed after the snapshot (that caused a duplicate prompt).
         let early = core.consume(Array("%output %5 early\n".utf8))
-        #expect(bytes(early).outputs.isEmpty) // buffered, not emitted yet
+        #expect(bytes(early).outputs.isEmpty)
 
-        // Snapshot completes -> snapshot first, then buffered live output.
         let afterCapture = core.consume(Array("%begin 3 3 0\nscreen\n%end 3 3 0\n".utf8))
         let result = bytes(afterCapture)
         #expect(result.snapshots == [Array("screen".utf8)])
-        #expect(result.outputs == [Array("early".utf8)])
+        #expect(result.outputs.isEmpty) // discarded, not flushed
 
         // Subsequent output is emitted directly.
         let live = core.consume(Array("%output %5 more\n".utf8))

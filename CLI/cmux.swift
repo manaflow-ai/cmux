@@ -4830,7 +4830,13 @@ struct CMUXCLI {
         idFormat: CLIIDFormat
     ) throws {
         let usage = "Usage: cmux tmux attach [session] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]"
-        guard let sub = commandArgs.first, sub.lowercased() == "attach" else {
+        // Accept tmux-style abbreviations: a, at, att, ... attach, attach-session.
+        func isAttachVerb(_ s: String) -> Bool {
+            let v = s.lowercased()
+            guard !v.isEmpty else { return false }
+            return "attach".hasPrefix(v) || "attach-session".hasPrefix(v)
+        }
+        guard let sub = commandArgs.first, isAttachVerb(sub) else {
             if let sub = commandArgs.first {
                 throw CLIError(message: "Unknown tmux subcommand: \(sub). \(usage)")
             }
