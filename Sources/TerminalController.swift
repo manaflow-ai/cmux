@@ -12414,6 +12414,7 @@ class TerminalController {
               \(Self.browserInputHelpers)
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
+              if (el.disabled) return { ok: false, error: 'disabled' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
               __cmuxClick(el);
               return { ok: true };
@@ -12429,6 +12430,7 @@ class TerminalController {
               \(Self.browserInputHelpers)
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
+              if (el.disabled) return { ok: false, error: 'disabled' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
               __cmuxClick(el);
               __cmuxClick(el);

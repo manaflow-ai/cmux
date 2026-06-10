@@ -11555,29 +11555,55 @@ struct CMUXCLI {
             return (workspaceHandle, windowHandle)
         }
 
+        // The verb/mode/direction is the first POSITIONAL token; routing flags may appear before or
+        // after it, e.g. `browser devtools --workspace ws` or `browser zoom --window w in`.
+        func browserActionVerbArgs() -> [String] {
+            var rest = subArgs
+            for name in ["--workspace", "--window", "--return-to"] {
+                (_, rest) = parseOption(rest, name: name)
+            }
+            return rest.filter { !$0.hasPrefix("--") }
+        }
+
         // Optional browser surface: an explicit --surface (or positional handle) targets that
         // browser; otherwise the app acts on the focused browser of the CALLER's workspace.
         // When no surface is given we still scope to the invoking workspace so a background agent
         // never acts on whatever workspace happens to be selected in the foreground.
         func optionalSurfaceParams() throws -> [String: Any] {
-            let routing = try callerRoutingHandles()
+            let (workspaceOpt, _) = parseOption(subArgs, name: "--workspace")
+            let (windowOpt, _) = parseOption(subArgs, name: "--window")
+            let windowHandle = try windowOpt.flatMap { try normalizeWindowHandle($0, client: client) }
+            let explicitWorkspace = try workspaceOpt.flatMap {
+                try normalizeWorkspaceHandle($0, client: client, windowHandle: windowHandle)
+            }
             if let raw = surfaceRaw {
+                // Explicit surface: scope index resolution to explicit routing, and carry explicit
+                // routing so the server rejects a surface/workspace mismatch. Do NOT add the
+                // env-default workspace; an explicit surface handle may legitimately reference a
+                // different workspace than the caller's terminal.
                 guard let resolved = try normalizeSurfaceHandle(
-                    raw, client: client,
-                    workspaceHandle: routing.workspace, windowHandle: routing.window
+                    raw, client: client, workspaceHandle: explicitWorkspace, windowHandle: windowHandle
                 ) else {
                     throw CLIError(message: "Invalid surface handle")
                 }
-                return ["surface_id": resolved]
+                var params: [String: Any] = ["surface_id": resolved]
+                if let windowHandle { params["window_id"] = windowHandle }
+                if let explicitWorkspace { params["workspace_id"] = explicitWorkspace }
+                return params
             }
             var params: [String: Any] = [:]
-            if let window = routing.window { params["window_id"] = window }
-            if let workspace = routing.workspace { params["workspace_id"] = workspace }
+            if let windowHandle { params["window_id"] = windowHandle }
+            let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            if let workspaceHandle = try workspaceRaw.flatMap({
+                try normalizeWorkspaceHandle($0, client: client, windowHandle: windowHandle)
+            }) {
+                params["workspace_id"] = workspaceHandle
+            }
             return params
         }
 
         if subcommand == "react-grab" || subcommand == "reactgrab" {
-            let verb = subArgs.first?.lowercased() ?? "toggle"
+            let verb = browserActionVerbArgs().first?.lowercased() ?? "toggle"
             guard verb == "toggle" else {
                 throw CLIError(message: "Unsupported browser react-grab subcommand: \(verb) (expected: toggle)")
             }
@@ -11597,7 +11623,7 @@ struct CMUXCLI {
         }
 
         if subcommand == "devtools" || subcommand == "dev-tools" {
-            let verb = subArgs.first?.lowercased() ?? "toggle"
+            let verb = browserActionVerbArgs().first?.lowercased() ?? "toggle"
             let method: String
             switch verb {
             case "toggle": method = "browser.devtools.toggle"
@@ -11611,7 +11637,7 @@ struct CMUXCLI {
         }
 
         if subcommand == "focus-mode" {
-            let mode = subArgs.first?.lowercased() ?? "toggle"
+            let mode = browserActionVerbArgs().first?.lowercased() ?? "toggle"
             guard ["enter", "exit", "toggle", "on", "off"].contains(mode) else {
                 throw CLIError(message: "browser focus-mode requires one of: enter, exit, toggle")
             }
@@ -11623,7 +11649,7 @@ struct CMUXCLI {
         }
 
         if subcommand == "zoom" {
-            guard let direction = subArgs.first?.lowercased(), ["in", "out", "reset"].contains(direction) else {
+            guard let direction = browserActionVerbArgs().first?.lowercased(), ["in", "out", "reset"].contains(direction) else {
                 throw CLIError(message: "browser zoom requires one of: in, out, reset")
             }
             var params = try optionalSurfaceParams()
@@ -11634,7 +11660,7 @@ struct CMUXCLI {
         }
 
         if subcommand == "history" {
-            let verb = subArgs.first?.lowercased() ?? "clear"
+            let verb = browserActionVerbArgs().first?.lowercased() ?? "clear"
             guard verb == "clear" else {
                 throw CLIError(message: "Unsupported browser history subcommand: \(verb) (expected: clear)")
             }
