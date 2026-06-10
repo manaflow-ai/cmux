@@ -103,13 +103,20 @@ extension ControlCommandCoordinator {
         }
     }
 
-    /// `v2Int`: a JSON int, a truncated double, or a parsable string.
+    /// `v2Int`: a JSON int, a number, or a parsable string. Doubles and bools go
+    /// through `NSNumber.intValue` to match the legacy `params[key] as? NSNumber`
+    /// path EXACTLY — that truncates toward zero and clamps out-of-range/NaN
+    /// rather than trapping (a plain `Int(Double)` traps on overflow/NaN, e.g. a
+    /// caller passing `1e30` to `pane.resize`/`workspace.group.move`).
     func int(_ params: [String: JSONValue], _ key: String) -> Int? {
         switch params[key] {
         case .int(let value):
             return Int(value)
         case .double(let value):
-            return Int(value)
+            return NSNumber(value: value).intValue
+        case .bool(let value):
+            // Legacy `as? NSNumber` caught a JSON boolean and `.intValue` → 1/0.
+            return NSNumber(value: value).intValue
         case .string(let value):
             return Int(value)
         default:
@@ -117,13 +124,17 @@ extension ControlCommandCoordinator {
         }
     }
 
-    /// `v2Double`: a JSON double, int, or parsable string.
+    /// `v2Double`: a JSON double, int, bool, or parsable string. Numbers/bools go
+    /// through `NSNumber.doubleValue`, matching the legacy `as? NSNumber` path
+    /// (which coerced a JSON boolean to `1.0`/`0.0`).
     func double(_ params: [String: JSONValue], _ key: String) -> Double? {
         switch params[key] {
         case .double(let value):
             return value
         case .int(let value):
             return Double(value)
+        case .bool(let value):
+            return NSNumber(value: value).doubleValue
         case .string(let value):
             return Double(value)
         default:
