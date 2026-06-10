@@ -97,7 +97,23 @@ public actor PresenceClient {
                         @unknown default:
                             continue
                         }
-                        continuation.yield(try PresenceUpdate.parse(data))
+                        switch continuation.yield(try PresenceUpdate.parse(data)) {
+                        case .enqueued:
+                            break
+                        case .dropped:
+                            // The buffer overflowed and a frame was lost. The
+                            // protocol is stateful (snapshot + deltas), so
+                            // continuing past a missed transition would render
+                            // wrong live state until the next snapshot. End the
+                            // stream instead; the consumer's reconnect gets a
+                            // fresh snapshot first.
+                            continuation.finish(throwing: PresenceClientError.updatesDropped)
+                            return
+                        case .terminated:
+                            return
+                        @unknown default:
+                            break
+                        }
                     }
                     continuation.finish()
                 } catch {
