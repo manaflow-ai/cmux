@@ -11541,30 +11541,36 @@ struct CMUXCLI {
             return
         }
 
+        // Caller routing: an explicit --workspace/--window, else the invoking workspace
+        // (CMUX_WORKSPACE_ID). Resolved up front so an INDEXED --surface/--return-to is scoped to
+        // the requested workspace/window rather than the foreground selection.
+        func callerRoutingHandles() throws -> (workspace: String?, window: String?) {
+            let (workspaceOpt, _) = parseOption(subArgs, name: "--workspace")
+            let (windowOpt, _) = parseOption(subArgs, name: "--window")
+            let windowHandle = try windowOpt.flatMap { try normalizeWindowHandle($0, client: client) }
+            let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let workspaceHandle = try workspaceRaw.flatMap { try normalizeWorkspaceHandle($0, client: client) }
+            return (workspaceHandle, windowHandle)
+        }
+
         // Optional browser surface: an explicit --surface (or positional handle) targets that
         // browser; otherwise the app acts on the focused browser of the CALLER's workspace.
-        // When no surface is given we still scope to the invoking workspace (--workspace, or
-        // CMUX_WORKSPACE_ID) so a background agent never acts on whatever workspace happens to
-        // be selected in the foreground.
+        // When no surface is given we still scope to the invoking workspace so a background agent
+        // never acts on whatever workspace happens to be selected in the foreground.
         func optionalSurfaceParams() throws -> [String: Any] {
+            let routing = try callerRoutingHandles()
             if let raw = surfaceRaw {
-                guard let resolved = try normalizeSurfaceHandle(raw, client: client) else {
+                guard let resolved = try normalizeSurfaceHandle(
+                    raw, client: client,
+                    workspaceHandle: routing.workspace, windowHandle: routing.window
+                ) else {
                     throw CLIError(message: "Invalid surface handle")
                 }
                 return ["surface_id": resolved]
             }
             var params: [String: Any] = [:]
-            let (workspaceOpt, _) = parseOption(subArgs, name: "--workspace")
-            let (windowOpt, _) = parseOption(subArgs, name: "--window")
-            if let windowRaw = windowOpt,
-               let window = try normalizeWindowHandle(windowRaw, client: client) {
-                params["window_id"] = window
-            }
-            let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            if let workspaceRaw,
-               let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
-                params["workspace_id"] = workspace
-            }
+            if let window = routing.window { params["window_id"] = window }
+            if let workspace = routing.workspace { params["workspace_id"] = workspace }
             return params
         }
 
@@ -11574,9 +11580,13 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser react-grab subcommand: \(verb) (expected: toggle)")
             }
             var params = try optionalSurfaceParams()
+            let routing = try callerRoutingHandles()
             let (returnOpt, _) = parseOption(subArgs, name: "--return-to")
             if let returnRaw = returnOpt,
-               let resolvedReturn = try normalizeSurfaceHandle(returnRaw, client: client) {
+               let resolvedReturn = try normalizeSurfaceHandle(
+                   returnRaw, client: client,
+                   workspaceHandle: routing.workspace, windowHandle: routing.window
+               ) {
                 params["return_to"] = resolvedReturn
             }
             let payload = try client.sendV2(method: "browser.react_grab.toggle", params: params)
