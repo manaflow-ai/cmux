@@ -475,6 +475,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Drop the cached paired Macs so the next signed-in user never sees the
         // previous user's hosts in the switcher.
         pairedMacs = []
+        // Likewise drop the registry-backed device tree so a shared device never
+        // shows the previous user's team devices after sign-out.
+        registryDevices = []
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the forget path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
@@ -1235,6 +1238,221 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard oldValue.count != pairedMacs.count else { return }
             analytics.setSuperProperties(["paired_mac_count": .int(pairedMacs.count)])
         }
+    }
+
+    // MARK: - Device registry tree
+
+    /// The team's registered devices and their cmux app instances (tags), for the
+    /// device tree (device → tags → workspaces). Fetched from the team-scoped
+    /// device registry via ``loadRegistryDevices()``. Empty until the first load,
+    /// when the registry is unreachable, or after sign-out. Best-effort: a
+    /// registry outage leaves this empty and the UI falls back to the locally
+    /// known paired Macs, so the tree degrades to the same hosts the switcher
+    /// shows rather than going blank.
+    public private(set) var registryDevices: [RegistryDevice] = []
+
+    /// The cmux device id of the Mac the live connection currently targets, or
+    /// `nil` when not connected. Used by the device tree to mark which device row
+    /// is live.
+    ///
+    /// Prefers the active attach ticket's real `macDeviceID`. A manual (`manual-…`)
+    /// ticket has no real device id (the host lacks `mobile.attach_ticket.create`,
+    /// so the connect synthesizes a manual ticket even on success); in that case,
+    /// fall back to the active paired Mac's device id, which the registry/switch
+    /// connect paths persist on success. This keeps the connected device — and its
+    /// live workspaces — visible in the tree even when the live ticket is manual.
+    /// Yields `nil` only when there is genuinely no real device id to correlate.
+    public var connectedMacDeviceID: String? {
+        guard connectionState == .connected else { return nil }
+        if let macDeviceID = activeTicket?.macDeviceID,
+           !macDeviceID.isEmpty,
+           !macDeviceID.hasPrefix("manual-") {
+            return macDeviceID
+        }
+        // Manual/synthetic ticket but a live connection: correlate via the active
+        // paired Mac the connect path persisted (its id is the real device id).
+        if let activeMacID = pairedMacs.first(where: { $0.isActive })?.macDeviceID,
+           !activeMacID.isEmpty,
+           !activeMacID.hasPrefix("manual-") {
+            return activeMacID
+        }
+        return nil
+    }
+
+    /// Reload ``registryDevices`` from the team-scoped device registry.
+    ///
+    /// Best-effort and failure-tolerant: a missing registry, an unauthorized
+    /// call, or a malformed response leaves the current list untouched (so a
+    /// transient blip never blanks a populated tree). Devices are sorted with the
+    /// currently-connected one first, then by most-recently-seen, so the tree
+    /// leads with the host the user is on. Mirrors ``loadPairedMacs()``: signed
+    /// out yields an empty list.
+    public func loadRegistryDevices() async {
+        guard isSignedIn, let deviceRegistry else {
+            registryDevices = []
+            return
+        }
+        // Capture the requesting user so a result that lands after a sign-out +
+        // different-user sign-in is discarded, not assigned into the new user's
+        // tree. `isSignedIn` alone is true again after the switch, so it cannot
+        // catch this account-switch race (mirrors loadPairedMacs's user guard).
+        let requestingUserID = identityProvider?.currentUserID
+        let outcome = await deviceRegistry.listDevices()
+        let loaded: [RegistryDevice]
+        switch outcome {
+        case .ok(let devices):
+            loaded = devices
+        case .authRejected:
+            // The registry is team-scoped and rejected the call on auth/scope
+            // grounds (401/403): the cached list may be another scope's data, so
+            // clear it. The tree falls back to local paired Macs via
+            // `deviceTreeDevices`, so the sheet stays usable. Guarded on the
+            // requesting user still being current (mirroring the `.ok` path):
+            // a stale 401 from a signed-out session that lands after a
+            // different user signed in must not blank the new user's tree.
+            if identityProvider?.currentUserID == requestingUserID {
+                registryDevices = []
+            }
+            return
+        case .transientFailure:
+            // Network blip / 5xx / malformed body: keep what we have rather than
+            // blanking a populated tree on a transient failure.
+            return
+        }
+        // The await above suspended the main actor; discard the result unless we
+        // are still the same signed-in user, so a slow load can never repopulate
+        // another user's team devices after sign-out or an account switch.
+        guard isSignedIn, identityProvider?.currentUserID == requestingUserID else {
+            registryDevices = []
+            return
+        }
+        let connectedID = connectedMacDeviceID
+        registryDevices = loaded.sorted { lhs, rhs in
+            let lhsConnected = lhs.deviceId == connectedID
+            let rhsConnected = rhs.deviceId == connectedID
+            if lhsConnected != rhsConnected { return lhsConnected }
+            return lhs.lastSeenAt > rhs.lastSeenAt
+        }
+    }
+
+    /// The device-tree data source, honoring the registry's best-effort/fallback
+    /// contract: the registry list when it loaded, otherwise the locally paired
+    /// Macs synthesized into the same two-level shape.
+    ///
+    /// When `/api/devices` is unreachable, unauthorized, or malformed,
+    /// ``registryDevices`` stays empty; the tree must not collapse to "no devices"
+    /// while the phone still has usable paired Macs. Each paired Mac becomes a
+    /// device with a single `default` instance carrying its routes, so the tree
+    /// (and its connect-on-tap) keeps working with the cloud down. The connected
+    /// device sorts first, then most-recently-seen.
+    public var deviceTreeDevices: [RegistryDevice] {
+        if !registryDevices.isEmpty { return registryDevices }
+        let connectedID = connectedMacDeviceID
+        return pairedMacs
+            .map { mac in
+                RegistryDevice(
+                    deviceId: mac.macDeviceID,
+                    platform: "mac",
+                    displayName: mac.displayName,
+                    lastSeenAt: mac.lastSeenAt,
+                    instances: [
+                        RegistryAppInstance(
+                            tag: "default",
+                            routes: mac.routes,
+                            lastSeenAt: mac.lastSeenAt
+                        )
+                    ]
+                )
+            }
+            .sorted { lhs, rhs in
+                let lhsConnected = lhs.deviceId == connectedID
+                let rhsConnected = rhs.deviceId == connectedID
+                if lhsConnected != rhsConnected { return lhsConnected }
+                return lhs.lastSeenAt > rhs.lastSeenAt
+            }
+    }
+
+    /// Connect the live session to a specific registry app instance (a tag on a
+    /// device) using that instance's advertised routes.
+    ///
+    /// This is the device tree's tap-to-open for a tag that is not the currently
+    /// connected one: it routes through the same destructive ``connectManualHost``
+    /// path the multi-Mac switcher uses, then persists the device as the active
+    /// paired Mac on success (so a later relaunch reconnects to it) and refreshes
+    /// the paired-Mac list. A no-op when the instance advertises no reachable
+    /// route. Failure surfaces through ``connectionError`` like any other connect.
+    ///
+    /// Like ``switchToMac(macDeviceID:)``, the connect is destructive (it replaces
+    /// the live client), so tapping a stale/offline tag while connected would drop
+    /// a healthy session. To avoid stranding the user, on a failed connect the
+    /// previously-active Mac is reconnected, so a bad target leaves the user where
+    /// they were rather than disconnected.
+    /// - Parameters:
+    ///   - device: The registry device the instance belongs to.
+    ///   - instance: The tag/app-instance to connect to.
+    public func connectToRegistryInstance(
+        device: RegistryDevice,
+        instance: RegistryAppInstance
+    ) async {
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        guard let (host, port) = Self.firstReconnectHostPortRoute(
+            instance.routes,
+            supportedKinds: supportedKinds
+        ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
+            mobileShellLog.error(
+                "connectToRegistryInstance: no reconnectable route device=\(device.deviceId, privacy: .public) tag=\(instance.tag, privacy: .public)"
+            )
+            return
+        }
+        // Already connected to this exact device/instance route: nothing to do.
+        if connectionState == .connected,
+           connectedMacDeviceID == device.deviceId,
+           case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
+           liveHost == normalizedHost, livePort == port {
+            return
+        }
+        // The currently-active Mac to fall back to if the connect fails, so the
+        // destructive connect below can be rolled back. Unlike switchToMac, this
+        // does NOT exclude the tapped device: a Mac can run multiple tagged builds,
+        // so tapping another tag on the *currently connected* device must still be
+        // able to reconnect that same device's active route if the new tag is
+        // stale/offline. Excluding it would strand the user on a same-device tag
+        // switch failure.
+        let previousActive = pairedMacs.first { $0.isActive }
+        await connectManualHost(name: device.displayName ?? host, host: host, port: port)
+        // Persist as the active paired Mac only when the live connection is to
+        // THIS route (a switch tapped while this connect was in flight could win
+        // the connection; matching the live route avoids persisting a stale
+        // target). Uses the real device id so reconnect-on-relaunch finds it.
+        guard connectionState == .connected,
+              case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
+              liveHost == normalizedHost, livePort == port else {
+            // The connect did not land on this route. If the destructive path
+            // dropped a previously-active session, reconnect it so a failed tap on
+            // a stale/offline tag does not strand the user disconnected.
+            if previousActive != nil, connectionState != .connected {
+                _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+            }
+            return
+        }
+        if let pairedMacStore, !device.deviceId.hasPrefix("manual-") {
+            do {
+                try await pairedMacStore.upsert(
+                    macDeviceID: device.deviceId,
+                    displayName: device.displayName,
+                    routes: instance.routes,
+                    markActive: true,
+                    stackUserID: identityProvider?.currentUserID
+                )
+                hasKnownPairedMac = true
+            } catch {
+                mobileShellLog.error(
+                    "connectToRegistryInstance upsert failed device=\(device.deviceId, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+        await loadPairedMacs()
+        await loadRegistryDevices()
     }
 
     /// Reload ``pairedMacs`` from the store, scoped to the signed-in Stack user.
