@@ -58,7 +58,7 @@ async function injectMonacoStylesheet(): Promise<void> {
 }
 
 type EditorSaveMessageHandler = {
-  postMessage: (request: EditorSaveRequest) => Promise<unknown>;
+  postMessage: (request: EditorSaveRequest | { probe: true }) => Promise<unknown>;
 };
 
 /**
@@ -68,7 +68,9 @@ type EditorSaveMessageHandler = {
  * re-validates the page's scheme token on every message, so the handler being
  * visible to page JS is not what authorizes the write.
  */
-function resolveSaveBridge(): ((request: EditorSaveRequest) => Promise<ReturnType<typeof mapEditorSaveReply>>) | null {
+async function resolveSaveBridge(): Promise<
+  ((request: EditorSaveRequest) => Promise<ReturnType<typeof mapEditorSaveReply>>) | null
+> {
   const webkit = (
     window as unknown as {
       webkit?: { messageHandlers?: { cmuxEditorSave?: EditorSaveMessageHandler } };
@@ -76,6 +78,18 @@ function resolveSaveBridge(): ((request: EditorSaveRequest) => Promise<ReturnTyp
   ).webkit;
   const handler = webkit?.messageHandlers?.cmuxEditorSave;
   if (!handler || typeof handler.postMessage !== "function") {
+    return null;
+  }
+  // Probe the write capability before unlocking the buffer: the handler is
+  // installed on every browser webview, but authorization is the in-memory
+  // token registration, which dies with the app instance. Without this check
+  // a session-restored page would accept edits it can never save.
+  try {
+    const probeReply = (await handler.postMessage({ probe: true })) as { ok?: unknown } | null;
+    if (probeReply?.ok !== true) {
+      return null;
+    }
+  } catch {
     return null;
   }
   return async (request) => mapEditorSaveReply(await handler.postMessage(request));
@@ -104,7 +118,7 @@ export async function mountEditorSurface(rootElement: HTMLElement): Promise<void
   // Read-only unless the CLI explicitly marked the file writable AND the app
   // exposed the save bridge; either one missing means edits would be silently
   // discarded when the pane closes, so the buffer stays locked.
-  const saveBridge = config.payload?.readOnly === false ? resolveSaveBridge() : null;
+  const saveBridge = config.payload?.readOnly === false ? await resolveSaveBridge() : null;
   const readOnly = saveBridge === null;
   const saveController = readOnly
     ? null
