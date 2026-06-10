@@ -99,6 +99,67 @@ func hostPortRoute(
     )
 }
 
+/// Parks callers on an uncancellable continuation until opened. Models work
+/// that ignores task cancellation (an SDK token mint, a dial stuck at the OS
+/// level), the exact failure mode the first-yield-wins request deadline exists
+/// for. Tests must call `open()` before finishing so no continuation leaks.
+actor UncancellableGate {
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var isOpen = false
+
+    /// Parks until ``open()``. Deliberately NOT cancellation-aware.
+    func wait() async {
+        if isOpen { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func open() {
+        isOpen = true
+        let parked = waiters
+        waiters = []
+        for waiter in parked {
+            waiter.resume()
+        }
+    }
+}
+
+/// Error a released ``HungConnectTransport`` fails its connect with, so the
+/// abandoned connect path resolves without ever producing a usable transport.
+struct HungConnectReleased: Error {}
+
+/// Transport whose `connect()` parks uncancellably until released, modeling a
+/// losing pairing route stuck in a dial that ignores task cancellation.
+actor HungConnectTransport: CmxByteTransport {
+    private let gate = UncancellableGate()
+    private var didStartConnect = false
+
+    func connect() async throws {
+        didStartConnect = true
+        await gate.wait()
+        throw HungConnectReleased()
+    }
+
+    func receive() async throws -> Data? { nil }
+
+    func send(_ data: Data) async throws {}
+
+    func close() async {}
+
+    func connectStarted() -> Bool { didStartConnect }
+
+    func releaseConnect() async { await gate.open() }
+}
+
+struct HungConnectTransportFactory: CmxByteTransportFactory {
+    let transport: HungConnectTransport
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        transport
+    }
+}
+
 /// Transport that blocks its first `send` until released, recording payloads so
 /// tests can assert a cancelled queued request is never written.
 actor QueuedCancellationProbeTransport: CmxByteTransport {

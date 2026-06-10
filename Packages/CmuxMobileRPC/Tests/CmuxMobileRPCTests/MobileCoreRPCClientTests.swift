@@ -129,22 +129,19 @@ import Testing
     // stale access token), so it must sit under the same per-request deadline
     // as the send: during pairing these requests hold the visible spinner, and
     // a hung refresh outside the deadline waits on the OS-default request
-    // timeout (~60s) before the per-request bound even starts.
+    // timeout (~60s) before the per-request bound even starts. The fake park
+    // deliberately IGNORES cancellation: the SDK's mint is not guaranteed to be
+    // cancellation-responsive, so the deadline must win by abandoning it
+    // (first-yield-wins), not by waiting for a cooperative cancel.
     @Test func hungStackTokenFetchIsBoundedByRequestTimeout() async throws {
         let transport = QueuedCancellationProbeTransport()
+        let gate = UncancellableGate()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59124)
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
             stackAccessTokenProvider: {
-                // Park until cancelled (a refresh that never answers but is
-                // cancellation-responsive when the deadline reaps it).
-                let (stream, continuation) = AsyncStream<Never>.makeStream()
-                await withTaskCancellationHandler {
-                    for await _ in stream {}
-                } onCancel: {
-                    continuation.finish()
-                }
-                throw CancellationError()
+                await gate.wait()
+                throw MissingTestStackAccessToken()
             },
             rpcRequestTimeoutNanoseconds: 50_000_000
         )
@@ -174,6 +171,81 @@ import Testing
         }
         // The deadline fired before auth resolved, so nothing reached the wire.
         #expect(try await transport.sentRequests().isEmpty)
+        // Unpark the abandoned fetch so the test leaks no continuation.
+        await gate.open()
+    }
+
+    // A task group joins every child before returning, so a deadline built on
+    // one only delivers when the operation honors cancellation. The deadline
+    // must fire even when the operation never does (a stuck SDK call), by
+    // abandoning it rather than joining it.
+    @Test func requestDeadlineFiresEvenWhenOperationIgnoresCancellation() async throws {
+        let gate = UncancellableGate()
+        do {
+            _ = try await MobileCoreRPCClient.debugWithRequestTimeout(
+                timeoutNanoseconds: 50_000_000
+            ) { () -> String in
+                await gate.wait()
+                return "late"
+            }
+            Issue.record("Expected the deadline to fire")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record("Expected requestTimedOut, got \(error)")
+        }
+        await gate.open()
+    }
+
+    // The pairing route race cancels losing attempts and joins them before
+    // returning the winner, so a losing route whose dial is stuck in an
+    // OS-level connect that ignores cancellation must not hold the cancelled
+    // attempt (and with it the winner's spinner) until the connect timeout:
+    // the cancelled caller has to unblock immediately.
+    @Test func callerCancellationUnblocksWhileConnectIsStuckUncancellably() async throws {
+        let transport = HungConnectTransport()
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59125)
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: HungConnectTransportFactory(transport: transport),
+            rpcRequestTimeoutNanoseconds: 60 * 1_000_000_000
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:])
+
+        let task = Task {
+            try await client.sendRequest(request)
+        }
+        for _ in 0..<200 {
+            if await transport.connectStarted() {
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(await transport.connectStarted())
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            Issue.record("Expected the cancelled request to throw")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+        // Unpark the abandoned dial so the test leaks no continuation.
+        await transport.releaseConnect()
     }
 
     @Test func workspaceListResponseDecodesSnakeCaseWireShape() throws {

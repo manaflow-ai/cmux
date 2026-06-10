@@ -330,29 +330,62 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let hasConflict: Bool
     }
 
+    /// How one deadline-bounded request resolved: the operation finished (with
+    /// a value or an error), or the deadline expired first.
+    private enum RequestTimeoutOutcome<T: Sendable>: Sendable {
+        case finished(Result<T, any Error>)
+        case deadlineExpired
+    }
+
+    /// Runs `operation` bounded by the per-request deadline.
+    ///
+    /// The race is first-yield-wins over unstructured tasks rather than a task
+    /// group: a task group joins every child before returning, so an operation
+    /// that ignores cancellation (the Stack SDK's token mint, a send parked on
+    /// the session's connect task) would hold the caller far past the deadline
+    /// it was promised. Here the deadline's yield wins immediately and the
+    /// operation is abandoned (cancelled best-effort, a late result discarded
+    /// into the finished stream). The same holds in reverse for the caller:
+    /// cancelling the task running this method (a pairing route race reaping a
+    /// losing attempt) ends the stream iteration immediately instead of
+    /// joining a stuck operation. Mirrors
+    /// `AuthCoordinator.currentUserBoundedByRestoreDeadline`.
     private static func withRequestTimeout<T: Sendable>(
         timeoutNanoseconds: UInt64,
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         try Task.checkCancellation()
-        return try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                try await operation()
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: timeoutNanoseconds)
-                throw MobileShellConnectionError.requestTimedOut
-            }
+        let (stream, continuation) = AsyncStream<RequestTimeoutOutcome<T>>.makeStream()
+        let work = Task {
+            let result: Result<T, any Error>
             do {
-                guard let result = try await group.next() else {
-                    throw CancellationError()
-                }
-                group.cancelAll()
-                return result
+                result = .success(try await operation())
             } catch {
-                group.cancelAll()
-                throw error
+                result = .failure(error)
             }
+            continuation.yield(.finished(result))
+        }
+        // justification: bounded, cancellable deadline; this IS the per-request
+        // timeout, cancelled the instant the operation resolves first.
+        let deadline = Task {
+            try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+            guard !Task.isCancelled else { return }
+            continuation.yield(.deadlineExpired)
+        }
+        var iterator = stream.makeAsyncIterator()
+        let outcome = await iterator.next()
+        work.cancel()
+        deadline.cancel()
+        continuation.finish()
+        switch outcome {
+        case let .finished(result):
+            return try result.get()
+        case .deadlineExpired:
+            throw MobileShellConnectionError.requestTimedOut
+        case nil:
+            // The stream iteration ended without an outcome: the caller's task
+            // was cancelled. Surface that as cancellation, never as a timeout.
+            throw CancellationError()
         }
     }
 }
