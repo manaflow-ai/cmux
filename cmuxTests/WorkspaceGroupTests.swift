@@ -240,6 +240,59 @@ struct WorkspaceGroupTests {
         ))
     }
 
+    @Test func draggingGroupedChildAboveItsGroupPromotesToTopLevel() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Lower", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let draggedId = originalIds[1]
+        let targetId = originalIds[0]
+        let usesTopLevelRows = manager.sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: draggedId,
+            targetWorkspaceId: targetId
+        )
+        let reorderIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: draggedId,
+            targetWorkspaceId: targetId,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        let pinnedIds = manager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: draggedId,
+            targetWorkspaceId: targetId,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        let targetIndex = try #require(SidebarDropPlanner.targetIndex(
+            draggedTabId: draggedId,
+            targetTabId: targetId,
+            indicator: SidebarDropIndicator(tabId: group.anchorWorkspaceId, edge: .top),
+            tabIds: reorderIds,
+            pinnedTabIds: pinnedIds
+        ))
+
+        let moved = manager.reorderSidebarWorkspace(
+            tabId: draggedId,
+            toIndex: targetIndex,
+            isDragOperation: true,
+            usesTopLevelRows: usesTopLevelRows
+        )
+
+        #expect(moved)
+        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == nil)
+        #expect(manager.tabs.map(\.id) == [
+            originalIds[0],
+            draggedId,
+            group.anchorWorkspaceId,
+            originalIds[2],
+            originalIds[3],
+        ])
+    }
+
     @Test func createUnpinnedGroupFromPinnedGroupChildStaysBelowPinnedGroups() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
