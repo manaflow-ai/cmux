@@ -28,9 +28,9 @@
 3937	Sources/Feed/FeedPanelView.swift
 3760	cmuxTests/TabManagerUnitTests.swift
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
+3527	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 3396	Sources/CmuxConfig.swift
 3316	cmuxTests/TabManagerSessionSnapshotTests.swift
-3309	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 3202	Sources/Update/UpdateTitlebarAccessory.swift
 2953	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 2877	Sources/SessionIndexView.swift
