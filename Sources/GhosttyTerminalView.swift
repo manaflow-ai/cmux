@@ -2859,17 +2859,16 @@ class GhosttyApp {
         let summary = userAppearanceConfigSummary(configPaths: configPaths)
         guard let rawThemeValue = summary.lastThemeDirective else { return nil }
 
-        let lightTheme = GhosttyConfig.resolveThemeName(
-            from: rawThemeValue,
-            preferredColorScheme: .light
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
-        let darkTheme = GhosttyConfig.resolveThemeName(
-            from: rawThemeValue,
-            preferredColorScheme: .dark
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !lightTheme.isEmpty,
-              !darkTheme.isEmpty,
-              lightTheme.caseInsensitiveCompare(darkTheme) != .orderedSame else {
+        // Inject a resolved plain theme whenever the value uses ghostty's
+        // conditional `light:...`/`dark:...` syntax, even when both sides resolve
+        // to the same theme. `cmux themes set` always encodes the selection with
+        // this syntax (a single theme becomes `light:X,dark:X`), and ghostty
+        // mis-applies the conditional form — the background lands but the
+        // foreground/palette stay at the default white colors, producing the
+        // white-on-light terminals reported in
+        // https://github.com/manaflow-ai/cmux/issues/3459. Plain (non-conditional)
+        // theme values are applied correctly by ghostty, so they need no override.
+        guard GhosttyConfig.themeValueUsesConditionalThemeSyntax(rawThemeValue) else {
             return nil
         }
 
