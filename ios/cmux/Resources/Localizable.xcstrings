@@ -2976,40 +2976,6 @@
         }
       }
     },
-    "mobile.testflight.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TestFlight is invite-only for now. Get the Founders Edition to enroll and to download cmux for Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TestFlight は現在招待制です。Founders Edition から登録し、Mac 版 cmux をダウンロードしてください。"
-          }
-        }
-      }
-    },
-    "mobile.testflight.link": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Download via TestFlight"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TestFlight でダウンロード"
-          }
-        }
-      }
-    },
     "mobile.toolbar.editor.addTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -3312,6 +3278,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ピン留めを解除"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定"
           }
         }
       }

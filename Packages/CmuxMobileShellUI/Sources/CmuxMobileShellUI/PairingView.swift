@@ -19,10 +19,6 @@ struct PairingView: View {
     let cancelPairing: () -> Void
     let cancel: () -> Void
 
-    /// The Founders Edition page (Mac download + TestFlight enrollment) the
-    /// "Download via TestFlight" link points at while TestFlight is private.
-    private static let testFlightURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
-
     @State private var isShowingScanner = false
     @State private var deviceName = UITestConfig.addDeviceName
         ?? L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac")
@@ -129,19 +125,6 @@ struct PairingView: View {
                     .accessibilityIdentifier("MobileScanQRCodeButton")
                 }
                 #endif
-
-                Section {
-                    Link(destination: Self.testFlightURL) {
-                        Label(
-                            L10n.string("mobile.testflight.link", defaultValue: "Download via TestFlight"),
-                            systemImage: "arrow.down.circle"
-                        )
-                        .frame(maxWidth: .infinity)
-                    }
-                    .accessibilityIdentifier("MobileTestFlightLink")
-                } footer: {
-                    Text(L10n.string("mobile.testflight.help", defaultValue: "TestFlight is invite-only for now. Get the Founders Edition to enroll and to download cmux for Mac."))
-                }
 
                 if let manualRouteWarningText {
                     Section {

@@ -143,7 +143,8 @@ struct CMUXMobileRootView: View {
             DisconnectedWorkspaceShellView(
                 hasKnownPairedMac: store.hasKnownPairedMac,
                 showAddDevice: showAddDevice,
-                signOut: signOut
+                signOut: signOut,
+                store: store
             )
             .sheet(isPresented: $isShowingAddDeviceSheet) {
                 PairingView(
