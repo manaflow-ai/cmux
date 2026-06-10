@@ -4265,6 +4265,11 @@ final class BrowserPanel: Panel, ObservableObject {
                 // discarded. didCommit does not fire for same-document (pushState)
                 // navigations, so a persisting SPA video keeps its frame id.
                 self.resetMediaPlaybackTracking()
+                // A new top-level document replaces any editor buffer; clear
+                // its dirty mirror so close-confirmation and the save
+                // shortcut never act on a page that is gone.
+                self.editorBufferIsDirty = false
+                self.editorSaveChordPrefixPending = false
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
             }

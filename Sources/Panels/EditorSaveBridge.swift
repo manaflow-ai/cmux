@@ -49,6 +49,11 @@ final class CmuxEditorSaveRegistry: @unchecked Sendable {
         }
         do {
             try register(token: token, fileURL: URL(fileURLWithPath: path), expectedOrigin: origin)
+            // One-shot capability handoff: the registration lives in memory
+            // for this app instance and pages restored after a relaunch are
+            // read-only by design, so the sidecar is deleted once consumed
+            // instead of accumulating in the serving directory.
+            try? FileManager.default.removeItem(at: sidecarURL)
             return true
         } catch {
             return false
