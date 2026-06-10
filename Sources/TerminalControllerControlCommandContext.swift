@@ -7,11 +7,16 @@ import Foundation
 /// (which runs on main, inside the active `withSocketCommandPolicy` stack) can
 /// execute moved command domains without the package importing the app target.
 ///
-/// These methods are the byte-faithful bodies of the former `v2Window*`
-/// dispatchers, minus the per-read `v2MainSync` hop: the coordinator already
-/// runs on the main actor inside the socket-command policy scope, so each hop
-/// would re-apply the identical thread-local focus-allowance stack — a no-op.
-extension TerminalController: ControlCommandContext {
+/// `ControlCommandContext` is the umbrella; `TerminalController` satisfies it by
+/// conforming to each domain constituent (one extension per domain file). The
+/// umbrella conformance itself carries no requirements.
+extension TerminalController: ControlCommandContext {}
+
+/// The window-domain witnesses are the byte-faithful bodies of the former
+/// `v2Window*` dispatchers, minus the per-read `v2MainSync` hop: the coordinator
+/// already runs on the main actor inside the socket-command policy scope, so each
+/// hop would re-apply the identical thread-local focus-allowance stack — a no-op.
+extension TerminalController: ControlWindowContext {
     func controlWindowSummaries() -> [ControlWindowSummary] {
         (AppDelegate.shared?.listMainWindowSummaries() ?? []).map { summary in
             ControlWindowSummary(
