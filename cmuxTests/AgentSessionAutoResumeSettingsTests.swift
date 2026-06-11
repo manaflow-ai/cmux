@@ -777,6 +777,208 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 }
 
+final class TerminalRegexHighlightSettingsTests: XCTestCase {
+    func testParsesPlainAndColorPrefixedRegexRules() throws {
+        let suiteName = "cmux-terminal-regex-highlights-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let notificationCenter = NotificationCenter()
+        var notificationCount = 0
+        let observer = notificationCenter.addObserver(
+            forName: TerminalRegexHighlightSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { notificationCenter.removeObserver(observer) }
+
+        TerminalRegexHighlightSettings.setRawHighlights(
+            """
+            ERROR|WARN
+            #ff6b6b80\tpanic|fatal
+            """,
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+
+        let rules = TerminalRegexHighlightSettings.rules(defaults: defaults)
+        XCTAssertEqual(
+            rules,
+            [
+                TerminalRegexHighlightRule(
+                    pattern: "ERROR|WARN",
+                    backgroundHex: TerminalRegexHighlightRule.defaultBackgroundHex
+                ),
+                TerminalRegexHighlightRule(
+                    pattern: "panic|fatal",
+                    backgroundHex: "#FF6B6B80"
+                ),
+            ]
+        )
+        XCTAssertEqual(notificationCount, 1)
+
+        TerminalRegexHighlightSettings.setRawHighlights(
+            TerminalRegexHighlightSettings.rawHighlights(defaults: defaults),
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertEqual(notificationCount, 1)
+
+        TerminalRegexHighlightSettings.reset(defaults: defaults, notificationCenter: notificationCenter)
+        XCTAssertEqual(TerminalRegexHighlightSettings.rules(defaults: defaults), [])
+        XCTAssertEqual(notificationCount, 2)
+    }
+
+    func testMatcherReturnsClippedRunsAndSkipsInvalidPatterns() {
+        let rules = [
+            TerminalRegexHighlightRule(pattern: "ERR\\d+", backgroundHex: "#FFE06680"),
+            TerminalRegexHighlightRule(pattern: "[", backgroundHex: "#FF000080"),
+            TerminalRegexHighlightRule(pattern: "WARN", backgroundHex: "#7BD88F80"),
+        ]
+
+        let runs = TerminalRegexHighlightMatcher.runs(
+            in: [
+                "ok",
+                "ERR12 WARN ERR345",
+            ],
+            compiledRules: TerminalRegexHighlightMatcher.compiledRules(from: rules),
+            rowOffset: 3,
+            maxColumnCount: 12
+        )
+
+        XCTAssertEqual(
+            runs,
+            [
+                TerminalRegexHighlightRun(row: 4, column: 0, length: 5, backgroundHex: "#FFE06680"),
+                TerminalRegexHighlightRun(row: 4, column: 11, length: 1, backgroundHex: "#FFE06680"),
+                TerminalRegexHighlightRun(row: 4, column: 6, length: 4, backgroundHex: "#7BD88F80"),
+            ]
+        )
+    }
+
+    func testMatcherUsesTerminalColumnsForWideCharacters() {
+        let rules = [
+            TerminalRegexHighlightRule(pattern: "日本", backgroundHex: "#7BD88F80"),
+            TerminalRegexHighlightRule(pattern: "👨‍👩‍👧‍👦", backgroundHex: "#FF6B6B80"),
+            TerminalRegexHighlightRule(pattern: "ERROR", backgroundHex: "#FFE06680"),
+        ]
+
+        let runs = TerminalRegexHighlightMatcher.runs(
+            in: [
+                "日本語 ERROR",
+                "👨‍👩‍👧‍👦 ERROR",
+            ],
+            compiledRules: TerminalRegexHighlightMatcher.compiledRules(from: rules)
+        )
+
+        XCTAssertEqual(
+            runs,
+            [
+                TerminalRegexHighlightRun(row: 0, column: 0, length: 4, backgroundHex: "#7BD88F80"),
+                TerminalRegexHighlightRun(row: 0, column: 7, length: 5, backgroundHex: "#FFE06680"),
+                TerminalRegexHighlightRun(row: 1, column: 0, length: 2, backgroundHex: "#FF6B6B80"),
+                TerminalRegexHighlightRun(row: 1, column: 3, length: 5, backgroundHex: "#FFE06680"),
+            ]
+        )
+    }
+
+    func testRuntimeRuleStateRequiresCompiledRegex() {
+        let notificationCenter = NotificationCenter()
+        let suiteName = "TerminalRegexHighlightRuntimeRuleStateTests"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            TerminalRegexHighlightSettings.notifyDidChange(notificationCenter: notificationCenter)
+        }
+
+        TerminalRegexHighlightSettings.setRawHighlights(
+            "[",
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertFalse(TerminalRegexHighlightSettings.hasRuntimeRules())
+
+        TerminalRegexHighlightSettings.setRawHighlights(
+            "ERROR",
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertTrue(TerminalRegexHighlightSettings.hasRuntimeRules())
+    }
+
+    func testRuntimeRuleStateSynchronizesFromDefaultsChanges() {
+        let notificationCenter = NotificationCenter()
+        let suiteName = "TerminalRegexHighlightRuntimeDefaultsSyncTests"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        var notificationCount = 0
+        let observer = notificationCenter.addObserver(
+            forName: TerminalRegexHighlightSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer {
+            notificationCenter.removeObserver(observer)
+            defaults.removePersistentDomain(forName: suiteName)
+            TerminalRegexHighlightSettings.notifyDidChange(notificationCenter: notificationCenter)
+        }
+
+        defaults.set("ERROR", forKey: TerminalRegexHighlightSettings.highlightsKey)
+        XCTAssertTrue(
+            TerminalRegexHighlightSettings.synchronizeRuntimeStateIfNeeded(
+                defaults: defaults,
+                notificationCenter: notificationCenter
+            )
+        )
+        XCTAssertTrue(TerminalRegexHighlightSettings.hasRuntimeRules())
+        XCTAssertEqual(notificationCount, 1)
+
+        XCTAssertFalse(
+            TerminalRegexHighlightSettings.synchronizeRuntimeStateIfNeeded(
+                defaults: defaults,
+                notificationCenter: notificationCenter
+            )
+        )
+        XCTAssertEqual(notificationCount, 1)
+
+        defaults.set("[", forKey: TerminalRegexHighlightSettings.highlightsKey)
+        XCTAssertTrue(
+            TerminalRegexHighlightSettings.synchronizeRuntimeStateIfNeeded(
+                defaults: defaults,
+                notificationCenter: notificationCenter
+            )
+        )
+        XCTAssertFalse(TerminalRegexHighlightSettings.hasRuntimeRules())
+        XCTAssertEqual(notificationCount, 2)
+    }
+
+    func testParserSkipsInvalidColorPrefixedRules() {
+        let rules = TerminalRegexHighlightSettings.rules(
+            from: """
+            red\tERROR
+            #BAD\tWARN
+            #FFE06680\tpanic
+            """
+        )
+
+        XCTAssertEqual(
+            rules,
+            [
+                TerminalRegexHighlightRule(
+                    pattern: "panic",
+                    backgroundHex: "#FFE06680"
+                ),
+            ]
+        )
+    }
+}
+
 final class TerminalCopyOnSelectSettingsTests: XCTestCase {
     func testDefaultsNotificationAndGhosttyConfigMapping() throws {
         let suiteName = "cmux-terminal-copy-on-select-\(UUID().uuidString)"

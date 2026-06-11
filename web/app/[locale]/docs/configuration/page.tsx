@@ -74,6 +74,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "showScrollBar": false,
   //   "copyOnSelect": true,
   //   "autoResumeAgentSessions": true,
+  //   "regexHighlights": ["#FFE06680\\tERROR", "#FF6B6B80\\tpanic|fatal"],
   //   "showTextBoxOnNewTerminals": false,
   //   "focusTextBoxOnNewTerminals": false,
   //   "agentHibernation": {

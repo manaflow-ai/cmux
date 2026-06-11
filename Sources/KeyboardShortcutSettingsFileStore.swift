@@ -561,6 +561,16 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
         }
 
+        if let raw = jsonString(section["regexHighlights"]) {
+            snapshot.managedUserDefaults[TerminalRegexHighlightSettings.highlightsKey] = .string(raw)
+        } else if let values = jsonStringArray(section["regexHighlights"]) {
+            snapshot.managedUserDefaults[TerminalRegexHighlightSettings.highlightsKey] = .string(
+                values.joined(separator: "\n")
+            )
+        } else if section.keys.contains("regexHighlights") {
+            logInvalid("terminal.regexHighlights", sourcePath: sourcePath)
+        }
+
         if let value = jsonBool(section["showTextBoxOnNewTerminals"]) {
             snapshot.managedUserDefaults[TerminalTextBoxInputSettings.showOnNewTerminalsKey] = .bool(value)
         } else if section.keys.contains("showTextBoxOnNewTerminals") {
@@ -1667,6 +1677,10 @@ final class CmuxSettingsFileStore {
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == TerminalRegexHighlightSettings.highlightsKey {
+                    TerminalRegexHighlightSettings.notifyDidChange(notificationCenter: notificationCenter)
                 }
 
                 if change.defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey {

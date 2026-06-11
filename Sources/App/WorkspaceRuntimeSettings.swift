@@ -252,6 +252,312 @@ enum AgentSessionAutoResumeSettings {
     }
 }
 
+struct TerminalRegexHighlightRule: Equatable {
+    static let defaultBackgroundHex = "#FFE06680"
+
+    let pattern: String
+    let backgroundHex: String
+}
+
+struct TerminalRegexHighlightRun: Equatable {
+    let row: Int
+    let column: Int
+    let length: Int
+    let backgroundHex: String
+}
+
+struct TerminalRegexHighlightCompiledRule {
+    let pattern: String
+    let backgroundHex: String
+    let expression: NSRegularExpression
+
+    init?(rule: TerminalRegexHighlightRule) {
+        guard let expression = try? NSRegularExpression(pattern: rule.pattern) else {
+            return nil
+        }
+        self.pattern = rule.pattern
+        self.backgroundHex = rule.backgroundHex
+        self.expression = expression
+    }
+}
+
+enum TerminalRegexHighlightSettings {
+    static let highlightsKey = "terminal.regexHighlights"
+    static let defaultHighlights = ""
+    static let didChangeNotification = Notification.Name("cmux.terminalRegexHighlightSettingsDidChange")
+
+    private static let runtimeStateLock = NSLock()
+    private static var runtimeRawHighlights = rawHighlights()
+    private static var runtimeHasRules = hasCompiledRules()
+    private static var userDefaultsObserver: NSObjectProtocol?
+
+    static func hasRuntimeRules() -> Bool {
+        startObservingUserDefaultsChanges()
+        runtimeStateLock.lock()
+        defer { runtimeStateLock.unlock() }
+        return runtimeHasRules
+    }
+
+    static func startObservingUserDefaultsChanges(notificationCenter: NotificationCenter = .default) {
+        runtimeStateLock.lock()
+        if userDefaultsObserver != nil {
+            runtimeStateLock.unlock()
+            return
+        }
+        runtimeStateLock.unlock()
+
+        let observer = notificationCenter.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            synchronizeRuntimeStateIfNeeded()
+        }
+
+        runtimeStateLock.lock()
+        if userDefaultsObserver == nil {
+            userDefaultsObserver = observer
+            runtimeStateLock.unlock()
+        } else {
+            runtimeStateLock.unlock()
+            notificationCenter.removeObserver(observer)
+        }
+    }
+
+    static func rawHighlights(defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: highlightsKey) ?? defaultHighlights
+    }
+
+    static func rules(defaults: UserDefaults = .standard) -> [TerminalRegexHighlightRule] {
+        rules(from: rawHighlights(defaults: defaults))
+    }
+
+    static func rules(from rawValue: String) -> [TerminalRegexHighlightRule] {
+        rawValue
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line in
+                let text = line.trimmingCharacters(in: .whitespaces)
+                guard !text.isEmpty else { return nil }
+                if let tabIndex = text.firstIndex(of: "\t") {
+                    let color = String(text[..<tabIndex]).trimmingCharacters(in: .whitespaces)
+                    let pattern = String(text[text.index(after: tabIndex)...])
+                        .trimmingCharacters(in: .whitespaces)
+                    guard isSupportedHexColor(color), !pattern.isEmpty else { return nil }
+                    return TerminalRegexHighlightRule(
+                        pattern: pattern,
+                        backgroundHex: normalizedHexColor(color)
+                    )
+                }
+                return TerminalRegexHighlightRule(
+                    pattern: text,
+                    backgroundHex: TerminalRegexHighlightRule.defaultBackgroundHex
+                )
+            }
+    }
+
+    static func setRawHighlights(
+        _ rawValue: String,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let previous = rawHighlights(defaults: defaults)
+        defaults.set(rawValue, forKey: highlightsKey)
+        if previous != rawValue {
+            notifyDidChange(defaults: defaults, notificationCenter: notificationCenter)
+        }
+    }
+
+    @discardableResult
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let previous = rawHighlights(defaults: defaults)
+        defaults.removeObject(forKey: highlightsKey)
+        let didChange = previous != rawHighlights(defaults: defaults)
+        if didChange {
+            notifyDidChange(defaults: defaults, notificationCenter: notificationCenter)
+        }
+        return didChange
+    }
+
+    static func notifyDidChange(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        updateRuntimeRuleState(rawValue: rawHighlights(defaults: defaults))
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+
+    @discardableResult
+    static func synchronizeRuntimeStateIfNeeded(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let rawValue = rawHighlights(defaults: defaults)
+        runtimeStateLock.lock()
+        let didChange = rawValue != runtimeRawHighlights
+        runtimeStateLock.unlock()
+
+        guard didChange else { return false }
+        updateRuntimeRuleState(rawValue: rawValue)
+        notificationCenter.post(name: didChangeNotification, object: nil)
+        return true
+    }
+
+    private static func updateRuntimeRuleState(rawValue: String) {
+        let hasRules = hasCompiledRules(from: rawValue)
+        runtimeStateLock.lock()
+        runtimeRawHighlights = rawValue
+        runtimeHasRules = hasRules
+        runtimeStateLock.unlock()
+    }
+
+    private static func hasCompiledRules(defaults: UserDefaults = .standard) -> Bool {
+        hasCompiledRules(from: rawHighlights(defaults: defaults))
+    }
+
+    private static func hasCompiledRules(from rawValue: String) -> Bool {
+        !TerminalRegexHighlightMatcher.compiledRules(from: rules(from: rawValue)).isEmpty
+    }
+
+    private static func isSupportedHexColor(_ rawValue: String) -> Bool {
+        let normalized = normalizedHexColor(rawValue)
+        guard normalized.count == 7 || normalized.count == 9 else { return false }
+        return normalized.dropFirst().allSatisfy(\.isHexDigit)
+    }
+
+    private static func normalizedHexColor(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let withPrefix = trimmed.hasPrefix("#") ? trimmed : "#\(trimmed)"
+        return withPrefix.uppercased()
+    }
+}
+
+enum TerminalRegexHighlightMatcher {
+    static let maxRuns = 512
+
+    static func compiledRules(
+        from rules: [TerminalRegexHighlightRule]
+    ) -> [TerminalRegexHighlightCompiledRule] {
+        rules.compactMap(TerminalRegexHighlightCompiledRule.init(rule:))
+    }
+
+    static func runs(
+        in lines: [String],
+        compiledRules: [TerminalRegexHighlightCompiledRule],
+        rowOffset: Int = 0,
+        maxColumnCount: Int? = nil
+    ) -> [TerminalRegexHighlightRun] {
+        guard !compiledRules.isEmpty else { return [] }
+
+        var runs: [TerminalRegexHighlightRun] = []
+        runs.reserveCapacity(min(32, maxRuns))
+
+        for (lineIndex, line) in lines.enumerated() {
+            guard !line.isEmpty else { continue }
+            let searchRange = NSRange(line.startIndex..<line.endIndex, in: line)
+            for compiledRule in compiledRules {
+                var reachedMaxRuns = false
+                compiledRule.expression.enumerateMatches(in: line, options: [], range: searchRange) { match, _, stop in
+                    guard let match,
+                          match.range.length > 0,
+                          let range = Range(match.range, in: line) else {
+                        return
+                    }
+                    let column = terminalColumnWidth(line[..<range.lowerBound])
+                    let length = terminalColumnWidth(line[range])
+                    guard length > 0 else { return }
+
+                    let clippedLength: Int
+                    if let maxColumnCount {
+                        guard column < maxColumnCount else { return }
+                        clippedLength = min(length, maxColumnCount - column)
+                    } else {
+                        clippedLength = length
+                    }
+                    guard clippedLength > 0 else { return }
+
+                    runs.append(TerminalRegexHighlightRun(
+                        row: rowOffset + lineIndex,
+                        column: column,
+                        length: clippedLength,
+                        backgroundHex: compiledRule.backgroundHex
+                    ))
+                    if runs.count >= maxRuns {
+                        reachedMaxRuns = true
+                        stop.pointee = true
+                    }
+                }
+                if reachedMaxRuns {
+                    return runs
+                }
+            }
+        }
+
+        return runs
+    }
+
+    private static func terminalColumnWidth(_ text: Substring) -> Int {
+        text.reduce(0) { total, character in
+            total + terminalColumnWidth(for: character)
+        }
+    }
+
+    private static func terminalColumnWidth(for character: Character) -> Int {
+        var hasNonZeroWidthScalar = false
+        var hasWideScalar = false
+        for scalar in character.unicodeScalars {
+            let scalarWidth = terminalColumnWidth(for: scalar)
+            guard scalarWidth > 0 else { continue }
+            hasNonZeroWidthScalar = true
+            if isWideTerminalScalar(scalar.value) {
+                hasWideScalar = true
+            }
+        }
+        guard hasNonZeroWidthScalar else { return 0 }
+        return hasWideScalar ? 2 : 1
+    }
+
+    private static func terminalColumnWidth(for scalar: Unicode.Scalar) -> Int {
+        let value = scalar.value
+        if value == 0 ||
+            value == 0x200D ||
+            (0xFE00...0xFE0F).contains(value) {
+            return 0
+        }
+
+        switch scalar.properties.generalCategory {
+        case .control, .enclosingMark, .format, .nonspacingMark:
+            return 0
+        default:
+            break
+        }
+
+        return isWideTerminalScalar(value) ? 2 : 1
+    }
+
+    private static func isWideTerminalScalar(_ value: UInt32) -> Bool {
+        switch value {
+        case 0x1100...0x115F,
+             0x2329...0x232A,
+             0x2E80...0xA4CF,
+             0xAC00...0xD7A3,
+             0xF900...0xFAFF,
+             0xFE10...0xFE19,
+             0xFE30...0xFE6F,
+             0xFF00...0xFF60,
+             0xFFE0...0xFFE6,
+             0x1F1E6...0x1F1FF,
+             0x1F300...0x1FAFF,
+             0x20000...0x3FFFD:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 enum AgentHibernationSettings {
     struct Values: Equatable, Sendable {
         var enabled: Bool

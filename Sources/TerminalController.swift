@@ -18788,26 +18788,27 @@ class TerminalController {
         // Capture the main window on main thread
         var captureError: String?
         v2MainSync {
-            let candidateWindows = NSApp.windows.filter { window in
-                window.isVisible &&
-                !window.isMiniaturized &&
-                window.contentView != nil &&
-                !window.frame.isEmpty
+            let orderedWindows = ([NSApp.mainWindow, NSApp.keyWindow].compactMap { $0 } + NSApp.windows)
+            var seenWindowNumbers: Set<Int> = []
+            let windowCandidates = orderedWindows.filter { window in
+                guard window.isVisible,
+                      !window.isMiniaturized,
+                      window.contentView != nil,
+                      window.frame.width > 100,
+                      window.frame.height > 100 else { return false }
+                let rawWindowNumber = window.windowNumber
+                guard rawWindowNumber > 0 else { return false }
+                return seenWindowNumbers.insert(rawWindowNumber).inserted
             }
-            let preferredWindow = [NSApp.keyWindow, NSApp.mainWindow]
-                .compactMap { $0 }
-                .first { candidateWindows.contains($0) }
-            let window = preferredWindow ?? candidateWindows.max { lhs, rhs in
-                (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
-            } ?? NSApp.mainWindow ?? NSApp.windows.first
-
-            guard let window else {
-                captureError = "No window available"
+            guard !windowCandidates.isEmpty else {
+                captureError = "No capturable window available"
                 return
             }
 
-            guard let pngData = self.captureCompositedWindowPNGData(window)
-                ?? self.captureAppKitWindowPNGData(window) else {
+            guard let pngData = windowCandidates.lazy.compactMap({ window in
+                self.captureCompositedWindowPNGData(window)
+                    ?? self.captureAppKitWindowPNGData(window)
+            }).first else {
                 captureError = "Failed to create PNG data"
                 return
             }
@@ -19608,69 +19609,69 @@ class TerminalController {
                 result = "OK"
             }
         }
-	        return result
-	    }
-	
-	    private func dragSurfaceToSplit(_ args: String) -> String {
-	        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-	
-	        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-	        let parts = trimmed.split(separator: " ").map(String.init)
-	        guard parts.count >= 2 else { return "ERROR: Usage: drag_surface_to_split <id|idx> <left|right|up|down>" }
-	
-	        let surfaceArg = parts[0]
-	        let directionArg = parts[1]
-	        guard let direction = parseSplitDirection(directionArg) else {
-	            return "ERROR: Invalid direction. Use left, right, up, or down."
-	        }
-	
-	        let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
-	        let insertFirst = (direction == .left || direction == .up)
+        return result
+    }
 
-	        v2MainSync { self.v2RefreshKnownRefs() }
-	        if let stableSurfaceId = v2UUID(["surface_id": surfaceArg], "surface_id") {
-	            switch v2SurfaceSplitOff(params: [
-	                "surface_id": stableSurfaceId.uuidString,
-	                "direction": directionArg,
-	                "focus": false
-	            ]) {
-	            case .ok(let payload):
-	                let dict = payload as? [String: Any]
-	                let paneId = (dict?["pane_id"] as? String) ?? ""
-	                return paneId.isEmpty ? "OK" : "OK \(paneId)"
-	            case .err(_, let message, _):
-	                return "ERROR: \(message)"
-	            }
-	        }
-	
-	        var result = "ERROR: Failed to move surface"
-	        v2MainSync {
-	            guard let tabId = tabManager.selectedTabId,
-	                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
-	                result = "ERROR: No tab selected"
-	                return
-	            }
-	
-	            guard let panelId = resolveSurfaceId(from: surfaceArg, tab: tab),
-	                  let bonsplitTabId = tab.surfaceIdFromPanelId(panelId) else {
-	                result = "ERROR: Surface not found"
-	                return
-	            }
-	
-	            guard let newPaneId = tab.bonsplitController.splitPane(
-	                orientation: orientation,
-	                movingTab: bonsplitTabId,
-	                insertFirst: insertFirst
-	            ) else {
-	                result = "ERROR: Failed to split pane"
-	                return
-	            }
-	
-	            result = "OK \(newPaneId.id.uuidString)"
-	        }
-	        return result
-	    }
-	
+    private func dragSurfaceToSplit(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ").map(String.init)
+        guard parts.count >= 2 else { return "ERROR: Usage: drag_surface_to_split <id|idx> <left|right|up|down>" }
+
+        let surfaceArg = parts[0]
+        let directionArg = parts[1]
+        guard let direction = parseSplitDirection(directionArg) else {
+            return "ERROR: Invalid direction. Use left, right, up, or down."
+        }
+
+        let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
+        let insertFirst = (direction == .left || direction == .up)
+
+        v2MainSync { self.v2RefreshKnownRefs() }
+        if let stableSurfaceId = v2UUID(["surface_id": surfaceArg], "surface_id") {
+            switch v2SurfaceSplitOff(params: [
+                "surface_id": stableSurfaceId.uuidString,
+                "direction": directionArg,
+                "focus": false
+            ]) {
+            case .ok(let payload):
+                let dict = payload as? [String: Any]
+                let paneId = (dict?["pane_id"] as? String) ?? ""
+                return paneId.isEmpty ? "OK" : "OK \(paneId)"
+            case .err(_, let message, _):
+                return "ERROR: \(message)"
+            }
+        }
+
+        var result = "ERROR: Failed to move surface"
+        v2MainSync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                result = "ERROR: No tab selected"
+                return
+            }
+
+            guard let panelId = resolveSurfaceId(from: surfaceArg, tab: tab),
+                  let bonsplitTabId = tab.surfaceIdFromPanelId(panelId) else {
+                result = "ERROR: Surface not found"
+                return
+            }
+
+            guard let newPaneId = tab.bonsplitController.splitPane(
+                orientation: orientation,
+                movingTab: bonsplitTabId,
+                insertFirst: insertFirst
+            ) else {
+                result = "ERROR: Failed to split pane"
+                return
+            }
+
+            result = "OK \(newPaneId.id.uuidString)"
+        }
+        return result
+    }
+
     private func newPane(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 

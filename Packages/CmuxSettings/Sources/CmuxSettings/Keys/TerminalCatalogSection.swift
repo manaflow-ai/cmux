@@ -20,6 +20,12 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.autoResumeAgentSessions"
     )
 
+    public let regexHighlights = DefaultsKey<String>(
+        id: "terminal.regexHighlights",
+        defaultValue: "",
+        userDefaultsKey: "terminal.regexHighlights"
+    )
+
     public let agentHibernationEnabled = DefaultsKey<Bool>(
         id: "terminal.agentHibernation.enabled",
         defaultValue: false,

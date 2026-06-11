@@ -1,3 +1,4 @@
+import AppKit
 import CmuxSettings
 import SwiftUI
 
@@ -17,6 +18,7 @@ public struct TerminalSection: View {
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
+    @State private var regexHighlights: DefaultsValueModel<String>
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
     @State private var maxLive: DefaultsValueModel<Int>
@@ -34,6 +36,7 @@ public struct TerminalSection: View {
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
+        _regexHighlights = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.regexHighlights))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
         _maxLive = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationMaxLiveTerminals))
@@ -168,6 +171,8 @@ public struct TerminalSection: View {
                     .accessibilityIdentifier("SettingsTerminalAgentAutoResumeToggle")
             }
             SettingsCardDivider()
+            regexHighlightsRow
+            SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .json("terminal.agentHibernation.enabled"),
                 String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),
@@ -210,6 +215,47 @@ public struct TerminalSection: View {
                 )
                 .accessibilityIdentifier("SettingsTerminalAgentHibernationMaxLiveStepper")
             }
+        }
+    }
+
+    private var regexHighlightsBinding: Binding<String> {
+        Binding(
+            get: { regexHighlights.current },
+            set: { regexHighlights.set($0) }
+        )
+    }
+
+    @ViewBuilder
+    private var regexHighlightsRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SettingsCardRow(
+                configurationReview: .json("terminal.regexHighlights"),
+                String(localized: "settings.terminal.regexHighlights", defaultValue: "Automatic Text Highlights"),
+                subtitle: String(
+                    localized: "settings.terminal.regexHighlights.subtitle",
+                    defaultValue: "Highlights visible terminal text that matches a regex. One pattern per line; prefix with #RRGGBB or #RRGGBBAA and a tab to choose the highlight color."
+                )
+            ) {
+                EmptyView()
+            }
+
+            TextEditor(text: regexHighlightsBinding)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 60, maxHeight: 120)
+                .scrollContentBackground(.hidden)
+                .padding(6)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                )
+                .padding(.horizontal, 14)
+                .padding(.bottom, 10)
+                .accessibilityIdentifier("SettingsTerminalRegexHighlightsEditor")
+                .accessibilityLabel(
+                    String(localized: "settings.terminal.regexHighlights", defaultValue: "Automatic Text Highlights")
+                )
         }
     }
 

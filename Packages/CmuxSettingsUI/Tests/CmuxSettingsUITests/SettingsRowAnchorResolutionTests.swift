@@ -105,6 +105,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.agentHibernation.maxLiveTerminals",
         "terminal.autoResumeAgentSessions",
         "terminal.copyOnSelect",
+        "terminal.regexHighlights",
         "terminal.resumeCommands",
         "terminal.focusTextBoxOnNewTerminals",
         "terminal.showScrollBar",
