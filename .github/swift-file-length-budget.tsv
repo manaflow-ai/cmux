@@ -5,7 +5,7 @@
 22840	Sources/TerminalController.swift
 19955	Sources/Workspace.swift
 19248	Sources/ContentView.swift
-18057	Sources/AppDelegate.swift
+18021	Sources/AppDelegate.swift
 16539	Sources/GhosttyTerminalView.swift
 13608	Sources/Panels/BrowserPanel.swift
 11916	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -15,8 +15,8 @@
 7198	cmuxTests/WorkspaceUnitTests.swift
 6948	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6542	cmuxTests/GhosttyConfigTests.swift
+6329	cmuxTests/SessionPersistenceTests.swift
 6299	cmuxTests/TerminalAndGhosttyTests.swift
-6220	cmuxTests/SessionPersistenceTests.swift
 6153	CLI/cmux_open.swift
 6071	Sources/TextBoxInput.swift
 5482	cmuxTests/BrowserConfigTests.swift
@@ -44,7 +44,7 @@
 2290	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
 2209	Sources/Mobile/MobileHostService.swift
-2138	Sources/SessionPersistence.swift
+2191	Sources/SessionPersistence.swift
 2123	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2117	cmuxTests/CmuxConfigTests.swift
 1996	Sources/KeyboardShortcutSettingsFileStore.swift
@@ -104,6 +104,7 @@
 830	Sources/TaskManagerTypes.swift
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 787	Sources/ClosedItemHistory.swift
+774	cmuxUITests/BrowserFixtureInteractionUITests.swift
 768	Sources/MainWindowFocusController.swift
 760	Packages/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
 757	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
@@ -134,7 +135,6 @@
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
 649	Sources/CmuxTopSnapshot.swift
 640	cmuxTests/CommandPaletteNucleoFFITests.swift
-638	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 630	Packages/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 627	Sources/WorkspaceRemoteConfiguration.swift
 621	cmuxUITests/RightSidebarChromeHeightUITests.swift
@@ -177,6 +177,7 @@
 519	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-two-column-cockpit-sidebar.swift
 518	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
 516	Sources/CmuxConfigExecutor.swift
+514	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 514	cmuxUITests/UpdatePillUITests.swift
 509	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift
@@ -185,4 +186,3 @@
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 502	Sources/CmuxEventPublishing.swift
 502	Sources/Settings/ConfigSource.swift
-774	cmuxUITests/BrowserFixtureInteractionUITests.swift

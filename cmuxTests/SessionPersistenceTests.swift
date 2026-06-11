@@ -238,113 +238,91 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.windows.first?.sidebar.width, 321)
     }
 
-    func testSyncManualRestoreCachePreservesBackupWhenPrimarySnapshotIsCorrupt() throws {
+    private struct SnapshotBackupFixture {
+        let tempDir: URL
+        let bundleIdentifier: String
+        let primaryURL: URL
+        let backupURL: URL
+
+        func writeCorruptPrimary() throws {
+            try FileManager.default.createDirectory(
+                at: primaryURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data("{\"version\": 9999, \"windows\": [truncated-mid-w".utf8).write(to: primaryURL)
+        }
+    }
+
+    private func makeSnapshotBackupFixture(backupSnapshot: AppSessionSnapshot) throws -> SnapshotBackupFixture {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
         let bundleIdentifier = "dev.cmux.tests.\(UUID().uuidString)"
-        let primaryURL = try XCTUnwrap(
-            SessionPersistenceStore.defaultSnapshotFileURL(
-                bundleIdentifier: bundleIdentifier,
-                appSupportDirectory: tempDir
+        let fixture = SnapshotBackupFixture(
+            tempDir: tempDir,
+            bundleIdentifier: bundleIdentifier,
+            primaryURL: try XCTUnwrap(
+                SessionPersistenceStore.defaultSnapshotFileURL(
+                    bundleIdentifier: bundleIdentifier,
+                    appSupportDirectory: tempDir
+                )
+            ),
+            backupURL: try XCTUnwrap(
+                SessionPersistenceStore.manualRestoreSnapshotFileURL(
+                    bundleIdentifier: bundleIdentifier,
+                    appSupportDirectory: tempDir
+                )
             )
         )
-        let backupURL = try XCTUnwrap(
-            SessionPersistenceStore.manualRestoreSnapshotFileURL(
-                bundleIdentifier: bundleIdentifier,
-                appSupportDirectory: tempDir
-            )
-        )
+        XCTAssertTrue(SessionPersistenceStore.save(backupSnapshot, fileURL: fixture.backupURL))
+        return fixture
+    }
 
-        XCTAssertTrue(
-            SessionPersistenceStore.save(
-                makeSnapshot(version: SessionSnapshotSchema.currentVersion),
-                fileURL: backupURL
-            )
+    func testSyncManualRestoreCachePreservesBackupWhenPrimarySnapshotIsCorrupt() throws {
+        let fixture = try makeSnapshotBackupFixture(
+            backupSnapshot: makeSnapshot(version: SessionSnapshotSchema.currentVersion)
         )
-        try FileManager.default.createDirectory(
-            at: primaryURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Data("{\"version\": 9999, \"windows\": [truncated-mid-w".utf8).write(to: primaryURL)
+        defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
+        try fixture.writeCorruptPrimary()
 
         SessionPersistenceStore.syncManualRestoreSnapshotCache(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: tempDir
+            bundleIdentifier: fixture.bundleIdentifier,
+            appSupportDirectory: fixture.tempDir
         )
 
         XCTAssertNotNil(
-            SessionPersistenceStore.load(fileURL: backupURL),
+            SessionPersistenceStore.load(fileURL: fixture.backupURL),
             "A corrupt primary snapshot must not destroy the restore-session backup"
         )
     }
 
     func testSyncManualRestoreCacheRemovesBackupWhenPrimarySnapshotIsMissing() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let bundleIdentifier = "dev.cmux.tests.\(UUID().uuidString)"
-        let backupURL = try XCTUnwrap(
-            SessionPersistenceStore.manualRestoreSnapshotFileURL(
-                bundleIdentifier: bundleIdentifier,
-                appSupportDirectory: tempDir
-            )
+        let fixture = try makeSnapshotBackupFixture(
+            backupSnapshot: makeSnapshot(version: SessionSnapshotSchema.currentVersion)
         )
-
-        XCTAssertTrue(
-            SessionPersistenceStore.save(
-                makeSnapshot(version: SessionSnapshotSchema.currentVersion),
-                fileURL: backupURL
-            )
-        )
+        defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
 
         SessionPersistenceStore.syncManualRestoreSnapshotCache(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: tempDir
+            bundleIdentifier: fixture.bundleIdentifier,
+            appSupportDirectory: fixture.tempDir
         )
 
         XCTAssertNil(
-            SessionPersistenceStore.load(fileURL: backupURL),
+            SessionPersistenceStore.load(fileURL: fixture.backupURL),
             "A genuinely absent primary snapshot still clears the stale backup"
         )
     }
 
     func testStartupSnapshotLoadRecoversFromBackupWhenPrimarySnapshotIsCorrupt() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let bundleIdentifier = "dev.cmux.tests.\(UUID().uuidString)"
-        let primaryURL = try XCTUnwrap(
-            SessionPersistenceStore.defaultSnapshotFileURL(
-                bundleIdentifier: bundleIdentifier,
-                appSupportDirectory: tempDir
-            )
-        )
-        let backupURL = try XCTUnwrap(
-            SessionPersistenceStore.manualRestoreSnapshotFileURL(
-                bundleIdentifier: bundleIdentifier,
-                appSupportDirectory: tempDir
-            )
-        )
-
         var backupSnapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
         backupSnapshot.windows[0].sidebar.width = 321
-        XCTAssertTrue(SessionPersistenceStore.save(backupSnapshot, fileURL: backupURL))
-        try FileManager.default.createDirectory(
-            at: primaryURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Data("not a session snapshot".utf8).write(to: primaryURL)
+        let fixture = try makeSnapshotBackupFixture(backupSnapshot: backupSnapshot)
+        defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
+        try fixture.writeCorruptPrimary()
 
         let loaded = SessionPersistenceStore.loadStartupSnapshot(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: tempDir
+            bundleIdentifier: fixture.bundleIdentifier,
+            appSupportDirectory: fixture.tempDir
         )
 
         XCTAssertEqual(
@@ -355,29 +333,15 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testStartupSnapshotLoadReturnsNilWhenPrimarySnapshotIsMissing() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let bundleIdentifier = "dev.cmux.tests.\(UUID().uuidString)"
-        let backupURL = try XCTUnwrap(
-            SessionPersistenceStore.manualRestoreSnapshotFileURL(
-                bundleIdentifier: bundleIdentifier,
-                appSupportDirectory: tempDir
-            )
+        let fixture = try makeSnapshotBackupFixture(
+            backupSnapshot: makeSnapshot(version: SessionSnapshotSchema.currentVersion)
         )
-        XCTAssertTrue(
-            SessionPersistenceStore.save(
-                makeSnapshot(version: SessionSnapshotSchema.currentVersion),
-                fileURL: backupURL
-            )
-        )
+        defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
 
         XCTAssertNil(
             SessionPersistenceStore.loadStartupSnapshot(
-                bundleIdentifier: bundleIdentifier,
-                appSupportDirectory: tempDir
+                bundleIdentifier: fixture.bundleIdentifier,
+                appSupportDirectory: fixture.tempDir
             ),
             "A clean start without a primary snapshot must not resurrect the backup"
         )
