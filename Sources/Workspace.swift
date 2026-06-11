@@ -12428,6 +12428,15 @@ final class Workspace: Identifiable, ObservableObject {
         if let resumedKind = restoredAgentSnapshotsByPanelId[panelId]?.kind {
             setAgentLifecycle(key: resumedKind.lifecycleStatusKey, panelId: panelId, lifecycle: .idle)
         }
+        // When the resume queued a startup command the terminal input is recorded
+        // asynchronously (Task { @MainActor in }) by GhosttyTerminalView, so
+        // terminalInputAt would not advance past the lifecycleChangeAt written above.
+        // Record it here synchronously so hasUnconfirmedTerminalInput stays true
+        // until the resumed process confirms its first lifecycle update, keeping the
+        // planner from re-hibernating the panel during the startup window.
+        if preparation.queuedStartupInput {
+            AgentHibernationController.shared.recordTerminalInput(workspaceId: id, panelId: panelId)
+        }
         AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
         if focus {
             focusPanel(panelId)

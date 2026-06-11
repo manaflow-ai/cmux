@@ -1010,12 +1010,16 @@ final class AgentHibernationTests: XCTestCase {
     }
 
     @MainActor
-    func testResumeClearsStaleLifecycleState() throws {
+    func testResumeSeesIdleLifecycleForReHibernation() throws {
+        // Resume must seed .idle so a previously-hibernated agent becomes
+        // eligible for re-hibernation once its idle window elapses again.
+        // (The old behavior cleared all states to .unknown, making agents
+        // stuck and non-re-hibernatable — the one-shot bug.)
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
-            sessionId: "codex-clear-lifecycle-on-resume",
+            sessionId: "codex-resume-seeds-idle",
             workingDirectory: "/tmp/cmux-agent-hibernation",
             launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
         )
@@ -1028,7 +1032,7 @@ final class AgentHibernationTests: XCTestCase {
         )
 
         XCTAssertTrue(workspace.resumeAgentHibernation(panelId: panelId, focus: false))
-        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .unknown)
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .idle)
     }
 
     @MainActor
