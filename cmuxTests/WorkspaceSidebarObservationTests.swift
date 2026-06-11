@@ -394,4 +394,68 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             "The oldest evicted lifecycle-backed status must have its lifecycle state cleared"
         )
     }
+
+    // Detached-surface adoption also writes the status before recording the
+    // transferred PID. If the destination is full of live statuses the adopted
+    // status self-evicts, and its PID must not be recreated as an orphan (#5845).
+    func testDetachedAdoptionSkipsPIDWhenAdoptedStatusEvicted() {
+        let workspace = Workspace()
+        let cap = 200
+
+        for index in 0..<cap {
+            let key = "live_\(index)"
+            _ = workspace.recordAgentPID(key: key, pid: pid_t(5000 + index), panelId: nil, refreshPorts: false)
+            workspace.statusEntries[key] = SidebarStatusEntry(
+                key: key,
+                value: "Running",
+                priority: 100,
+                timestamp: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        }
+        XCTAssertEqual(workspace.statusEntries.count, cap)
+
+        let runtime = Workspace.DetachedAgentRuntimeState(
+            panelId: UUID(),
+            statusEntries: [
+                "adopted": SidebarStatusEntry(
+                    key: "adopted",
+                    value: "Running",
+                    priority: 0,
+                    timestamp: Date(timeIntervalSince1970: 0)
+                )
+            ],
+            agentPIDs: ["adopted": 8888],
+            agentPIDKeys: ["adopted"]
+        )
+        workspace.adoptDetachedAgentRuntimeState(runtime)
+
+        XCTAssertNil(
+            workspace.statusEntries["adopted"],
+            "The adopted status self-evicts when the destination is full of live statuses"
+        )
+        XCTAssertNil(
+            workspace.agentPIDs["adopted"],
+            "The adopted PID must not be recorded when its status self-evicted"
+        )
+    }
+
+    func testDetachedAdoptionRecordsPIDWhenStatusSurvives() {
+        let workspace = Workspace()
+        let runtime = Workspace.DetachedAgentRuntimeState(
+            panelId: UUID(),
+            statusEntries: [
+                "adopted": SidebarStatusEntry(
+                    key: "adopted",
+                    value: "Running",
+                    timestamp: Date(timeIntervalSince1970: 0)
+                )
+            ],
+            agentPIDs: ["adopted": 8888],
+            agentPIDKeys: ["adopted"]
+        )
+        workspace.adoptDetachedAgentRuntimeState(runtime)
+
+        XCTAssertNotNil(workspace.statusEntries["adopted"])
+        XCTAssertEqual(workspace.agentPIDs["adopted"], 8888)
+    }
 }

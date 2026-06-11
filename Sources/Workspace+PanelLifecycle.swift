@@ -335,15 +335,35 @@ extension Workspace {
 
     func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
         guard let runtimeState else { return }
-        for (statusKey, statusEntry) in runtimeState.statusEntries {
-            statusEntries[statusKey] = statusEntry
+        // Merge all adopted statuses in a single assignment so the cap ranks them
+        // together in one trim (all share the just-inserted grace tier) instead
+        // of letting earlier-adopted statuses age out of that tier as later ones
+        // are written.
+        if !runtimeState.statusEntries.isEmpty {
+            var merged = statusEntries
+            for (statusKey, statusEntry) in runtimeState.statusEntries {
+                merged[statusKey] = statusEntry
+            }
+            statusEntries = merged
+        }
+        // Only adopt the coupled PID/ownership for a status-backed key if its
+        // status actually survived the destination workspace's cap, so an adopted
+        // status that self-evicted (destination already full of higher-ranked
+        // live/reserved entries) can't recreate orphan agent runtime state
+        // (#5845). PID-only keys (no status in the transferred runtime, e.g.
+        // `set_agent_pid`) are always adopted.
+        func adoptedStatusSurvived(forAgentPIDKey key: String) -> Bool {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            guard runtimeState.statusEntries[statusKey] != nil else { return true }
+            return statusEntries[statusKey] != nil
         }
         var didAdoptAgentPID = false
-        for (key, pid) in runtimeState.agentPIDs {
+        for (key, pid) in runtimeState.agentPIDs where adoptedStatusSurvived(forAgentPIDKey: key) {
             recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
             didAdoptAgentPID = true
         }
-        for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
+        for key in runtimeState.agentPIDKeys
+        where runtimeState.agentPIDs[key] == nil && adoptedStatusSurvived(forAgentPIDKey: key) {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
         }
         if didAdoptAgentPID {
