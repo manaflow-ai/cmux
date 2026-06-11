@@ -51,9 +51,12 @@ final class RemoteWorkerDisplayPump: NSObject {
     }
 
     /// Tells the gate a pump's commit landed (explicit message pumps and
-    /// tick pumps both flush everything marked dirty so far).
+    /// tick pumps both flush everything marked dirty so far), and parks the
+    /// link immediately so a commit's own invalidation noise (layout marking
+    /// the view dirty mid-pump) does not buy a throwaway wakeup.
     func pumpCompleted() {
         gate.pumpCompleted()
+        link?.isPaused = true
     }
 
     /// Stops the link and releases its target retain. The worker normally
