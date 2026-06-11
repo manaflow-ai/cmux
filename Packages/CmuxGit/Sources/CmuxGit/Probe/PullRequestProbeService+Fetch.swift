@@ -440,13 +440,14 @@ extension PullRequestProbeService {
     ///
     /// For `github.com`, `GH_TOKEN`/`GITHUB_TOKEN` is preferred, falling back to
     /// `gh`. For every other host the token comes from
-    /// `gh auth token --hostname <host>`, but any ambient token env var is
-    /// refused: `gh` hands `GH_ENTERPRISE_TOKEN`/`GITHUB_ENTERPRISE_TOKEN` to any
-    /// enterprise host and `GH_TOKEN`/`GITHUB_TOKEN` to `*.ghe.com` hosts, so a
-    /// remote pointing at an unverified host would otherwise be sent the user's
-    /// ambient credential. Only a per-host stored credential (from
-    /// `gh auth login --hostname`) — which differs from every ambient env token —
-    /// is trusted for non-`github.com` hosts.
+    /// `gh auth token --hostname <host>`, but an ambient token env var is refused
+    /// unless `GH_HOST` explicitly binds it to this host: `gh` hands
+    /// `GH_ENTERPRISE_TOKEN`/`GITHUB_ENTERPRISE_TOKEN` to any enterprise host and
+    /// `GH_TOKEN`/`GITHUB_TOKEN` to `*.ghe.com` hosts, so a remote pointing at an
+    /// unverified host would otherwise be sent the user's ambient credential. A
+    /// per-host stored credential (from `gh auth login --hostname`) — which
+    /// differs from every ambient env token — is always trusted; an ambient
+    /// token is trusted only for the host named by `GH_HOST`.
     nonisolated func authToken(for host: GitHubHost) async -> String? {
         if host.isDotCom,
            let envToken = environment["GH_TOKEN"] ?? environment["GITHUB_TOKEN"] {
@@ -466,7 +467,10 @@ extension PullRequestProbeService {
             )
         }
 
-        if let resolved, !host.isDotCom, ambientTokens.contains(resolved) {
+        if let resolved,
+           !host.isDotCom,
+           ambientTokens.contains(resolved),
+           !ambientTokenIsBound(to: host) {
             debugLog("workspace.prRefresh.token.reject host=\(host.hostname) reason=ambient-token")
             return nil
         }
@@ -483,5 +487,21 @@ extension PullRequestProbeService {
                 .compactMap { environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
         )
+    }
+
+    /// Whether the ambient token env vars are explicitly bound to `host`.
+    ///
+    /// `gh` uses `GH_HOST` as the host its ambient token applies to, so a
+    /// matching `GH_HOST` marks an intentional env-auth setup (the common
+    /// `GH_HOST` + `GH_ENTERPRISE_TOKEN` configuration) rather than a leak to an
+    /// unverified remote host.
+    private func ambientTokenIsBound(to host: GitHubHost) -> Bool {
+        guard let ghHost = environment["GH_HOST"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+            !ghHost.isEmpty else {
+            return false
+        }
+        return ghHost == host.hostname || ghHost == host.authority
     }
 }

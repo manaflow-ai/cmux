@@ -69,15 +69,24 @@ public struct GitHubHost: Hashable, Sendable {
     /// A command runner used to resolve a token without tying tests to `gh`.
     public typealias TokenCommandRunner = @Sendable (_ executable: String, _ arguments: [String]) async -> String?
 
+    /// The `--hostname` value for a `gh auth token` lookup.
+    ///
+    /// `github.com` always looks up the bare host because its credentials are
+    /// stored there regardless of any clone proxy port (and the API is
+    /// `api.github.com`). Enterprise hosts use the full port-qualified
+    /// ``authority`` so the credential matches the origin requests target.
+    public var tokenLookupHost: String { isDotCom ? hostname : authority }
+
     /// Looks up a GitHub CLI token for this host.
     ///
-    /// The lookup uses ``authority`` (host and any non-default port), not the
-    /// bare hostname, so the credential matches the origin requests target.
+    /// The lookup uses ``tokenLookupHost`` so the credential matches the origin
+    /// requests target for enterprise hosts while keeping `github.com` on its
+    /// bare host.
     ///
     /// - Parameter runner: The shell-out closure that invokes `gh`.
     /// - Returns: The trimmed token, or `nil` when no token is available.
     public func authToken(using runner: TokenCommandRunner) async -> String? {
-        let raw = await runner("gh", ["auth", "token", "--hostname", authority])
+        let raw = await runner("gh", ["auth", "token", "--hostname", tokenLookupHost])
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }

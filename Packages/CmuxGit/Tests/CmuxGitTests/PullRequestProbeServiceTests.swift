@@ -234,6 +234,34 @@ import CmuxProcess
         #expect(token == nil)
     }
 
+    @Test func authTokenTrustsAmbientTokenBoundToHostViaGHHost() async {
+        // GH_HOST marks the host the ambient env token is intentionally for, so
+        // the common GH_HOST + GH_ENTERPRISE_TOKEN setup must keep working.
+        let recorder = CommandRunnerRecorder(stdout: "ghs_enterprise\n")
+        let service = PullRequestProbeService(
+            commandRunner: recorder,
+            environment: ["GH_ENTERPRISE_TOKEN": "ghs_enterprise", "GH_HOST": "ghe.example.com"]
+        )
+
+        let token = await service.authToken(for: GitHubHost(hostname: "ghe.example.com"))
+
+        #expect(token == "ghs_enterprise")
+    }
+
+    @Test func dotComTokenLookupIgnoresCloneProxyPort() async {
+        // github.com credentials are stored for the bare host, so a clone proxy
+        // port must not leak into the gh hostname lookup.
+        let recorder = CommandRunnerRecorder(stdout: "gho_token\n")
+        let service = PullRequestProbeService(commandRunner: recorder, environment: [:])
+
+        let token = await service.authToken(for: GitHubHost(hostname: "github.com", port: 8080))
+
+        #expect(token == "gho_token")
+        #expect(await recorder.invocations.map(\.arguments) == [
+            ["auth", "token", "--hostname", "github.com"],
+        ])
+    }
+
     @Test func authTokenTrustsPerHostStoredEnterpriseToken() async {
         // A per-host credential from `gh auth login --hostname` differs from the
         // ambient enterprise env token, so it is trusted and used.
