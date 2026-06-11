@@ -199,6 +199,8 @@
 		3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */ = {isa = PBXBuildFile; productRef = 3069F1D10000000000000006 /* CMUXPasteboardFidelity */; };
 		C8000303C8000303C8000303 /* CmuxProcess in Frameworks */ = {isa = PBXBuildFile; productRef = C8000302C8000302C8000302 /* CmuxProcess */; };
 		C8000304C8000304C8000304 /* CmuxProcess in Frameworks */ = {isa = PBXBuildFile; productRef = C8000302C8000302C8000302 /* CmuxProcess */; };
+		E1F2A3B4C5D6E7F800000003 /* CmuxProjectIdentity in Frameworks */ = {isa = PBXBuildFile; productRef = E1F2A3B4C5D6E7F800000002 /* CmuxProjectIdentity */; };
+		E1F2A3B4C5D6E7F800000004 /* CmuxProjectIdentity in Frameworks */ = {isa = PBXBuildFile; productRef = E1F2A3B4C5D6E7F800000002 /* CmuxProjectIdentity */; };
 		A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */ = {isa = PBXBuildFile; productRef = A5C0DE0000000000000000A2 /* CMUXProjectModel */; };
 		A9F200000000000000000005 /* CmuxRuntimeDebugCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000005 /* CmuxRuntimeDebugCapture.swift */; };
 		A9F200000000000000000006 /* CmuxRuntimeDebugCaptureConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000006 /* CmuxRuntimeDebugCaptureConfiguration.swift */; };
@@ -1507,6 +1509,7 @@
 				799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */,
 				3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */,
 				C8000303C8000303C8000303 /* CmuxProcess in Frameworks */,
+				E1F2A3B4C5D6E7F800000003 /* CmuxProjectIdentity in Frameworks */,
 				A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */,
 				CD0CFE5300000000CD0CFE53 /* CmuxSettings in Frameworks */,
 				CD0CFE5600000000CD0CFE56 /* CmuxSettingsUI in Frameworks */,
@@ -1567,6 +1570,7 @@
 			files = (
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
+				E1F2A3B4C5D6E7F800000004 /* CmuxProjectIdentity in Frameworks */,
 				C52830000000000000000002 /* CmuxTerminalCopyMode in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
 			);
@@ -2389,6 +2393,7 @@
 				F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A5354305A5354305A5354305 /* CmuxSocketControl */,
+				E1F2A3B4C5D6E7F800000002 /* CmuxProjectIdentity */,
 				C52830000000000000000004 /* CmuxTerminalCopyMode */,
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
@@ -2491,6 +2496,7 @@
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
 				C52830000000000000000004 /* CmuxTerminalCopyMode */,
+				E1F2A3B4C5D6E7F800000002 /* CmuxProjectIdentity */,
 				5E2701040000000000000001 /* Sentry */,
 				5E2701040000000000000002 /* CmuxFoundation */,
 			);
@@ -2553,6 +2559,7 @@
 				A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
 				A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CmuxSocketControl" */,
+				E1F2A3B4C5D6E7F800000001 /* XCLocalSwiftPackageReference "CmuxProjectIdentity" */,
 				C52830000000000000000003 /* XCLocalSwiftPackageReference "CmuxTerminalCopyMode" */,
 				C5A1FED000000000000000C4 /* XCLocalSwiftPackageReference "CmuxSwiftRender" */,
 				C5A1FED100000000000000D4 /* XCLocalSwiftPackageReference "CmuxSwiftRenderUI" */,
@@ -3857,6 +3864,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxSocketControl;
 		};
+		E1F2A3B4C5D6E7F800000001 /* XCLocalSwiftPackageReference "CmuxProjectIdentity" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxProjectIdentity;
+		};
 		A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXAgentLaunch;
@@ -4043,6 +4054,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CmuxSocketControl" */;
 			productName = CmuxSocketControl;
+		};
+		E1F2A3B4C5D6E7F800000002 /* CmuxProjectIdentity */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E1F2A3B4C5D6E7F800000001 /* XCLocalSwiftPackageReference "CmuxProjectIdentity" */;
+			productName = CmuxProjectIdentity;
 		};
 		C52830000000000000000004 /* CmuxTerminalCopyMode */ = {
 			isa = XCSwiftPackageProductDependency;
