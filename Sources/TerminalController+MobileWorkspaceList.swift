@@ -304,8 +304,12 @@ extension TerminalController {
         // alternation also matches an unterminated sequence at end-of-input (the
         // CSI final byte is optional, OSC accepts `$` as terminator) so a
         // sequence cut by the input cap is stripped instead of leaking payload.
+        // CSI parameter bytes are the full ECMA-48 0x30-0x3F range (digits and
+        // :;<=>?): 24-bit color SGR uses colon-separated parameters
+        // (ESC[38:2::255:0:0m), so a digits-only class would leave the
+        // sequence tail visible in the preview.
         let withoutEscapes = bounded.replacingOccurrences(
-            of: "\u{001B}\\[[0-9;?]*[ -/]*[@-~]?|\u{001B}\\][^\u{0007}\u{001B}]*(?:\u{0007}|\u{001B}\\\\|$)|\u{001B}[@-Z\\\\-_]",
+            of: "\u{001B}\\[[0-9:;<=>?]*[ -/]*[@-~]?|\u{001B}\\][^\u{0007}\u{001B}]*(?:\u{0007}|\u{001B}\\\\|$)|\u{001B}[@-Z\\\\-_]",
             with: "",
             options: .regularExpression
         )
