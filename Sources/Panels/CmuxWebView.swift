@@ -398,7 +398,7 @@ final class CmuxWebView: WKWebView {
     private var pasteAsPlainTextTargetAvailable = false
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
 #if DEBUG
-    static var keyDownSuperDispatchForTesting: ((CmuxWebView, NSEvent) -> Void)?
+    var keyDownSuperDispatchForTesting: ((CmuxWebView, NSEvent) -> Void)?
 #endif
     var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
@@ -526,7 +526,7 @@ final class CmuxWebView: WKWebView {
         webKitKeyDownForwardingDepth += 1
         defer { webKitKeyDownForwardingDepth -= 1 }
 #if DEBUG
-        if let keyDownSuperDispatchForTesting = Self.keyDownSuperDispatchForTesting {
+        if let keyDownSuperDispatchForTesting {
             keyDownSuperDispatchForTesting(self, event)
             return
         }

@@ -371,8 +371,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
         var superDispatchCount = 0
         var reenteredSuperDispatch = false
-        CmuxWebView.keyDownSuperDispatchForTesting = { currentWebView, event in
-            guard currentWebView === webView else { return }
+        webView.keyDownSuperDispatchForTesting = { currentWebView, event in
             superDispatchCount += 1
             if superDispatchCount == 1 {
                 currentWebView.keyDown(with: event)
@@ -380,7 +379,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
                 reenteredSuperDispatch = true
             }
         }
-        defer { CmuxWebView.keyDownSuperDispatchForTesting = nil }
+        defer { webView.keyDownSuperDispatchForTesting = nil }
 
         webView.keyDown(with: event)
 
