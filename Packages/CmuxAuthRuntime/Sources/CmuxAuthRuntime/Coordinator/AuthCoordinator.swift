@@ -85,6 +85,15 @@ public final class AuthCoordinator {
     /// session, including one published with no clear in between. Same
     /// pattern as `HostBrowserSignInFlow.signOutGeneration`.
     @ObservationIgnored private var sessionGeneration: UInt64 = 0
+    /// Monotonic sign-out epoch, advanced synchronously at the top of every
+    /// ``signOut(onSignedOut:teardownTimeout:)`` before its first await.
+    /// Distinguishes "a sign-out began after this flow started" from
+    /// publish-driven generation bumps inside the stale-completion rollback:
+    /// local-first sign-out flips `isAuthenticated` only at the END of its
+    /// local clear, so a flow completing inside sign-out's await window
+    /// would read the stale published flag and skip the rollback that keeps
+    /// its raced store write from surviving the sign-out.
+    @ObservationIgnored private var signOutEpoch: UInt64 = 0
     /// Monotonic sign-in attempt count, allocating each flow's attempt id.
     @ObservationIgnored private var signInAttemptCounter: UInt64 = 0
     /// The highest attempt id whose credential exchange has written the token
@@ -110,13 +119,18 @@ public final class AuthCoordinator {
     private struct SignInFlowContext {
         let generation: UInt64
         let attempt: UInt64
+        let signOutEpoch: UInt64
     }
 
     /// Begin a sign-in flow: register it as the newest attempt and capture
     /// the staleness context. Call before the flow's first await.
     private func beginSignInFlow() -> SignInFlowContext {
         signInAttemptCounter &+= 1
-        return SignInFlowContext(generation: sessionGeneration, attempt: signInAttemptCounter)
+        return SignInFlowContext(
+            generation: sessionGeneration,
+            attempt: signInAttemptCounter,
+            signOutEpoch: signOutEpoch
+        )
     }
 
     /// Run a sign-in flow's credential exchange as a coordinator-owned child
@@ -607,7 +621,18 @@ public final class AuthCoordinator {
         // HostBrowserSignInFlow's cancelActiveAttempt) or a compare-and-swap
         // token store, both follow-up territory.
         guard flow.generation == sessionGeneration else {
-            if !isAuthenticated && tokenStoreWriteHighWater == flow.attempt {
+            // `!isAuthenticated` covers publish-driven bumps (a newer session
+            // published over this flow's store write must not have its store
+            // wiped). It is NOT a reliable read during sign-out: local-first
+            // sign-out flips the flag only at the end of its local clear, so
+            // a completion interleaving with sign-out's awaits would see the
+            // OLD session's stale `true`. The epoch comparison restores the
+            // rollback there: a sign-out begun after this flow started always
+            // rolls back this flow's write (the high-water check still keeps
+            // a newer attempt's tokens safe).
+            let signOutBeganSinceFlowStart = flow.signOutEpoch != signOutEpoch
+            if (signOutBeganSinceFlowStart || !isAuthenticated)
+                && tokenStoreWriteHighWater == flow.attempt {
                 await client.clearLocalSession()
             }
             throw CancellationError()
@@ -700,8 +725,13 @@ public final class AuthCoordinator {
         // past the cancellation chokepoint and which interleaves with the
         // awaited reads/clear sees a stale epoch and takes its rollback path
         // instead of publishing over this sign-out. clearAuthState() bumps
-        // again afterwards; epochs only need to be monotonic.
+        // again afterwards; epochs only need to be monotonic. The dedicated
+        // signOutEpoch lets that rollback distinguish this sign-out from a
+        // publish-driven generation bump even while `isAuthenticated` still
+        // reads the old session's stale `true` (it flips only at the end of
+        // the local clear below).
         sessionGeneration &+= 1
+        signOutEpoch &+= 1
 
         // Capture the teardown credentials with raw stored reads (no refresh,
         // no network) before they are destroyed.
