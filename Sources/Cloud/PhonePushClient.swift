@@ -53,6 +53,8 @@ final class PhonePushClient {
     /// Per workspace+surface throttle to defend against notification bursts.
     private var lastSentAt: [String: Date] = [:]
     private static let minInterval: TimeInterval = 1.0
+    /// Presence source for the "only when away" mode. Injectable for tests.
+    var presenceMonitor: MacPresenceMonitor = .live()
 
     private init() {}
 
@@ -65,21 +67,38 @@ final class PhonePushClient {
         UserDefaults.standard.bool(forKey: PhonePushSettings.forwardEnabledKey)
     }
 
-    /// The presence gate. NOT IMPLEMENTED YET: presence is ignored and every
-    /// enabled forward goes through (today's behavior).
+    /// The presence gate: `.onlyWhenAway` drops the forward while the Mac is
+    /// actively in use; `.always` ignores presence. Suppressed forwards are
+    /// not queued or retried when the Mac later goes away - the push mirrors
+    /// "what would buzz the phone right now" - and the Mac-side notification
+    /// (unread accounting, notification list) is untouched upstream.
     nonisolated static func shouldForward(
         mode: PhoneForwardingMode,
         presence: MacPresenceMonitor.Decision
     ) -> Bool {
-        _ = mode
-        _ = presence
-        return true
+        switch mode {
+        case .always:
+            return true
+        case .onlyWhenAway:
+            return !presence.isActive
+        }
     }
 
     /// Forward a notification if the user opted in. Captures the fields up front
     /// and performs the network call off the caller's critical path.
     func forward(_ notification: TerminalNotification) {
         guard Self.isForwardingEnabled else { return }
+
+        // Presence gate, evaluated per notification at delivery time so the
+        // phone never receives a suppressed push. Checked before the throttle
+        // so a suppressed notification does not consume the throttle slot.
+        let presence = presenceMonitor.evaluate()
+        guard Self.shouldForward(mode: .fromDefaults(), presence: presence) else {
+#if DEBUG
+            cmuxDebugLog("phonepush.suppressed reason=macActive verdict=\(presence.verdict)")
+#endif
+            return
+        }
 
         let key = "\(notification.tabId.uuidString):\(notification.surfaceId?.uuidString ?? "")"
         let now = Date()
