@@ -20,6 +20,16 @@ public struct TerminalTextSnapshot: Equatable, Sendable {
     /// without jank.
     public static let defaultLineBudget = 5000
 
+    /// Creates a snapshot from already-capped text.
+    ///
+    /// Prefer ``capped(fullText:lineBudget:)``, which derives all three fields
+    /// from raw terminal text; this memberwise initializer exists for tests
+    /// and callers that have applied their own bound.
+    ///
+    /// - Parameters:
+    ///   - text: The capped text the sheet shows.
+    ///   - isTruncated: Whether older lines were dropped to fit `lineBudget`.
+    ///   - lineBudget: The line budget `text` was capped to.
     public init(text: String, isTruncated: Bool, lineBudget: Int) {
         self.text = text
         self.isTruncated = isTruncated
