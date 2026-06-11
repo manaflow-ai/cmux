@@ -139,7 +139,9 @@ extension Workspace {
     func acknowledgeStructuredAgentInputStatus(
         statusKeys acknowledgedStatusKeys: Set<String>,
         panelId: UUID? = nil,
-        notificationCreatedAt: Date
+        notificationCreatedAt: Date,
+        demoteWorkspaceBadge: Bool = true,
+        demotePanelLifecycle: Bool = true
     ) -> Bool {
         let candidateStatusKeys: Set<String>
         if let panelId {
@@ -154,7 +156,22 @@ extension Workspace {
         let idleValue = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
         var didChange = false
         for key in candidateStatusKeys where Self.structuredAgentHookStatusKeys.contains(key) {
-            guard let entry = statusEntries[key],
+            // Per-panel lifecycle gates hibernation and is owned by the
+            // acknowledged panel, so it demotes as soon as that panel is done —
+            // independent of the shared workspace badge, which stays lit while a
+            // sibling panel still needs input for the same key. Its re-raise
+            // protection comes from the caller's panel-level remaining check, so
+            // it does not consult the shared badge's timestamp (a sibling's
+            // newer status write must not block this panel).
+            if demotePanelLifecycle, demoteAcknowledgedAgentLifecycle(statusKey: key, panelId: panelId) {
+                didChange = true
+            }
+
+            // The shared badge keeps the author's re-raise guard: only demote it
+            // when the status was written no later than this notification, so a
+            // status re-raised after the notification survives acknowledgement.
+            guard demoteWorkspaceBadge,
+                  let entry = statusEntries[key],
                   isStructuredAgentInputStatus(entry),
                   entry.timestamp <= notificationCreatedAt else {
                 continue
@@ -165,7 +182,6 @@ extension Workspace {
                 icon: "pause.circle.fill",
                 color: "#8E8E93"
             )
-            demoteAcknowledgedAgentLifecycle(statusKey: key, panelId: panelId)
             didChange = true
         }
         return didChange
@@ -181,7 +197,8 @@ extension Workspace {
     /// panel still stuck on `.needsInput` for the key is demoted. Only entries
     /// currently in `.needsInput` are touched, so a concurrent `.running`
     /// update from the agent is never clobbered.
-    private func demoteAcknowledgedAgentLifecycle(statusKey: String, panelId: UUID?) {
+    @discardableResult
+    private func demoteAcknowledgedAgentLifecycle(statusKey: String, panelId: UUID?) -> Bool {
         let panelIds: [UUID]
         if let panelId {
             panelIds = [panelId]
@@ -190,9 +207,12 @@ extension Workspace {
                 states[statusKey] == .needsInput ? panelId : nil
             }
         }
+        var didChange = false
         for panelId in panelIds where agentLifecycleStatesByPanelId[panelId]?[statusKey] == .needsInput {
             setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .idle)
+            didChange = true
         }
+        return didChange
     }
 
     private func isStructuredAgentInputStatus(_ entry: SidebarStatusEntry) -> Bool {

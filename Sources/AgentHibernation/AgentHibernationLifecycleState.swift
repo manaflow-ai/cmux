@@ -107,3 +107,17 @@ struct StructuredAgentInputNotificationKey: Hashable, Sendable {
     let tabId: UUID
     let statusKey: String
 }
+
+/// Panel-scoped variant of ``StructuredAgentInputNotificationKey``.
+///
+/// The sidebar badge is workspace-level (keyed by `(tabId, statusKey)`), but
+/// the per-panel agent lifecycle that gates hibernation is owned by an
+/// individual panel. Tracking remaining unread/pending inputs at panel
+/// granularity lets an acknowledgement demote the acknowledged panel's
+/// lifecycle even when a sibling panel running the same agent still needs
+/// input, without prematurely clearing the shared badge.
+struct StructuredAgentInputPanelKey: Hashable, Sendable {
+    let tabId: UUID
+    let panelId: UUID
+    let statusKey: String
+}

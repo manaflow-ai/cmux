@@ -474,6 +474,25 @@ extension FeedCoordinator {
         return true
     }
 
+    /// Workspace-scoped keys for every feed-routed blocking decision still
+    /// awaiting a reply.
+    ///
+    /// Feed-routed "Needs input" sets the shared sidebar status entry without
+    /// creating a store notification, so the notification store cannot see it.
+    /// Exposing the pending set lets the store keep the workspace badge lit when
+    /// a sibling panel still has an active feed prompt, even as another panel's
+    /// store notification is acknowledged.
+    @MainActor
+    func pendingStructuredAgentInputWorkspaceKeys() -> Set<StructuredAgentInputNotificationKey> {
+        var keys = Set<StructuredAgentInputNotificationKey>()
+        for target in pendingAttentionStates.keys {
+            keys.insert(
+                StructuredAgentInputNotificationKey(tabId: target.workspaceId, statusKey: target.statusKey)
+            )
+        }
+        return keys
+    }
+
     /// Clears the sidebar overlay for a blocking decision whose attention has
     /// just been removed from ``pendingAttentionStates``. Restores only the
     /// parts the feed still owns: the per-panel lifecycle drops to `.running`

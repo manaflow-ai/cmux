@@ -1706,23 +1706,45 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func acknowledgeStructuredAgentInputStatuses(for notificationsToAcknowledge: [TerminalNotification]) {
-        let remainingUnreadStructuredAgentInputs = remainingUnreadStructuredAgentInputKeys()
+        let remainingWorkspaceInputs = remainingUnreadStructuredAgentInputKeys()
+        let remainingPanelInputs = remainingUnreadStructuredAgentInputPanelKeys()
         for notification in notificationsToAcknowledge {
             let acknowledgementPanelId = notification.panelId ?? notification.surfaceId
             guard let statusKey = Self.structuredAgentStatusKey(for: notification),
-                  !remainingUnreadStructuredAgentInputs.contains(
-                      StructuredAgentInputNotificationKey(tabId: notification.tabId, statusKey: statusKey)
-                  ),
                   let workspace = workspaceForStructuredAgentInputAcknowledgement(
                       tabId: notification.tabId,
                       panelId: acknowledgementPanelId
                   ) else {
                 continue
             }
+            // The shared sidebar badge is workspace-level: keep it while any
+            // panel (store, queued, policy, or feed-routed) still needs input
+            // for this status key.
+            let demoteWorkspaceBadge = !remainingWorkspaceInputs.contains(
+                StructuredAgentInputNotificationKey(tabId: notification.tabId, statusKey: statusKey)
+            )
+            // The per-panel lifecycle that gates hibernation is owned by the
+            // acknowledged panel, so demote it as soon as that panel has no
+            // remaining unread input — even if a sibling panel still does.
+            let demotePanelLifecycle: Bool
+            if let acknowledgementPanelId {
+                demotePanelLifecycle = !remainingPanelInputs.contains(
+                    StructuredAgentInputPanelKey(
+                        tabId: notification.tabId,
+                        panelId: acknowledgementPanelId,
+                        statusKey: statusKey
+                    )
+                )
+            } else {
+                demotePanelLifecycle = demoteWorkspaceBadge
+            }
+            guard demoteWorkspaceBadge || demotePanelLifecycle else { continue }
             workspace.acknowledgeStructuredAgentInputStatus(
                 statusKeys: [statusKey],
                 panelId: acknowledgementPanelId,
-                notificationCreatedAt: notification.createdAt
+                notificationCreatedAt: notification.createdAt,
+                demoteWorkspaceBadge: demoteWorkspaceBadge,
+                demotePanelLifecycle: demotePanelLifecycle
             )
         }
     }
@@ -1739,6 +1761,23 @@ final class TerminalNotificationStore: ObservableObject {
         }
         keys.formUnion(TerminalMutationBus.shared.pendingStructuredAgentInputNotificationKeys())
         keys.formUnion(pendingPolicyStructuredAgentInputCounts.keys)
+        keys.formUnion(FeedCoordinator.shared.pendingStructuredAgentInputWorkspaceKeys())
+        return keys
+    }
+
+    private func remainingUnreadStructuredAgentInputPanelKeys() -> Set<StructuredAgentInputPanelKey> {
+        var keys = Set<StructuredAgentInputPanelKey>()
+        keys.reserveCapacity(notifications.count)
+        for notification in notifications {
+            guard !notification.isRead,
+                  let panelId = notification.panelId ?? notification.surfaceId,
+                  let statusKey = Self.structuredAgentStatusKey(for: notification) else {
+                continue
+            }
+            keys.insert(
+                StructuredAgentInputPanelKey(tabId: notification.tabId, panelId: panelId, statusKey: statusKey)
+            )
+        }
         return keys
     }
 
