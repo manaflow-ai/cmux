@@ -44,6 +44,48 @@ struct AgentUsageEvent: Equatable, Sendable {
     var recordedCostUSD: Double?
 }
 
+/// One provider rate-limit window in the dashboard (5-hour or weekly).
+/// `usedPercent` is only set when the provider reported it (Codex CLI writes
+/// its real rate-limit state into rollout files); Claude Code windows are
+/// estimated from local transcripts and carry tokens/cost only.
+struct AgentUsageRateWindow: Equatable, Sendable, Identifiable {
+    enum Kind: String, Sendable {
+        case fiveHour
+        case weekly
+    }
+
+    var source: AgentUsageSource
+    var kind: Kind
+    var tokens: AgentUsageTokens
+    var costUSD: Double?
+    var windowStart: Date?
+    var windowEnd: Date?
+    var usedPercent: Double?
+    /// True when `usedPercent`/`windowEnd` come from provider-reported
+    /// rate-limit data instead of local estimation.
+    var isProviderReported: Bool
+
+    var id: String { "\(source.rawValue)|\(kind.rawValue)" }
+}
+
+/// Rate-limit state reported by the Codex CLI inside `token_count` events.
+struct CodexRateLimitWindow: Equatable, Sendable {
+    var usedPercent: Double
+    var windowMinutes: Int?
+    var resetsInSeconds: Int?
+}
+
+struct CodexRateLimitsObservation: Equatable, Sendable {
+    var observedAt: Date
+    var primary: CodexRateLimitWindow?
+    var secondary: CodexRateLimitWindow?
+}
+
+struct CodexSessionParseResult: Equatable, Sendable {
+    var events: [AgentUsageEvent]
+    var rateLimits: CodexRateLimitsObservation?
+}
+
 struct AgentUsageModelRollup: Equatable, Sendable, Identifiable {
     var source: AgentUsageSource
     var model: String
@@ -72,6 +114,7 @@ struct AgentUsageSnapshot: Equatable, Sendable {
     var totalCostUSD: Double?
     var sourcesFound: Set<AgentUsageSource>
     var scannedFileCount: Int
+    var rateWindows: [AgentUsageRateWindow] = []
 
     static let empty = AgentUsageSnapshot(
         generatedAt: Date(timeIntervalSince1970: 0),
@@ -202,11 +245,14 @@ enum AgentUsageLogParser {
     /// Parses one Codex CLI rollout file. `token_count` events carry cumulative
     /// `total_token_usage` for the session plus `last_token_usage` for the most
     /// recent request; the per-request delta is attributed to the model from the
-    /// preceding `turn_context` line.
-    static func parseCodexSession<Lines: Sequence>(lines: Lines) -> [AgentUsageEvent] where Lines.Element: StringProtocol {
+    /// preceding `turn_context` line. Events also carry the CLI's reported
+    /// `rate_limits` state (primary ≈ 5-hour window, secondary ≈ weekly); the
+    /// newest observation in the file is returned alongside the events.
+    static func parseCodexSession<Lines: Sequence>(lines: Lines) -> CodexSessionParseResult where Lines.Element: StringProtocol {
         var events: [AgentUsageEvent] = []
         var currentModel = "codex"
         var previousTotal: AgentUsageTokens?
+        var latestRateLimits: CodexRateLimitsObservation?
 
         for line in lines {
             guard let object = jsonObject(String(line)),
@@ -224,10 +270,23 @@ enum AgentUsageLogParser {
 
             guard type == "event_msg",
                   payload["type"] as? String == "token_count",
-                  let info = payload["info"] as? [String: Any],
                   let timestamp = parseTimestamp(object["timestamp"] as? String) else {
                 continue
             }
+
+            if let rateLimits = payload["rate_limits"] as? [String: Any] {
+                let observation = CodexRateLimitsObservation(
+                    observedAt: timestamp,
+                    primary: codexRateLimitWindow(rateLimits["primary"]),
+                    secondary: codexRateLimitWindow(rateLimits["secondary"])
+                )
+                if observation.primary != nil || observation.secondary != nil,
+                   latestRateLimits.map({ $0.observedAt <= timestamp }) ?? true {
+                    latestRateLimits = observation
+                }
+            }
+
+            guard let info = payload["info"] as? [String: Any] else { continue }
 
             let total = (info["total_token_usage"] as? [String: Any]).map(codexTokens)
             var delta: AgentUsageTokens?
@@ -259,7 +318,19 @@ enum AgentUsageLogParser {
             )
         }
 
-        return events
+        return CodexSessionParseResult(events: events, rateLimits: latestRateLimits)
+    }
+
+    private static func codexRateLimitWindow(_ any: Any?) -> CodexRateLimitWindow? {
+        guard let window = any as? [String: Any],
+              let usedPercent = (window["used_percent"] as? NSNumber)?.doubleValue else {
+            return nil
+        }
+        return CodexRateLimitWindow(
+            usedPercent: usedPercent,
+            windowMinutes: (window["window_minutes"] as? NSNumber)?.intValue,
+            resetsInSeconds: (window["resets_in_seconds"] as? NSNumber)?.intValue
+        )
     }
 
     private static func codexTokens(_ usage: [String: Any]) -> AgentUsageTokens {
@@ -275,8 +346,142 @@ enum AgentUsageLogParser {
 }
 
 enum AgentUsageAggregator {
+    /// Length of the provider session window (Claude Code and Codex both use
+    /// rolling ~5-hour windows).
+    static let sessionWindowDuration: TimeInterval = 5 * 60 * 60
+
+    /// Reconstructs the currently active 5-hour billing window for a source
+    /// from transcript timestamps: a window opens at the first request (floored
+    /// to the hour) and closes 5 hours later; a request after that opens a new
+    /// window. Returns nil when no window is active at `now`.
+    static func currentFiveHourWindow(
+        events: [AgentUsageEvent],
+        source: AgentUsageSource,
+        calendar: Calendar = .current,
+        now: Date = Date()
+    ) -> AgentUsageRateWindow? {
+        let sourceEvents = events
+            .filter { $0.source == source && $0.timestamp <= now }
+            .sorted { $0.timestamp < $1.timestamp }
+        guard !sourceEvents.isEmpty else { return nil }
+
+        var blockStart: Date?
+        var blockEnd = Date.distantPast
+        var tokens = AgentUsageTokens()
+        var costUSD: Double?
+
+        for event in sourceEvents {
+            if blockStart == nil || event.timestamp >= blockEnd {
+                let flooredStart = calendar.dateInterval(of: .hour, for: event.timestamp)?.start ?? event.timestamp
+                blockStart = flooredStart
+                blockEnd = flooredStart.addingTimeInterval(sessionWindowDuration)
+                tokens = AgentUsageTokens()
+                costUSD = nil
+            }
+            tokens.add(event.tokens)
+            if let cost = AgentUsagePricing.estimatedCost(for: event) {
+                costUSD = (costUSD ?? 0) + cost
+            }
+        }
+
+        guard let blockStart, now < blockEnd else { return nil }
+        return AgentUsageRateWindow(
+            source: source,
+            kind: .fiveHour,
+            tokens: tokens,
+            costUSD: costUSD,
+            windowStart: blockStart,
+            windowEnd: blockEnd,
+            usedPercent: nil,
+            isProviderReported: false
+        )
+    }
+
+    static func rollingWeeklyWindow(
+        events: [AgentUsageEvent],
+        source: AgentUsageSource,
+        now: Date = Date()
+    ) -> AgentUsageRateWindow? {
+        let weekStart = now.addingTimeInterval(-7 * 24 * 60 * 60)
+        var tokens = AgentUsageTokens()
+        var costUSD: Double?
+        var sawEvent = false
+        for event in events where event.source == source && event.timestamp >= weekStart && event.timestamp <= now {
+            sawEvent = true
+            tokens.add(event.tokens)
+            if let cost = AgentUsagePricing.estimatedCost(for: event) {
+                costUSD = (costUSD ?? 0) + cost
+            }
+        }
+        guard sawEvent else { return nil }
+        return AgentUsageRateWindow(
+            source: source,
+            kind: .weekly,
+            tokens: tokens,
+            costUSD: costUSD,
+            windowStart: weekStart,
+            windowEnd: nil,
+            usedPercent: nil,
+            isProviderReported: false
+        )
+    }
+
+    /// Builds the dashboard's plan-limit windows: estimated 5-hour and rolling
+    /// 7-day windows per source, overlaid with Codex's own reported rate-limit
+    /// percentages when a fresh observation exists (primary ≈ 5-hour window,
+    /// secondary ≈ weekly window).
+    static func rateWindows(
+        events: [AgentUsageEvent],
+        codexRateLimits: CodexRateLimitsObservation? = nil,
+        calendar: Calendar = .current,
+        now: Date = Date()
+    ) -> [AgentUsageRateWindow] {
+        var windows: [AgentUsageRateWindow] = []
+
+        for source in AgentUsageSource.allCases {
+            var fiveHour = currentFiveHourWindow(events: events, source: source, calendar: calendar, now: now)
+            var weekly = rollingWeeklyWindow(events: events, source: source, now: now)
+
+            if source == .codex, let observation = codexRateLimits {
+                func apply(_ reported: CodexRateLimitWindow?, to window: inout AgentUsageRateWindow?, kind: AgentUsageRateWindow.Kind) {
+                    guard let reported else { return }
+                    let resetsAt = reported.resetsInSeconds.map {
+                        observation.observedAt.addingTimeInterval(TimeInterval($0))
+                    }
+                    // A reset that already elapsed means the reported percent
+                    // is stale; keep the locally estimated window instead.
+                    if let resetsAt, resetsAt <= now { return }
+                    var updated = window ?? AgentUsageRateWindow(
+                        source: .codex,
+                        kind: kind,
+                        tokens: AgentUsageTokens(),
+                        costUSD: nil,
+                        windowStart: nil,
+                        windowEnd: nil,
+                        usedPercent: nil,
+                        isProviderReported: false
+                    )
+                    updated.usedPercent = reported.usedPercent
+                    if let resetsAt {
+                        updated.windowEnd = resetsAt
+                    }
+                    updated.isProviderReported = true
+                    window = updated
+                }
+                apply(observation.primary, to: &fiveHour, kind: .fiveHour)
+                apply(observation.secondary, to: &weekly, kind: .weekly)
+            }
+
+            if let fiveHour { windows.append(fiveHour) }
+            if let weekly { windows.append(weekly) }
+        }
+
+        return windows
+    }
+
     static func aggregate(
         events: [AgentUsageEvent],
+        codexRateLimits: CodexRateLimitsObservation? = nil,
         calendar: Calendar = .current,
         now: Date = Date(),
         windowDays: Int = 30,
@@ -366,7 +571,13 @@ enum AgentUsageAggregator {
             totals: totals,
             totalCostUSD: totalCostUSD,
             sourcesFound: sourcesFound,
-            scannedFileCount: scannedFileCount
+            scannedFileCount: scannedFileCount,
+            rateWindows: rateWindows(
+                events: events,
+                codexRateLimits: codexRateLimits,
+                calendar: calendar,
+                now: now
+            )
         )
     }
 }
@@ -402,6 +613,7 @@ struct AgentUsageScanner: Sendable {
         var events: [AgentUsageEvent] = []
         var scannedFileCount = 0
         var seenClaudeRequestKeys: Set<String> = []
+        var latestCodexRateLimits: CodexRateLimitsObservation?
 
         for root in claudeRoots {
             for fileURL in jsonlFiles(under: root, modifiedAfter: modificationCutoff) {
@@ -419,14 +631,20 @@ struct AgentUsageScanner: Sendable {
             for fileURL in jsonlFiles(under: root, modifiedAfter: modificationCutoff) {
                 guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else { continue }
                 scannedFileCount += 1
-                events.append(contentsOf: AgentUsageLogParser.parseCodexSession(
+                let result = AgentUsageLogParser.parseCodexSession(
                     lines: content.split(separator: "\n", omittingEmptySubsequences: true)
-                ))
+                )
+                events.append(contentsOf: result.events)
+                if let observation = result.rateLimits,
+                   latestCodexRateLimits.map({ $0.observedAt <= observation.observedAt }) ?? true {
+                    latestCodexRateLimits = observation
+                }
             }
         }
 
         return AgentUsageAggregator.aggregate(
             events: events,
+            codexRateLimits: latestCodexRateLimits,
             calendar: calendar,
             now: now,
             windowDays: windowDays,

@@ -140,6 +140,9 @@ private struct AgentUsageReportView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 totalsSection
+                if !snapshot.rateWindows.isEmpty {
+                    windowsSection
+                }
                 if !snapshot.modelTotals.isEmpty {
                     modelsSection
                 }
@@ -172,9 +175,25 @@ private struct AgentUsageReportView: View {
                 value: "\(AgentUsageFormat.tokens(snapshot.totals.cacheRead)) / \(AgentUsageFormat.tokens(snapshot.totals.cacheWrite))"
             )
             AgentUsageStatCard(
-                title: String(localized: "agentUsage.totals.estimatedCost", defaultValue: "Est. Cost"),
+                title: String(localized: "agentUsage.totals.estimatedCost", defaultValue: "Est. API Cost"),
                 value: AgentUsageFormat.cost(snapshot.totalCostUSD)
             )
+        }
+    }
+
+    private var windowsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(String(localized: "agentUsage.section.windows", defaultValue: "Plan Limit Windows"))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+                spacing: 12
+            ) {
+                ForEach(snapshot.rateWindows) { window in
+                    AgentUsageRateWindowCard(window: window)
+                }
+            }
         }
     }
 
@@ -212,6 +231,94 @@ private struct AgentUsageReportView: View {
             .background(Color.primary.opacity(0.04))
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
+    }
+}
+
+private struct AgentUsageRateWindowCard: View {
+    let window: AgentUsageRateWindow
+
+    private var kindLabel: String {
+        switch window.kind {
+        case .fiveHour:
+            return String(localized: "agentUsage.window.fiveHour", defaultValue: "5-Hour Window")
+        case .weekly:
+            return String(localized: "agentUsage.window.weekly", defaultValue: "Weekly")
+        }
+    }
+
+    private var sourceLabel: String {
+        window.isProviderReported
+            ? String(localized: "agentUsage.window.reported", defaultValue: "Reported by Codex CLI")
+            : String(localized: "agentUsage.window.estimated", defaultValue: "Estimated from transcripts")
+    }
+
+    private var resetLabel: String? {
+        if let end = window.windowEnd {
+            return String(
+                format: String(localized: "agentUsage.window.resets", defaultValue: "Resets %@"),
+                end.formatted(date: .abbreviated, time: .shortened)
+            )
+        }
+        if window.kind == .weekly {
+            return String(localized: "agentUsage.window.rolling", defaultValue: "Rolling 7 days")
+        }
+        return nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("\(window.source.displayName) · \(kindLabel)")
+                    .font(.system(size: 11, weight: .semibold))
+                Spacer(minLength: 8)
+                Text(sourceLabel)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+            }
+            if let percent = window.usedPercent {
+                let fraction = min(max(percent / 100, 0), 1)
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.primary.opacity(0.08))
+                        Capsule()
+                            .fill(percent >= 90 ? Color.red : (percent >= 70 ? Color.orange : Color.accentColor))
+                            .frame(width: proxy.size.width * fraction)
+                    }
+                }
+                .frame(height: 6)
+                Text(
+                    String(
+                        format: String(localized: "agentUsage.window.usedPercent", defaultValue: "%d%% used"),
+                        Int(percent.rounded())
+                    )
+                )
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+            }
+            HStack(spacing: 8) {
+                if !window.tokens.isEmpty {
+                    Text(
+                        String(
+                            format: String(localized: "agentUsage.window.usage", defaultValue: "%@ tokens · est. %@"),
+                            AgentUsageFormat.tokens(window.tokens.total),
+                            AgentUsageFormat.cost(window.costUSD)
+                        )
+                    )
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                if let resetLabel {
+                    Text(resetLabel)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 

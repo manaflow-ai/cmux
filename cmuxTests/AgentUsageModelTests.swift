@@ -87,7 +87,7 @@ final class AgentUsageModelTests: XCTestCase {
             #"{"timestamp":"2026-06-10T08:00:10.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":50,"total_tokens":1050},"last_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":50,"total_tokens":1050}}}}"#,
             #"{"timestamp":"2026-06-10T08:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1500,"cached_input_tokens":700,"output_tokens":80,"total_tokens":1580},"last_token_usage":{"input_tokens":500,"cached_input_tokens":300,"output_tokens":30,"total_tokens":530}}}}"#,
         ]
-        let events = AgentUsageLogParser.parseCodexSession(lines: lines)
+        let events = AgentUsageLogParser.parseCodexSession(lines: lines).events
 
         XCTAssertEqual(events.count, 2)
         XCTAssertEqual(events[0].source, .codex)
@@ -105,7 +105,7 @@ final class AgentUsageModelTests: XCTestCase {
             #"{"timestamp":"2026-06-10T08:00:10.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":50,"total_tokens":1050}}}}"#,
             #"{"timestamp":"2026-06-10T08:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1600,"cached_input_tokens":0,"output_tokens":90,"total_tokens":1690}}}}"#,
         ]
-        let events = AgentUsageLogParser.parseCodexSession(lines: lines)
+        let events = AgentUsageLogParser.parseCodexSession(lines: lines).events
 
         XCTAssertEqual(events.count, 2)
         XCTAssertEqual(events[0].model, "codex", "Model defaults when no turn_context precedes the event")
@@ -113,6 +113,127 @@ final class AgentUsageModelTests: XCTestCase {
         XCTAssertEqual(events[0].tokens.output, 50)
         XCTAssertEqual(events[1].tokens.input, 600, "Second event counts only the cumulative delta")
         XCTAssertEqual(events[1].tokens.output, 40)
+    }
+
+    func testParseCodexSessionExtractsLatestRateLimits() throws {
+        let lines = [
+            #"{"timestamp":"2026-06-10T08:00:10.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":10,"total_tokens":110}},"rate_limits":{"primary":{"used_percent":12.5,"window_minutes":300,"resets_in_seconds":14400},"secondary":{"used_percent":3.0,"window_minutes":10080,"resets_in_seconds":500000}}}}"#,
+            #"{"timestamp":"2026-06-10T09:00:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":200,"cached_input_tokens":0,"output_tokens":20,"total_tokens":220}},"rate_limits":{"primary":{"used_percent":31.0,"window_minutes":300,"resets_in_seconds":10800},"secondary":{"used_percent":4.5,"window_minutes":10080,"resets_in_seconds":496400}}}}"#,
+        ]
+        let observation = try XCTUnwrap(AgentUsageLogParser.parseCodexSession(lines: lines).rateLimits)
+
+        XCTAssertEqual(observation.observedAt, AgentUsageLogParser.parseTimestamp("2026-06-10T09:00:00.000Z"))
+        XCTAssertEqual(observation.primary?.usedPercent, 31.0)
+        XCTAssertEqual(observation.primary?.windowMinutes, 300)
+        XCTAssertEqual(observation.primary?.resetsInSeconds, 10800)
+        XCTAssertEqual(observation.secondary?.usedPercent, 4.5)
+    }
+
+    // MARK: - Rate windows
+
+    private func usageEvent(
+        _ timestamp: String,
+        source: AgentUsageSource = .claudeCode,
+        model: String = "claude-sonnet-4",
+        input: Int = 100,
+        output: Int = 50
+    ) throws -> AgentUsageEvent {
+        AgentUsageEvent(
+            source: source,
+            timestamp: try XCTUnwrap(AgentUsageLogParser.parseTimestamp(timestamp)),
+            model: model,
+            tokens: AgentUsageTokens(input: input, output: output, cacheRead: 0, cacheWrite: 0),
+            recordedCostUSD: nil
+        )
+    }
+
+    private var utcCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }
+
+    func testCurrentFiveHourWindowFloorsStartToHourAndSumsBlockEvents() throws {
+        let now = try XCTUnwrap(AgentUsageLogParser.parseTimestamp("2026-06-11T13:00:00Z"))
+        let events = [
+            try usageEvent("2026-06-11T09:05:00Z"),
+            try usageEvent("2026-06-11T10:30:00Z"),
+        ]
+        let window = try XCTUnwrap(
+            AgentUsageAggregator.currentFiveHourWindow(events: events, source: .claudeCode, calendar: utcCalendar, now: now)
+        )
+
+        XCTAssertEqual(window.windowStart, AgentUsageLogParser.parseTimestamp("2026-06-11T09:00:00Z"))
+        XCTAssertEqual(window.windowEnd, AgentUsageLogParser.parseTimestamp("2026-06-11T14:00:00Z"))
+        XCTAssertEqual(window.tokens.input, 200)
+        XCTAssertEqual(window.tokens.output, 100)
+        XCTAssertFalse(window.isProviderReported)
+        XCTAssertNil(window.usedPercent)
+    }
+
+    func testCurrentFiveHourWindowExpiresAndRestartsOnLaterEvent() throws {
+        let events = [
+            try usageEvent("2026-06-11T09:05:00Z"),
+            try usageEvent("2026-06-11T15:30:00Z"),
+        ]
+
+        let betweenBlocks = try XCTUnwrap(AgentUsageLogParser.parseTimestamp("2026-06-11T14:30:00Z"))
+        XCTAssertNil(
+            AgentUsageAggregator.currentFiveHourWindow(
+                events: [events[0]], source: .claudeCode, calendar: utcCalendar, now: betweenBlocks
+            ),
+            "No window is active once the 5-hour block has elapsed"
+        )
+
+        let inSecondBlock = try XCTUnwrap(AgentUsageLogParser.parseTimestamp("2026-06-11T16:00:00Z"))
+        let window = try XCTUnwrap(
+            AgentUsageAggregator.currentFiveHourWindow(events: events, source: .claudeCode, calendar: utcCalendar, now: inSecondBlock)
+        )
+        XCTAssertEqual(window.windowStart, AgentUsageLogParser.parseTimestamp("2026-06-11T15:00:00Z"))
+        XCTAssertEqual(window.tokens.input, 100, "Second block only counts its own events")
+    }
+
+    func testRateWindowsOverlayCodexReportedPercentAndDropStaleResets() throws {
+        let now = try XCTUnwrap(AgentUsageLogParser.parseTimestamp("2026-06-11T12:00:00Z"))
+        let events = [
+            try usageEvent("2026-06-11T11:00:00Z", source: .codex, model: "gpt-5-codex"),
+            try usageEvent("2026-06-09T11:00:00Z", source: .codex, model: "gpt-5-codex"),
+        ]
+        let observation = CodexRateLimitsObservation(
+            observedAt: try XCTUnwrap(AgentUsageLogParser.parseTimestamp("2026-06-11T11:30:00Z")),
+            primary: CodexRateLimitWindow(usedPercent: 42, windowMinutes: 300, resetsInSeconds: 7200),
+            secondary: CodexRateLimitWindow(usedPercent: 9, windowMinutes: 10080, resetsInSeconds: 60)
+        )
+
+        let windows = AgentUsageAggregator.rateWindows(
+            events: events, codexRateLimits: observation, calendar: utcCalendar, now: now
+        )
+        let fiveHour = try XCTUnwrap(windows.first { $0.source == .codex && $0.kind == .fiveHour })
+        XCTAssertEqual(fiveHour.usedPercent, 42)
+        XCTAssertTrue(fiveHour.isProviderReported)
+        XCTAssertEqual(fiveHour.windowEnd, AgentUsageLogParser.parseTimestamp("2026-06-11T13:30:00Z"))
+
+        let weekly = try XCTUnwrap(windows.first { $0.source == .codex && $0.kind == .weekly })
+        XCTAssertNil(
+            weekly.usedPercent,
+            "A reset that elapsed before now means the reported percent is stale and must not be shown"
+        )
+        XCTAssertFalse(weekly.isProviderReported)
+        XCTAssertEqual(weekly.tokens.input, 200, "Rolling 7-day window still sums local events")
+    }
+
+    func testRollingWeeklyWindowSumsOnlyLastSevenDays() throws {
+        let now = try XCTUnwrap(AgentUsageLogParser.parseTimestamp("2026-06-11T12:00:00Z"))
+        let events = [
+            try usageEvent("2026-06-10T12:00:00Z"),
+            try usageEvent("2026-06-05T12:00:00Z"),
+            try usageEvent("2026-06-01T12:00:00Z"),
+        ]
+        let window = try XCTUnwrap(
+            AgentUsageAggregator.rollingWeeklyWindow(events: events, source: .claudeCode, now: now)
+        )
+        XCTAssertEqual(window.tokens.input, 200, "Event older than 7 days is excluded")
+        XCTAssertEqual(window.kind, .weekly)
     }
 
     // MARK: - Pricing
