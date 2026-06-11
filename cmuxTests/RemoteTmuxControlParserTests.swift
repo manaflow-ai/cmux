@@ -410,3 +410,188 @@ import Testing
         #expect(RemoteTmuxRawLayoutParser.parse("80x24,0,0,1xyz") == nil)
     }
 }
+
+/// Behavior tests for the per-pane foreground classification
+/// (`#{alternate_on}|#{pane_current_command}`) that drives BOTH the reflow
+/// suppression and the kill-window/kill-pane close confirmation — exercised on
+/// raw subscription values as tmux delivers them.
+@Suite struct RemoteTmuxPaneForegroundStateTests {
+    private typealias State = RemoteTmuxControlConnection.PaneForegroundState
+
+    @Test func idleShellIsNeitherActiveNorNoReflow() {
+        let state = State(rawValue: "0|bash")
+        #expect(!state.hasActiveCommand)
+        #expect(!state.suppressesReflow)
+    }
+
+    @Test func loginShellDashVariantIsIdle() {
+        let state = State(rawValue: "0|-zsh")
+        #expect(!state.hasActiveCommand)
+        #expect(!state.suppressesReflow)
+    }
+
+    @Test func foregroundCommandIsActive() {
+        // `sleep 10` in a remote pane: pane_current_command reports "sleep".
+        let state = State(rawValue: "0|sleep")
+        #expect(state.hasActiveCommand)
+        #expect(state.suppressesReflow)
+    }
+
+    @Test func alternateScreenIsActiveEvenForShellCommandName() {
+        let state = State(rawValue: "1|bash")
+        #expect(state.hasActiveCommand)
+        #expect(state.suppressesReflow)
+    }
+
+    @Test func fullScreenTUIIsActive() {
+        let state = State(rawValue: "1|vim")
+        #expect(state.hasActiveCommand)
+        #expect(state.suppressesReflow)
+    }
+
+    /// The two policies deliberately diverge on an unclassifiable value: reflow
+    /// stays suppressed (rewrapping a TUI corrupts it) while close confirmation
+    /// must NOT fire (it would add a dialog to every close of a healthy shell
+    /// pane that simply hasn't reported yet).
+    @Test func emptyOrGarbageValueSuppressesReflowButIsNotActive() {
+        for raw in ["", "0|", "garbage-without-separator", "  \n"] {
+            let state = State(rawValue: raw)
+            #expect(state.suppressesReflow, "raw=\(raw)")
+            #expect(!state.hasActiveCommand, "raw=\(raw)")
+        }
+    }
+
+    @Test func surroundingWhitespaceIsTrimmed() {
+        let state = State(rawValue: " 0|node \r\n")
+        #expect(!state.alternateOn)
+        #expect(state.command == "node")
+        #expect(state.hasActiveCommand)
+    }
+}
+
+/// The `refresh-client -B` subscribe lines must keep their `name:target:format`
+/// argument double-quoted: tmux's command parser rejects an unquoted `#{…}`
+/// mid-argument with `parse error: syntax error` (verified on tmux 3.6a), and
+/// control mode silently drops the `%error` result — the subscription then
+/// never exists, a pane's live foreground/cwd state never updates, and the
+/// kill close-confirmation sees a stale idle shell forever.
+@Suite struct RemoteTmuxSubscriptionCommandTests {
+    @Test @MainActor func reflowSubscribeCommandKeepsFormatQuoted() {
+        #expect(
+            RemoteTmuxControlConnection.paneReflowSubscriptionCommand(paneId: 15)
+                == "refresh-client -B \"cmux_reflow_15:%15:#{alternate_on}|#{pane_current_command}\""
+        )
+    }
+
+    @Test @MainActor func cwdSubscribeCommandKeepsFormatQuoted() {
+        #expect(
+            RemoteTmuxControlConnection.panePathSubscriptionCommand(paneId: 7)
+                == "refresh-client -B \"cmux_cwd_7:%7:#{pane_current_path}\""
+        )
+    }
+}
+
+/// Close-time activity queries: the wire commands (same quoting constraint as
+/// the subscriptions) and the per-line `%<pane>|<alt>|<command>` result parse
+/// that feeds the kill close-confirmation.
+@Suite struct RemoteTmuxActivityQueryTests {
+    @Test @MainActor func windowQueryCommandKeepsFormatQuoted() {
+        #expect(
+            RemoteTmuxControlConnection.windowActivityQueryCommand(windowId: 3)
+                == "list-panes -t @3 -F \"#{pane_id}|#{alternate_on}|#{pane_current_command}\""
+        )
+    }
+
+    @Test @MainActor func paneQueryCommandKeepsFormatQuoted() {
+        #expect(
+            RemoteTmuxControlConnection.paneActivityQueryCommand(paneId: 9)
+                == "display-message -p -t %9 -F \"#{pane_id}|#{alternate_on}|#{pane_current_command}\""
+        )
+    }
+
+    @Test @MainActor func parsesActiveCommandLine() {
+        let parsed = RemoteTmuxControlConnection.parseActivityQueryLine("%5|0|sleep")
+        #expect(parsed?.paneId == 5)
+        #expect(parsed?.state.hasActiveCommand == true)
+        #expect(parsed?.state.command == "sleep")
+    }
+
+    @Test @MainActor func parsesIdleShellLine() {
+        let parsed = RemoteTmuxControlConnection.parseActivityQueryLine("%12|0|bash")
+        #expect(parsed?.paneId == 12)
+        #expect(parsed?.state.hasActiveCommand == false)
+    }
+
+    @Test @MainActor func parsesAltScreenLine() {
+        let parsed = RemoteTmuxControlConnection.parseActivityQueryLine("%7|1|vim")
+        #expect(parsed?.paneId == 7)
+        #expect(parsed?.state.alternateOn == true)
+        #expect(parsed?.state.hasActiveCommand == true)
+    }
+
+    @Test @MainActor func commandContainingSeparatorSurvives() {
+        // maxSplits strips only the pane id; the state parser strips only the
+        // alternate_on flag — a pipe in the command name stays in the command.
+        let parsed = RemoteTmuxControlConnection.parseActivityQueryLine("%5|0|my|weird")
+        #expect(parsed?.state.command == "my|weird")
+        #expect(parsed?.state.hasActiveCommand == true)
+    }
+
+    @Test @MainActor func rejectsLinesWithoutPaneId() {
+        #expect(RemoteTmuxControlConnection.parseActivityQueryLine("0|bash") == nil)
+        #expect(RemoteTmuxControlConnection.parseActivityQueryLine("garbage") == nil)
+        #expect(RemoteTmuxControlConnection.parseActivityQueryLine("") == nil)
+    }
+}
+
+/// Naming the kill-window confirmation dialog from the live foreground
+/// classification (`RemoteTmuxController.mirrorTabActivity`) so it can't lag the
+/// tab's own tmux automatic-rename.
+@Suite struct RemoteTmuxMirrorTabActivityTests {
+    private typealias State = RemoteTmuxControlConnection.PaneForegroundState
+
+    @Test @MainActor func namesTheActivePaneCommand() {
+        let activity = RemoteTmuxController.mirrorTabActivity(
+            states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|sleep")],
+            paneOrder: [1, 2], activePaneId: nil
+        )
+        #expect(activity.hasActiveCommand)
+        #expect(activity.activeCommandName == "sleep")
+    }
+
+    @Test @MainActor func prefersTheFocusedPaneWhenSeveralAreActive() {
+        let activity = RemoteTmuxController.mirrorTabActivity(
+            states: [1: State(rawValue: "0|vim"), 2: State(rawValue: "0|sleep")],
+            paneOrder: [1, 2], activePaneId: 2
+        )
+        #expect(activity.activeCommandName == "sleep")
+    }
+
+    @Test @MainActor func namesAnActiveBackgroundPaneWhenTheFocusedOneIsIdle() {
+        // Focused pane idle, another pane active → fall past the focused pane to
+        // the active one in layout order (the deduped second half of the scan).
+        let activity = RemoteTmuxController.mirrorTabActivity(
+            states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|sleep")],
+            paneOrder: [1, 2], activePaneId: 1
+        )
+        #expect(activity.hasActiveCommand)
+        #expect(activity.activeCommandName == "sleep")
+    }
+
+    @Test @MainActor func idleWindowHasNoNameAndIsNotActive() {
+        let activity = RemoteTmuxController.mirrorTabActivity(
+            states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|zsh")],
+            paneOrder: [1, 2], activePaneId: 1
+        )
+        #expect(!activity.hasActiveCommand)
+        #expect(activity.activeCommandName == nil)
+    }
+
+    @Test @MainActor func unclassifiedWindowIsIdle() {
+        let activity = RemoteTmuxController.mirrorTabActivity(
+            states: [:], paneOrder: [1, 2], activePaneId: nil
+        )
+        #expect(!activity.hasActiveCommand)
+        #expect(activity.activeCommandName == nil)
+    }
+}

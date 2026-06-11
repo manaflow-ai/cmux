@@ -11556,6 +11556,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.
     private var pendingCloseConfirmTabIds: Set<TabID> = []
 
+    /// tmux pane ids (multi-pane mirror ✕) with a close-time activity query or
+    /// confirmation in flight, so click spam can't double-kill or stack dialogs.
+    private var pendingRemoteTmuxPaneCloseIds: Set<Int> = []
+
     /// Tab IDs whose next close attempt should be treated as an explicit
     /// workspace-close gesture from the user (the tab-strip X button, or the Close Tab
     /// shortcut when the shortcut preference is set to close the workspace on the last surface),
@@ -12483,6 +12487,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
+        // A remote tmux mirror's directories are paths on the REMOTE host.
+        // Feeding one into local cmux.json tracking makes CmuxConfigStore walk
+        // the ancestor chain with FileManager.fileExists on the main thread,
+        // and stat'ing e.g. /home/… locally blocks on the autofs automounter
+        // for hundreds of ms (measured via sample during tab-reveal stalls).
+        // No local per-directory config can apply to a remote path — track none.
+        if isRemoteTmuxMirror { return nil }
         if let panelId {
             for candidate in [
                 panelDirectories[panelId],
@@ -12816,6 +12827,16 @@ final class Workspace: Identifiable, ObservableObject {
 
     func panelNeedsConfirmClose(panelId: UUID) -> Bool {
         guard let panel = panels[panelId] else { return false }
+        // Mirrored remote tmux window-tab: closing it kills the remote window,
+        // and its manual-I/O surface has no local child process for the ghostty
+        // fallback (which reports "needs confirm" whenever the cursor isn't at a
+        // marked prompt — i.e. always, for a mirror). Ask the control connection
+        // whether any of the window's panes is running an active command instead.
+        if isRemoteTmuxMirror,
+           let activity = AppDelegate.shared?.remoteTmuxController
+               .cachedMirrorTabActivity(workspaceId: id, panelId: panelId) {
+            return activity.hasActiveCommand
+        }
         if let terminalPanel = panel as? TerminalPanel {
             return panelNeedsConfirmClose(
                 panelId: panelId,
@@ -15176,6 +15197,60 @@ final class Workspace: Identifiable, ObservableObject {
         // attach; a background/socket mirror must not steal focus.
         applyTabSelection(tabId: newTabId, inPane: paneId, reassertAppKitFocus: focus)
         return newPanel
+    }
+
+    /// Closes one pane of a mirrored multi-pane tmux window (the pane-header ✕),
+    /// confirming first when that pane is running an active foreground command —
+    /// kill-pane is destructive, and the mirror pane has no local child process
+    /// for the normal needs-confirm check. The decision uses a LIVE activity
+    /// query (the subscription cache lags ~1s, which would let a just-started
+    /// command slip through), falling back to the cached state when the link is
+    /// down. The pane is removed by the resulting `%layout-change` (or
+    /// `%window-close` for the window's last pane), never locally.
+    func requestRemoteTmuxPaneClose(windowMirror: RemoteTmuxWindowMirror, tmuxPaneId: Int) {
+        // Close warnings disabled → even an active command wouldn't confirm;
+        // kill with no added round trip.
+        guard CloseTabConfirmationPolicy.shouldConfirm(
+            requiresConfirmation: true, source: .tabCloseButton
+        ) else {
+            windowMirror.requestKillPane(tmuxPaneId)
+            return
+        }
+        guard !pendingRemoteTmuxPaneCloseIds.contains(tmuxPaneId) else { return }
+        pendingRemoteTmuxPaneCloseIds.insert(tmuxPaneId)
+        windowMirror.queryPaneActivity(tmuxPaneId) { [weak self, weak windowMirror] states in
+            // Hop off the control-stream dispatch before a (modal) dialog can
+            // block it; the defer keeps the in-flight guard balanced on every path.
+            Task { @MainActor [weak self, weak windowMirror] in
+                guard let self else { return }
+                defer { self.pendingRemoteTmuxPaneCloseIds.remove(tmuxPaneId) }
+                guard let windowMirror else { return }
+                let state = states?[tmuxPaneId] ?? windowMirror.paneForegroundState(tmuxPaneId)
+                if CloseTabConfirmationPolicy.shouldConfirm(
+                    requiresConfirmation: state?.hasActiveCommand ?? false,
+                    source: .tabCloseButton
+                ) {
+                    // No manager → no way to ask → refuse the destructive kill rather
+                    // than falling through to an unconfirmed one (only reachable in
+                    // teardown states where the pane header shouldn't be clickable).
+                    guard let manager = self.owningTabManager
+                        ?? AppDelegate.shared?.tabManagerFor(tabId: self.id)
+                        ?? AppDelegate.shared?.tabManager else { return }
+                    let message: String
+                    if let command = state?.command, state?.hasActiveCommand == true, !command.isEmpty {
+                        message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(command)\".")
+                    } else {
+                        message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
+                    }
+                    guard manager.confirmClose(
+                        title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
+                        message: message,
+                        acceptCmdD: false
+                    ) else { return }
+                }
+                windowMirror.requestKillPane(tmuxPaneId)
+            }
+        }
     }
 
     /// Updates a mirrored remote tmux tab's title (e.g. after a tmux
@@ -18860,9 +18935,18 @@ extension Workspace: BonsplitDelegate {
     }
 
     @MainActor
-    private func confirmClosePanel(for tabId: TabID) async -> Bool {
+    /// - Parameter nameOverride: when non-nil, the dialog names this instead of
+    ///   the panel title. The mirror window-tab path passes the LIVE foreground
+    ///   command here so the dialog says "sleep" the instant the close fires —
+    ///   the tab's own title (tmux's window name) only catches up to the
+    ///   automatic-rename a beat later, which otherwise reads like the dialog is
+    ///   naming a different tab.
+    private func confirmClosePanel(for tabId: TabID, nameOverride: String? = nil) async -> Bool {
         let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
         let panelName: String? = {
+            if let nameOverride, !nameOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return nameOverride
+            }
             guard let panelId = panelIdFromSurfaceId(tabId) else { return nil }
             if let custom = panelCustomTitles[panelId], !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return custom
@@ -19345,12 +19429,112 @@ extension Workspace: BonsplitDelegate {
         // used by the mirror's own rebuild) are excluded — they do the actual
         // removal. Falls through to the normal local close when there is no live
         // mirror connection.
+        //
+        // Kill-window is destructive (unlike detach), so it gets the same close
+        // confirmation as a local tab with a running process. The decision uses a
+        // LIVE activity query (tmux evaluates pane_current_command at query time)
+        // rather than the subscription cache, which tmux only refreshes about
+        // once a second — otherwise a command started right before ⌘W would
+        // slip through unconfirmed. The kill is only sent on Confirm (or when
+        // the fresh answer says idle); the %window-close round trip still does
+        // the actual tab removal, so the silent-close case costs one extra
+        // round trip on a path that already waits one. Batch closes never reach
+        // this confirmation: they confirm once up front and route the kill
+        // directly (see closeTabsFromContextMenu), bypassing this delegate.
         if isRemoteTmuxMirror, !forceCloseTabIds.contains(tab.id),
            let panelId = panelIdFromSurfaceId(tab.id),
-           AppDelegate.shared?.remoteTmuxController.handleMirrorTabCloseRequested(
-               workspaceId: id, panelId: panelId
-           ) == true {
-            return false
+           let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
+           remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) != nil {
+            let confirmationSource: CloseTabConfirmationPolicy.Source =
+                tabCloseButtonClose ? .tabCloseButton : .shortcut
+            if !CloseTabConfirmationPolicy.shouldConfirm(
+                requiresConfirmation: true, source: confirmationSource
+            ) {
+                // Close warnings disabled → even an active command wouldn't
+                // confirm; kill with no added round trip. Veto unconditionally:
+                // the target resolved two lines up on the same main-actor tick,
+                // and falling through to a LOCAL close of a mirror tab would
+                // leave the remote window alive to resurrect it.
+                _ = remoteTmuxController.handleMirrorTabCloseRequested(workspaceId: id, panelId: panelId)
+                return false
+            } else {
+                if pendingCloseConfirmTabIds.contains(tab.id) {
+                    return false
+                }
+                let confirmationManager = owningTabManager
+                    ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+                    ?? AppDelegate.shared?.tabManager
+                if let confirmationManager, confirmationManager.isCloseConfirmationInFlight {
+                    return false
+                }
+                pendingCloseConfirmTabIds.insert(tab.id)
+                let tabId = tab.id
+
+                // Begins the confirmation session and runs the dialog → kill-window
+                // flow; shared by the always-warn path (no query) and the queried
+                // active-command path. `commandName` (the live foreground command)
+                // names the dialog so it can't lag the tab's own rename. Balances
+                // pendingCloseConfirmTabIds on every exit.
+                let presentConfirmation: @MainActor (String?) -> Void = { [weak self] commandName in
+                    guard let self else { return }
+                    if let confirmationManager, !confirmationManager.beginCloseConfirmationSession() {
+                        self.pendingCloseConfirmTabIds.remove(tabId)
+                        return
+                    }
+                    Task { @MainActor in
+                        defer {
+                            self.pendingCloseConfirmTabIds.remove(tabId)
+                            confirmationManager?.endCloseConfirmationSession()
+                        }
+
+                        // If the tab disappeared while we were scheduling (e.g. the
+                        // command finished and another client killed the window), do nothing.
+                        guard self.panelIdFromSurfaceId(tabId) != nil else { return }
+
+                        let confirmed = await self.confirmClosePanel(for: tabId, nameOverride: commandName)
+                        guard confirmed else { return }
+
+                        // Re-resolves the target, so a window that died while the
+                        // dialog was up is a no-op rather than a stray kill.
+                        _ = remoteTmuxController.handleMirrorTabCloseRequested(
+                            workspaceId: self.id, panelId: panelId
+                        )
+                    }
+                }
+
+                // "Always warn on the tab ✕" makes the dialog unconditional — a
+                // live query couldn't change WHETHER we confirm, but it still
+                // supplies the fresh command name, so use the cached classification
+                // for the name (no round trip) and present immediately.
+                if CloseTabConfirmationPolicy.shouldConfirm(
+                    requiresConfirmation: false, source: confirmationSource
+                ) {
+                    let cached = remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId)
+                    presentConfirmation(cached?.activeCommandName)
+                    return false
+                }
+
+                remoteTmuxController.queryMirrorTabActivity(
+                    workspaceId: id, panelId: panelId
+                ) { [weak self] activity in
+                    guard let self else { return }
+                    // Tab vanished while the query was in flight (e.g. the window
+                    // died remotely) — nothing left to close.
+                    guard self.panelIdFromSurfaceId(tabId) != nil else {
+                        self.pendingCloseConfirmTabIds.remove(tabId)
+                        return
+                    }
+                    guard activity.hasActiveCommand else {
+                        self.pendingCloseConfirmTabIds.remove(tabId)
+                        _ = remoteTmuxController.handleMirrorTabCloseRequested(
+                            workspaceId: self.id, panelId: panelId
+                        )
+                        return
+                    }
+                    presentConfirmation(activity.activeCommandName)
+                }
+                return false
+            }
         }
 
         if forceCloseTabIds.contains(tab.id) {

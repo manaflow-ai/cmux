@@ -245,7 +245,12 @@ struct WorkspaceContentView: View {
                         mirror: windowMirror,
                         appearance: appearance,
                         isVisibleInUI: isVisibleInUI,
-                        portalPriority: workspacePortalPriority
+                        portalPriority: workspacePortalPriority,
+                        onClosePane: { tmuxPaneId in
+                            workspace.requestRemoteTmuxPaneClose(
+                                windowMirror: windowMirror, tmuxPaneId: tmuxPaneId
+                            )
+                        }
                     )
                     .onTapGesture {
                         workspace.bonsplitController.focusPane(paneId)

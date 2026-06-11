@@ -79,6 +79,18 @@ extension Workspace {
         }
 
         for candidate in candidates {
+            // Remote tmux mirror tabs: the batch prompt above already covered
+            // them (panelNeedsConfirmClose is mirror-aware), so route the kill
+            // to the remote directly — the tab is removed on %window-close. A
+            // local force-close would bypass the shouldCloseTab kill routing
+            // (its confirmation session is still winding down) and leave the
+            // remote window alive, resurrecting the tab on the next rebuild.
+            if isRemoteTmuxMirror, let panelId = candidate.panelId,
+               AppDelegate.shared?.remoteTmuxController.handleMirrorTabCloseRequested(
+                   workspaceId: id, panelId: panelId
+               ) == true {
+                continue
+            }
             _ = requestCloseTabRecordingHistory(candidate.tabId, force: needsConfirmation)
         }
     }

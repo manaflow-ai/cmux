@@ -144,6 +144,28 @@ final class RemoteTmuxWindowMirror {
         connection?.send("kill-pane -t @\(windowId).%\(tmuxPaneId)")
     }
 
+    /// The pane's last-known foreground classification (alt-screen flag +
+    /// `pane_current_command`), driving the kill-pane close confirmation.
+    /// `nil` when the pane was never classified (closes without a dialog).
+    func paneForegroundState(_ tmuxPaneId: Int) -> RemoteTmuxControlConnection.PaneForegroundState? {
+        connection?.paneForegroundStates[tmuxPaneId]
+    }
+
+    /// Live, close-time query of `tmuxPaneId`'s foreground state (see
+    /// ``RemoteTmuxControlConnection/queryPaneActivity(paneId:completion:)``).
+    /// Completes with `nil` when the connection is gone — the caller falls back
+    /// to ``paneForegroundState(_:)``.
+    func queryPaneActivity(
+        _ tmuxPaneId: Int,
+        completion: @escaping ([Int: RemoteTmuxControlConnection.PaneForegroundState]?) -> Void
+    ) {
+        guard let connection else {
+            completion(nil)
+            return
+        }
+        connection.queryPaneActivity(paneId: tmuxPaneId, completion: completion)
+    }
+
     /// Tears down every pane panel (called when the window-tab is removed).
     func teardown() {
         // Unsubscribe each pane's cwd subscription first — matching reconcile(layout:),

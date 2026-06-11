@@ -50,6 +50,19 @@ final class RemoteTmuxControlConnection {
     private(set) var activePaneByWindow: [Int: Int] = [:]
     private(set) var paneOutputByteCounts: [Int: Int] = [:]
     private(set) var totalOutputBytes = 0
+    /// Last-known foreground classification per pane, kept current by the same
+    /// one-shot query + live subscription that drive reflow classification
+    /// (`#{alternate_on}` + `#{pane_current_command}`, see
+    /// ``requestPaneReflow(paneId:)``). Read at close time to decide whether
+    /// killing a mirrored pane/window needs a confirmation dialog — a mirror
+    /// surface has no local child process for ghostty's needs-confirm check.
+    private(set) var paneForegroundStates: [Int: PaneForegroundState] = [:]
+    /// In-flight close-time activity queries by token (see
+    /// ``queryWindowActivity(windowId:completion:)``). Failed with `nil` when the
+    /// control stream becomes unusable, so a pending close decision falls back to
+    /// the cached classification instead of hanging until a reconnect that may
+    /// never come.
+    private var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
 
     private var process: Process?
     private var stdinHandle: FileHandle?
@@ -139,7 +152,8 @@ final class RemoteTmuxControlConnection {
     private static let maxStderrBytes = 8 * 1024
 
     private enum CommandKind: Equatable {
-        case listWindows, capturePane(Int), paneState(Int), panePath(Int), paneReflow(Int), paneAltScreen(Int), other
+        case listWindows, capturePane(Int), paneState(Int), panePath(Int), paneReflow(Int), paneAltScreen(Int),
+             activityQuery(UUID), other
     }
 
     /// The lifecycle phase of a control connection.
@@ -173,28 +187,70 @@ final class RemoteTmuxControlConnection {
     /// routing, mirroring ``cwdSubscriptionPrefix``.
     private static let reflowSubscriptionPrefix = "cmux_reflow_"
 
-    /// Field separator inside the reflow subscription value
-    /// (`#{alternate_on}|#{pane_current_command}`). A pipe never appears in a tmux
-    /// `alternate_on` flag (0/1) and is not part of a process's `comm` name.
-    private static let reflowFieldSeparator: Character = "|"
+    /// A pane's parsed `#{alternate_on}|#{pane_current_command}` value — the one
+    /// fact behind two policies (reflow suppression and close confirmation),
+    /// which deliberately default in opposite directions on an empty/unparseable
+    /// value: reflow must stay suppressed (rewrapping a TUI corrupts it) while a
+    /// close confirmation must not fire (a spurious dialog on every close).
+    /// Deliberately not `@MainActor` (a pure value), so the classification
+    /// constants live here rather than on the actor-isolated class.
+    struct PaneForegroundState: Equatable, Sendable {
+        /// Field separator inside the reflow subscription value
+        /// (`#{alternate_on}|#{pane_current_command}`). A pipe never appears in a tmux
+        /// `alternate_on` flag (0/1) and is not part of a process's `comm` name.
+        static let fieldSeparator: Character = "|"
 
-    /// Foreground commands (`#{pane_current_command}`) whose primary-screen
-    /// scrollback is safe to reflow on resize — i.e. plain interactive shells that
-    /// keep their history as ordinary soft-wrapped text. Anything else (node for
-    /// claude, python, REPLs, pagers, editors) is treated as no-reflow so an inline
-    /// TUI's fixed-width frame is never rewrapped. Alt-screen apps are caught
-    /// separately by `#{alternate_on}`. Login shells can be reported with a leading
-    /// dash, so the common traditional/POSIX dash variants are listed too (not every
-    /// shell has one — a missing dash variant just doesn't reflow). Classification
-    /// defaults to no-reflow on anything not in this set (and on an unparseable
-    /// value), which is the safe direction (worst case: a shell's scrollback doesn't
-    /// reflow until reclassified) — so a login shell whose dash variant is missing
-    /// here simply doesn't reflow, never breaks.
-    private static let reflowSafeShellCommands: Set<String> = [
-        "bash", "zsh", "fish", "sh", "dash", "ksh", "tcsh", "csh", "ash",
-        "mksh", "pdksh", "elvish", "nu", "xonsh", "pwsh", "powershell", "oil", "osh",
-        "-bash", "-zsh", "-fish", "-sh", "-dash", "-ksh", "-tcsh", "-csh", "-ash",
-    ]
+        /// Foreground commands (`#{pane_current_command}`) whose primary-screen
+        /// scrollback is safe to reflow on resize — i.e. plain interactive shells that
+        /// keep their history as ordinary soft-wrapped text. Anything else (node for
+        /// claude, python, REPLs, pagers, editors) is treated as no-reflow so an inline
+        /// TUI's fixed-width frame is never rewrapped. Alt-screen apps are caught
+        /// separately by `#{alternate_on}`. Login shells can be reported with a leading
+        /// dash, so the common traditional/POSIX dash variants are listed too (not every
+        /// shell has one — a missing dash variant just doesn't reflow). Classification
+        /// defaults to no-reflow on anything not in this set (and on an unparseable
+        /// value), which is the safe direction (worst case: a shell's scrollback doesn't
+        /// reflow until reclassified) — so a login shell whose dash variant is missing
+        /// here simply doesn't reflow, never breaks.
+        static let plainShellCommands: Set<String> = [
+            "bash", "zsh", "fish", "sh", "dash", "ksh", "tcsh", "csh", "ash",
+            "mksh", "pdksh", "elvish", "nu", "xonsh", "pwsh", "powershell", "oil", "osh",
+            "-bash", "-zsh", "-fish", "-sh", "-dash", "-ksh", "-tcsh", "-csh", "-ash",
+        ]
+
+        let alternateOn: Bool
+        let command: String
+
+        init(rawValue: String) {
+            let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let parts = trimmed.split(
+                separator: Self.fieldSeparator,
+                maxSplits: 1, omittingEmptySubsequences: false
+            )
+            alternateOn = parts.first.map(String.init) == "1"
+            command = parts.count > 1
+                ? String(parts[1]).trimmingCharacters(in: .whitespaces)
+                : ""
+        }
+
+        /// Reflow policy: suppress primary-screen reflow on resize unless the
+        /// foreground command is a known plain shell (and the pane is not on the
+        /// alternate screen). `true` for an empty/unknown command — safe default.
+        var suppressesReflow: Bool {
+            alternateOn || !Self.plainShellCommands.contains(command)
+        }
+
+        /// Close-confirmation policy: the pane is running something beyond an
+        /// idle shell — a KNOWN non-shell foreground command (sleep, vim, node…)
+        /// or the alternate screen (full-screen TUI). Unlike ``suppressesReflow``,
+        /// an empty/unreported command is NOT active, so an unclassified pane
+        /// never triggers a spurious dialog. Foreground-only by nature: a remote
+        /// background job (`sleep 10 &`) keeps `pane_current_command` at the
+        /// shell and is not detected — tmux exposes no cheap process-tree check.
+        var hasActiveCommand: Bool {
+            alternateOn || (!command.isEmpty && !Self.plainShellCommands.contains(command))
+        }
+    }
 
     /// `ESC[?1049h` — enter the alternate screen, emitted to a mirror surface when
     /// the remote pane is on the alternate screen (see ``capturePane(paneId:)``).
@@ -290,6 +346,9 @@ final class RemoteTmuxControlConnection {
         // FIFO are stale and must not bleed into the new %begin/%end correlation.
         parser = RemoteTmuxControlStreamParser()
         pendingCommands.removeAll()
+        // Normally already flushed by beginReconnecting; kept here so a future
+        // caller of spawnProcess can't strand a close decision.
+        failPendingActivityQueries()
         attachBlockDrained = false
         stderrBuffer = ""
         enterReceived = false
@@ -610,6 +669,16 @@ final class RemoteTmuxControlConnection {
         )
     }
 
+    /// The exact `refresh-client -B` line that subscribes `paneId`'s working
+    /// directory. The `name:target:format` argument MUST stay double-quoted:
+    /// tmux's command parser rejects an unquoted `#{…}` mid-argument with
+    /// `parse error: syntax error` (verified on tmux 3.6a), and because the
+    /// result FIFO drops `%error` blocks the subscription would silently never
+    /// exist — the mirrored tab's folder would just never update.
+    static func panePathSubscriptionCommand(paneId: Int) -> String {
+        "refresh-client -B \"\(cwdSubscriptionPrefix)\(paneId):%\(paneId):#{pane_current_path}\""
+    }
+
     /// Subscribes to live `pane_current_path` changes for `paneId` via tmux
     /// control-mode `refresh-client -B`, so a remote `cd` updates the mirrored
     /// tab's folder without polling. tmux emits the value once on subscribe and
@@ -617,7 +686,7 @@ final class RemoteTmuxControlConnection {
     /// Best-effort: on tmux builds that don't support subscriptions the command is
     /// a no-op and ``requestPanePath(paneId:)`` still supplies the initial folder.
     func subscribePanePath(paneId: Int) {
-        send("refresh-client -B \(Self.cwdSubscriptionPrefix)\(paneId):%\(paneId):#{pane_current_path}")
+        send(Self.panePathSubscriptionCommand(paneId: paneId))
     }
 
     /// Removes the live `pane_current_path` subscription for `paneId` (issued once
@@ -637,32 +706,38 @@ final class RemoteTmuxControlConnection {
     func requestPaneReflow(paneId: Int) {
         sendInternal(
             "display-message -p -t %\(paneId) -F \""
-                + "#{alternate_on}\(Self.reflowFieldSeparator)#{pane_current_command}\"",
+                + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}\"",
             kind: .paneReflow(paneId)
         )
     }
 
     /// Classifies a raw `#{alternate_on}|#{pane_current_command}` value (from the
-    /// one-shot query or a live subscription) and emits the no-reflow decision.
+    /// one-shot query or a live subscription), records it as the pane's foreground
+    /// state (for the close-confirmation check), and emits the no-reflow decision.
     /// No-reflow when on the alternate screen OR the foreground command isn't a known
     /// plain shell; defaults to no-reflow on an empty/unparseable value (safe).
     private func classifyAndEmitReflow(paneId: Int, rawValue: String, source: String) {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = trimmed.split(
-            separator: Self.reflowFieldSeparator, maxSplits: 1, omittingEmptySubsequences: false
-        )
-        let altOn = parts.first.map(String.init) == "1"
-        let command = parts.count > 1
-            ? String(parts[1]).trimmingCharacters(in: .whitespaces)
-            : ""
-        let noReflow = altOn || !Self.reflowSafeShellCommands.contains(command)
+        let state = PaneForegroundState(rawValue: rawValue)
+        paneForegroundStates[paneId] = state
+        let noReflow = state.suppressesReflow
         #if DEBUG
         cmuxDebugLog(
-            "remote.reflow.classify pane=\(paneId) src=\(source) raw=\"\(trimmed)\" "
-                + "alt=\(altOn ? 1 : 0) cmd=\"\(command)\" noReflow=\(noReflow ? 1 : 0)"
+            "remote.reflow.classify pane=\(paneId) src=\(source) raw=\"\(rawValue.trimmingCharacters(in: .whitespacesAndNewlines))\" "
+                + "alt=\(state.alternateOn ? 1 : 0) cmd=\"\(state.command)\" noReflow=\(noReflow ? 1 : 0)"
         )
         #endif
         observers.emitPaneReflow(paneId, noReflow)
+    }
+
+    /// The exact `refresh-client -B` line that subscribes `paneId`'s foreground
+    /// classification. Same quoting requirement as
+    /// ``panePathSubscriptionCommand(paneId:)`` — unquoted, tmux rejects the
+    /// `#{…}` with a (silently dropped) parse error and the live classification
+    /// never arrives, so a pane that starts a command after its seed keeps its
+    /// stale idle-shell state and the close confirmation never fires.
+    static func paneReflowSubscriptionCommand(paneId: Int) -> String {
+        "refresh-client -B \"\(reflowSubscriptionPrefix)\(paneId):%\(paneId):"
+            + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}\""
     }
 
     /// Subscribes to live reflow-classification changes for `paneId` via tmux
@@ -672,20 +747,102 @@ final class RemoteTmuxControlConnection {
     /// and an inline TUI (e.g. bash → node when claude launches) is reclassified
     /// without polling. The mirror surface uses this to decide whether to reflow its
     /// primary screen on resize (shells reflow; alt-screen / inline-TUI panes do
-    /// not). Best-effort: on tmux builds without subscriptions this is a no-op and
+    /// not), and the close confirmation uses it to track the active foreground
+    /// command. Best-effort: on tmux builds without subscriptions this is a no-op and
     /// the surface keeps its safe no-reflow default. See ``subscriptionChanged``
-    /// handling for the parse, and ``reflowSafeShellCommands`` for the policy.
+    /// handling for the parse, and ``PaneForegroundState/plainShellCommands`` for the policy.
     func subscribePaneReflow(paneId: Int) {
-        send(
-            "refresh-client -B \(Self.reflowSubscriptionPrefix)\(paneId):%\(paneId):"
-                + "#{alternate_on}\(Self.reflowFieldSeparator)#{pane_current_command}"
-        )
+        send(Self.paneReflowSubscriptionCommand(paneId: paneId))
     }
 
     /// Removes the live reflow-classification subscription for `paneId` (issued once
     /// the pane is gone), mirroring ``unsubscribePanePath(paneId:)``.
     func unsubscribePaneReflow(paneId: Int) {
         send("refresh-client -B \(Self.reflowSubscriptionPrefix)\(paneId)")
+    }
+
+    /// Format for close-time activity queries: the pane id (for cache refresh and
+    /// multi-pane correlation) plus the same `alternate_on`/`pane_current_command`
+    /// pair the reflow subscription streams. Quoted by the command builders — see
+    /// ``panePathSubscriptionCommand(paneId:)`` for why the quoting is load-bearing.
+    private static let activityQueryFormat = "#{pane_id}\(PaneForegroundState.fieldSeparator)"
+        + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}"
+
+    /// The `list-panes` line behind ``queryWindowActivity(windowId:completion:)``.
+    static func windowActivityQueryCommand(windowId: Int) -> String {
+        "list-panes -t @\(windowId) -F \"\(activityQueryFormat)\""
+    }
+
+    /// The `display-message` line behind ``queryPaneActivity(paneId:completion:)``.
+    static func paneActivityQueryCommand(paneId: Int) -> String {
+        "display-message -p -t %\(paneId) -F \"\(activityQueryFormat)\""
+    }
+
+    /// Live, close-time query of every pane's foreground state in `windowId`.
+    /// tmux evaluates `pane_current_command` AT QUERY TIME, so a command started
+    /// the instant before ⌘W is already visible — unlike the `%subscription-changed`
+    /// cache, which tmux only re-checks about once a second. Results also refresh
+    /// ``paneForegroundStates`` so the synchronous consumers (batch close,
+    /// workspace close, quit warning) get the freshness for free. `completion` is
+    /// called exactly once, on the main actor; `nil` means the query could not be
+    /// issued or the stream reset first (caller falls back to the cache).
+    func queryWindowActivity(windowId: Int, completion: @escaping ([Int: PaneForegroundState]?) -> Void) {
+        sendActivityQuery(Self.windowActivityQueryCommand(windowId: windowId), completion: completion)
+    }
+
+    /// Single-pane variant of ``queryWindowActivity(windowId:completion:)``, for
+    /// the multi-pane mirror's pane-header ✕ close.
+    func queryPaneActivity(paneId: Int, completion: @escaping ([Int: PaneForegroundState]?) -> Void) {
+        sendActivityQuery(Self.paneActivityQueryCommand(paneId: paneId), completion: completion)
+    }
+
+    private func sendActivityQuery(
+        _ command: String, completion: @escaping ([Int: PaneForegroundState]?) -> Void
+    ) {
+        guard !exited else {
+            completion(nil)
+            return
+        }
+        let token = UUID()
+        activityQueryCompletions[token] = completion
+        sendInternal(command, kind: .activityQuery(token))
+        // sendInternal enqueues the kind only after a successful write; a dead
+        // pipe (write failure, or no stdin while reconnecting) means no result
+        // will ever correlate — fail the query now so the close decision can
+        // proceed on the cache. (A write failure triggers beginReconnecting,
+        // which may already have flushed this completion — removeValue makes
+        // the fail-once exactly once.)
+        if !pendingCommands.contains(.activityQuery(token)),
+           let orphaned = activityQueryCompletions.removeValue(forKey: token) {
+            orphaned(nil)
+        }
+    }
+
+    /// Parses one activity-query line (``activityQueryFormat``):
+    /// `%<paneId>|<alternate_on>|<pane_current_command>`. `nil` for an
+    /// unparseable line — the caller treats that pane as unclassified.
+    /// `maxSplits: 1` is deliberate (NOT 2): this strips only the `%paneId`
+    /// prefix, and ``PaneForegroundState/init(rawValue:)`` applies its own
+    /// `maxSplits: 1` for the second field — so a `|` inside a command name
+    /// stays in the command instead of truncating it.
+    static func parseActivityQueryLine(_ line: String) -> (paneId: Int, state: PaneForegroundState)? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(
+            separator: PaneForegroundState.fieldSeparator, maxSplits: 1, omittingEmptySubsequences: false
+        )
+        guard parts.count == 2,
+              let paneId = RemoteTmuxControlStreamParser.id(parts[0], sigil: "%") else { return nil }
+        return (paneId, PaneForegroundState(rawValue: String(parts[1])))
+    }
+
+    /// Fails every in-flight activity query — called whenever the control stream
+    /// becomes unusable (reconnect begins, deliberate stop, genuine `%exit`), so
+    /// a pending close decision falls back to the cached classification.
+    private func failPendingActivityQueries() {
+        guard !activityQueryCompletions.isEmpty else { return }
+        let completions = Array(activityQueryCompletions.values)
+        activityQueryCompletions.removeAll()
+        for completion in completions { completion(nil) }
     }
 
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),
@@ -728,6 +885,7 @@ final class RemoteTmuxControlConnection {
     /// kick) and the deferred post-attach work. Shared by deliberate teardown
     /// (``stop()``) and a genuine remote end (`%exit`).
     private func cancelScheduledWork() {
+        failPendingActivityQueries()
         reconnectTask?.cancel()
         reconnectTask = nil
         clientSizeDebounceTask?.cancel()
@@ -836,6 +994,9 @@ final class RemoteTmuxControlConnection {
     private func beginReconnecting() {
         guard connectionState == .connected || connectionState == .connecting else { return }
         record("reconnecting")
+        // The stream is dead: a close decision awaiting an activity query must
+        // not hang for the whole backoff window — fail it onto the cache now.
+        failPendingActivityQueries()
         teardownProcessHandles()
         reconnectAttemptCount = 0
         connectionState = .reconnecting
@@ -962,7 +1123,10 @@ final class RemoteTmuxControlConnection {
             // Release the closed window's per-pane/per-window diagnostic state so
             // it doesn't accumulate across window churn.
             if let closing = windowsByID[id] {
-                for pane in closing.paneIDsInOrder { paneOutputByteCounts[pane] = nil }
+                for pane in closing.paneIDsInOrder {
+                    paneOutputByteCounts[pane] = nil
+                    paneForegroundStates[pane] = nil
+                }
             }
             activePaneByWindow[id] = nil
             windowsByID[id] = nil
@@ -1020,7 +1184,23 @@ final class RemoteTmuxControlConnection {
         // misalign the positional correlation.
         guard !pendingCommands.isEmpty else { return }
         let kind = pendingCommands.removeFirst()
-        guard !isError else { return }
+        guard !isError else {
+            // An errored activity query must still complete (with nil) — a close
+            // decision is waiting on it and falls back to the cached state.
+            if case let .activityQuery(token) = kind,
+               let completion = activityQueryCompletions.removeValue(forKey: token) {
+                completion(nil)
+            }
+            // Errors are dropped by design (results correlate positionally), but
+            // an invisible %error has already hidden one real bug — an unquoted
+            // refresh-client -B that never subscribed — so leave a trace.
+            #if DEBUG
+            cmuxDebugLog(
+                "remote.tmux.commandError kind=\(kind) error=\"\(lines.joined(separator: " / "))\""
+            )
+            #endif
+            return
+        }
         switch kind {
         case .listWindows:
             var order: [Int] = []
@@ -1058,6 +1238,7 @@ final class RemoteTmuxControlConnection {
                 activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
                 let livePanes = Set(next.values.flatMap { $0.paneIDsInOrder })
                 paneOutputByteCounts = paneOutputByteCounts.filter { livePanes.contains($0.key) }
+                paneForegroundStates = paneForegroundStates.filter { livePanes.contains($0.key) }
                 windowOrder = order
                 observers.notifyTopologyChanged()
                 // The attach block is drained and the topology is fresh — run the
@@ -1118,6 +1299,17 @@ final class RemoteTmuxControlConnection {
             // One-shot reflow classification result (see requestPaneReflow). Empty
             // lines → classifyAndEmitReflow defaults to no-reflow (safe).
             classifyAndEmitReflow(paneId: paneId, rawValue: lines.first ?? "", source: "oneshot")
+        case let .activityQuery(token):
+            guard let completion = activityQueryCompletions.removeValue(forKey: token) else { break }
+            var states: [Int: PaneForegroundState] = [:]
+            for line in lines {
+                guard let parsed = Self.parseActivityQueryLine(line) else { continue }
+                states[parsed.paneId] = parsed.state
+            }
+            // The fresh answer flows back into the cache, so the synchronous
+            // consumers (batch close, workspace close, quit warning) benefit too.
+            for (paneId, state) in states { paneForegroundStates[paneId] = state }
+            completion(states)
         case let .paneAltScreen(paneId):
             // Match the mirror surface to the remote pane's screen (alt = no reflow on
             // resize). Emitted before the capture paint that follows in the FIFO, so the

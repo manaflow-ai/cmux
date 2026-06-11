@@ -438,6 +438,19 @@ final class RemoteTmuxController {
         mirror.connection.send("rename-window -t @\(windowId) \(RemoteTmuxHost.shellSingleQuoted(name))")
     }
 
+    /// The live session mirror + tmux window id behind a mirrored window-tab, or
+    /// `nil` when `panelId` isn't a mirrored window-tab of `workspaceId` with a
+    /// live connection. Shared by the kill routing and the close-confirmation
+    /// check so the two can never disagree about which tabs route remotely.
+    private func mirrorWindowTarget(workspaceId: UUID, panelId: UUID)
+        -> (mirror: RemoteTmuxSessionMirror, windowId: Int)?
+    {
+        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
+              !mirror.connection.exited,
+              let windowId = mirror.windowId(forPanel: panelId) else { return nil }
+        return (mirror, windowId)
+    }
+
     /// A tab close was requested in a mirrored workspace → kill that tmux window
     /// on the remote. The local tab is removed when tmux reports `%window-close`,
     /// so the caller should VETO the immediate local close.
@@ -446,11 +459,99 @@ final class RemoteTmuxController {
     ///   `false` if there is no live mirror/connection or the panel isn't a
     ///   mirrored window (caller proceeds with the normal local close).
     func handleMirrorTabCloseRequested(workspaceId: UUID, panelId: UUID) -> Bool {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
-              !mirror.connection.exited,
-              let windowId = mirror.windowId(forPanel: panelId) else { return false }
-        mirror.connection.send("kill-window -t @\(windowId)")
+        guard let target = mirrorWindowTarget(workspaceId: workspaceId, panelId: panelId) else { return false }
+        target.mirror.connection.send("kill-window -t @\(target.windowId)")
         return true
+    }
+
+    /// A close-time answer for a mirrored window-tab: whether any pane runs an
+    /// active command, plus the command name for the dialog ("This will close
+    /// \"sleep\"."). The name comes from the foreground classification rather
+    /// than the tab title — tmux's automatic-rename refreshes the title on its
+    /// own lagging schedule, so a title-based dialog can still say "bash" while
+    /// the tab is about to read "sleep", looking like it names a different tab.
+    struct MirrorTabActivity {
+        let hasActiveCommand: Bool
+        /// The first active pane's foreground command (tmux's active pane
+        /// preferred, then layout order); `nil` when idle or unnamed (the
+        /// dialog then falls back to the tab title).
+        let activeCommandName: String?
+    }
+
+    /// Builds ``MirrorTabActivity`` from per-pane foreground states. Pure;
+    /// `activePaneId` is checked first so a multi-pane window names the pane
+    /// the user is looking at, then `paneOrder` (the window's layout order).
+    static func mirrorTabActivity(
+        states: [Int: RemoteTmuxControlConnection.PaneForegroundState],
+        paneOrder: [Int],
+        activePaneId: Int?
+    ) -> MirrorTabActivity {
+        let hasActive = states.values.contains { $0.hasActiveCommand }
+        var name: String?
+        // Focused pane first, then the rest in layout order (filtered so the
+        // focused pane isn't revisited); first active, named pane wins.
+        let orderedPanes = (activePaneId.map { [$0] } ?? []) + paneOrder.filter { $0 != activePaneId }
+        for paneId in orderedPanes {
+            guard let state = states[paneId], state.hasActiveCommand, !state.command.isEmpty else { continue }
+            name = state.command
+            break
+        }
+        return MirrorTabActivity(hasActiveCommand: hasActive, activeCommandName: name)
+    }
+
+    /// ``MirrorTabActivity`` from the subscription-fed cache (≤~1s stale).
+    private func mirrorTabActivityFromCache(
+        target: (mirror: RemoteTmuxSessionMirror, windowId: Int)
+    ) -> MirrorTabActivity {
+        let connection = target.mirror.connection
+        let order = connection.windowsByID[target.windowId]?.paneIDsInOrder ?? []
+        var states: [Int: RemoteTmuxControlConnection.PaneForegroundState] = [:]
+        for paneId in order {
+            states[paneId] = connection.paneForegroundStates[paneId]
+        }
+        return Self.mirrorTabActivity(
+            states: states, paneOrder: order,
+            activePaneId: connection.activePaneByWindow[target.windowId]
+        )
+    }
+
+    /// The cached activity answer for a mirrored window-tab, or `nil` when
+    /// `panelId` isn't a live mirrored window-tab. Used where a round trip
+    /// isn't warranted (the always-warn dialog path).
+    func cachedMirrorTabActivity(workspaceId: UUID, panelId: UUID) -> MirrorTabActivity? {
+        guard let target = mirrorWindowTarget(workspaceId: workspaceId, panelId: panelId) else { return nil }
+        return mirrorTabActivityFromCache(target: target)
+    }
+
+    /// Live, close-time variant of ``cachedMirrorTabActivity(workspaceId:panelId:)``:
+    /// asks tmux NOW (one round trip) instead of trusting the subscription cache,
+    /// which tmux only refreshes about once a second — so a command started right
+    /// before ⌘W still gets its confirmation, with the fresh command name for the
+    /// dialog. Falls back to the cached answer when the query can't run (link
+    /// down, reconnecting, target gone). `completion` runs exactly once, on the
+    /// main actor.
+    func queryMirrorTabActivity(
+        workspaceId: UUID, panelId: UUID, completion: @escaping (MirrorTabActivity) -> Void
+    ) {
+        guard let target = mirrorWindowTarget(workspaceId: workspaceId, panelId: panelId) else {
+            completion(MirrorTabActivity(hasActiveCommand: false, activeCommandName: nil))
+            return
+        }
+        // Strong captures: the controller is app-lifetime and the completion
+        // fires exactly once (flushed on stream resets), so nothing can leak.
+        target.mirror.connection.queryWindowActivity(windowId: target.windowId) { states in
+            if let states {
+                let connection = target.mirror.connection
+                completion(Self.mirrorTabActivity(
+                    states: states,
+                    paneOrder: connection.windowsByID[target.windowId]?.paneIDsInOrder
+                        ?? Array(states.keys).sorted(),
+                    activePaneId: connection.activePaneByWindow[target.windowId]
+                ))
+            } else {
+                completion(self.mirrorTabActivityFromCache(target: target))
+            }
+        }
     }
 
     /// Creates a new tmux session on a dedicated remote window's host (and mirrors it

@@ -11,6 +11,9 @@ struct RemoteTmuxWindowMirrorView: View {
     let appearance: PanelAppearance
     let isVisibleInUI: Bool
     let portalPriority: Int
+    /// Pane-header ✕ handler — owned by the workspace layer so the kill-pane can
+    /// be gated on a close confirmation (the view stays dialog-free).
+    let onClosePane: (Int) -> Void
     @State private var sizingRetryTask: Task<Void, Never>?
 
     var body: some View {
@@ -20,7 +23,8 @@ struct RemoteTmuxWindowMirrorView: View {
                 mirror: mirror,
                 appearance: appearance,
                 isVisibleInUI: isVisibleInUI,
-                portalPriority: portalPriority
+                portalPriority: portalPriority,
+                onClosePane: onClosePane
             )
             .frame(width: geo.size.width, height: geo.size.height)
             // Size the remote tmux window to the rendered area so pane content
@@ -66,6 +70,7 @@ private struct RemoteTmuxLayoutContainer: View {
     let appearance: PanelAppearance
     let isVisibleInUI: Bool
     let portalPriority: Int
+    let onClosePane: (Int) -> Void
 
     private let dividerThickness: CGFloat = 2
 
@@ -91,7 +96,7 @@ private struct RemoteTmuxLayoutContainer: View {
                     onFocus: { mirror.focus(pane: paneId) },
                     onSplitRight: { mirror.requestSplit(fromPane: paneId, vertical: false) },
                     onSplitDown: { mirror.requestSplit(fromPane: paneId, vertical: true) },
-                    onClose: { mirror.requestKillPane(paneId) }
+                    onClose: { onClosePane(paneId) }
                 )
                 TerminalPanelView(
                     panel: panel,
@@ -156,7 +161,8 @@ private struct RemoteTmuxLayoutContainer: View {
                 mirror: mirror,
                 appearance: appearance,
                 isVisibleInUI: isVisibleInUI,
-                portalPriority: portalPriority
+                portalPriority: portalPriority,
+                onClosePane: onClosePane
             )
             .frame(
                 width: axis == .horizontal ? dimension : nil,
