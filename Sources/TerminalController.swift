@@ -219,12 +219,12 @@ class TerminalController {
         let responder: (_ accept: Bool, _ text: String?) -> Void
     }
 
-    private final class V2BrowserUndefinedSentinel {}
+    private final class V2BrowserUndefinedSentinel: Sendable {}
 
-    private static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
-    private static let v2BrowserEvalEnvelopeValueKey = "__cmux_v"
-    private static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
-    private static let v2BrowserEvalEnvelopeTypeValue = "value"
+    private nonisolated static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
+    private nonisolated static let v2BrowserEvalEnvelopeValueKey = "__cmux_v"
+    private nonisolated static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
+    private nonisolated static let v2BrowserEvalEnvelopeTypeValue = "value"
 
     private var v2BrowserNextElementOrdinal: Int = 1
     private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
@@ -234,7 +234,7 @@ class TerminalController {
     private var v2BrowserDialogQueueBySurface: [UUID: [V2BrowserPendingDialog]] = [:]
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
-    private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
+    private nonisolated let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     private var browserDownloadObserver: NSObjectProtocol?
 
     func cleanupSurfaceState(surfaceIds: [UUID]) {
@@ -10895,30 +10895,41 @@ class TerminalController {
             || lower.contains("refused to evaluate")
     }
 
+    /// Sendable stand-in for `WKContentWorld` so nonisolated callers can pick a world without
+    /// touching the main-actor-isolated `WKContentWorld.page`/`.defaultClient` statics. The real
+    /// world is resolved on the main actor inside `v2RunJavaScript`.
+    private enum V2JSContentWorld: Sendable { case page, isolated }
+
     private nonisolated func v2RunJavaScript(
         _ webView: WKWebView,
         script: String,
         timeout: TimeInterval = 5.0,
         preferAsync: Bool = false,
-        contentWorld: WKContentWorld
+        world: V2JSContentWorld
     ) -> V2JavaScriptResult {
         let timeoutSeconds = max(0.01, timeout)
+        // The evaluator only ever runs on the main actor (Thread.isMainThread branch or
+        // DispatchQueue.main.async below), so assumeIsolated is safe and lets us touch the
+        // main-actor WKWebView APIs and WKContentWorld statics without spurious isolation warnings.
         let evaluator: (@escaping (Any?, String?) -> Void) -> Void = { finish in
-            if preferAsync, #available(macOS 11.0, *) {
-                webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: contentWorld) { result in
-                    switch result {
-                    case .success(let value):
-                        finish(value, nil)
-                    case .failure(let error):
-                        finish(nil, Self.v2DescribeJavaScriptError(error))
+            MainActor.assumeIsolated {
+                let contentWorld: WKContentWorld = (world == .page) ? .page : .defaultClient
+                if preferAsync, #available(macOS 11.0, *) {
+                    webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: contentWorld) { result in
+                        switch result {
+                        case .success(let value):
+                            finish(value, nil)
+                        case .failure(let error):
+                            finish(nil, Self.v2DescribeJavaScriptError(error))
+                        }
                     }
-                }
-            } else {
-                webView.evaluateJavaScript(script) { value, error in
-                    if let error {
-                        finish(nil, Self.v2DescribeJavaScriptError(error))
-                    } else {
-                        finish(value, nil)
+                } else {
+                    webView.evaluateJavaScript(script) { value, error in
+                        if let error {
+                            finish(nil, Self.v2DescribeJavaScriptError(error))
+                        } else {
+                            finish(value, nil)
+                        }
                     }
                 }
             }
@@ -10945,7 +10956,7 @@ class TerminalController {
 #if DEBUG
             cmuxDebugLog(
                 "browser.jsRun.timeout preferAsync=\(preferAsync) " +
-                "world=\(contentWorld == .page ? "page" : "isolated") timeout=\(timeoutSeconds)"
+                "world=\(world == .page ? "page" : "isolated") timeout=\(timeoutSeconds)"
             )
 #endif
             return .failure("Timed out waiting for JavaScript result")
@@ -11288,7 +11299,7 @@ class TerminalController {
                 script: asyncFunctionBody,
                 timeout: timeout,
                 preferAsync: true,
-                contentWorld: .page
+                world: .page
             )
         } else {
             let evaluateFallback = """
@@ -11296,7 +11307,7 @@ class TerminalController {
               \(asyncFunctionBody)
             })()
             """
-            rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout, contentWorld: .page)
+            rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout, world: .page)
         }
 
         // Retry in the isolated world only when page CSP blocked eval/function construction
@@ -11321,7 +11332,7 @@ class TerminalController {
                 script: asyncFunctionBody,
                 timeout: timeout,
                 preferAsync: true,
-                contentWorld: .defaultClient
+                world: .isolated
             )
             switch isolatedResult {
             case .success:
@@ -12742,7 +12753,7 @@ class TerminalController {
     /// event. Walks the prototype chain instead of using instanceof so it
     /// works with cross-realm elements (iframes) and custom web components.
     /// Expects `el` and `newValue` to be in scope.
-    private static let reactCompatibleSetValue = """
+    private nonisolated static let reactCompatibleSetValue = """
         let nativeSetter = null;
         for (let proto = Object.getPrototypeOf(el); proto; proto = Object.getPrototypeOf(proto)) {
           const desc = Object.getOwnPropertyDescriptor(proto, 'value');
@@ -12761,7 +12772,7 @@ class TerminalController {
     /// These helpers reproduce a real user gesture so React, Vue, Svelte, Angular, Solid, and
     /// vanilla handlers all fire. Define them once at the top of an injected snippet, then call
     /// `__cmuxClick(el)`, `__cmuxHover(el)`, `__cmuxSetChecked(el, desired)`, and `__cmuxKey(t,type,key)`.
-    private static let browserInputHelpers = """
+    private nonisolated static let browserInputHelpers = """
     function __cmuxCenter(el){const r=el.getBoundingClientRect();return {x:Math.floor(r.left+Math.min(r.width,r.width/2)),y:Math.floor(r.top+Math.min(r.height,r.height/2))};}
     function __cmuxPointer(el,type,c,buttons){try{el.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,composed:true,view:window,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:buttons,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}catch(e){}}
     function __cmuxMouse(el,type,c,buttons,detail,bubbles){el.dispatchEvent(new MouseEvent(type,{bubbles:(bubbles===false?false:true),cancelable:true,composed:true,view:window,button:0,buttons:buttons,detail:detail||0,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}
@@ -14277,7 +14288,7 @@ class TerminalController {
             browserPanel.webView,
             script: BrowserPanel.telemetryHookBootstrapScriptSource,
             timeout: 5.0,
-            contentWorld: .page
+            world: .page
         )
     }
 
@@ -14286,7 +14297,7 @@ class TerminalController {
             browserPanel.webView,
             script: BrowserPanel.dialogTelemetryHookBootstrapScriptSource,
             timeout: 5.0,
-            contentWorld: .page
+            world: .page
         )
     }
 
@@ -14318,7 +14329,7 @@ class TerminalController {
             })()
             """
 
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, world: .page) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -15280,7 +15291,7 @@ class TerminalController {
               return { ok: true, items };
             })()
             """
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, world: .page) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -15318,7 +15329,7 @@ class TerminalController {
               return { ok: true, items };
             })()
             """
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, world: .page) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
