@@ -2727,6 +2727,7 @@ struct TextBoxInputContainer: View {
         VStack(alignment: .leading, spacing: 6) {
             if pendingCommentCount > 0 {
                 pendingCommentsChip(count: pendingCommentCount, foreground: foreground)
+                    .padding(.top, 6)
             }
             HStack(alignment: .bottom, spacing: 6) {
             addFilesButton(foreground: foreground)
@@ -2849,15 +2850,25 @@ struct TextBoxInputContainer: View {
     }
 
     @State private var showPendingCommentsPreview = false
-    @State private var pendingCommentsPreviewHideTask: Task<Void, Never>?
 
     private func pendingCommentsChip(count: Int, foreground: Color) -> some View {
         HStack(spacing: 5) {
-            Image(systemName: "text.bubble")
-                .font(.system(size: 11, weight: .medium))
-            Text(pendingCommentsLabel(count))
-                .font(.system(size: 12, weight: .medium))
-                .lineLimit(1)
+            Button {
+                showPendingCommentsPreview.toggle()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "text.bubble")
+                        .font(.system(size: 11, weight: .medium))
+                    Text(pendingCommentsLabel(count))
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                }
+            }
+            .buttonStyle(.plain)
+            .help(String(
+                localized: "textbox.diffComments.preview",
+                defaultValue: "Show comments"
+            ))
             Button {
                 dismissPendingComments()
             } label: {
@@ -2882,33 +2893,10 @@ struct TextBoxInputContainer: View {
             Capsule().strokeBorder(foreground.opacity(0.18), lineWidth: 1)
         )
         .foregroundStyle(foreground.opacity(0.92))
-        .onHover { hovering in
-            setPendingCommentsPreviewHovered(hovering)
-        }
         .popover(isPresented: $showPendingCommentsPreview, arrowEdge: .top) {
             pendingCommentsPreview()
-                .onHover { hovering in
-                    setPendingCommentsPreviewHovered(hovering)
-                }
         }
         .accessibilityLabel(pendingCommentsLabel(count))
-    }
-
-    private func setPendingCommentsPreviewHovered(_ hovering: Bool) {
-        pendingCommentsPreviewHideTask?.cancel()
-        pendingCommentsPreviewHideTask = nil
-        if hovering {
-            showPendingCommentsPreview = true
-            return
-        }
-        // Bounded grace period so the cursor can travel from the chip into the
-        // popover (to scroll it) without the popover dismissing mid-flight.
-        // Cancelled whenever either surface is re-entered.
-        pendingCommentsPreviewHideTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            guard !Task.isCancelled else { return }
-            showPendingCommentsPreview = false
-        }
     }
 
     private func pendingCommentsPreview() -> some View {
