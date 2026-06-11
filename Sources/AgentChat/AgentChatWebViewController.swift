@@ -315,6 +315,24 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
 #endif
     }
 
+    /// Recovers from a jettisoned WebContent process.
+    ///
+    /// macOS terminates a WKWebView's content process after extended idle or
+    /// under memory pressure; the surface then renders blank with no automatic
+    /// recovery (the page, its bridge, and the pending subscription are all
+    /// gone). Reload the surface for the current session so it restarts
+    /// cleanly: `present` tears down the now-orphaned daemon and reloads the
+    /// page, which re-fires `didFinish`, re-kicks the entry module, and
+    /// re-subscribes. Skip when the panel has already been torn down for close
+    /// (no resolution), so a terminated process is not resurrected.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+#if DEBUG
+        cmuxDebugLog("agentChat.web.contentProcessDidTerminate recover=\(resolution != nil ? 1 : 0)")
+#endif
+        guard resolution != nil else { return }
+        present(resolution: resolution)
+    }
+
 #if DEBUG
     func webView(
         _ webView: WKWebView,
