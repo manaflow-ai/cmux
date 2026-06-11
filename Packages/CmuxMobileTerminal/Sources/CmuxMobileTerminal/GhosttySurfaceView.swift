@@ -1574,6 +1574,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 setChromeHidden(false)
             }
             delegate?.ghosttySurfaceViewDidRequestComposerFocus(self)
+            focusMountedComposerField()
+        }
+    }
+
+    /// Deterministic UIKit focus for an already-mounted composer band.
+    ///
+    /// The store handshake (`composerFocusRequest`) drives the SwiftUI field's
+    /// `@FocusState`, but a programmatic `@FocusState` set inside a hosting
+    /// controller whose view is frame-mounted into the band can be dropped
+    /// (observed as a device-dependent flake: the request is consumed yet the
+    /// field never becomes first responder). After asking the host to focus,
+    /// drive the band's backing text input to first responder directly on the
+    /// next runloop hop; SwiftUI mirrors UIKit first responder back into
+    /// `@FocusState`, so the store's focus mirror stays consistent. A no-op
+    /// when the band is unmounted (the fresh-mount path focuses via the
+    /// consumed request in `onAppear`) or the field already holds focus.
+    private func focusMountedComposerField() {
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.composerActive,
+                  !self.composerFieldIsFirstResponder,
+                  let input = self.composerContainer.firstFocusableTextInputInSubtree() else { return }
+            input.becomeFirstResponder()
         }
     }
 
@@ -1865,6 +1888,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // terminal proxy as before.
         if wasHidden, composerActive {
             delegate?.ghosttySurfaceViewDidRequestComposerFocus(self)
+            focusMountedComposerField()
         } else {
             focusInput()
         }

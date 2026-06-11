@@ -27,5 +27,27 @@ extension UIView {
         }
         return nil
     }
+
+    /// Returns the first focusable text input (`UITextField` / `UITextView`)
+    /// within this view's subtree (including `self`), or `nil` when none exists.
+    ///
+    /// Used as the deterministic UIKit focus path for the composer band: SwiftUI's
+    /// programmatic `@FocusState` set can be dropped for a field hosted inside a
+    /// `UIHostingController`'s view that is frame-mounted into a UIKit container,
+    /// so the surface drives the backing text input to first responder directly
+    /// (which SwiftUI then mirrors back into `@FocusState`). Depth-first,
+    /// short-circuits on the first match, main-actor (UIKit).
+    @MainActor
+    func firstFocusableTextInputInSubtree() -> UIView? {
+        if (self is UITextField || self is UITextView), canBecomeFirstResponder {
+            return self
+        }
+        for subview in subviews {
+            if let found = subview.firstFocusableTextInputInSubtree() {
+                return found
+            }
+        }
+        return nil
+    }
 }
 #endif
