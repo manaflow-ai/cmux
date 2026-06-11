@@ -146,7 +146,8 @@ final class AgentHibernationController {
         panelId: UUID,
         recordedAt: Date? = nil,
         armsPendingCommandLine: Bool = true,
-        pendingPromptSurvivals: Int = 0
+        pendingPromptSurvivals: Int = 0,
+        clearsSeededPendingCommandLine: Bool = false
     ) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
         let recordedAt = recordedAt ?? Date()
@@ -166,6 +167,20 @@ final class AgentHibernationController {
             // a command consuming the line may clear the guard, because text
             // typed at (or ahead of) a prompt reappears editable.
             seededPendingPanelKeys.remove(key)
+        } else if clearsSeededPendingCommandLine, seededPendingPanelKeys.contains(key) {
+            // A bare Enter settles whatever pre-tracking text the seed
+            // guarded: the line either submits (its text runs as a command),
+            // opens a PS2 continuation (needsConfirmClose keeps the panel
+            // busy), or was already empty. ^C deliberately does not clear —
+            // it can resurface input typed ahead of a still-running
+            // pre-tracking command. Input-backed pending keeps the strict
+            // command-cycle rule. This is the requalification path for
+            // shells that were already idle when hibernation was re-enabled,
+            // because the shell integrations dedupe repeat promptIdle
+            // reports at the source (_CMUX_SHELL_ACTIVITY_LAST), so an
+            // empty Enter never reaches us as a prompt transition.
+            seededPendingPanelKeys.remove(key)
+            pendingCommandLineByPanel.removeValue(forKey: key)
         }
         // A batched payload such as "cmd1\ncmd2\npartial" runs one command
         // per settling character and only then leaves text editable, so the
@@ -214,22 +229,11 @@ final class AgentHibernationController {
                 } else {
                     pendingPromptSurvivalsByPanel[key] = survivals - 1
                 }
-            } else if let pendingAt = pendingCommandLineByPanel[key] {
-                if let commandStartAt = lastCommandStartByPanel[key], pendingAt <= commandStartAt {
-                    pendingCommandLineByPanel.removeValue(forKey: key)
-                    seededPendingPanelKeys.remove(key)
-                } else if seededPendingPanelKeys.contains(key) {
-                    // A prompt redraw with no command since the seed means
-                    // the user pressed Enter on an empty line or ^C'd
-                    // whatever it held — either way the pre-tracking text
-                    // the seed guarded against is gone. Without this,
-                    // surfaces created while hibernation was disabled would
-                    // stay exempt forever after re-enabling. Input-backed
-                    // pending never takes this branch: recording it removes
-                    // the seed marker.
-                    pendingCommandLineByPanel.removeValue(forKey: key)
-                    seededPendingPanelKeys.remove(key)
-                }
+            } else if let pendingAt = pendingCommandLineByPanel[key],
+                      let commandStartAt = lastCommandStartByPanel[key],
+                      pendingAt <= commandStartAt {
+                pendingCommandLineByPanel.removeValue(forKey: key)
+                seededPendingPanelKeys.remove(key)
             }
         case .unknown:
             break
@@ -627,6 +631,11 @@ final class AgentHibernationController {
         }
         for candidate in ordered {
             let key = census.records[candidate.recordIndex].key
+            // Pending command-line input already makes the panel ineligible
+            // (isEvictable), so verifying it would burn budget every tick
+            // without ever caching busy — 32 old pending panels could starve
+            // everything behind them.
+            if pendingCommandLineByPanel[key] != nil { continue }
             if let verifiedAt = foregroundBusyVerifiedAt[key],
                nowTime - verifiedAt < SurfaceHibernationPlanner.foregroundBusyRecheckSeconds {
                 census.records[candidate.recordIndex].isBusy = true
@@ -755,6 +764,7 @@ extension AppDelegate {
                     let isShellRestartCandidate = canRestartShell &&
                         surfaceSettings.enabled &&
                         !isProtected &&
+                        terminalPanel.surface.hasLiveSurface &&
                         now - lastActivityAt >= shellRestartCandidateIdleGate
                     // Busy means freeing the PTY could kill live work: the
                     // shell-integration state reports a running command (or

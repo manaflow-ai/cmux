@@ -898,7 +898,7 @@ struct SurfaceHibernationPolicyTests {
 
     @MainActor
     @Test
-    func seededPendingClearsOnPromptRedrawWithoutCommand() {
+    func seededPendingClearsOnBareEnter() {
         let wasTracking = AgentHibernationTrackingGate.isEnabled()
         AgentHibernationTrackingGate.setEnabled(true)
         defer { AgentHibernationTrackingGate.setEnabled(wasTracking) }
@@ -912,27 +912,30 @@ struct SurfaceHibernationPolicyTests {
             panelId: panelId,
             recordedAt: base
         )
-        // Empty Enter (or ^C) at the prompt: precmd fires with no preexec.
-        controller.recordShellActivityTransition(
+        // A bare Enter settles whatever the seed guarded: the line submits
+        // (runs as a command), opens a busy-gated PS2 continuation, or was
+        // empty. The shell integrations dedupe repeat promptIdle reports at
+        // the source, so this keystroke is the only requalification signal
+        // an already-idle shell produces.
+        controller.recordTerminalInput(
             workspaceId: workspaceId,
             panelId: panelId,
-            state: .promptIdle,
-            recordedAt: base.addingTimeInterval(1)
+            recordedAt: base.addingTimeInterval(1),
+            armsPendingCommandLine: false,
+            pendingPromptSurvivals: 0,
+            clearsSeededPendingCommandLine: true
         )
 
         let state = controller.debugPendingCommandLineStateForTesting(
             workspaceId: workspaceId,
             panelId: panelId
         )
-        #expect(
-            state.pendingAt == nil,
-            "A prompt redraw with no command since the seed proves the line emptied; the shell must requalify"
-        )
+        #expect(state.pendingAt == nil)
     }
 
     @MainActor
     @Test
-    func inputBackedPendingSurvivesPromptRedrawWithoutCommand() {
+    func inputBackedPendingSurvivesBareEnterWithoutCommand() {
         let wasTracking = AgentHibernationTrackingGate.isEnabled()
         AgentHibernationTrackingGate.setEnabled(true)
         defer { AgentHibernationTrackingGate.setEnabled(wasTracking) }
@@ -946,8 +949,9 @@ struct SurfaceHibernationPolicyTests {
             panelId: panelId,
             recordedAt: base
         )
-        // Real typed text replaces the seed: typed-ahead input reappears at
-        // the next prompt, so a redraw without a command must not clear it.
+        // Observed text replaces the seed; from then on only a command cycle
+        // may clear the guard (typed-ahead text reappears at the next
+        // prompt), so the bare Enter alone must not.
         controller.recordTerminalInput(
             workspaceId: workspaceId,
             panelId: panelId,
@@ -955,11 +959,19 @@ struct SurfaceHibernationPolicyTests {
             armsPendingCommandLine: true,
             pendingPromptSurvivals: 0
         )
+        controller.recordTerminalInput(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            recordedAt: base.addingTimeInterval(2),
+            armsPendingCommandLine: false,
+            pendingPromptSurvivals: 0,
+            clearsSeededPendingCommandLine: true
+        )
         controller.recordShellActivityTransition(
             workspaceId: workspaceId,
             panelId: panelId,
             state: .promptIdle,
-            recordedAt: base.addingTimeInterval(2)
+            recordedAt: base.addingTimeInterval(3)
         )
 
         let state = controller.debugPendingCommandLineStateForTesting(
@@ -972,33 +984,14 @@ struct SurfaceHibernationPolicyTests {
         )
     }
 
-    @MainActor
     @Test
-    func duplicatePromptIdleReportClearsSeededPendingThroughWorkspace() throws {
-        let wasTracking = AgentHibernationTrackingGate.isEnabled()
-        AgentHibernationTrackingGate.setEnabled(true)
-        defer { AgentHibernationTrackingGate.setEnabled(wasTracking) }
-        let controller = AgentHibernationController.shared
-        let workspace = Workspace()
-        let panelId = try #require(workspace.focusedPanelId)
-
-        // The shell was already idle when tracking began…
-        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
-        controller.debugSeedPendingCommandLineForTesting(
-            workspaceId: workspace.id,
-            panelId: panelId,
-            recordedAt: Date()
-        )
-        // …so the empty Enter that requalifies it re-reports the same state.
-        // The workspace-level dedupe must not swallow it before the
-        // controller's seeded-pending reconciliation sees the redraw.
-        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
-
-        let state = controller.debugPendingCommandLineStateForTesting(
-            workspaceId: workspace.id,
-            panelId: panelId
-        )
-        #expect(state.pendingAt == nil)
+    func bareEnterClassifiesAsSeededPendingClear() {
+        #expect(terminalInputClearsSeededPending("\r"))
+        #expect(terminalInputClearsSeededPending("\n"))
+        #expect(terminalInputClearsSeededPending("\r\n"))
+        #expect(!terminalInputClearsSeededPending(""))
+        #expect(!terminalInputClearsSeededPending("x\r"))
+        #expect(!terminalInputClearsSeededPending("\u{03}"))
     }
 
     // MARK: - Replay-hook installation evidence
