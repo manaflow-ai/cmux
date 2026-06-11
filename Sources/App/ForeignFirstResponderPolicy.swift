@@ -39,8 +39,31 @@ func shouldRespectForeignFirstResponder(
     in window: NSWindow,
     isRightSidebarOwner: (NSResponder) -> Bool
 ) -> Bool {
-    // A stranded responder (detached, or reparented into another window without resigning) no longer
-    // belongs to this window and must not block the terminal from reclaiming first responder.
+    // A focused text editor that `window` hosts is being edited by the user, so the terminal must yield
+    // the keystroke. `NSText` covers AppKit field editors AND SwiftUI's private `_SystemTextFieldFieldEditor`
+    // (an `NSText` subclass — verified at runtime: the icon-picker field editor logs `isnst=1`).
+    //
+    // The editor counts as hosted by `window` when its backing window is `window` itself OR a child
+    // window `window` presents. SwiftUI hosts a popover/palette overlay's field editor in a separate
+    // `_NSPopoverWindow` whose `parent` chain reaches `window` (verified: chain `[popover, main]`,
+    // `isChildOfWin=1`), even though it is `window`'s active first responder — so the strict
+    // `.window === window` guard rejected it and keyRepair stole the keystroke. Walking the parent
+    // chain (rather than accepting any window) keeps the #5269 guarantee: a text editor stranded in an
+    // unrelated window, or fully detached (`window == nil`), never reaches `window` and is reclaimed.
+    if firstResponder is NSText {
+        var hostWindow = (firstResponder as? NSView)?.window
+        var hops = 0
+        while let current = hostWindow, hops < 8 {
+            if current === window {
+                return true
+            }
+            hostWindow = current.parent
+            hops += 1
+        }
+    }
+    // Non-text focus owners (right-sidebar / dock / feed hosts) must still belong to this window: a
+    // stranded host reparented into another window without resigning must not block the terminal from
+    // reclaiming first responder (issue #5269).
     guard (firstResponder as? NSView)?.window === window else { return false }
-    return firstResponder is NSText || isRightSidebarOwner(firstResponder)
+    return isRightSidebarOwner(firstResponder)
 }

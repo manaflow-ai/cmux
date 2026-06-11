@@ -846,9 +846,11 @@ struct WorkspaceGroupTests {
         #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: nil, configured: nil) == "folder.fill")
         #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: "   ", configured: "leaf.fill") == "leaf.fill")
         #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: "not.an.sf.symbol", configured: nil) == "folder.fill")
+        #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: " 🚀 ", configured: nil) == "🚀")
+        #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: "not.an.sf.symbol", configured: "🔥") == "🔥")
     }
 
-    @Test func setWorkspaceGroupIconDropsInvalidSymbols() {
+    @Test func setWorkspaceGroupIconDropsInvalidSymbolsAndStoresEmoji() {
         let manager = makeTabManager()
         let groupId = manager.createWorkspaceGroup(
             name: "G",
@@ -862,6 +864,18 @@ struct WorkspaceGroupTests {
         let validStoredIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "  leaf.fill  ")
         #expect(validStoredIcon == "leaf.fill")
         #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == "leaf.fill")
+
+        let emojiIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "  🚀  ")
+        #expect(emojiIcon == "🚀")
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == "🚀")
+
+        let multipleEmojiIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "🚀🔥")
+        #expect(multipleEmojiIcon == nil)
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == nil)
+
+        let clearedIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "   ")
+        #expect(clearedIcon == nil)
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == nil)
     }
 
     @Test func surfaceTabIconSymbolResolutionFallsBackForInvalidInput() {
@@ -869,6 +883,37 @@ struct WorkspaceGroupTests {
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   doc.text   ") == "doc.text")
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("not.an.sf.symbol") == "doc.text")
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   ") == "doc.text")
+    }
+
+    // The icon picker feeds its search field through `isRenderable`, so a long typing session
+    // would otherwise grow the global renderability cache without bound. The cache must stay capped.
+    @Test func renderabilityCacheStaysBoundedUnderManyDistinctQueries() {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        let limit = RenderableSystemSymbol.renderabilityCacheLimitForTesting
+        for index in 0..<(limit + 200) {
+            _ = RenderableSystemSymbol.isRenderable("picker.query.\(index)")
+        }
+        #expect(RenderableSystemSymbol.renderabilityCacheCountForTesting() <= limit)
+    }
+
+    @Test func renderabilityRejectsOverlongSymbolNames() {
+        let overlong = String(repeating: "a", count: 256)
+        #expect(RenderableSystemSymbol.isRenderable(overlong) == false)
+    }
+
+    @Test func emojiCatalogSearchesByKeyword() {
+        // Keyword search is the whole point: typing a name finds the emoji.
+        #expect(WorkspaceGroupEmojiCatalog.search("rocket").contains("🚀"))
+        #expect(WorkspaceGroupEmojiCatalog.search("fire").contains("🔥"))
+        #expect(WorkspaceGroupEmojiCatalog.search("folder").contains("📁"))
+        // Exact-name matches rank first.
+        #expect(WorkspaceGroupEmojiCatalog.search("rocket").first == "🚀")
+        // An empty query browses the whole catalog.
+        #expect(WorkspaceGroupEmojiCatalog.search("").count > 100)
+        // A pasted emoji echoes itself.
+        #expect(WorkspaceGroupEmojiCatalog.search("🚀") == ["🚀"])
+        // Non-matching text yields nothing (so the picker shows its empty state).
+        #expect(WorkspaceGroupEmojiCatalog.search("zzzznotanemoji").isEmpty)
     }
 
     // Regression for #5404: renaming a group must update the name shown in

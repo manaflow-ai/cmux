@@ -4571,7 +4571,7 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func setWorkspaceGroupIcon(groupId: UUID, symbol: String?) -> String? {
-        let normalized = RenderableSystemSymbol.normalized(symbol)
+        let normalized = RenderableSystemSymbol.normalizedWorkspaceGroupIcon(symbol)
         guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return nil }
         guard workspaceGroups[index].iconSymbol != normalized else { return normalized }
         workspaceGroups[index].iconSymbol = normalized

@@ -1,6 +1,6 @@
 # Workspace Groups
 
-Workspace groups let you nest workspaces into collapsible named sections in the sidebar. Each group has an implicit "anchor workspace," a customizable `+` button for spawning new workspaces inside it, and right-click actions for renaming, pinning, ungrouping, and editing its configuration.
+Workspace groups let you nest workspaces into collapsible named sections in the sidebar. Each group has an implicit "anchor workspace," a customizable `+` button for spawning new workspaces inside it, and right-click actions for renaming, setting an icon, pinning, ungrouping, and editing its configuration.
 
 ## Concepts
 
@@ -38,7 +38,7 @@ Right-click any workspace in the sidebar, choose **New Group from Workspace** (o
 
 ### From the group header context menu
 
-Right-click an existing group's header for: **Rename Group…**, **Pin / Unpin Group**, **Edit Group Config…** (opens `~/.config/cmux/cmux.json`), **Open Workspace Groups Docs**, **Ungroup (Keep Workspaces)**, **Delete Group (Close Workspaces)**. Delete is destructive and prompts for confirmation; ungroup keeps the workspaces and just removes the container.
+Right-click an existing group's header for: **Rename Group…**, **Set Group Icon…**, **Pin / Unpin Group**, **Edit Group Config…** (opens `~/.config/cmux/cmux.json`), **Open Workspace Groups Docs**, **Ungroup (Keep Workspaces)**, **Delete Group (Close Workspaces)**. Delete is destructive and prompts for confirmation; ungroup keeps the workspaces and just removes the container.
 
 ### From the `+` button on a group header
 
@@ -66,7 +66,11 @@ cmux workspace-group add --group <group-id> --workspace <workspace-id>
 cmux workspace-group remove --workspace <workspace-id>
 cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
 cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
+cmux workspace-group set-color <group-id> [--hex "#RRGGBB"]
+cmux workspace-group set-icon <group-id> [--symbol <sf-symbol>]
 ```
+
+Omitting `--hex` or `--symbol` clears the custom color or icon and reverts to the default.
 
 `create` returns a group handle (`workspace_group:N` by default). Pass `--json` for the full structured payload.
 

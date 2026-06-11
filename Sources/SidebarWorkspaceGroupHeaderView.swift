@@ -11,6 +11,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.anchorWorkspaceId == rhs.anchorWorkspaceId &&
             lhs.name == rhs.name &&
             lhs.iconSymbol == rhs.iconSymbol &&
+            lhs.storedIconSymbol == rhs.storedIconSymbol &&
             lhs.tintHex == rhs.tintHex &&
             lhs.isCollapsed == rhs.isCollapsed &&
             lhs.isPinned == rhs.isPinned &&
@@ -35,6 +36,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let anchorWorkspaceId: UUID
     let name: String
     let iconSymbol: String
+    let storedIconSymbol: String?
     let tintHex: String?
     let isCollapsed: Bool
     let isPinned: Bool
@@ -60,6 +62,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onTapPlus: () -> Void
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
     let onRename: () -> Void
+    let onSetIcon: (String?) -> Void
     let onTogglePinned: () -> Void
     let onUngroup: () -> Void
     let onDelete: () -> Void
@@ -67,6 +70,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onOpenDocs: () -> Void
 
     @State private var isHovered = false
+    @State private var isIconPickerPresented = false
     @State private var rowHeight: CGFloat = 1
 
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
@@ -80,8 +84,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         return .secondary
     }
 
-    private var displayedIconSymbol: String {
-        RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: iconSymbol, configured: nil)
+    private var displayedIcon: RenderableWorkspaceGroupIcon {
+        RenderableSystemSymbol.resolvedWorkspaceGroupIconValue(explicit: iconSymbol, configured: nil)
     }
 
     private var shortcutHintPillText: String? {
@@ -121,8 +125,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 )
 
             HStack(spacing: 6) {
-                Image(systemName: displayedIconSymbol)
-                    .font(.system(size: metrics.iconFontSize, weight: .semibold))
+                WorkspaceGroupIconPreview(icon: displayedIcon, fontSize: metrics.iconFontSize)
                     .foregroundStyle(iconColor)
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
@@ -249,6 +252,13 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 action: onRename
             )
             Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.setIcon",
+                    defaultValue: "Set Group Icon..."
+                ),
+                action: { isIconPickerPresented = true }
+            )
+            Button(
                 isPinned
                     ? String(
                         localized: "workspaceGroup.contextMenu.unpin",
@@ -293,6 +303,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                         defaultValue: "Delete Group (Close Workspaces)"
                     )
                 )
+            }
+        }
+        .popover(isPresented: $isIconPickerPresented, arrowEdge: .trailing) {
+            WorkspaceGroupIconPickerView(currentSymbol: storedIconSymbol) { symbol in
+                onSetIcon(symbol)
+                isIconPickerPresented = false
             }
         }
     }

@@ -81,6 +81,7 @@ extension VerticalTabsSidebar {
             anchorWorkspaceId: group.anchorWorkspaceId,
             name: group.name,
             iconSymbol: effectiveIcon,
+            storedIconSymbol: group.iconSymbol,
             tintHex: effectiveColor,
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
@@ -135,6 +136,10 @@ extension VerticalTabsSidebar {
                     groupId: groupId,
                     currentName: currentName
                 )
+            },
+            onSetIcon: { [weak tabManager, groupId = group.id] symbol in
+                guard let tabManager else { return }
+                tabManager.setWorkspaceGroupIcon(groupId: groupId, symbol: symbol)
             },
             onTogglePinned: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
