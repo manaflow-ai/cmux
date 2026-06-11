@@ -616,12 +616,16 @@ enum NotesTreeStorage {
         }
     }
 
-    /// True when `dir` is a session folder holding no notes — only its
-    /// `_session.json` marker (and possibly dotfiles). Such folders are safe to
-    /// prune since they contain no user content.
+    /// True when `dir` contains EXACTLY the generated `_session.json` marker
+    /// and nothing else. The Notes tree is a user-editable filesystem, so any
+    /// other content — including dotfiles like `.env` or `.keep` — makes the
+    /// folder user-owned and exempt from the automatic prune (which deletes
+    /// permanently, not to Trash).
     private static func isEmptySessionFolder(_ dir: String) -> Bool {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return false }
-        return names.allSatisfy { $0 == sessionMarkerName || $0.hasPrefix(".") }
+        // .DS_Store is Finder metadata, never user content; anything else
+        // keeps the folder.
+        return names.allSatisfy { $0 == sessionMarkerName || $0 == ".DS_Store" }
     }
 
     static func sessionFolderName(descriptor: NotesSessionDescriptor) -> String {

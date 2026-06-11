@@ -657,6 +657,17 @@ import Testing
         NotesTreeStorage.syncSessionFolders(inRoot: root, descriptors: [])
         #expect(fm.fileExists(atPath: (folder as NSString).appendingPathComponent("plan.md")))
         #expect(fm.fileExists(atPath: (folder as NSString).appendingPathComponent(NotesTreeStorage.sessionMarkerName)))
+
+        // Hidden user content also exempts a stale session folder from the
+        // prune — only marker-only folders are disposable.
+        let dotDescriptors = [
+            NotesSessionDescriptor(agent: "claude", sessionId: "s-dot", title: "Dot", cwd: "/work", modified: 1_700_000_100)
+        ]
+        NotesTreeStorage.syncSessionFolders(inRoot: root, descriptors: dotDescriptors)
+        let dotFolder = try #require(sessionFolders(withId: "s-dot").first)
+        try write("SECRET=1", to: (dotFolder as NSString).appendingPathComponent(".env"))
+        NotesTreeStorage.syncSessionFolders(inRoot: root, descriptors: [])
+        #expect(fm.fileExists(atPath: (dotFolder as NSString).appendingPathComponent(".env")))
     }
 
     /// An open markdown panel must follow a Notes-tree relocation (exact file

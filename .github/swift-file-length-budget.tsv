@@ -95,7 +95,7 @@
 905	Sources/CmuxSSHURLRequest.swift
 878	Sources/WorkspaceContentView.swift
 877	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
-869	Sources/NotesTreeStorage.swift
+873	Sources/NotesTreeStorage.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 864	Sources/Panels/TerminalPanel.swift
 856	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
@@ -115,10 +115,10 @@
 739	Sources/App/MenuBarExtraController.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 724	Packages/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift
+724	cmuxTests/NotesTreeStorageTests.swift
 716	Sources/TaskManagerSnapshot.swift
 714	Sources/AppleScriptSupport.swift
 713	Sources/RightSidebarPanelView.swift
-713	cmuxTests/NotesTreeStorageTests.swift
 708	Sources/TerminalSSHSessionDetector.swift
 705	CLI/CMUXCLI+Config.swift
 705	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
