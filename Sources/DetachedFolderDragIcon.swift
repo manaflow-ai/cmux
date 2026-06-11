@@ -95,6 +95,18 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         return generic
     }
 
+    /// Resolves the localized display name for `path` off-main (the API
+    /// stats), then runs `onResolved` on the main thread — same shape as
+    /// ``icon(forPath:onResolved:)``.
+    private static func localizedDisplayName(forPath path: String, onResolved: @escaping (String) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let localizedName = FileManager.default.displayName(atPath: path)
+            DispatchQueue.main.async {
+                onResolved(localizedName)
+            }
+        }
+    }
+
     func updateIcon() {
         #if DEBUG
         dispatchPrecondition(condition: .onQueue(.main))
@@ -245,11 +257,8 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
             }
             item.representedObject = pathURL
             if path != "/" {
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let localizedName = FileManager.default.displayName(atPath: path)
-                    DispatchQueue.main.async { [weak item] in
-                        item?.title = localizedName
-                    }
+                Self.localizedDisplayName(forPath: path) { [weak item] localizedName in
+                    item?.title = localizedName
                 }
             }
             menu.addItem(item)
