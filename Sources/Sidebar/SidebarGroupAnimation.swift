@@ -17,6 +17,12 @@ enum SidebarGroupAnimation {
 
     /// Group collapse / expand: member rows slide+fade and the chevron rotates.
     static let collapse: Animation = .snappy(duration: 0.24)
+
+    /// Mid-drag row crossing during the live reorder. Deliberately faster
+    /// than `structure`: the row is chasing the pointer, and a 0.26s spring
+    /// reads as input lag when crossings come several per second. No bounce —
+    /// overshoot under a moving pointer looks like jitter.
+    static let liveReorder: Animation = .snappy(duration: 0.15, extraBounce: 0)
 }
 
 extension AnyTransition {

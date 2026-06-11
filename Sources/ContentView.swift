@@ -10939,6 +10939,11 @@ struct VerticalTabsSidebar: View {
         guard let manager = notification.object as? TabManager, manager === tabManager else {
             return
         }
+        // The pointer owns the viewport while a sidebar drag is in flight:
+        // the live reorder posts an order change per row crossing, and
+        // queueing a scroll-to-selected for each one fights the drag (see the
+        // matching guard in the workspaceIds onChange).
+        guard dragState.draggedTabId == nil else { return }
         guard let selectedWorkspaceId = tabManager.selectedTabId else { return }
         let movedWorkspaceIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
         guard movedWorkspaceIds.contains(selectedWorkspaceId) else { return }
@@ -11236,6 +11241,14 @@ struct VerticalTabsSidebar: View {
                     requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
                 }
                 .onChange(of: renderContext.workspaceIds) { oldWorkspaceIds, newWorkspaceIds in
+                    // Scroll-follow exists for one-shot reorders (keyboard,
+                    // socket "move up/down") that should keep the selected row
+                    // visible. The live drag-reorder mutates the order on
+                    // every row crossing — firing an animated scrollTo per
+                    // crossing fights the pointer and the edge autoscroll and
+                    // makes the whole drag stutter. The pointer owns the
+                    // viewport while a drag is in flight.
+                    guard dragState.draggedTabId == nil else { return }
                     guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
                         from: oldWorkspaceIds,
                         to: newWorkspaceIds
@@ -18314,7 +18327,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         if dragState.dragRestoreSnapshot == nil {
             dragState.dragRestoreSnapshot = tabManager.captureSidebarDragRestoreSnapshot()
         }
-        let didReorder = withAnimation(SidebarGroupAnimation.structure) {
+        let didReorder = withAnimation(SidebarGroupAnimation.liveReorder) {
             tabManager.reorderSidebarWorkspace(
                 tabId: draggedTabId,
                 toIndex: targetIndex,
