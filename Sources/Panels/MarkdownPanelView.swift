@@ -26,7 +26,23 @@ struct MarkdownPanelView: View {
 
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashAnimationGeneration: Int = 0
+    @State private var copyConfirmation: CopyConfirmation? = nil
+    @State private var copyConfirmationGeneration: Int = 0
     @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
+
+    private enum CopyConfirmation: Equatable {
+        case markdown
+        case html
+
+        var label: String {
+            switch self {
+            case .markdown:
+                return String(localized: "markdown.copyConfirm.markdown", defaultValue: "Copied as Markdown")
+            case .html:
+                return String(localized: "markdown.copyConfirm.html", defaultValue: "Copied as HTML")
+            }
+        }
+    }
 
     var body: some View {
         Group {
@@ -115,48 +131,53 @@ struct MarkdownPanelView: View {
                 MarkdownTypographyControl(panel: panel)
             }
             markdownModeButton
-            moreActionsMenu
+            MarkdownPanelToolbar(
+                confirmation: copyConfirmation?.label,
+                onCopyMarkdown: { copyAsMarkdown() },
+                onCopyHTML: { copyAsHTML() }
+            )
+            FileExternalOpenMenu(
+                fileURL: URL(fileURLWithPath: panel.filePath),
+                isDisabled: panel.isFileUnavailable
+            )
         }
     }
 
-    /// Viewer utilities shared by notes and plain markdown: copy the source
-    /// markdown, copy the rendered HTML (the same DOM the user is reading),
-    /// and hand the file to the system (default app / Finder).
-    private var moreActionsMenu: some View {
-        Menu {
-            Button(String(localized: "markdown.toolbar.copyMarkdown", defaultValue: "Copy as Markdown")) {
-                let pasteboard = NSPasteboard.general
-                pasteboard.clearContents()
-                pasteboard.setString(panel.content, forType: .string)
-            }
-            Button(String(localized: "markdown.toolbar.copyHTML", defaultValue: "Copy as HTML")) {
-                Task { @MainActor in
-                    guard let html = await panel.rendererSession.renderedHTML() else { return }
-                    // Plain-text targets get readable text, not raw markup.
-                    let plainText = await panel.rendererSession.renderedText() ?? panel.content
-                    let pasteboard = NSPasteboard.general
-                    pasteboard.clearContents()
-                    pasteboard.declareTypes([.html, .string], owner: nil)
-                    pasteboard.setString(html, forType: .html)
-                    pasteboard.setString(plainText, forType: .string)
-                }
-            }
-            Divider()
-            Button(FileExternalOpenText.openExternally) {
-                NSWorkspace.shared.open(URL(fileURLWithPath: panel.filePath))
-            }
-            Button(FileExternalOpenText.revealInFinder) {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: panel.filePath)])
-            }
-        } label: {
-            PanelHeaderIconGlyph(systemName: "ellipsis.circle")
+    // MARK: - Copy actions
+
+    private func copyAsMarkdown() {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(panel.content, forType: .string)
+        flashCopyConfirmation(.markdown)
+    }
+
+    private func copyAsHTML() {
+        Task { @MainActor in
+            guard let html = await panel.rendererSession.renderedHTML(markdown: panel.content) else { return }
+            // Plain-text targets get readable text, not raw markup.
+            let text = await panel.rendererSession.renderedText() ?? panel.content
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            // public.html for rich-text-aware targets (Notes, Mail, Pages, ...)
+            // and a plain-text fallback so plain editors still receive content.
+            pb.setString(html, forType: .html)
+            pb.setString(text, forType: .string)
+            flashCopyConfirmation(.html)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .foregroundColor(.secondary)
-        .help(String(localized: "markdown.toolbar.more", defaultValue: "More Actions"))
-        .accessibilityLabel(String(localized: "markdown.toolbar.more", defaultValue: "More Actions"))
+    }
+
+    private func flashCopyConfirmation(_ kind: CopyConfirmation) {
+        copyConfirmationGeneration &+= 1
+        let generation = copyConfirmationGeneration
+        copyConfirmation = kind
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            guard copyConfirmationGeneration == generation else { return }
+            if copyConfirmation == kind {
+                copyConfirmation = nil
+            }
+        }
     }
 
     private var markdownModeButton: some View {
@@ -240,6 +261,44 @@ struct MarkdownPanelView: View {
         case .easeOut:
             return .easeOut(duration: duration)
         }
+    }
+}
+
+private struct MarkdownPanelToolbar: View {
+    let confirmation: String?
+    let onCopyMarkdown: () -> Void
+    let onCopyHTML: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let confirmation {
+                Text(confirmation)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .transition(.opacity)
+            }
+
+            toolbarButton(
+                title: String(localized: "markdown.toolbar.copyMarkdown", defaultValue: "Copy as Markdown"),
+                systemImage: "doc.on.doc",
+                action: onCopyMarkdown
+            )
+            toolbarButton(
+                title: String(localized: "markdown.toolbar.copyHTML", defaultValue: "Copy as HTML"),
+                systemImage: "chevron.left.forwardslash.chevron.right",
+                action: onCopyHTML
+            )
+        }
+        .animation(.easeOut(duration: 0.15), value: confirmation)
+    }
+
+    private func toolbarButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        PanelHeaderIconButton(
+            systemName: systemImage,
+            label: title,
+            action: action
+        )
     }
 }
 
