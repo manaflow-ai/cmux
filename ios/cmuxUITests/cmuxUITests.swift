@@ -293,9 +293,14 @@ final class cmuxUITests: XCTestCase {
             // AND either several distinct bands (lower zoom) or one band that
             // solidly fills the keyboard-clear strip (higher zoom, where a
             // single thick band can span the whole window). Blank => no strong
-            // pixels; garbled => not uniform.
+            // pixels; garbled => not uniform. The single-band threshold leaves
+            // room for the always-visible bottom dock (toolbar + default-open
+            // composer band) that shortens the terminal grid: on the iPhone
+            // height a clean max-zoom band fills ~14 of the 24 strip samples
+            // with row gaps in between, which is a clean render, not a blank
+            // or torn one.
             let enoughBands = (distinct >= 2 && strong.count >= 6)
-                || (distinct == 1 && strong.count >= 16)
+                || (distinct == 1 && strong.count >= 12)
             if uniform, enoughBands {
                 return
             }
@@ -604,9 +609,14 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
+        // 20s: a saturated CI runner can take well past the old 8s default for
+        // the create round-trip + the new surface (and its composer band) to
+        // mount and report the selection. This is a wait-until, so a fast run
+        // still returns immediately.
         let didSelect = await server.waitForSelection(
             workspaceID: workspaceID,
-            terminalID: terminalID
+            terminalID: terminalID,
+            timeout: 20
         )
         if !didSelect {
             let selection = await server.selectionDescription()
