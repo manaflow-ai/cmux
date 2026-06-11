@@ -1559,6 +1559,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         switch intent {
         case .openComposer, .closeComposer:
+            // Optimistically flip the local mirror to the intent's outcome BEFORE
+            // the store round-trip. `composerActive` is otherwise synced back via
+            // SwiftUI's `updateUIView`, which runs a render pass after the store
+            // mutation — a second tap landing inside that window would read the
+            // stale flag, resolve `.openComposer` again, and the toggle would
+            // dismiss the composer the first tap just presented. The authoritative
+            // sync still arrives via `setComposerActive` (idempotent when the
+            // optimistic value already matches).
+            setComposerActive(intent == .openComposer)
             delegate?.ghosttySurfaceViewDidRequestComposerToggle(self)
         case .revealAndFocusComposer:
             if chromeHidden {

@@ -657,9 +657,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Per-terminal composer dismissals are this user's session UI state; the
         // next account starts with the default-open composer everywhere. Clear
         // the focus mirror BEFORE the selection resets below so the terminal
-        // switch they trigger cannot arm a stale focus request.
+        // switch they trigger cannot arm a stale focus request, and drop any
+        // already-armed handshake (the selection reset's didSet only clears it
+        // when the terminal id actually changes).
         composerDismissedTerminalIDs = []
         composerFieldIsFocused = false
+        composerFocusRequestPending = false
+        composerFocusRequestTerminalID = nil
         clearPairingError()
         activeTicket = nil
         activeRoute = nil
@@ -3290,8 +3294,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     params: params
                 )
             )
-            guard isCurrentRemoteOperation(client: client, generation: generation) else { return false }
-            handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
+            // The Mac acked the paste: the text is applied regardless of whether a
+            // reconnect superseded this client while the request was in flight.
+            // Only the per-connection response bookkeeping is generation-guarded;
+            // returning failure here would keep the composer draft and a retry
+            // would paste the same block twice.
+            if isCurrentRemoteOperation(client: client, generation: generation) {
+                handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
+            }
             return true
         } catch {
             guard generation == connectionGeneration else { return false }
