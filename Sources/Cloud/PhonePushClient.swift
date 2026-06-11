@@ -55,6 +55,9 @@ final class PhonePushClient {
     private static let minInterval: TimeInterval = 1.0
     /// Presence source for the "only when away" mode. Injectable for tests.
     var presenceMonitor: MacPresenceMonitor = .live()
+    /// Bounds live presence sampling under suppressed (active-Mac) bursts;
+    /// see `MacPresenceDecisionCache` for the staleness invariant.
+    private var presenceCache = MacPresenceDecisionCache()
 
     private init() {}
 
@@ -96,18 +99,17 @@ final class PhonePushClient {
         let now = Date()
         if let last = lastSentAt[key], now.timeIntervalSince(last) < Self.minInterval { return }
 
-        // Presence gate, evaluated FRESH per notification at delivery time:
-        // the phone never receives a suppressed push, and lock/user-return
-        // transitions take effect on the very next notification (no cached
-        // decision can go stale on either side of a transition). `.always`
-        // skips sampling entirely (`shouldForward` is constant true there).
-        // Cost: sampling is a handful of WindowServer/HID reads, orders of
-        // magnitude cheaper than the network send the throttle above exists
-        // for, and upstream notification cooldowns already bound how often
-        // this method runs.
+        // Presence gate, decided per notification at delivery time so the
+        // phone never receives a suppressed push. `.always` skips sampling
+        // entirely (`shouldForward` is constant true there). Forwarding
+        // decisions are always freshly sampled (the user-return transition
+        // gates the very next notification); suppressed bursts are bounded
+        // by the active-decision cache instead of the send throttle, because
+        // suppression must not consume a send slot. See
+        // `MacPresenceDecisionCache` for the explicit staleness invariant.
         let mode = PhoneForwardingMode.fromDefaults()
         if mode != .always {
-            let presence = presenceMonitor.evaluate()
+            let presence = presenceCache.decision(from: presenceMonitor)
             guard Self.shouldForward(mode: mode, presence: presence) else {
 #if DEBUG
                 cmuxDebugLog("phonepush.suppressed reason=macActive verdict=\(presence.verdict)")

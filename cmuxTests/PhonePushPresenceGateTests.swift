@@ -172,7 +172,67 @@ import Testing
         )
     }
 
-    // MARK: - Transition freshness
+    // MARK: - Burst coalescing and transition freshness
+
+    @Test func presenceCacheCoalescesActiveEvaluationsUnderBursts() {
+        var evaluations = 0
+        var currentNow = Self.now
+        let counting = MacPresenceMonitor(
+            now: { currentNow },
+            signals: {
+                evaluations += 1
+                return MacPresenceMonitor.Signals(
+                    isConsoleSessionActiveAndUnlocked: true,
+                    areDisplaysAwake: true,
+                    isScreensaverRunning: false,
+                    secondsSinceLastHardwareInput: 5
+                )
+            }
+        )
+        var cache = MacPresenceDecisionCache()
+
+        let first = cache.decision(from: counting)
+        let second = cache.decision(from: counting)
+        #expect(first == second)
+        #expect(evaluations == 1)
+
+        // The cached active decision expires after the TTL and is re-evaluated.
+        currentNow = Self.now.addingTimeInterval(MacPresenceDecisionCache.ttl)
+        _ = cache.decision(from: counting)
+        #expect(evaluations == 2)
+    }
+
+    @Test func presenceCacheNeverReusesAwayDecisions() {
+        // User-return transition: an away answer must never be served stale,
+        // otherwise a notification arriving just after the user comes back
+        // would still forward to the phone.
+        var evaluations = 0
+        var hardwareIdle: TimeInterval = 3_600
+        let transitioning = MacPresenceMonitor(
+            now: { Self.now },
+            signals: {
+                evaluations += 1
+                return MacPresenceMonitor.Signals(
+                    isConsoleSessionActiveAndUnlocked: true,
+                    areDisplaysAwake: true,
+                    isScreensaverRunning: false,
+                    secondsSinceLastHardwareInput: hardwareIdle
+                )
+            }
+        )
+        var cache = MacPresenceDecisionCache()
+
+        #expect(!cache.decision(from: transitioning).isActive)
+        #expect(evaluations == 1)
+
+        // The user moves the mouse; the very next notification re-samples
+        // (same instant, well inside the TTL) and sees the Mac as active.
+        hardwareIdle = 1
+        let afterReturn = cache.decision(from: transitioning)
+        #expect(evaluations == 2)
+        #expect(afterReturn.isActive)
+        #expect(!PhonePushClient.shouldForward(mode: .onlyWhenAway, presence: afterReturn))
+    }
 
     @Test func evaluationIsFreshOnEveryCall() {
         // The gate evaluates per notification at delivery time; no caching
