@@ -30,4 +30,18 @@ public protocol MobileSyncRuntime: Sendable {
     /// skips background subscribe/poll so scripted-transport tests do not
     /// consume responses intended for foreground methods.
     var supportsServerPushEvents: Bool { get }
+    /// Bounded deadline, in nanoseconds, for the render-grid liveness
+    /// watchdog's host probe (`mobile.host.status`). A healthy idle terminal
+    /// legitimately pushes no events, so the watchdog verifies prolonged
+    /// silence with this probe before declaring the stream dead; the deadline
+    /// bounds how long a dead transport can stall that verdict.
+    var livenessProbeTimeoutNanoseconds: UInt64 { get }
+}
+
+public extension MobileSyncRuntime {
+    /// Default probe deadline: generous against a momentarily loaded Mac (the
+    /// status request is auth-exempt and answered without side effects), while
+    /// keeping dead-stream recovery within a few seconds of the silence
+    /// threshold instead of the full ``rpcRequestTimeoutNanoseconds``.
+    var livenessProbeTimeoutNanoseconds: UInt64 { 3_000_000_000 }
 }

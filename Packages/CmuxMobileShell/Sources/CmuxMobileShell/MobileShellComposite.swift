@@ -63,11 +63,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
 
     /// How long the render-grid stream may stay silent (no event of any topic)
-    /// before the liveness watchdog assumes the push subscription is dead and
-    /// forces a re-subscribe + replay. Picked at the low end of the acceptable
-    /// 8-12s window so a wedged stream recovers in a few seconds instead of the
-    /// transport's ~85s timeout, while staying well above any normal inter-event
-    /// gap on a busy shell.
+    /// before the liveness watchdog suspects the push subscription is dead and
+    /// runs a bounded host probe; only a failed probe forces the
+    /// re-subscribe + replay (silence alone is the normal state of an idle
+    /// terminal). Picked at the low end of the acceptable 8-12s window so a
+    /// wedged stream recovers in a few seconds instead of the transport's ~85s
+    /// timeout, while staying well above any normal inter-event gap on a busy
+    /// shell.
     private static let renderGridLivenessSilenceThreshold: TimeInterval = 9
     /// Cadence of the liveness watchdog tick. It only reads a timestamp and
     /// compares against the threshold, so a short interval is cheap; it does not
@@ -447,6 +449,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Tail of the serialized paired-Mac store write chain; see
     /// ``performSerializedPairedMacWrite(ifStillCurrent:_:)``.
     private var pairedMacWriteChain: Task<Void, Never>?
+    /// The in-flight `mobile.events.subscribe` (reason `start`) ack for the
+    /// current listener generation. It runs concurrently with the consumer
+    /// loop (the ack is a server-side enable handshake, not a delivery
+    /// precondition: a prior generation's server subscription keeps pushing
+    /// across re-subscribes) so events arriving during the round-trip are
+    /// consumed, not buffered invisibly behind the await.
+    private var terminalSubscriptionStartTask: Task<Void, Never>?
     // Liveness watchdog for the render-grid push subscription. The `for await`
     // listener loop blocks indefinitely if the underlying connection half-dies
     // (network blip, Mac stops pushing, background/foreground cycle): the
@@ -455,9 +464,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     // of render-grid deltas. The transport's own timeout (~85s) is far too slow.
     // A `DispatchSourceTimer` ticks independently of the (potentially wedged)
     // stream and compares "now" against the last received event to detect
-    // prolonged silence, then tears down + re-subscribes + replays.
+    // prolonged silence. Silence alone is NOT death: a healthy idle terminal
+    // pushes nothing (the Mac dedupes unchanged render-grid frames), so a
+    // silence-threshold crossing first runs a bounded `mobile.host.status`
+    // probe and only tears down + re-subscribes + replays when the host fails
+    // to answer it.
     private var renderGridLivenessTimer: (any DispatchSourceTimer)?
     private var renderGridLivenessListenerID: UUID?
+    /// The in-flight liveness probe spawned by a silence-threshold crossing.
+    /// Single-flight: ticks while a probe is pending are no-ops.
+    private var renderGridLivenessProbeTask: Task<Void, Never>?
     private var lastTerminalEventAt: Date?
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     private var createWorkspaceTask: Task<Void, Never>?
@@ -597,7 +613,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     isolated deinit {
         networkPathObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
+        terminalSubscriptionStartTask?.cancel()
         renderGridLivenessTimer?.cancel()
+        renderGridLivenessProbeTask?.cancel()
         terminalSubscriptionRefreshTask?.cancel()
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
@@ -3651,6 +3669,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         do {
             responseData = try await client.sendRequest(requestData)
         } catch {
+            if Task.isCancelled {
+                // A superseding generation (resync, disconnect) cancelled this
+                // request; the session layer surfaces that cancellation as
+                // `requestTimedOut`. Not a host failure: stay quiet so the log
+                // does not report a self-inflicted cancel as a wire timeout.
+                mobileShellLog.info("subscribe cancelled reason=\(reason, privacy: .public)")
+                return false
+            }
             mobileShellLog.error("subscribe failed reason=\(reason, privacy: .public): \(String(describing: error), privacy: .private)")
             // Event-stream (re)subscribe is the view-only/foreground-resume path.
             // A definitive auth failure here (RPC layer already tried a
@@ -3773,19 +3799,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let outputTransport = await self?.resolveTerminalOutputTransport(client: client) ?? .rawBytes
             let topics = outputTransport.eventTopics
             let stream = await client.subscribe(to: Set(topics))
-            let subscribed = await self?.requestTerminalEventSubscription(
+            // Kick off the server-side enable handshake CONCURRENTLY with
+            // consumption. The old structure awaited the ack here, which
+            // parked the consumer loop while events from a still-active prior
+            // server subscription piled up unconsumed in `stream`'s buffer;
+            // the liveness watchdog (stamped only at consumption) then read a
+            // healthy establishing stream as silence and false-fired, and its
+            // resync cancelled this very ack (surfacing a bogus
+            // `requestTimedOut`). Consuming from the start keeps the liveness
+            // clock coupled to actual event arrival.
+            self?.beginTerminalEventSubscriptionStart(
                 client: client,
-                reason: "start",
-                topics: topics
-            ) ?? false
-            guard subscribed else {
-                MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
-                self?.diagnosticLog?.record(DiagnosticEvent(.error))
-                self?.markMacConnectionUnavailable()
-                return
-            }
-            self?.markMacConnectionHealthy()
-            MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(outputTransport)")
+                listenerID: listenerID,
+                topics: topics,
+                transport: outputTransport
+            )
             // Keep the listener alive without keeping the shell store alive.
             for await event in stream {
                 guard !Task.isCancelled else { return }
@@ -3793,7 +3821,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard self.remoteClient === client, self.connectionState == .connected else { return }
                 // Any yielded envelope proves the transport is still pushing, so
                 // it resets the liveness window (not just render_grid events).
-                self.lastTerminalEventAt = self.runtime?.now() ?? Date()
+                self.recordTerminalEventStreamLiveness()
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
@@ -3808,6 +3836,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             guard let self else { return }
             self.handleTerminalEventStreamEnded(listenerID: listenerID, client: client)
+        }
+    }
+
+    /// Run the `mobile.events.subscribe` (reason `start`) handshake for one
+    /// listener generation, concurrently with that generation's consumer loop.
+    ///
+    /// Success and failure are only acted on while the generation is still
+    /// current: a superseded or cancelled handshake exits silently so a stale
+    /// generation can never mark the connection unavailable underneath a
+    /// fresh, healthy one (the bisected false-fire loop did exactly that via
+    /// its self-cancelled ack).
+    private func beginTerminalEventSubscriptionStart(
+        client: MobileCoreRPCClient,
+        listenerID: UUID,
+        topics: [String],
+        transport: TerminalOutputTransport
+    ) {
+        guard terminalEventListenerID == listenerID else { return }
+        terminalSubscriptionStartTask?.cancel()
+        terminalSubscriptionStartTask = Task { @MainActor [weak self] in
+            let subscribed = await self?.requestTerminalEventSubscription(
+                client: client,
+                reason: "start",
+                topics: topics
+            ) ?? false
+            guard let self else { return }
+            guard !Task.isCancelled, self.terminalEventListenerID == listenerID else { return }
+            self.terminalSubscriptionStartTask = nil
+            guard subscribed else {
+                MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
+                self.diagnosticLog?.record(DiagnosticEvent(.error))
+                self.stopTerminalRefreshPolling()
+                self.markMacConnectionUnavailable()
+                return
+            }
+            self.markMacConnectionHealthy()
+            MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
         }
     }
 
@@ -3838,14 +3903,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ticks independently and, on each tick, hops to the main actor to compare
     /// `lastTerminalEventAt` against `renderGridLivenessSilenceThreshold`. While
     /// events keep arriving, `lastTerminalEventAt` stays fresh and every tick is a
-    /// no-op, so an actively-streaming connection never triggers recovery; only a
-    /// genuinely silent stream crosses the threshold.
+    /// no-op. A threshold crossing is treated as a SUSPICION, not a verdict: an
+    /// idle terminal pushes no events, so the tick first probes the host with a
+    /// bounded `mobile.host.status` round-trip and only recovers when the probe
+    /// fails (see ``checkRenderGridLiveness(listenerID:)``).
     private func startRenderGridLivenessWatchdog(listenerID: UUID) {
         stopRenderGridLivenessWatchdog(listenerID: nil)
         renderGridLivenessListenerID = listenerID
         // Reset the window so a freshly-armed subscription gets the full silence
         // budget before it can be judged dead.
-        lastTerminalEventAt = runtime?.now() ?? Date()
+        recordTerminalEventStreamLiveness()
         // DispatchSourceTimer is the allowed low-level primitive for periodic
         // event delivery. It fires on the MAIN queue on purpose: the handler is
         // inferred @MainActor (it touches main-actor store state), and a timer on
@@ -3882,6 +3949,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         renderGridLivenessTimer?.cancel()
         renderGridLivenessTimer = nil
         renderGridLivenessListenerID = nil
+        renderGridLivenessProbeTask?.cancel()
+        renderGridLivenessProbeTask = nil
+    }
+
+    /// Single ownership point for the liveness clock the watchdog reads.
+    ///
+    /// Stamped by (1) every envelope the listener loop actually consumes,
+    /// (2) a successful host probe (positive proof the channel is alive while
+    /// the terminal is merely idle), and (3) the arming of a new watchdog
+    /// generation, as the clean generation reset. The watchdog compares this
+    /// single record against `renderGridLivenessSilenceThreshold`. The only
+    /// other write is `resetTerminalOutputTracking` clearing it to nil when
+    /// the connection context is torn down entirely.
+    private func recordTerminalEventStreamLiveness() {
+        lastTerminalEventAt = runtime?.now() ?? Date()
     }
 
     #if DEBUG
@@ -3897,24 +3979,92 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// One watchdog tick on the main actor: if the subscription generation still
     /// matches, the store is connected, and the stream has been silent past the
-    /// threshold, tear down + re-subscribe + replay via the existing resync path.
+    /// threshold, verify the silence with a bounded host probe and only tear
+    /// down + re-subscribe + replay (via the existing resync path) when the
+    /// probe fails.
+    ///
+    /// The probe step exists because silence is ambiguous: a healthy idle
+    /// terminal emits nothing (the Mac dedupes unchanged render-grid frames by
+    /// row signature and stateSeq), which is indistinguishable by wall clock
+    /// from the half-dead transport this watchdog was built to catch. Treating
+    /// silence alone as death made the watchdog tear down and full-grid-replay
+    /// every healthy idle subscription every ~10.5s, forever (the 2026-06-10
+    /// Release-sim bisect finding). `mobile.host.status` is the cheapest
+    /// possible probe: auth-exempt (no token mint), side-effect free on the
+    /// host, and answered over the same transport the events ride on, so a
+    /// completed round-trip is positive proof the channel is alive.
     private func checkRenderGridLiveness(listenerID: UUID) {
         guard renderGridLivenessListenerID == listenerID else { return }
-        guard remoteClient != nil, connectionState == .connected else { return }
+        guard let client = remoteClient, connectionState == .connected else { return }
         guard terminalEventListenerID == listenerID else { return }
         let now = runtime?.now() ?? Date()
         let last = lastTerminalEventAt ?? now
         let silent = now.timeIntervalSince(last)
         guard silent >= Self.renderGridLivenessSilenceThreshold else { return }
-        let silentMs = Int(silent * 1000)
-        MobileDebugLog.anchormux("sync.liveness re-subscribe silentMs=\(silentMs)")
-        diagnosticLog?.record(DiagnosticEvent(.livenessResubscribe, ms: UInt32(clamping: silentMs)))
-        mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms, re-subscribing")
-        // resyncTerminalOutput(restartEventStream: true) stops the wedged listener
-        // (which cancels this watchdog via stopTerminalRefreshPolling) and starts a
-        // fresh subscription + watchdog, then replays every surface so the phone
-        // catches up on the deltas it missed while the stream was silent.
-        resyncTerminalOutput(reason: "liveness", restartEventStream: true)
+        guard renderGridLivenessProbeTask == nil else { return }
+        let probeTimeoutNanoseconds = runtime?.livenessProbeTimeoutNanoseconds
+            ?? 3_000_000_000
+        renderGridLivenessProbeTask = Task { @MainActor [weak self] in
+            let alive = await Self.probeConnectionLiveness(
+                client: client,
+                timeoutNanoseconds: probeTimeoutNanoseconds
+            )
+            guard let self else { return }
+            self.renderGridLivenessProbeTask = nil
+            guard !Task.isCancelled,
+                  self.renderGridLivenessListenerID == listenerID,
+                  self.terminalEventListenerID == listenerID,
+                  self.remoteClient === client,
+                  self.connectionState == .connected else { return }
+            if alive {
+                // The host answered over the event channel: the stream is
+                // healthy but quiet. Count the round-trip as the liveness
+                // evidence so the silence window restarts from this proof.
+                self.recordTerminalEventStreamLiveness()
+                MobileDebugLog.anchormux("sync.liveness probe_ok silentMs=\(Int(silent * 1000))")
+                return
+            }
+            // Events may have resumed while the probe was in flight; a fresh
+            // stamp means the stream already proved itself, so no recovery.
+            let recheckNow = self.runtime?.now() ?? Date()
+            let recheckLast = self.lastTerminalEventAt ?? recheckNow
+            guard recheckNow.timeIntervalSince(recheckLast) >= Self.renderGridLivenessSilenceThreshold else {
+                return
+            }
+            let silentMs = Int(recheckNow.timeIntervalSince(recheckLast) * 1000)
+            MobileDebugLog.anchormux("sync.liveness re-subscribe silentMs=\(silentMs)")
+            self.diagnosticLog?.record(DiagnosticEvent(.livenessResubscribe, ms: UInt32(clamping: silentMs)))
+            mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms and host probe failed, re-subscribing")
+            // resyncTerminalOutput(restartEventStream: true) stops the wedged
+            // listener (which cancels this watchdog via stopTerminalRefreshPolling)
+            // and starts a fresh subscription + watchdog, then replays every
+            // surface so the phone catches up on the deltas it missed while the
+            // stream was dead.
+            self.resyncTerminalOutput(reason: "liveness", restartEventStream: true)
+        }
+    }
+
+    /// Bounded positive-liveness probe over the event channel. Only a completed
+    /// `mobile.host.status` round-trip counts as alive; any error (timeout,
+    /// closed connection, rpc failure) reports dead and lets the watchdog run
+    /// its recovery. The request is auth-exempt, so the probe never blocks on
+    /// a token mint and exercises exactly the transport the events use.
+    private static func probeConnectionLiveness(
+        client: MobileCoreRPCClient,
+        timeoutNanoseconds: UInt64
+    ) async -> Bool {
+        guard let request = try? MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            params: [:]
+        ) else {
+            return false
+        }
+        do {
+            _ = try await client.sendRequest(request, timeoutNanoseconds: timeoutNanoseconds)
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func resyncTerminalOutput(
@@ -4363,6 +4513,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalEventListenerTask?.cancel()
         terminalEventListenerTask = nil
         terminalEventListenerID = nil
+        terminalSubscriptionStartTask?.cancel()
+        terminalSubscriptionStartTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
     }
 
