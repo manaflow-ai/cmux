@@ -11894,6 +11894,11 @@ struct CMUXCLI {
             let (workspaceOpt, argsAfterWorkspace) = parseOption(subArgs, name: "--workspace")
             let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
             let (focusOpt, urlArgs) = parseOption(argsAfterWindow, name: "--focus")
+            // Reject unrecognized flags instead of folding them into the URL, where they
+            // would silently produce an unparseable URL (blank page) or a search query.
+            if let strayFlag = urlArgs.first(where: { $0.hasPrefix("--") }) {
+                throw CLIError(message: "browser \(subcommand) does not support \(strayFlag)")
+            }
             let url = urlArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             let respectExternalOpenRules: Bool = {
                 guard let raw = ProcessInfo.processInfo.environment["CMUX_RESPECT_EXTERNAL_OPEN_RULES"] else {
@@ -11950,10 +11955,12 @@ struct CMUXCLI {
 
         if subcommand == "goto" || subcommand == "navigate" {
             let sid = try requireSurface()
-            var urlArgs = subArgs
-            let snapshotAfter = urlArgs.last == "--snapshot-after"
-            if snapshotAfter {
-                urlArgs.removeLast()
+            // Accept --snapshot-after at any position, then reject any other flag instead
+            // of folding it into the URL, where it would silently turn into a search query.
+            let urlArgs = subArgs.filter { $0 != "--snapshot-after" }
+            let snapshotAfter = urlArgs.count != subArgs.count
+            if let strayFlag = urlArgs.first(where: { $0.hasPrefix("--") }) {
+                throw CLIError(message: "browser \(subcommand) does not support \(strayFlag)")
             }
             let url = urlArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !url.isEmpty else {
@@ -12246,7 +12253,11 @@ struct CMUXCLI {
                 params["timeout_ms"] = max(1, Int(seconds * 1000.0))
             }
 
-            let payload = try client.sendV2(method: "browser.wait", params: params)
+            // Give the socket response timeout headroom beyond the wait deadline so long
+            // waits are reported by the app handler instead of dying at the socket layer.
+            let waitMs = (params["timeout_ms"] as? Int) ?? 5_000
+            let responseTimeout = max(10.0, Double(waitMs) / 1000.0 + 5.0)
+            let payload = try client.sendV2(method: "browser.wait", params: params, responseTimeout: responseTimeout)
             output(payload, fallback: "OK")
             return
         }
