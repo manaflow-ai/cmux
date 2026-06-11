@@ -961,6 +961,47 @@ html { scroll-behavior: smooth; }
     return template.innerHTML;
   }
 
+  // Generated diagram/math output (MathJax, Mermaid, Vega) legitimately
+  // needs SVG, which sanitizeRenderedHTML blocks outright — so it skips that
+  // sanitizer and gets this scrub instead: drop script-capable elements and
+  // event handlers, and neutralize javascript:/data: link targets that
+  // crafted TeX/diagram source could smuggle into the generated DOM.
+  function scrubGeneratedSubtree(root) {
+    if (!root || root.nodeType !== 1) { return root; }
+    var blocked = /^(script|foreignobject|iframe|object|embed)$/i;
+    var all = [root].concat(Array.prototype.slice.call(root.querySelectorAll('*')));
+    all.forEach(function(el) {
+      var tag = String(el.tagName || '');
+      if (blocked.test(tag)) {
+        if (el.parentNode) { el.parentNode.removeChild(el); }
+        return;
+      }
+      Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
+        var name = String(attr.name || '').toLowerCase();
+        if (name.indexOf('on') === 0) {
+          el.removeAttribute(attr.name);
+          return;
+        }
+        // Fragment refs (#glyph) stay -- MathJax's font cache relies on
+        // <use xlink:href="#...">; only scheme-bearing targets are risky.
+        if (name === 'href' || name === 'xlink:href' || name === 'src') {
+          var value = String(attr.value || '').replace(/[\u0000-\u0020]+/g, '').toLowerCase();
+          if (value.indexOf('javascript:') === 0 || value.indexOf('vbscript:') === 0 ||
+              value.indexOf('data:') === 0) {
+            el.removeAttribute(attr.name);
+          }
+        }
+      });
+    });
+    return root;
+  }
+
+  function scrubGeneratedContainer(el) {
+    Array.prototype.slice.call(el.children || []).forEach(function(child) {
+      scrubGeneratedSubtree(child);
+    });
+  }
+
   // Configure marked: GitHub-flavored, with custom renderers for
   // code (syntax-highlighted via highlight.js), headings (with
   // GitHub-style slug ids for anchor links), and local markdown file
@@ -1176,6 +1217,7 @@ html { scroll-behavior: smooth; }
       try {
         mermaid.render(id, src).then(function(res) {
           el.innerHTML = res.svg;
+          scrubGeneratedContainer(el);
           if (res.bindFunctions) { try { res.bindFunctions(el); } catch (e) {} }
         }).catch(function(err) {
           el.innerHTML = '<div class="cmux-render-error">Mermaid: '
@@ -1281,7 +1323,9 @@ html { scroll-behavior: smooth; }
         el.innerHTML = '';
         var opts = { mode: mode, actions: false, renderer: 'svg' };
         if (isDark) { opts.theme = 'dark'; }
-        vegaEmbed(el, spec, opts).catch(function(err) {
+        vegaEmbed(el, spec, opts).then(function() {
+          scrubGeneratedContainer(el);
+        }).catch(function(err) {
           el.innerHTML = '<div class="cmux-render-error">Vega: '
             + escapeHtml(String((err && err.message) || err)) + '</div>';
         });
@@ -1444,7 +1488,7 @@ html { scroll-behavior: smooth; }
         var display = el.getAttribute('data-display') === '1';
         MathJax.tex2svgPromise(tex, { display: display }).then(function(node) {
           el.textContent = '';
-          el.appendChild(node);
+          el.appendChild(scrubGeneratedSubtree(node));
         }).catch(function(err) {
           el.innerHTML = '<span class="cmux-render-error">MathJax: '
             + escapeHtml(String((err && err.message) || err)) + '</span>';

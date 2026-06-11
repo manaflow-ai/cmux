@@ -2314,6 +2314,8 @@ struct ContentView: View {
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
+    @AppStorage(RightSidebarBetaFeatureSettings.notesEnabledKey)
+    private var notesBetaEnabled = RightSidebarBetaFeatureSettings.defaultNotesEnabled
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
@@ -2803,7 +2805,11 @@ struct ContentView: View {
 
         // Notes is local-only and independent of the file-explorer sync gate
         // below, so bind it before that early-returns for non-Files/Find modes.
-        if let workspace = tabManager.selectedWorkspace {
+        // While the Notes beta is off, the store stays unbound: a hidden
+        // default-off feature must not cost anyone file watchers or
+        // agent/session scanning.
+        if RightSidebarBetaFeatureSettings.isNotesEnabled(),
+           let workspace = tabManager.selectedWorkspace {
             notesTreeStore.setWorkspace(
                 title: workspace.title,
                 projectRoot: NoteSupport.projectRoot(forCwd: dir),
@@ -3467,6 +3473,12 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: fileExplorerState.mode) { _, _ in
+            syncFileExplorerDirectory()
+        })
+
+        // Bind/unbind the Notes store when the beta toggle flips so enabling
+        // it populates the tree immediately and disabling stops its watchers.
+        view = AnyView(view.onChange(of: notesBetaEnabled) { _ in
             syncFileExplorerDirectory()
         })
 
