@@ -64,4 +64,16 @@ struct SidebarWorkspaceScrollLayoutTests {
         )
         #expect(abs(emptyAreaHeight) <= 0.001)
     }
+
+    @Test func emptyAreaFillsEntireContainerWhenNoRows() {
+        // No workspaces: the empty drop/tap area fills the entire viewport so
+        // the empty sidebar is still a drop/tap target and the content fills the
+        // visible height (no phantom scrollbar).
+        let containerHeight: CGFloat = 612
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaFillHeight(
+            containerHeight: containerHeight,
+            rowsHeight: 0
+        )
+        #expect(abs(emptyAreaHeight - containerHeight) <= 0.001)
+    }
 }
