@@ -63,6 +63,21 @@ struct AppScrollerStylePolicyTests {
         #expect(defaults.setCount == 1)
     }
 
+    @Test func applyOverridesAutomaticPreference() {
+        // Simulates the "Automatic" setting with a mouse connected — the other
+        // #3241 reproduction path. AppKit draws legacy scrollers whenever the
+        // input-device heuristic fires; forcing WhenScrolling removes that.
+        let defaults = RecordingDefaults(seed: [
+            AppScrollerStylePolicy.scrollBarsDefaultsKey: "Automatic"
+        ])
+
+        AppScrollerStylePolicy.applyAtLaunch(defaults: defaults)
+
+        #expect(defaults.string(forKey: AppScrollerStylePolicy.scrollBarsDefaultsKey)
+            == AppScrollerStylePolicy.overlayValue)
+        #expect(defaults.setCount == 1)
+    }
+
     @Test func reapplyWritesNothing() {
         // Launch runs this once per process; a re-run (or any later launch with
         // the override already resolved) must not re-write the key.

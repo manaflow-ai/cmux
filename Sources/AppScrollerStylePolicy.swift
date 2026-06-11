@@ -63,10 +63,11 @@ enum AppScrollerStylePolicy {
     /// Running first makes the contract self-enforcing rather than relying on
     /// the ordering of unrelated `init` steps.
     static func applyAtLaunch(defaults: UserDefaults = .standard) {
-        // `string(forKey:)` resolves across domains, so once cmux's own
-        // application domain holds `WhenScrolling` this is a no-op on every
-        // subsequent launch — no redundant write, no spurious change
-        // notification.
+        // `string(forKey:)` resolves across domains (app domain before
+        // global), so this is a no-op whenever the *effective* value is
+        // already `WhenScrolling` — whether the app domain holds it from a
+        // previous launch or the global domain already provides it. No
+        // redundant write, no spurious change notification.
         if defaults.string(forKey: scrollBarsDefaultsKey) != overlayValue {
             defaults.set(overlayValue, forKey: scrollBarsDefaultsKey)
         }
