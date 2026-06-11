@@ -4128,13 +4128,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 topics: topics
             ) ?? .failed
         }
-        // Bounded deadline (allowed: cancellation-wired timeout, not a polling
-        // sleep). Cancelling the probe task surfaces inside
-        // requestTerminalEventSubscription as a cancelled request -> .failed.
-        let deadline = Task {
-            try? await Task.sleep(nanoseconds: timeoutNanoseconds)
-            probe.cancel()
-        }
+        // Bounded deadline via a one-shot DispatchSourceTimer — the same
+        // sanctioned primitive the watchdog tick uses — with cancellation
+        // wired to the probe's lifecycle. Cancelling the probe task surfaces
+        // inside requestTerminalEventSubscription as a cancelled request ->
+        // .failed.
+        let deadline = DispatchSource.makeTimerSource(queue: .main)
+        deadline.schedule(deadline: .now() + .nanoseconds(Int(clamping: timeoutNanoseconds)))
+        deadline.setEventHandler { probe.cancel() }
+        deadline.resume()
         let ack = await probe.value
         deadline.cancel()
         return ack
