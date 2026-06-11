@@ -16,6 +16,8 @@ public struct MobileNotificationBadgeEvent: Decodable, Sendable {
         case unreadCount = "unread_count"
     }
 
+    /// Decodes the payload, tolerating absent fields.
+    /// - Parameter decoder: The JSON decoder for the event payload.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         unreadCount = try container.decodeIfPresent(Int.self, forKey: .unreadCount)

@@ -18,6 +18,8 @@ public struct SystemDeliveredNotificationClearer: DeliveredNotificationClearing 
     /// Creates a clearer over the shared notification center.
     public init() {}
 
+    /// Remove the delivered banners carrying the given Mac notification ids.
+    /// - Parameter ids: The stable Mac-side notification ids to clear.
     public func removeDelivered(ids: [String]) async {
         guard !ids.isEmpty else { return }
         let targets = Set(ids)
@@ -33,12 +35,17 @@ public struct SystemDeliveredNotificationClearer: DeliveredNotificationClearing 
         center.removeDeliveredNotifications(withIdentifiers: matching)
     }
 
+    /// The Mac notification ids of every currently delivered banner, for the
+    /// reconcile sweep.
+    /// - Returns: One id per delivered notification (see ``macNotificationID(for:)``).
     public func deliveredIdentifiers() async -> [String] {
         await UNUserNotificationCenter.current()
             .deliveredNotifications()
             .map { Self.macNotificationID(for: $0.request) }
     }
 
+    /// SET the app-icon badge to the Mac's authoritative unread total.
+    /// - Parameter count: The unread total; clamped to zero.
     public func setBadgeCount(_ count: Int) {
         // Fire-and-forget: a badge write failure (no authorization yet) is
         // non-fatal and the next event/push/reconcile sets the total again.

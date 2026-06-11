@@ -20,6 +20,9 @@ public struct MobileNotificationReconcileResponse: Decodable, Sendable {
         case unreadCount = "unread_count"
     }
 
+    /// Decodes the RPC result, trimming and dropping blank ids and tolerating
+    /// an absent count.
+    /// - Parameter decoder: The JSON decoder for the result payload.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let rawIDs = try container.decodeIfPresent([String].self, forKey: .handledIDs) ?? []
