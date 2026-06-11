@@ -130,9 +130,25 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
             outputTask = Task { @MainActor [weak surfaceView] in
-                for await data in store.terminalOutputStream(surfaceID: surfaceID) {
+                for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
-                    surfaceView?.processOutput(data)
+                    // Pin the authoritative Mac grid carried by this frame BEFORE
+                    // applying its bytes (immediate: the resize lands on the
+                    // serial output queue ahead of these bytes, so geometry and
+                    // content stay atomic and the surface converges on attach and
+                    // on any Mac-side resize without a phone-initiated round-trip).
+                    // A grid-bearing chunk older than the surface's merged
+                    // high-water mark is stale: its bytes would repaint stale
+                    // content at the newer grid, so drop them. `nil` grid
+                    // (raw-byte fallback) leaves the pin untouched and applies.
+                    if let grid = chunk.grid {
+                        let stale = surfaceView?.applyAuthoritativeGrid(
+                            grid,
+                            immediate: true
+                        ) ?? false
+                        if stale { continue }
+                    }
+                    surfaceView?.processOutput(chunk.bytes)
                 }
             }
         }
@@ -280,7 +296,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     surfaceView?.retryViewportReport()
                     return
                 }
-                surfaceView?.applyViewSize(cols: effective.columns, rows: effective.rows)
+                // The viewport reply is the only acknowledgement of a phone-side
+                // resize the Mac does not push a render frame for (rotation,
+                // keyboard show/hide, zoom while the Mac pane is occluded). Route
+                // it through the SAME authoritative-grid path as the frame
+                // stream, carrying the generation, so the merged decision
+                // converges the pin without a stale reply ever rewinding a newer
+                // frame. No bytes follow this reply, so apply it deferred
+                // (immediate: false) to keep the fast-zoom/keyboard resize
+                // coalescing instead of an immediate per-reply set_size storm.
+                surfaceView?.confirmViewportReport()
+                surfaceView?.applyAuthoritativeGrid(effective, immediate: false)
             }
         }
 

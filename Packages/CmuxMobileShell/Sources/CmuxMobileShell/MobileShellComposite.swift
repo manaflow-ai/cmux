@@ -3734,11 +3734,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// and receives VT patch bytes derived from render-grid frames. Raw PTY bytes
     /// flow through the same continuation as a compatibility fallback for older
     /// Mac hosts.
-    private var terminalByteContinuationsBySurfaceID: [String: AsyncStream<Data>.Continuation] = [:]
+    private var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation] = [:]
 
-    /// Yield a chunk of output bytes to the surface's stream, if one is attached.
-    private func deliverTerminalBytes(_ bytes: Data, surfaceID: String) {
-        terminalByteContinuationsBySurfaceID[surfaceID]?.yield(bytes)
+    /// Yield a chunk of output bytes (plus the authoritative grid that produced
+    /// them, when known) to the surface's stream, if one is attached.
+    ///
+    /// `grid` is the Mac's live cell grid carried by the render-grid frame these
+    /// bytes came from; the surface pins its geometry from it atomically with
+    /// applying the bytes. `nil` for the raw-byte fallback (older Mac host),
+    /// which leaves the pin untouched.
+    private func deliverTerminalBytes(_ bytes: Data, surfaceID: String, grid: MobileTerminalGridPin? = nil) {
+        terminalByteContinuationsBySurfaceID[surfaceID]?.yield(
+            MobileTerminalOutputChunk(bytes: bytes, grid: grid)
+        )
     }
 
     /// Whether a surface currently has an attached output stream consumer.
@@ -3748,7 +3756,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func registerTerminalOutput(
         surfaceID: String,
-        continuation: AsyncStream<Data>.Continuation
+        continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
     ) {
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -3774,8 +3782,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// to current state; ending iteration (or cancelling the consuming task)
     /// unregisters the surface and clears its viewport pin on the Mac.
     /// - Parameter surfaceID: The terminal surface identifier.
-    /// - Returns: An `AsyncStream` of output byte chunks.
-    public func terminalOutputStream(surfaceID: String) -> AsyncStream<Data> {
+    /// - Returns: An `AsyncStream` of output chunks; each carries the VT bytes
+    ///   to apply and, for a render-grid frame, the authoritative Mac grid that
+    ///   produced them so the surface pins its geometry atomically.
+    public func terminalOutputStream(surfaceID: String) -> AsyncStream<MobileTerminalOutputChunk> {
         AsyncStream { continuation in
             registerTerminalOutput(surfaceID: surfaceID, continuation: continuation)
             continuation.onTermination = { [weak self] _ in
@@ -3795,7 +3805,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         surfaceID: String,
         columns: Int,
         rows: Int
-    ) async -> (columns: Int, rows: Int)? {
+    ) async -> MobileTerminalGridPin? {
         guard columns > 0, rows > 0,
               let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
@@ -3818,7 +3828,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   let grid = payload.effectiveGrid else {
                 return nil
             }
-            return (grid.columns, grid.rows)
+            // Carry the generation so the surface can order this out-of-band
+            // reply against the live render-grid frame stream.
+            return MobileTerminalGridPin(
+                columns: grid.columns,
+                rows: grid.rows,
+                geometrySeq: payload.geometryGen
+            )
         } catch {
             mobileShellLog.error("viewport report failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
             return nil
@@ -3905,14 +3921,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return
                 }
                 let deliverBytes: Data?
+                // The authoritative Mac grid carried by THIS replay so the
+                // surface pins its geometry from the same frame it applies. The
+                // render-grid frame is the source of truth; the snapshot/raw
+                // fallbacks still carry the Mac cols/rows in the response
+                // (`columns`/`rows`) so even those size the pin on attach.
+                var deliverGrid: MobileTerminalGridPin?
                 if let renderGrid {
                     deliverBytes = renderGrid.vtPatchBytes()
-                    MobileDebugLog.anchormux("CMUX_REPLAY render_grid surface=\(surfaceID) spans=\(renderGrid.rowSpans.count) seq=\(renderGrid.stateSeq)")
+                    deliverGrid = MobileTerminalGridPin(
+                        columns: renderGrid.columns,
+                        rows: renderGrid.rows,
+                        geometrySeq: renderGrid.geometryGen
+                    )
+                    MobileDebugLog.anchormux("CMUX_REPLAY render_grid surface=\(surfaceID) spans=\(renderGrid.rowSpans.count) seq=\(renderGrid.stateSeq) gen=\(renderGrid.geometryGen) grid=\(renderGrid.columns)x\(renderGrid.rows)")
                 } else if let snapshotBytes, !snapshotBytes.isEmpty {
                     deliverBytes = Self.terminalSnapshotReplacementBytes(snapshotBytes)
+                    deliverGrid = replayResponseGridPin(payload)
                     MobileDebugLog.anchormux("CMUX_REPLAY snapshot surface=\(surfaceID) bytes=\(snapshotBytes.count) seq=\(replaySeq ?? 0)")
                 } else {
                     deliverBytes = bytes
+                    deliverGrid = replayResponseGridPin(payload)
                     MobileDebugLog.anchormux("CMUX_REPLAY raw_tail surface=\(surfaceID) bytes=\(bytes?.count ?? -1) seq=\(replaySeq ?? 0)")
                 }
                 if let replaySeq {
@@ -3921,7 +3950,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard let deliverBytes, !deliverBytes.isEmpty else {
                     return
                 }
-                self.deliverTerminalBytes(deliverBytes, surfaceID: surfaceID)
+                self.deliverTerminalBytes(deliverBytes, surfaceID: surfaceID, grid: deliverGrid)
             } catch {
                 mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
                 // The replay request is the view-only/foreground-resume path. A
@@ -3964,10 +3993,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let bytes = renderGrid.vtPatchBytes()
         markTerminalBytesDelivered(surfaceID: renderGrid.surfaceID, endSeq: renderGrid.stateSeq)
         #if DEBUG
-        mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
+        mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) grid=\(renderGrid.columns, privacy: .public)x\(renderGrid.rows, privacy: .public) hasSink=true")
         #endif
         guard !bytes.isEmpty else { return }
-        deliverTerminalBytes(bytes, surfaceID: renderGrid.surfaceID)
+        // Carry the authoritative Mac grid this frame was rendered at so the
+        // surface pins its geometry from the same frame whose bytes it applies.
+        // This is the one push source for the pin: a Mac-side resize (or the
+        // initial attach) updates the grid here with no phone-initiated report.
+        // The generation orders this frame against the out-of-band viewport RPC
+        // reply (`stateSeq` cannot: it is a byte sequence that does not advance
+        // on a pure resize).
+        let grid = MobileTerminalGridPin(
+            columns: renderGrid.columns,
+            rows: renderGrid.rows,
+            geometrySeq: renderGrid.geometryGen
+        )
+        deliverTerminalBytes(bytes, surfaceID: renderGrid.surfaceID, grid: grid)
     }
 
     private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {
@@ -4285,4 +4326,18 @@ private extension MobileWorkspacePreview {
     var hasReadyTerminal: Bool {
         terminals.contains(where: \.isReady)
     }
+}
+
+/// The authoritative grid pin for a snapshot/raw-tail replay (no render-grid
+/// frame), drawn from the host `columns`/`rows` the replay response carries.
+/// `nil` when the host reported no grid, so the pin is left to the first live
+/// render-grid frame instead.
+private func replayResponseGridPin(
+    _ payload: MobileTerminalReplayResponse?
+) -> MobileTerminalGridPin? {
+    guard let payload, let columns = payload.columns, let rows = payload.rows,
+          columns > 0, rows > 0 else {
+        return nil
+    }
+    return MobileTerminalGridPin(columns: columns, rows: rows, geometrySeq: payload.geometryGen)
 }

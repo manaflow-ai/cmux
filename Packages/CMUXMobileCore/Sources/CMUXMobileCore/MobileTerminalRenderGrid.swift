@@ -16,6 +16,13 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public var format: String
     public var surfaceID: String
     public var stateSeq: UInt64
+    /// Monotonic generation of the authoritative grid (post-cap cols×rows),
+    /// stamped by the Mac. Unlike ``stateSeq`` (a byte sequence that does not
+    /// advance on a pure resize), this advances exactly when the exported grid
+    /// changes, so the phone can order geometry across its two channels (the
+    /// ordered frame stream and the out-of-band viewport RPC reply). 0 from a
+    /// legacy host that does not stamp it.
+    public var geometryGen: UInt64
     public var columns: Int
     public var rows: Int
     public var cursor: Cursor?
@@ -48,6 +55,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         format: String = Self.currentFormat,
         surfaceID: String,
         stateSeq: UInt64,
+        geometryGen: UInt64 = 0,
         columns: Int,
         rows: Int,
         cursor: Cursor? = nil,
@@ -124,6 +132,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.format = format
         self.surfaceID = surfaceID
         self.stateSeq = stateSeq
+        self.geometryGen = geometryGen
         self.columns = columns
         self.rows = rows
         self.cursor = cursor
@@ -145,6 +154,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let format = try container.decode(String.self, forKey: .format)
         let surfaceID = try container.decode(String.self, forKey: .surfaceID)
         let stateSeq = try container.decode(UInt64.self, forKey: .stateSeq)
+        let geometryGen = try container.decodeIfPresent(UInt64.self, forKey: .geometryGen) ?? 0
         let columns = try container.decode(Int.self, forKey: .columns)
         let rows = try container.decode(Int.self, forKey: .rows)
         let cursor = try container.decodeIfPresent(Cursor.self, forKey: .cursor)
@@ -163,6 +173,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             format: format,
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            geometryGen: geometryGen,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -279,6 +290,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            geometryGen: geometryGen,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -391,6 +403,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         case format
         case surfaceID = "surface_id"
         case stateSeq = "state_seq"
+        case geometryGen = "geometry_gen"
         case columns
         case rows
         case cursor

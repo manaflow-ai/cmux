@@ -206,6 +206,7 @@ final class MobileTerminalRenderObserver {
                 guard let emptyFrame = try? MobileTerminalRenderGridFrame(
                     surfaceID: snapshot.frame.surfaceID,
                     stateSeq: snapshot.frame.stateSeq,
+                    geometryGen: snapshot.frame.geometryGen,
                     columns: snapshot.frame.columns,
                     rows: snapshot.frame.rows,
                     cursor: snapshot.frame.cursor,

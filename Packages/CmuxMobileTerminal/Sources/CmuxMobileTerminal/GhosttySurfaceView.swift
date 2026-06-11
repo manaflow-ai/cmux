@@ -848,6 +848,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// container so every attached device renders at the same grid. When
     /// nil, the surface fills the container's natural capacity.
     private var effectiveGrid: (cols: Int, rows: Int)?
+    /// The single merged high-water mark of the authoritative grid across both
+    /// channels: the ordered render-grid frame stream and the out-of-band
+    /// viewport RPC reply. Every live frame and the cold-attach replay carry the
+    /// Mac's grid + generation, so the surface converges on attach and on any
+    /// Mac-side resize without a phone-initiated viewport round-trip. The
+    /// generation order key (see `mobileTerminalGeometryPinVerdict`) ensures a
+    /// stale frame can never overwrite a newer grid, and lets the surface drop a
+    /// stale frame's bytes.
+    private var geometryPin: MobileTerminalGridPin?
     /// Cached cell metrics derived from the most recent
     /// `ghostty_surface_size` measurement. Used to translate an effective
     /// cols×rows pin into a pixel box without re-round-tripping through
@@ -2836,7 +2845,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// effective grid, so a transient RPC drop does not leave the render pinned
     /// to a stale effective grid (the "stuck letterbox" freeze). Bounded and
     /// display-link driven (the existing settle machinery re-fires it); a
-    /// confirmed `applyViewSize` resets the counter. No-op once the cap is hit.
+    /// confirmed round-trip (``confirmViewportReport()``) resets the counter.
+    /// No-op once the cap is hit.
     public func retryViewportReport() {
         guard viewportReportRetries < Self.maxViewportReportRetries,
               let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
@@ -2849,20 +2859,104 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         viewportReportSettleFrames = 0
     }
 
+    /// Merge an authoritative Mac grid (from a render-grid frame or the viewport
+    /// reply) into the surface's single high-water-marked pin, and report
+    /// whether the accompanying bytes are stale and must be dropped.
+    ///
+    /// The surface holds the only merged generation across both channels (the
+    /// ordered frame stream and the out-of-band viewport reply), so it is the
+    /// sole authority on staleness. A frame older than the mark is superseded by
+    /// a newer full frame, so its bytes would repaint stale content — the caller
+    /// must drop them.
+    ///
+    /// - Parameters:
+    ///   - grid: The Mac grid + generation carried by this frame/reply.
+    ///   - immediate: `true` for a stream chunk (resize enqueued on the serial
+    ///     output queue NOW, before the chunk's `processOutput`, so grid and
+    ///     content stay atomic); `false` for the viewport reply / harness echo
+    ///     (no bytes follow, so defer to the display link and keep the
+    ///     resize-storm coalescing).
+    /// - Returns: `true` when the frame is stale and its bytes must be dropped.
+    @discardableResult
+    public func applyAuthoritativeGrid(
+        _ grid: MobileTerminalGridPin,
+        immediate: Bool = false
+    ) -> Bool {
+        let verdict = mobileTerminalGeometryPinVerdict(
+            current: geometryPin,
+            incomingColumns: grid.columns,
+            incomingRows: grid.rows,
+            incomingSeq: grid.geometrySeq
+        )
+        switch verdict {
+        case .stale:
+            return true
+        case .keep:
+            return false
+        case let .update(next):
+            geometryPin = next
+            MobileDebugLog.anchormux(
+                "geom.pin eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->"
+                + "\(next.columns)x\(next.rows) seq=\(next.geometrySeq) immediate=\(immediate)"
+            )
+            pinEffectiveGrid(cols: next.columns, rows: next.rows, applyImmediately: immediate)
+            return false
+        }
+    }
+
+    /// Acknowledge that a phone-side viewport report round-trip succeeded.
+    ///
+    /// The reply's grid is applied separately via ``applyAuthoritativeGrid``
+    /// (carrying the Mac's generation), so this only resets the bounded retry
+    /// counter that ``retryViewportReport()`` drives when a round-trip returns
+    /// no effective grid.
+    public func confirmViewportReport() {
+        viewportReportRetries = 0
+    }
+
+    /// Compatibility entry point that pins directly from cols×rows with no
+    /// generation (used by the zoom stress harness's synthetic Mac echo). Routes
+    /// through ``applyAuthoritativeGrid`` with a locally-advancing generation so
+    /// it always counts as a newer grid and the monotonic pin path is exercised.
+    /// Deferred (not immediate): the harness echo carries no paired bytes.
     public func applyViewSize(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
-        // A value came back from the Mac, so the round-trip recovered.
-        viewportReportRetries = 0
+        confirmViewportReport()
+        let nextGen = (geometryPin?.geometrySeq ?? 0) &+ 1
+        applyAuthoritativeGrid(
+            MobileTerminalGridPin(columns: cols, rows: rows, geometrySeq: nextGen),
+            immediate: false
+        )
+    }
+
+    /// Apply a resolved effective grid to the surface. Shared by the push path
+    /// (``applyAuthoritativeGrid``) and the compatibility ``applyViewSize``
+    /// entry point.
+    ///
+    /// - Parameter applyImmediately: When `true`, enqueue the libghostty resize
+    ///   on the serial `outputQueue` now (via ``syncSurfaceGeometry``) so it
+    ///   precedes the frame's bytes; when `false`, defer to the next
+    ///   display-link frame so a burst coalesces into one apply.
+    private func pinEffectiveGrid(cols: Int, rows: Int, applyImmediately: Bool = false) {
+        guard cols > 0, rows > 0 else { return }
         if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
         MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
         effectiveGrid = (cols, rows)
-        // Mark dirty instead of recomputing synchronously. This breaks the
-        // feedback loop (didResize → updateTerminalViewport RPC → applyViewSize
-        // → syncSurfaceGeometry → didResize …) that, under fast zoom, drove a
-        // storm of set_size calls + viewport RPCs. Geometry now settles once
-        // per frame, and reassert=false avoids re-reporting the unchanged
+        // For a grid-bearing frame, resize on the output queue NOW so it lands
+        // before this frame's `process_output` (FIFO on the same serial queue),
+        // keeping grid and content atomic. Otherwise mark dirty and let the
+        // display link coalesce: that breaks the feedback loop (didResize →
+        // viewport RPC → applyAuthoritativeGrid → syncSurfaceGeometry →
+        // didResize …) that, under fast zoom, drove a storm of set_size calls +
+        // viewport RPCs. reassert=false avoids re-reporting the unchanged
         // natural grid back through the round trip.
-        setNeedsGeometrySync(reassertNaturalSize: false)
+        if applyImmediately, window != nil {
+            zoomSettleFrames = nil
+            needsDraw = true
+            syncSurfaceGeometry(shouldReassertNaturalSize: false)
+        } else {
+            setNeedsGeometrySync(reassertNaturalSize: false)
+        }
     }
 
     /// Pure libghostty resize refinement; `nonisolated` so it runs on the

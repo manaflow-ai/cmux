@@ -5476,6 +5476,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var lastXScale: CGFloat = 0
     private var lastYScale: CGFloat = 0
     private var mobileViewportCellLimit: (columns: Int, rows: Int)?
+    /// Monotonic generation of the authoritative mobile grid (post-cap
+    /// cols×rows). Bumped lazily whenever the exported grid changes, so the
+    /// render-grid frame and the viewport/replay replies all stamp the SAME
+    /// value for one grid and a newer value after any resize. The phone uses it
+    /// to order geometry across its two channels (the ordered frame stream and
+    /// the out-of-band viewport RPC reply), which `stateSeq` cannot do because
+    /// it is a byte sequence that does not advance on a pure resize.
+    private var mobileGeometryGeneration: UInt64 = 0
+    private var lastMobileGeometryGrid: (columns: Int, rows: Int)?
     private let debugMetadataLock = NSLock()
     private let createdAt: Date = Date()
     private var runtimeSurfaceCreatedAt: Date?
@@ -7273,6 +7282,30 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return Self.readText(surface: surface, pointTag: GHOSTTY_POINT_VIEWPORT)
     }
 
+    /// The current authoritative mobile-grid generation, bumping it if the
+    /// exported (post-cap) grid has changed since it was last observed.
+    ///
+    /// Read at every point that exports the grid (the render-grid frame and the
+    /// viewport/replay replies), so a single grid yields one stable generation
+    /// across all channels and any resize yields a strictly newer one. Reading
+    /// the live `ghostty_surface_size` here means the value is correct no matter
+    /// which write path (`updateSize` / `applyMobileViewportLimit`) produced the
+    /// change, without instrumenting each one.
+    @MainActor
+    func currentMobileGeometryGeneration() -> UInt64 {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileGeometryGeneration") else {
+            return mobileGeometryGeneration
+        }
+        let size = ghostty_surface_size(surface)
+        let grid = (columns: max(1, Int(size.columns)), rows: max(1, Int(size.rows)))
+        if lastMobileGeometryGrid?.columns != grid.columns ||
+            lastMobileGeometryGrid?.rows != grid.rows {
+            lastMobileGeometryGrid = grid
+            mobileGeometryGeneration &+= 1
+        }
+        return mobileGeometryGeneration
+    }
+
     @MainActor
     func mobileRenderGridFrame(
         stateSeq: UInt64,
@@ -7295,9 +7328,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let ptr = exported.ptr, exported.len > 0 else { return nil }
 
         let data = Data(bytes: ptr, count: Int(exported.len))
-        guard let fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
+        guard var fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
             return nil
         }
+        // The Zig render-grid export does not carry the geometry generation, so
+        // stamp the current one here. The phone uses it to order geometry across
+        // its two channels (the ordered frame stream and the viewport RPC
+        // reply); reading the gen now reflects this exact exported grid.
+        fullFrame.geometryGen = currentMobileGeometryGeneration()
         let frame: MobileTerminalRenderGridFrame
         if full, changedRows == nil {
             frame = fullFrame
