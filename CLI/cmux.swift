@@ -22095,7 +22095,11 @@ struct CMUXCLI {
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId,
+                    surfaceId: claudeHookStalenessSurfaceId(
+                        resolvedSurfaceId: surfaceId,
+                        recordSurfaceId: nil,
+                        environmentSurfaceId: surfaceArg
+                    ),
                     telemetry: telemetry
                 )
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
@@ -22153,7 +22157,11 @@ struct CMUXCLI {
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId,
+                    surfaceId: claudeHookStalenessSurfaceId(
+                        resolvedSurfaceId: surfaceId,
+                        recordSurfaceId: mappedSession?.surfaceId,
+                        environmentSurfaceId: surfaceArg
+                    ),
                     telemetry: telemetry
                 ) else {
                     telemetry.breadcrumb("claude-hook.stop.stale")
@@ -22256,7 +22264,11 @@ struct CMUXCLI {
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId,
+                    surfaceId: claudeHookStalenessSurfaceId(
+                        resolvedSurfaceId: surfaceId,
+                        recordSurfaceId: mappedSession?.surfaceId,
+                        environmentSurfaceId: surfaceArg
+                    ),
                     telemetry: telemetry
                 ) ||
                 shouldReplaceStoppedClaudeSession(
@@ -22358,7 +22370,11 @@ struct CMUXCLI {
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId,
+                surfaceId: claudeHookStalenessSurfaceId(
+                    resolvedSurfaceId: surfaceId,
+                    recordSurfaceId: mappedSession?.surfaceId,
+                    environmentSurfaceId: surfaceArg
+                ),
                 telemetry: telemetry
             ) else {
                 telemetry.breadcrumb("claude-hook.notification.stale")
@@ -22533,7 +22549,11 @@ struct CMUXCLI {
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId,
+                surfaceId: claudeHookStalenessSurfaceId(
+                    resolvedSurfaceId: surfaceId,
+                    recordSurfaceId: mappedSession?.surfaceId,
+                    environmentSurfaceId: surfaceArg
+                ),
                 telemetry: telemetry
             ) else {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.stale")
@@ -22729,6 +22749,22 @@ struct CMUXCLI {
         } else {
             print(response)
         }
+    }
+
+    /// The resolved surface is authoritative for cross-surface staleness only
+    /// when it matches the hook's own identity: the session record's stored
+    /// surface or the hook process's CMUX_SURFACE_ID. When resolution fell back
+    /// to the caller/focused surface (e.g. the hook's pane was closed), return
+    /// nil so staleness stays workspace-scoped and a late hook cannot borrow
+    /// another pane. https://github.com/manaflow-ai/cmux/issues/5908
+    private func claudeHookStalenessSurfaceId(
+        resolvedSurfaceId: String,
+        recordSurfaceId: String?,
+        environmentSurfaceId: String?
+    ) -> String? {
+        let authoritativeSurfaceIds = [recordSurfaceId, environmentSurfaceId]
+            .compactMap(nonEmptyClaudeHookIdentifier)
+        return authoritativeSurfaceIds.contains(resolvedSurfaceId) ? resolvedSurfaceId : nil
     }
 
     private func shouldApplyClaudeHookVisibleMutation(
