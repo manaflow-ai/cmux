@@ -289,4 +289,39 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             "A lifecycle-backed needs-input status must survive the cap even without a PID"
         )
     }
+
+    // cmux-owned status keys (remote.error, remote.port_conflicts) carry
+    // application state and must never be evicted, even with the worst-case
+    // ranking inputs (oldest timestamp, lowest priority, no agent runtime),
+    // because remote-connection handling reads them back (#5845).
+    func testStatusCapNeverEvictsReservedCmuxOwnedKeys() {
+        let workspace = Workspace()
+        let cap = 200
+
+        for reservedKey in Workspace.reservedSidebarStatusKeys {
+            workspace.statusEntries[reservedKey] = SidebarStatusEntry(
+                key: reservedKey,
+                value: "state",
+                priority: -100,
+                timestamp: Date(timeIntervalSince1970: 0)
+            )
+        }
+
+        for index in 0..<(cap * 2) {
+            workspace.statusEntries["key_\(index)"] = SidebarStatusEntry(
+                key: "key_\(index)",
+                value: "value_\(index)",
+                priority: 100,
+                timestamp: Date(timeIntervalSince1970: TimeInterval(index + 100))
+            )
+        }
+
+        XCTAssertLessThanOrEqual(workspace.statusEntries.count, cap)
+        for reservedKey in Workspace.reservedSidebarStatusKeys {
+            XCTAssertNotNil(
+                workspace.statusEntries[reservedKey],
+                "cmux-owned reserved status key \(reservedKey) must never be evicted by the cap"
+            )
+        }
+    }
 }

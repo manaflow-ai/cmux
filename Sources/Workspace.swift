@@ -10828,6 +10828,15 @@ final class Workspace: Identifiable, ObservableObject {
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
+    /// cmux-owned status keys that carry application state (not external agent
+    /// telemetry) and must never be evicted by the status cap. `remote.error`
+    /// is read by `hasProxyOnlyRemoteSidebarError` to preserve the connected
+    /// state during proxy-only reconnects, so dropping it under a status flood
+    /// would corrupt remote-connection handling (#5845 review).
+    static let reservedSidebarStatusKeys: Set<String> = [
+        remoteErrorStatusKey,
+        remotePortConflictStatusKey,
+    ]
     private static let remoteNotificationCooldown: TimeInterval = 5 * 60
     private static let sshControlMasterCleanupQueue = DispatchQueue(
         label: "com.cmux.remote-ssh.control-master-cleanup",
@@ -14474,10 +14483,11 @@ final class Workspace: Identifiable, ObservableObject {
     static let maxSidebarStatusEntries = 200
     static let maxSidebarMetadataBlocks = 200
 
-    /// Evicts status entries once the cap is exceeded. Statuses backed by a live
-    /// coupled agent PID are retained first (so an actively re-pinged agent
-    /// status that kept its original insertion timestamp can't be aged out by a
-    /// flood of newer distinct keys), then the rest follow the same
+    /// Evicts status entries once the cap is exceeded. Retention is tiered:
+    /// cmux-owned reserved keys (application state) first, then statuses backed
+    /// by a live agent (coupled PID or lifecycle state — so an actively updated
+    /// agent status that kept its original insertion timestamp can't be aged out
+    /// by a flood of newer distinct keys), then the rest follow the same
     /// priority/timestamp ordering as `sidebarStatusEntriesInDisplayOrder()`.
     /// Ranking and the keep-set are both keyed by the dictionary's storage key
     /// (not `entry.key`) so the two can never diverge.
@@ -14487,6 +14497,9 @@ final class Workspace: Identifiable, ObservableObject {
         let kept = Set(
             statusEntries
                 .sorted { lhs, rhs in
+                    let lhsReserved = Self.reservedSidebarStatusKeys.contains(lhs.key)
+                    let rhsReserved = Self.reservedSidebarStatusKeys.contains(rhs.key)
+                    if lhsReserved != rhsReserved { return lhsReserved }
                     let lhsLive = liveAgentStatusKeys.contains(lhs.key)
                     let rhsLive = liveAgentStatusKeys.contains(rhs.key)
                     if lhsLive != rhsLive { return lhsLive }
