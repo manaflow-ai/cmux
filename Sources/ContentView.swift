@@ -15742,15 +15742,12 @@ struct TabItemView: View, Equatable {
             scaledCloseButtonHitSize
         )
 
-        HStack(alignment: .top, spacing: 10) {
-            // Drives off-main resolution from a lifecycle hook (never body).
-            // Keyed on the project root so a changed directory re-resolves.
-            Color.clear
-                .frame(width: 0, height: 0)
-                .task(id: projectIdentityRoot) { requestProjectIdentity() }
-
-            // Large leading project icon, or a neutral placeholder that
-            // reserves the same space until the identity resolves.
+        HStack(alignment: .center, spacing: 10) {
+            // Large leading project icon, vertically centered against the row's
+            // text column, or a neutral placeholder that reserves the same space
+            // until the identity resolves. The `.task` drives
+            // off-main resolution from a lifecycle hook (never body), keyed on the
+            // project root so a changed directory re-resolves.
             Group {
                 if let projectIdentity {
                     SidebarProjectIdentityIcon(identity: projectIdentity, side: projectIconSide)
@@ -15760,6 +15757,7 @@ struct TabItemView: View, Equatable {
                         .frame(width: projectIconSide, height: projectIconSide)
                 }
             }
+            .task(id: projectIdentityRoot) { requestProjectIdentity() }
 
             VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
