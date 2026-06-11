@@ -1,5 +1,5 @@
 /// A predicate over workspace rows, shared by every surface that lists
-/// workspaces (the device tree today; the flat list can adopt it next).
+/// workspaces (the flat workspace list and the device tree).
 ///
 /// Modeled as an enum so new filters (e.g. pinned, running agents) are added
 /// as cases with a `matches` arm, and every menu that offers filters picks up

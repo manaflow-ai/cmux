@@ -22,4 +22,12 @@ import Testing
         #expect(!MobileWorkspaceListFilter.unread.matches(workspace(hasUnread: false)))
         #expect(MobileWorkspaceListFilter.unread.isActive)
     }
+
+    /// The exact narrowing both list surfaces apply (`workspaces.filter(filter.matches)`):
+    /// unread keeps only unread rows, in order; all is the identity.
+    @Test func filteringNarrowsAWorkspaceArray() {
+        let rows = [workspace(hasUnread: false), workspace(hasUnread: true)]
+        #expect(rows.filter { MobileWorkspaceListFilter.unread.matches($0) }.map(\.id.rawValue) == ["unread"])
+        #expect(rows.filter { MobileWorkspaceListFilter.all.matches($0) }.count == rows.count)
+    }
 }
