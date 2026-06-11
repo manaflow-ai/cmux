@@ -47,6 +47,10 @@ REPO_ROOT="$(cd "$IOS_DIR/.." && pwd)"
 
 LANE="beta"
 TAG="beta"
+# TestFlight orders by marketing version FIRST: uploading below the testers'
+# installed marketing version makes the build invisible as an update (hit
+# 2026-06-10: 1.0.0 uploads hidden behind an installed 1.0.1). Override per cut.
+MARKETING_VERSION_OVERRIDE="${IOS_BETA_MARKETING_VERSION:-}"
 NO_UPLOAD=0
 EXTERNAL=0
 KEEP_ARTIFACTS=0
@@ -65,7 +69,7 @@ die() { err "$*"; exit 1; }
 
 usage() {
   cat <<'EOF'
-Usage: ios/scripts/cloud-testflight.sh [--no-upload] [--external] [--tag <tag>]
+Usage: ios/scripts/cloud-testflight.sh [--no-upload] [--external] [--tag <tag>] [--marketing-version <X.Y.Z>]
                                        [--host <name>] [--wait <seconds>]
                                        [--local] [--keep-artifacts]
 
@@ -98,6 +102,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-upload) NO_UPLOAD=1; shift ;;
+    --marketing-version) MARKETING_VERSION_OVERRIDE="${2:-}"; shift 2 ;;
     --external) EXTERNAL=1; shift ;;
     --tag) TAG="${2:-}"; shift 2 ;;
     --host) HOST_FILTER="${2:-}"; shift 2 ;;
@@ -144,6 +149,7 @@ build_archive_cloud() {
   log="$(mktemp "${TMPDIR:-/tmp}/cloud-testflight-cloud.XXXXXX")"
   err "building UNSIGNED Release beta archive on the fleet via $hq_cloud"
   local args=( --mode beta-archive --tag "$TAG" --keep-artifacts --beta-bundle-id "$BETA_BUNDLE_ID" )
+  [[ -n "$MARKETING_VERSION_OVERRIDE" ]] && export BETA_MARKETING_VERSION="$MARKETING_VERSION_OVERRIDE"
   [[ -n "$HOST_FILTER" ]] && args+=( --host "$HOST_FILTER" )
   [[ "$WAIT_SECONDS" =~ ^[0-9]+$ && "$WAIT_SECONDS" -gt 0 ]] && args+=( --wait "$WAIT_SECONDS" )
   # Run from the repo root so the hq script's "run from a cmux checkout" check and
@@ -188,6 +194,7 @@ build_archive_local() {
       -derivedDataPath "$out/DerivedData" \
       PRODUCT_BUNDLE_IDENTIFIER="$BETA_BUNDLE_ID" \
       CURRENT_PROJECT_VERSION="$build_number" \
+      ${MARKETING_VERSION_OVERRIDE:+MARKETING_VERSION="$MARKETING_VERSION_OVERRIDE"} \
       CODE_SIGNING_ALLOWED=NO \
       CODE_SIGNING_REQUIRED=NO \
       CODE_SIGN_IDENTITY="" \
