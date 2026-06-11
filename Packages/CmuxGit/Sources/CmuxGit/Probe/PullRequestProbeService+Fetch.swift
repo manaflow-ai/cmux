@@ -439,13 +439,14 @@ extension PullRequestProbeService {
     /// Resolves the API auth token for `host`, or `nil` when none is available.
     ///
     /// For `github.com`, `GH_TOKEN`/`GITHUB_TOKEN` is preferred, falling back to
-    /// `gh`. For enterprise hosts the token comes from
-    /// `gh auth token --hostname <host>`, but the ambient
-    /// `GH_ENTERPRISE_TOKEN`/`GITHUB_ENTERPRISE_TOKEN` is refused: `gh` returns
-    /// those for *any* non-`github.com` hostname, so a remote pointing at an
-    /// attacker-controlled host would otherwise be sent the user's enterprise
-    /// credential. Only a per-host stored credential (from
-    /// `gh auth login --hostname`) is trusted for enterprise hosts.
+    /// `gh`. For every other host the token comes from
+    /// `gh auth token --hostname <host>`, but any ambient token env var is
+    /// refused: `gh` hands `GH_ENTERPRISE_TOKEN`/`GITHUB_ENTERPRISE_TOKEN` to any
+    /// enterprise host and `GH_TOKEN`/`GITHUB_TOKEN` to `*.ghe.com` hosts, so a
+    /// remote pointing at an unverified host would otherwise be sent the user's
+    /// ambient credential. Only a per-host stored credential (from
+    /// `gh auth login --hostname`) — which differs from every ambient env token —
+    /// is trusted for non-`github.com` hosts.
     nonisolated func authToken(for host: GitHubHost) async -> String? {
         if host.isDotCom,
            let envToken = environment["GH_TOKEN"] ?? environment["GITHUB_TOKEN"] {
@@ -465,18 +466,20 @@ extension PullRequestProbeService {
             )
         }
 
-        if let resolved, !host.isDotCom, ambientEnterpriseTokens.contains(resolved) {
-            debugLog("workspace.prRefresh.token.reject host=\(host.hostname) reason=ambient-enterprise-token")
+        if let resolved, !host.isDotCom, ambientTokens.contains(resolved) {
+            debugLog("workspace.prRefresh.token.reject host=\(host.hostname) reason=ambient-token")
             return nil
         }
         return resolved
     }
 
-    /// The non-empty ambient enterprise tokens that `gh` would hand back for any
-    /// enterprise host; matching tokens are not trusted for an unverified host.
-    private var ambientEnterpriseTokens: Set<String> {
+    /// The non-empty ambient token env values that `gh` would hand back for a
+    /// non-`github.com` host (`GH_TOKEN`/`GITHUB_TOKEN` for `*.ghe.com`,
+    /// `GH_ENTERPRISE_TOKEN`/`GITHUB_ENTERPRISE_TOKEN` for enterprise hosts);
+    /// matching tokens are not trusted for an unverified host.
+    private var ambientTokens: Set<String> {
         Set(
-            ["GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]
+            ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]
                 .compactMap { environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
         )

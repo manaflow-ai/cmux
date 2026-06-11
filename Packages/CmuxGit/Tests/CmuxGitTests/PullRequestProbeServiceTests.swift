@@ -220,6 +220,20 @@ import CmuxProcess
         #expect(token == nil)
     }
 
+    @Test func authTokenRefusesAmbientPublicTokenForNonDotComHost() async {
+        // gh hands GH_TOKEN/GITHUB_TOKEN to *.ghe.com hosts, so an ambient public
+        // GitHub token must not be sent to a non-github.com host either.
+        let recorder = CommandRunnerRecorder(stdout: "gho_public\n")
+        let service = PullRequestProbeService(
+            commandRunner: recorder,
+            environment: ["GH_TOKEN": "gho_public"]
+        )
+
+        let token = await service.authToken(for: GitHubHost(hostname: "attacker.ghe.com"))
+
+        #expect(token == nil)
+    }
+
     @Test func authTokenTrustsPerHostStoredEnterpriseToken() async {
         // A per-host credential from `gh auth login --hostname` differs from the
         // ambient enterprise env token, so it is trusted and used.
