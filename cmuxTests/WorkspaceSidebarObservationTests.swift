@@ -257,4 +257,36 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             "The retained live status must keep its coupled agent PID"
         )
     }
+
+    // Some active agent statuses are lifecycle-backed with no PID — e.g. a
+    // FeedCoordinator needs-input badge recorded via setAgentLifecycle. These
+    // must also survive the cap; evicting one would hide a pending agent
+    // decision (#5845).
+    func testStatusCapRetainsLifecycleBackedStatusWithoutPID() {
+        let workspace = Workspace()
+        let cap = 200
+        let panelId = UUID()
+
+        // Oldest timestamp, no PID, but lifecycle-backed (needs input).
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input",
+            timestamp: Date(timeIntervalSince1970: 0)
+        )
+        workspace.agentLifecycleStatesByPanelId[panelId] = ["claude_code": .needsInput]
+
+        for index in 0..<(cap * 2) {
+            workspace.statusEntries["key_\(index)"] = SidebarStatusEntry(
+                key: "key_\(index)",
+                value: "value_\(index)",
+                timestamp: Date(timeIntervalSince1970: TimeInterval(index + 100))
+            )
+        }
+
+        XCTAssertLessThanOrEqual(workspace.statusEntries.count, cap)
+        XCTAssertNotNil(
+            workspace.statusEntries["claude_code"],
+            "A lifecycle-backed needs-input status must survive the cap even without a PID"
+        )
+    }
 }

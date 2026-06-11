@@ -261,12 +261,13 @@ extension Workspace {
         recomputeListeningPorts()
     }
 
-    /// Status keys that currently have a coupled agent PID / ownership record,
-    /// i.e. statuses backed by a live (or recently pinged) agent process. The
-    /// status cap ranks these ahead of plain telemetry so a noisy flood of
-    /// distinct keys can't evict an active agent status that kept its original
-    /// insertion timestamp because its `set_status --pid` re-pings were display
-    /// no-ops (#5845).
+    /// Status keys backed by active agent runtime — either a coupled agent PID /
+    /// ownership record, or an agent lifecycle state (e.g. a `needsInput` badge
+    /// recorded via `setAgentLifecycle` with no PID, as `FeedCoordinator` does).
+    /// The status cap ranks these ahead of plain telemetry so a noisy flood of
+    /// distinct keys can't evict an active agent status — one whose display
+    /// timestamp went stale because its updates were no-ops, or a pending
+    /// needs-input decision — and hide it (#5845).
     func statusKeysWithCoupledAgentRuntime() -> Set<String> {
         var keys = Set<String>()
         for pidKey in agentPIDs.keys {
@@ -274,6 +275,10 @@ extension Workspace {
         }
         for pidKey in agentPIDPanelIdsByKey.keys {
             keys.insert(agentStatusKey(forAgentPIDKey: pidKey))
+        }
+        // Lifecycle state is keyed directly by status key (per panel).
+        for lifecycleStates in agentLifecycleStatesByPanelId.values {
+            keys.formUnion(lifecycleStates.keys)
         }
         return keys
     }
