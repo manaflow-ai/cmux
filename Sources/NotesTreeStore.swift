@@ -58,6 +58,8 @@ final class NotesTreeStore: ObservableObject {
     private var visibilityRefreshTask: Task<Void, Never>?
     private var emptyObservationRetryTask: Task<Void, Never>?
     private var lastMarkerRefresh: Date?
+    /// Rotation cursor for the bounded foreign-cwd live-session scans.
+    private var liveScanRotation = 0
     /// Floor between appear-triggered marker refreshes; Refresh bypasses it.
     private let markerRefreshMinInterval: TimeInterval = 30
     /// Consecutive refresh passes that observed no pane sessions. The shared
@@ -403,8 +405,24 @@ final class NotesTreeStore: ObservableObject {
                 let recordCwd = (record.cwd as NSString).standardizingPath
                 if !recordCwd.isEmpty { cwds.insert(recordCwd) }
             }
+            // Bound the per-tick fan-out: every cwd costs a real agent-store
+            // scan and this runs on the visible-sidebar cadence. The
+            // workspace cwd refreshes every tick; foreign cwds (dragged-in
+            // sessions/folders) rotate through a fixed budget across ticks,
+            // which is safe because applySessionRefresh leaves unmatched
+            // folders untouched until their turn comes around.
+            let otherCwds = cwds.subtracting([workspaceCwd]).sorted()
+            let foreignBudget = 7
+            let scanOthers: [String]
+            if otherCwds.count <= foreignBudget {
+                scanOthers = otherCwds
+            } else {
+                let start = self?.liveScanRotation ?? 0
+                scanOthers = (0..<foreignBudget).map { otherCwds[(start + $0) % otherCwds.count] }
+                self?.liveScanRotation = (start + foreignBudget) % otherCwds.count
+            }
             var live: [NotesSessionDescriptor] = []
-            for scanCwd in cwds.sorted() {
+            for scanCwd in [workspaceCwd] + scanOthers {
                 guard !Task.isCancelled else { return }
                 let entries = await SessionIndexStore.loadLiveSessionEntries(cwdFilter: scanCwd)
                 live.append(contentsOf: entries.map { entry in
