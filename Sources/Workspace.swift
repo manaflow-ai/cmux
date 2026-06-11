@@ -2303,7 +2303,13 @@ extension Workspace {
 
 }
 
-final class WorkspaceRemoteSessionController {
+// Isolation: every mutable property is confined to the private serial `queue`
+// (the `*Locked` methods); callbacks handed to the broker, Dispatch timers, and
+// Process handlers capture `self` from other queues by long-standing contract
+// and immediately hop onto `queue`. `@unchecked Sendable` because those
+// `@Sendable` callbacks (e.g. the broker's acquire onUpdate) capture `self`;
+// queue confinement is the safety argument, same as the lifted tunnel/broker.
+final class WorkspaceRemoteSessionController: @unchecked Sendable {
 #if DEBUG
     // XCTest seam: tests assign this before starting a controller and clear it
     // after disconnect teardown; production/debug app code leaves it nil. The
