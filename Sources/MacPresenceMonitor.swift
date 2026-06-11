@@ -130,50 +130,41 @@ struct MacPresenceDecisionCache {
 /// ORs both (`MacPresenceMonitor.consoleSessionActiveAndUnlocked`). If both
 /// miss a lock, the failure mode is bounded: the 120 s hardware-idle rule
 /// flips the Mac to away on its own shortly after the user leaves.
-final class ScreenLockObserver: NSObject {
+@MainActor
+final class ScreenLockObserver {
     static let shared = ScreenLockObserver()
 
-    private let stateLock = NSLock()
-    private var observedLocked = false
+    private(set) var isLockedObserved = false
 
-    var isLockedObserved: Bool {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return observedLocked
-    }
+    /// Retained for the life of the process; the observer is a singleton
+    /// whose lifetime is the app's.
+    private var observerTokens: [any NSObjectProtocol] = []
 
-    private override init() {
-        super.init()
+    private init() {
         let center = DistributedNotificationCenter.default()
-        center.addObserver(
-            self,
-            selector: #selector(screenDidLock),
-            name: Notification.Name("com.apple.screenIsLocked"),
-            object: nil
-        )
-        center.addObserver(
-            self,
-            selector: #selector(screenDidUnlock),
-            name: Notification.Name("com.apple.screenIsUnlocked"),
-            object: nil
-        )
-    }
-
-    @objc private func screenDidLock() {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        observedLocked = true
-    }
-
-    @objc private func screenDidUnlock() {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        observedLocked = false
+        observerTokens.append(center.addObserver(
+            forName: Notification.Name("com.apple.screenIsLocked"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.isLockedObserved = true }
+        })
+        observerTokens.append(center.addObserver(
+            forName: Notification.Name("com.apple.screenIsUnlocked"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.isLockedObserved = false }
+        })
     }
 }
 
 extension MacPresenceMonitor {
-    /// Production monitor backed by the real WindowServer/HID signals.
+    /// Production monitor backed by the real WindowServer/HID signals. The
+    /// live monitor is owned and evaluated by `PhonePushClient` on the main
+    /// actor; `liveConsoleSessionActiveAndUnlocked` asserts that isolation
+    /// when it reads the lock observer.
+    @MainActor
     static func live(now: @escaping () -> Date = Date.init) -> MacPresenceMonitor {
         // Start observing lock transitions as early as possible so the
         // notification-based source has seen any lock that predates the
@@ -192,9 +183,15 @@ extension MacPresenceMonitor {
     }
 
     private static func liveConsoleSessionActiveAndUnlocked() -> Bool {
-        consoleSessionActiveAndUnlocked(
+        // The live monitor's evaluation context is the main actor (it is
+        // owned by the @MainActor PhonePushClient); assumeIsolated makes
+        // that contract explicit and traps loudly if it is ever violated.
+        let observedScreenLocked = MainActor.assumeIsolated {
+            ScreenLockObserver.shared.isLockedObserved
+        }
+        return consoleSessionActiveAndUnlocked(
             sessionDictionary: CGSessionCopyCurrentDictionary() as? [String: Any],
-            observedScreenLocked: ScreenLockObserver.shared.isLockedObserved
+            observedScreenLocked: observedScreenLocked
         )
     }
 

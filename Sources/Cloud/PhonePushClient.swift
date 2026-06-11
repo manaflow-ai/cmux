@@ -116,7 +116,11 @@ final class PhonePushClient {
 
         // The throttle slot is consumed only after the gate passes, so a
         // suppressed notification does not block a forwardable one moments
-        // later.
+        // later. Suppressed bursts therefore re-enter this method per
+        // notification, but each suppressed pass is O(1) cheap work (defaults
+        // read + cache hit): live WindowServer/HID sampling stays bounded to
+        // once per cache TTL globally, which is stricter than the per-key
+        // bound this throttle provides for sends.
         lastSentAt[key] = now
 
         let hideContent = UserDefaults.standard.bool(forKey: PhonePushSettings.hideContentKey)
