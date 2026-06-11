@@ -230,6 +230,11 @@ extension ShortcutAction {
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .sendCtrlFToTerminal:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+        case .focusHistoryBack, .focusHistoryForward:
+            // ⌘[ / ⌘] are the browser pane's Back/Forward. Scope workspace
+            // focus-history navigation out of browser panels so it yields the
+            // chord there instead of colliding with browserBack/browserForward.
+            return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .browserBack, .browserForward, .browserReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
              .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode,
