@@ -1815,18 +1815,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // post-handshake via `mobile.host.status`. Until it does, keep any
         // name we already know for this Mac instead of clobbering it with
         // nil (the store's upsert overwrites the column unconditionally).
-        var displayName = ticket.macDisplayName
-        if displayName == nil {
-            let knownMacs = try? await pairedMacStore.loadAll(stackUserID: nil)
-            displayName = knownMacs?.first { $0.macDeviceID == ticket.macDeviceID }?.displayName
-        }
-        let resolvedDisplayName = displayName
+        // The lookup runs inside the serialized write chain so it cannot
+        // read a name that a queued fresher write is about to replace, and
+        // it prefers the current user's record for this Mac before falling
+        // back to any account's record stored on this device.
+        let ticketDisplayName = ticket.macDisplayName
         await performSerializedPairedMacWrite(ifStillCurrent: ifStillCurrent) { [weak self] in
             guard let self else { return }
+            var displayName = ticketDisplayName
+            if displayName == nil {
+                let knownMacs = (try? await pairedMacStore.loadAll(stackUserID: nil)) ?? []
+                let matches = knownMacs.filter { $0.macDeviceID == ticket.macDeviceID }
+                displayName = (matches.first { $0.stackUserID == stackUserID } ?? matches.first)?
+                    .displayName
+            }
             do {
                 try await pairedMacStore.upsert(
                     macDeviceID: ticket.macDeviceID,
-                    displayName: resolvedDisplayName,
+                    displayName: displayName,
                     routes: ticket.routes,
                     markActive: true,
                     stackUserID: stackUserID
