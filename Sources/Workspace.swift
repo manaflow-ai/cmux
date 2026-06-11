@@ -12777,9 +12777,14 @@ final class Workspace: Identifiable, ObservableObject {
         // Seed the session-snapshot fallback immediately: an autosave can land
         // in the restore window after the hibernation state clears but before
         // a replacement surface is readable, and must not persist nil over
-        // the only copy of the content.
+        // the only copy of the content. An empty capture must clear any older
+        // entry (e.g. session-restore seeding) for the same reason — the
+        // restore-window save would otherwise resurrect scrollback that no
+        // longer reflects this terminal.
         if let scrollback {
             restoredTerminalScrollbackByPanelId[panelId] = scrollback
+        } else {
+            restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         }
         return true
     }

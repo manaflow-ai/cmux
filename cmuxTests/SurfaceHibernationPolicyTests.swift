@@ -783,6 +783,23 @@ struct SurfaceHibernationPolicyTests {
         )
     }
 
+    @MainActor
+    @Test
+    func emptyHibernationCaptureClearsStaleScrollbackFallback() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        // A leftover entry from session-restore seeding that no longer
+        // reflects the terminal (it was cleared, or replay never ran).
+        workspace.restoredTerminalScrollbackByPanelId[panelId] = "stale old-session text"
+
+        #expect(workspace.enterSurfaceHibernation(panelId: panelId, lastActivityAt: Date(timeIntervalSince1970: 50)))
+
+        #expect(
+            workspace.restoredTerminalScrollbackByPanelId[panelId] == nil,
+            "An empty capture must clear the fallback, or a restore-window save resurrects unrelated scrollback"
+        )
+    }
+
     // MARK: - Pending command-line survivals
 
     @MainActor
