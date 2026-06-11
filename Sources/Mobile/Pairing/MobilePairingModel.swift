@@ -53,6 +53,10 @@ final class MobilePairingModel {
     private(set) var state: State = .loading
     /// The signed-in account email, shown in the checklist. `nil` when signed out.
     private(set) var signedInEmail: String?
+    /// Whether the coordinator reported an authenticated account on the last
+    /// ``refresh()``. Tracked separately from ``signedInEmail`` because an
+    /// authenticated account can lack a primary email.
+    private(set) var isSignedIn = false
 
     private let host: MobileHostService
     private let ticketTTL: TimeInterval
@@ -91,6 +95,8 @@ final class MobilePairingModel {
         let generation = refreshGeneration
         state = .loading
         guard let coordinator else {
+            isSignedIn = false
+            signedInEmail = nil
             state = .failed(
                 String(
                     localized: "mobile.pairing.error.listenerOffline",
@@ -99,13 +105,20 @@ final class MobilePairingModel {
             )
             return
         }
+        // Sync the checklist snapshot to the coordinator's current knowledge
+        // before the bootstrap await, so a refresh triggered by sign-out never
+        // shows the prior session's green "signed in" row while loading.
+        isSignedIn = coordinator.isAuthenticated
+        signedInEmail = coordinator.currentUser?.primaryEmail
         await coordinator.awaitBootstrapped()
         guard generation == refreshGeneration else { return }
         guard coordinator.isAuthenticated else {
+            isSignedIn = false
             signedInEmail = nil
             state = .signedOut
             return
         }
+        isSignedIn = true
         signedInEmail = coordinator.currentUser?.primaryEmail
         state = .preparing
         enablePairingHost()

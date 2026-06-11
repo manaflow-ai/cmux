@@ -63,18 +63,37 @@ struct MobilePairingView: View {
     }
 
     private var signInRow: some View {
-        requirementRow(
+        let status = model.signInRequirement
+        return requirementRow(
+            status: status,
             title: String(localized: "mobile.pairing.req.signIn.title", defaultValue: "Signed in to cmux"),
-            subtitle: model.signedInEmail
-                ?? String(localized: "mobile.pairing.req.signIn.subtitle", defaultValue: "Sign in to authorize this Mac for pairing.")
+            subtitle: signInSubtitle(status: status)
         ) {
-            EmptyView()
+            if status == .needsAction {
+                Button(String(localized: "mobile.pairing.signIn.button", defaultValue: "Sign In")) {
+                    model.signIn()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
         }
+    }
+
+    /// The sign-in row's subtitle. Prefers the account email; an authenticated
+    /// account without a primary email still reads as signed in (never the
+    /// sign-in prompt next to a green completed badge).
+    private func signInSubtitle(status: MobilePairingModel.RequirementStatus) -> String {
+        if let email = model.signedInEmail { return email }
+        if status == .complete {
+            return String(localized: "mobile.pairing.req.signIn.signedIn", defaultValue: "Signed in.")
+        }
+        return String(localized: "mobile.pairing.req.signIn.subtitle", defaultValue: "Sign in to authorize this Mac for pairing.")
     }
 
     private var tailscaleRow: some View {
         let reachable = tailscaleReachable
         return requirementRow(
+            status: model.tailscaleRequirement,
             title: String(localized: "mobile.pairing.req.tailscale.title", defaultValue: "Tailscale"),
             subtitle: tailscaleSubtitle(reachable: reachable)
         ) {
@@ -110,11 +129,13 @@ struct MobilePairingView: View {
     }
 
     private func requirementRow<Trailing: View>(
+        status: MobilePairingModel.RequirementStatus,
         title: String,
         subtitle: String,
         @ViewBuilder trailing: () -> Trailing
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
+            RequirementStatusBadge(status: status)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.callout.weight(.medium))
                 Text(subtitle)
