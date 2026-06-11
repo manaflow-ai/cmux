@@ -179,67 +179,68 @@ public struct CmxPairingQRCode: Sendable {
         return ticket
     }
 }
+private extension CmxPairingQRCode {
+    /// The route id the Mac's route resolver mints for the route at `index`
+    /// (`tailscale` for the first, `tailscale_N` after).
+    func synthesizedRouteID(index: Int) -> String {
+        index == 0
+            ? CmxAttachTransportKind.tailscale.rawValue
+            : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)"
+    }
 
-/// The route id the Mac's route resolver mints for the route at `index`
-/// (`tailscale` for the first, `tailscale_N` after).
-private func synthesizedRouteID(index: Int) -> String {
-    index == 0
-        ? CmxAttachTransportKind.tailscale.rawValue
-        : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)"
-}
+    /// The priority the Mac's route resolver assigns the route at `index`.
+    func synthesizedRoutePriority(index: Int) -> Int {
+        10 + index * 10
+    }
 
-/// The priority the Mac's route resolver assigns the route at `index`.
-private func synthesizedRoutePriority(index: Int) -> Int {
-    10 + index * 10
-}
+    /// `host:port`, bracketing IPv6 literals.
+    func hostPortString(host: String, port: Int) -> String {
+        host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+    }
 
-/// `host:port`, bracketing IPv6 literals.
-private func hostPortString(host: String, port: Int) -> String {
-    host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
-}
-
-/// Parse `host:port` (with optional IPv6 brackets) from a query value.
-private func parseHostPort(_ rawValue: String) throws -> (String, Int) {
-    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-    let host: Substring
-    let portText: Substring
-    if trimmed.hasPrefix("[") {
-        guard let closing = trimmed.firstIndex(of: "]"),
-              closing > trimmed.startIndex else {
+    /// Parse `host:port` (with optional IPv6 brackets) from a query value.
+    func parseHostPort(_ rawValue: String) throws -> (String, Int) {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let host: Substring
+        let portText: Substring
+        if trimmed.hasPrefix("[") {
+            guard let closing = trimmed.firstIndex(of: "]"),
+                  closing > trimmed.startIndex else {
+                throw MobileSyncPairingPayloadError.invalidURL
+            }
+            host = trimmed[trimmed.index(after: trimmed.startIndex)..<closing]
+            let afterBracket = trimmed.index(after: closing)
+            guard afterBracket < trimmed.endIndex, trimmed[afterBracket] == ":" else {
+                throw MobileSyncPairingPayloadError.invalidURL
+            }
+            portText = trimmed[trimmed.index(after: afterBracket)...]
+        } else {
+            guard let separator = trimmed.lastIndex(of: ":") else {
+                throw MobileSyncPairingPayloadError.invalidURL
+            }
+            host = trimmed[..<separator]
+            portText = trimmed[trimmed.index(after: separator)...]
+        }
+        guard !host.isEmpty, isPlainHost(String(host)) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
-        host = trimmed[trimmed.index(after: trimmed.startIndex)..<closing]
-        let afterBracket = trimmed.index(after: closing)
-        guard afterBracket < trimmed.endIndex, trimmed[afterBracket] == ":" else {
-            throw MobileSyncPairingPayloadError.invalidURL
+        guard let port = Int(portText), (1...65535).contains(port) else {
+            throw MobileSyncPairingPayloadError.invalidPort(Int(portText) ?? 0)
         }
-        portText = trimmed[trimmed.index(after: afterBracket)...]
-    } else {
-        guard let separator = trimmed.lastIndex(of: ":") else {
-            throw MobileSyncPairingPayloadError.invalidURL
-        }
-        host = trimmed[..<separator]
-        portText = trimmed[trimmed.index(after: separator)...]
+        return (String(host), port)
     }
-    guard !host.isEmpty, isPlainHost(String(host)) else {
-        throw MobileSyncPairingPayloadError.invalidURL
-    }
-    guard let port = Int(portText), (1...65535).contains(port) else {
-        throw MobileSyncPairingPayloadError.invalidPort(Int(portText) ?? 0)
-    }
-    return (String(host), port)
-}
 
-/// Whether `host` is a bare DNS name or IP literal that needs no escaping
-/// in a URL query (letters, digits, `.`, `-`, `_`, and `:` for IPv6).
-private func isPlainHost(_ host: String) -> Bool {
-    !host.isEmpty && host.utf8.allSatisfy { byte in
-        (48...57).contains(byte)        // 0-9
-            || (65...90).contains(byte) // A-Z
-            || (97...122).contains(byte) // a-z
-            || byte == UInt8(ascii: ".")
-            || byte == UInt8(ascii: "-")
-            || byte == UInt8(ascii: "_")
-            || byte == UInt8(ascii: ":")
+    /// Whether `host` is a bare DNS name or IP literal that needs no escaping
+    /// in a URL query (letters, digits, `.`, `-`, `_`, and `:` for IPv6).
+    func isPlainHost(_ host: String) -> Bool {
+        !host.isEmpty && host.utf8.allSatisfy { byte in
+            (48...57).contains(byte)        // 0-9
+                || (65...90).contains(byte) // A-Z
+                || (97...122).contains(byte) // a-z
+                || byte == UInt8(ascii: ".")
+                || byte == UInt8(ascii: "-")
+                || byte == UInt8(ascii: "_")
+                || byte == UInt8(ascii: ":")
+        }
     }
 }

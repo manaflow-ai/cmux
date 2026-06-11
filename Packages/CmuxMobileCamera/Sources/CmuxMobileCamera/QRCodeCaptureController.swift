@@ -135,56 +135,57 @@ public final class QRCodeCaptureController: UIViewController {
         ])
     }
 }
-
-/// The camera closest to what the system Camera app uses for QR scanning: a
-/// virtual multi-lens device switches constituent cameras automatically,
-/// including to the close-focusing ultra-wide. A bare wide-angle on recent
-/// Pro phones cannot focus nearer than roughly 20 cm (exactly where people
-/// hold the phone to a code on a Mac screen), so it hunts while the Camera
-/// app quietly switches lenses.
-private func bestCameraDevice() -> AVCaptureDevice? {
-    let preferredTypes: [AVCaptureDevice.DeviceType] = [
-        .builtInTripleCamera,
-        .builtInDualWideCamera,
-        .builtInDualCamera,
-        .builtInWideAngleCamera,
-    ]
-    for deviceType in preferredTypes {
-        if let device = AVCaptureDevice.default(deviceType, for: .video, position: .back) {
-            return device
+private extension QRCodeCaptureController {
+    /// The camera closest to what the system Camera app uses for QR scanning: a
+    /// virtual multi-lens device switches constituent cameras automatically,
+    /// including to the close-focusing ultra-wide. A bare wide-angle on recent
+    /// Pro phones cannot focus nearer than roughly 20 cm (exactly where people
+    /// hold the phone to a code on a Mac screen), so it hunts while the Camera
+    /// app quietly switches lenses.
+    func bestCameraDevice() -> AVCaptureDevice? {
+        let preferredTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInTripleCamera,
+            .builtInDualWideCamera,
+            .builtInDualCamera,
+            .builtInWideAngleCamera,
+        ]
+        for deviceType in preferredTypes {
+            if let device = AVCaptureDevice.default(deviceType, for: .video, position: .back) {
+                return device
+            }
         }
+        return AVCaptureDevice.default(for: .video)
     }
-    return AVCaptureDevice.default(for: .video)
-}
 
-/// Focus and exposure tuning for a code shown on a backlit screen at arm's
-/// length: continuous autofocus restricted to the near range (less hunting
-/// at infinity), smooth autofocus off (a video-recording nicety that slows
-/// refocus snaps), continuous exposure, and low-light boost for dim rooms.
-/// Best-effort: every step is capability-guarded, and defaults still scan if
-/// the lock fails. No torch on purpose: the Mac screen is its own light
-/// source, and a torch reflecting off glossy glass washes the code out.
-private func tuneForScreenQRScanning(_ device: AVCaptureDevice) {
-    do {
-        try device.lockForConfiguration()
-    } catch {
-        return
-    }
-    defer { device.unlockForConfiguration() }
-    if device.isFocusModeSupported(.continuousAutoFocus) {
-        device.focusMode = .continuousAutoFocus
-    }
-    if device.isAutoFocusRangeRestrictionSupported {
-        device.autoFocusRangeRestriction = .near
-    }
-    if device.isSmoothAutoFocusSupported {
-        device.isSmoothAutoFocusEnabled = false
-    }
-    if device.isExposureModeSupported(.continuousAutoExposure) {
-        device.exposureMode = .continuousAutoExposure
-    }
-    if device.isLowLightBoostSupported {
-        device.automaticallyEnablesLowLightBoostWhenAvailable = true
+    /// Focus and exposure tuning for a code shown on a backlit screen at arm's
+    /// length: continuous autofocus restricted to the near range (less hunting
+    /// at infinity), smooth autofocus off (a video-recording nicety that slows
+    /// refocus snaps), continuous exposure, and low-light boost for dim rooms.
+    /// Best-effort: every step is capability-guarded, and defaults still scan if
+    /// the lock fails. No torch on purpose: the Mac screen is its own light
+    /// source, and a torch reflecting off glossy glass washes the code out.
+    func tuneForScreenQRScanning(_ device: AVCaptureDevice) {
+        do {
+            try device.lockForConfiguration()
+        } catch {
+            return
+        }
+        defer { device.unlockForConfiguration() }
+        if device.isFocusModeSupported(.continuousAutoFocus) {
+            device.focusMode = .continuousAutoFocus
+        }
+        if device.isAutoFocusRangeRestrictionSupported {
+            device.autoFocusRangeRestriction = .near
+        }
+        if device.isSmoothAutoFocusSupported {
+            device.isSmoothAutoFocusEnabled = false
+        }
+        if device.isExposureModeSupported(.continuousAutoExposure) {
+            device.exposureMode = .continuousAutoExposure
+        }
+        if device.isLowLightBoostSupported {
+            device.automaticallyEnablesLowLightBoostWhenAvailable = true
+        }
     }
 }
 #endif

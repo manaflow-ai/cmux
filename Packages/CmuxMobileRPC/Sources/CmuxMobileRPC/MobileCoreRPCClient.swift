@@ -377,10 +377,11 @@ extension MobileCoreRPCClient {
     }
 }
 #endif
-
-/// Whether `request` is the unauthenticated `mobile.host.status` probe, the
-/// one verb whose reply may carry host identity for verified callers.
-private func isHostStatusRequest(_ request: [String: Any]) -> Bool {
-    let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-    return method == "mobile.host.status"
+private extension MobileCoreRPCClient {
+    /// Whether `request` is the unauthenticated `mobile.host.status` probe, the
+    /// one verb whose reply may carry host identity for verified callers.
+    func isHostStatusRequest(_ request: [String: Any]) -> Bool {
+        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return method == "mobile.host.status"
+    }
 }

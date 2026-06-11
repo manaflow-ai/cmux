@@ -72,59 +72,61 @@ public struct CmxLoopbackHost: Sendable {
     }
 }
 
-/// The first octet of `host` parsed with `inet_aton` semantics (the same
-/// numeric forms the resolver accepts for name-looking hosts: dotted
-/// quad, fewer-than-four parts, octal, hex, and single 32-bit decimals),
-/// or `nil` when the host is not an IPv4 literal in any of those forms.
-private func ipv4FirstOctet(_ host: String) -> UInt8? {
-    var address = in_addr()
-    guard inet_aton(host, &address) != 0 else {
-        return nil
+private extension CmxLoopbackHost {
+    /// The first octet of `host` parsed with `inet_aton` semantics (the same
+    /// numeric forms the resolver accepts for name-looking hosts: dotted
+    /// quad, fewer-than-four parts, octal, hex, and single 32-bit decimals),
+    /// or `nil` when the host is not an IPv4 literal in any of those forms.
+    func ipv4FirstOctet(_ host: String) -> UInt8? {
+        var address = in_addr()
+        guard inet_aton(host, &address) != 0 else {
+            return nil
+        }
+        // `s_addr` is in network byte order; the first octet is the
+        // highest-order byte of the big-endian value.
+        return UInt8(truncatingIfNeeded: UInt32(bigEndian: address.s_addr) >> 24)
     }
-    // `s_addr` is in network byte order; the first octet is the
-    // highest-order byte of the big-endian value.
-    return UInt8(truncatingIfNeeded: UInt32(bigEndian: address.s_addr) >> 24)
-}
 
-/// `127.0.0.0/8` is loopback; `0.0.0.0/8` (the unspecified range) is
-/// included because a TCP connect to it lands on the local machine too.
-private func isSelfDialingIPv4FirstOctet(_ firstOctet: UInt8) -> Bool {
-    firstOctet == 127 || firstOctet == 0
-}
-
-/// The 16 address bytes of `host` parsed with `inet_pton`, or `nil` when
-/// it is not an IPv6 literal. A zone index suffix (`%lo0`) is stripped
-/// first: the zone scopes which interface dials, not which address.
-private func ipv6Bytes(_ host: String) -> [UInt8]? {
-    var literal = host
-    if let zoneSeparator = literal.firstIndex(of: "%") {
-        literal = String(literal[..<zoneSeparator])
+    /// `127.0.0.0/8` is loopback; `0.0.0.0/8` (the unspecified range) is
+    /// included because a TCP connect to it lands on the local machine too.
+    func isSelfDialingIPv4FirstOctet(_ firstOctet: UInt8) -> Bool {
+        firstOctet == 127 || firstOctet == 0
     }
-    var address = in6_addr()
-    guard inet_pton(AF_INET6, literal, &address) == 1 else {
-        return nil
-    }
-    return withUnsafeBytes(of: address) { Array($0) }
-}
 
-/// Whether the 16 IPv6 address bytes name the local machine (`::1`, `::`,
-/// or an IPv4-mapped/IPv4-compatible form embedding a self-dialing range).
-private func isSelfDialingIPv6(_ bytes: [UInt8]) -> Bool {
-    guard bytes.count == 16 else {
+    /// The 16 address bytes of `host` parsed with `inet_pton`, or `nil` when
+    /// it is not an IPv6 literal. A zone index suffix (`%lo0`) is stripped
+    /// first: the zone scopes which interface dials, not which address.
+    func ipv6Bytes(_ host: String) -> [UInt8]? {
+        var literal = host
+        if let zoneSeparator = literal.firstIndex(of: "%") {
+            literal = String(literal[..<zoneSeparator])
+        }
+        var address = in6_addr()
+        guard inet_pton(AF_INET6, literal, &address) == 1 else {
+            return nil
+        }
+        return withUnsafeBytes(of: address) { Array($0) }
+    }
+
+    /// Whether the 16 IPv6 address bytes name the local machine (`::1`, `::`,
+    /// or an IPv4-mapped/IPv4-compatible form embedding a self-dialing range).
+    func isSelfDialingIPv6(_ bytes: [UInt8]) -> Bool {
+        guard bytes.count == 16 else {
+            return false
+        }
+        // `::1` (loopback) and `::` (unspecified; connects locally like
+        // 0.0.0.0): first 15 bytes zero, last byte 0 or 1.
+        if bytes[0..<15].allSatisfy({ $0 == 0 }), bytes[15] <= 1 {
+            return true
+        }
+        // IPv4-mapped (`::ffff:a.b.c.d`) and the deprecated IPv4-compatible
+        // (`::a.b.c.d`) forms: classify by the embedded IPv4 first octet.
+        let prefixIsZero = bytes[0..<10].allSatisfy { $0 == 0 }
+        let isMapped = prefixIsZero && bytes[10] == 0xFF && bytes[11] == 0xFF
+        let isCompatible = prefixIsZero && bytes[10] == 0 && bytes[11] == 0
+        if isMapped || isCompatible {
+            return isSelfDialingIPv4FirstOctet(bytes[12])
+        }
         return false
     }
-    // `::1` (loopback) and `::` (unspecified; connects locally like
-    // 0.0.0.0): first 15 bytes zero, last byte 0 or 1.
-    if bytes[0..<15].allSatisfy({ $0 == 0 }), bytes[15] <= 1 {
-        return true
-    }
-    // IPv4-mapped (`::ffff:a.b.c.d`) and the deprecated IPv4-compatible
-    // (`::a.b.c.d`) forms: classify by the embedded IPv4 first octet.
-    let prefixIsZero = bytes[0..<10].allSatisfy { $0 == 0 }
-    let isMapped = prefixIsZero && bytes[10] == 0xFF && bytes[11] == 0xFF
-    let isCompatible = prefixIsZero && bytes[10] == 0 && bytes[11] == 0
-    if isMapped || isCompatible {
-        return isSelfDialingIPv4FirstOctet(bytes[12])
-    }
-    return false
 }
