@@ -76,6 +76,7 @@ private actor LivenessHostRouter {
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
+    private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
 
     func record(method: String?, topics: [String]?) {
@@ -101,6 +102,13 @@ private actor LivenessHostRouter {
     /// modeling a dead push path whose probe never completes.
     func holdSubscribeRequest(number: Int) {
         heldSubscribeRequestNumbers.insert(number)
+    }
+
+    /// Forget the host-side registration, modeling a lost subscription behind
+    /// a live RPC channel: the next subscribe reports
+    /// `already_subscribed: false`.
+    func dropSubscription() {
+        hasActiveSubscription = false
     }
 
     /// Resume every held request so parked continuations do not leak past the
@@ -154,9 +162,12 @@ private actor LivenessHostRouter {
                 await park()
                 return nil
             }
+            let alreadySubscribed = hasActiveSubscription
+            hasActiveSubscription = true
             return try? Self.resultFrame(id: id, result: [
                 "stream_id": "test-stream",
                 "topics": ["workspace.updated", "terminal.render_grid"],
+                "already_subscribed": alreadySubscribed,
             ])
         case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
@@ -480,6 +491,49 @@ private func makeConnectedStore(
     await transport.deliver(event)
     let delivered = try await pollUntil { collector.lines.isEmpty == false }
     #expect(delivered, "the original stream must still be consumed after the probe")
+    collector.unmount()
+}
+
+/// A successful probe that REPAIRED a lost registration (the host reports
+/// `already_subscribed: false`) must replay mounted surfaces: render-grid
+/// deltas emitted while the registration was absent were never delivered, so
+/// delta continuity is broken even though the channel is healthy again. The
+/// phone-side listener stream is intact, so the repair must not restart the
+/// listener (no second capability resolve).
+@MainActor
+@Test func probeRepairingLostSubscriptionReplaysMountedSurfaces() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
+
+    // The host loses the registration while the RPC channel stays healthy.
+    await router.dropSubscription()
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+
+    let replayed = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 2 }
+    #expect(
+        replayed,
+        "a probe that reinstalls a lost registration must request a catch-up replay for mounted surfaces; deltas emitted during the gap were never delivered"
+    )
+    let hostStatusCount = await router.count(of: "mobile.host.status")
+    #expect(hostStatusCount == 1, "the repair must not restart the listener; the phone-side stream is intact")
+
+    // The repaired stream delivers straight into the still-mounted sink.
+    let event = try renderGridEventFrame(surfaceID: "live-terminal", seq: 11, text: "repaired")
+    let transport = try #require(box.get())
+    await transport.deliver(event)
+    let delivered = try await pollUntil { collector.lines.contains { $0.contains("repaired") } }
+    #expect(delivered, "the original stream must still be consumed after the repair")
     collector.unmount()
 }
 

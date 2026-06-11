@@ -3648,11 +3648,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         "ios-terminal-events-\(clientID)"
     }
 
+    /// Outcome of a `mobile.events.subscribe` round-trip.
+    private enum TerminalEventSubscriptionAck {
+        case failed
+        /// The host registered (or re-asserted) the subscription.
+        /// `alreadySubscribed == false` means this acknowledgement INSTALLED
+        /// the registration, so events emitted while it was absent were never
+        /// delivered; `nil` means the host predates the field (treat as
+        /// already active).
+        case subscribed(alreadySubscribed: Bool?)
+
+        var isSubscribed: Bool {
+            if case .subscribed = self { return true }
+            return false
+        }
+    }
+
     private func requestTerminalEventSubscription(
         client: MobileCoreRPCClient,
         reason: String,
         topics: [String]
-    ) async -> Bool {
+    ) async -> TerminalEventSubscriptionAck {
         let requestData: Data
         do {
             requestData = try MobileCoreRPCClient.requestData(
@@ -3664,7 +3680,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
         } catch {
             mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
-            return false
+            return .failed
         }
         let responseData: Data
         do {
@@ -3676,7 +3692,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // `requestTimedOut`. Not a host failure: stay quiet so the log
                 // does not report a self-inflicted cancel as a wire timeout.
                 mobileShellLog.info("subscribe cancelled reason=\(reason, privacy: .public)")
-                return false
+                return .failed
             }
             mobileShellLog.error("subscribe failed reason=\(reason, privacy: .public): \(String(describing: error), privacy: .private)")
             // Event-stream (re)subscribe is the view-only/foreground-resume path.
@@ -3686,17 +3702,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if remoteClient === client {
                 _ = disconnectForAuthorizationFailureIfNeeded(error)
             }
-            return false
+            return .failed
         }
         let response = try? MobileEventSubscribeResponse.decode(responseData)
         guard let streamID = response?.streamID, !streamID.isEmpty else {
             mobileShellLog.error("subscribe response missing stream_id reason=\(reason, privacy: .public)")
-            return false
+            return .failed
         }
         #if DEBUG
         mobileShellLog.info("subscribe active reason=\(reason, privacy: .public) streamID=\(streamID, privacy: .public)")
         #endif
-        return true
+        return .subscribed(alreadySubscribed: response?.alreadySubscribed)
     }
 
     private func resolveTerminalOutputTransport(client: MobileCoreRPCClient) async -> TerminalOutputTransport {
@@ -3857,15 +3873,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard terminalEventListenerID == listenerID else { return }
         terminalSubscriptionStartTask?.cancel()
         terminalSubscriptionStartTask = Task { @MainActor [weak self] in
-            let subscribed = await self?.requestTerminalEventSubscription(
+            let ack = await self?.requestTerminalEventSubscription(
                 client: client,
                 reason: "start",
                 topics: topics
-            ) ?? false
+            ) ?? .failed
             guard let self else { return }
             guard !Task.isCancelled, self.terminalEventListenerID == listenerID else { return }
             self.terminalSubscriptionStartTask = nil
-            guard subscribed else {
+            guard ack.isSubscribed else {
                 MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
                 self.diagnosticLog?.record(DiagnosticEvent(.error))
                 self.stopTerminalRefreshPolling()
@@ -4015,11 +4031,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ?? 3_000_000_000
         let topics = terminalOutputTransport.eventTopics
         renderGridLivenessProbeTask = Task { @MainActor [weak self] in
-            let alive = await self?.probeEventSubscriptionLiveness(
+            let ack = await self?.probeEventSubscriptionLiveness(
                 client: client,
                 topics: topics,
                 timeoutNanoseconds: probeTimeoutNanoseconds
-            ) ?? false
+            ) ?? .failed
             guard let self else { return }
             self.renderGridLivenessProbeTask = nil
             guard !Task.isCancelled,
@@ -4027,13 +4043,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   self.terminalEventListenerID == listenerID,
                   self.remoteClient === client,
                   self.connectionState == .connected else { return }
-            if alive {
+            if case .subscribed(let alreadySubscribed) = ack {
                 // The host accepted the re-subscribe over the event channel:
-                // the stream is healthy but quiet. Count the round-trip as the
-                // liveness evidence so the silence window restarts from this
-                // proof.
+                // the stream is healthy. Count the round-trip as the liveness
+                // evidence so the silence window restarts from this proof.
                 self.recordTerminalEventStreamLiveness()
-                MobileDebugLog.anchormux("sync.liveness probe_ok silentMs=\(Int(silent * 1000))")
+                if alreadySubscribed == false {
+                    // The registration had been LOST host-side (the probe just
+                    // reinstalled it), so render-grid deltas emitted during the
+                    // gap were never delivered and delta continuity is broken.
+                    // Replay the mounted surfaces to catch up. The phone-side
+                    // listener stream is intact (registration loss is a
+                    // host-side condition), so no listener restart is needed.
+                    MobileDebugLog.anchormux("sync.liveness probe_repaired silentMs=\(Int(silent * 1000))")
+                    mobileShellLog.info("liveness probe reinstalled a lost event subscription, replaying mounted surfaces")
+                    for surfaceID in self.terminalByteContinuationsBySurfaceID.keys {
+                        self.requestTerminalReplay(surfaceID: surfaceID)
+                    }
+                } else {
+                    MobileDebugLog.anchormux("sync.liveness probe_ok silentMs=\(Int(silent * 1000))")
+                }
                 return
             }
             // Events may have resumed while the probe was in flight; a fresh
@@ -4069,24 +4098,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         client: MobileCoreRPCClient,
         topics: [String],
         timeoutNanoseconds: UInt64
-    ) async -> Bool {
+    ) async -> TerminalEventSubscriptionAck {
         let probe = Task { @MainActor [weak self] in
             await self?.requestTerminalEventSubscription(
                 client: client,
                 reason: "liveness_probe",
                 topics: topics
-            ) ?? false
+            ) ?? .failed
         }
         // Bounded deadline (allowed: cancellation-wired timeout, not a polling
         // sleep). Cancelling the probe task surfaces inside
-        // requestTerminalEventSubscription as a cancelled request -> false.
+        // requestTerminalEventSubscription as a cancelled request -> .failed.
         let deadline = Task {
             try? await Task.sleep(nanoseconds: timeoutNanoseconds)
             probe.cancel()
         }
-        let alive = await probe.value
+        let ack = await probe.value
         deadline.cancel()
-        return alive
+        return ack
     }
 
     private func resyncTerminalOutput(

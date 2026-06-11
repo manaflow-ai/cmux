@@ -2166,13 +2166,21 @@ actor MobileHostConnection {
             guard !topics.isEmpty else {
                 return .failure(MobileHostRPCError(code: "invalid_params", message: "topics is required"))
             }
+            // Report whether this stream id was already registered BEFORE the
+            // idempotent replace. The phone's render-grid liveness probe
+            // re-asserts its subscription on prolonged silence; `false` tells
+            // it the registration had been lost (events emitted in the gap
+            // were never delivered), so it requests a catch-up replay instead
+            // of trusting delta continuity.
+            let alreadySubscribed = subscriptions[streamID] != nil
             subscribe(streamID: streamID, topics: topics)
             #if DEBUG
-            cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) connID=\(self.id.uuidString)")
+            cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
             #endif
             return .ok([
                 "stream_id": streamID,
                 "topics": Array(topics).sorted(),
+                "already_subscribed": alreadySubscribed,
             ])
         case "mobile.events.unsubscribe":
             let streamID = request.params["stream_id"] as? String ?? ""
