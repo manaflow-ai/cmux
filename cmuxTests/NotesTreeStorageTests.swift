@@ -457,6 +457,25 @@ import Testing
         #expect(try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "tracked" } == nil)
     }
 
+    /// The index-path confinement fallback must never return a path whose
+    /// final component is a committed symlink — that is the same link that
+    /// caused the escape, and note read/write/append would follow it out.
+    @Test func bodyPathFallbackNeverReturnsASymlink() throws {
+        let notesDir = (projectRoot as NSString).appendingPathComponent(".cmux/notes")
+        try fm.createDirectory(atPath: notesDir, withIntermediateDirectories: true)
+        let outside = (projectRoot as NSString).appendingPathComponent("victim.md")
+        try write("secret", to: outside)
+        let link = (notesDir as NSString).appendingPathComponent("link.md")
+        try fm.createSymbolicLink(atPath: link, withDestinationPath: outside)
+
+        let resolved = CmuxNoteStore.absoluteBodyPath(bodyPath: "notes/link.md", projectRoot: projectRoot)
+        let type = (try? fm.attributesOfItem(atPath: resolved))?[.type] as? FileAttributeType
+        #expect(type != .typeSymbolicLink)
+        #expect((resolved as NSString).standardizingPath != (link as NSString).standardizingPath)
+        let notesRoot = ((notesDir as NSString).standardizingPath as NSString).resolvingSymlinksInPath
+        #expect(resolved.hasPrefix(notesRoot + "/"))
+    }
+
     /// Symlinked children are never listed: a project-controlled link under
     /// the notes root must not let the tree traverse, open, or watch paths
     /// outside it.

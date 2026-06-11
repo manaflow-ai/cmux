@@ -46,7 +46,26 @@ enum CmuxNoteStore {
         }
         let leaf = (bodyPath as NSString).lastPathComponent
         let safeLeaf = (leaf.isEmpty || leaf == "." || leaf == "..") ? "untrusted-note.md" : leaf
-        return (notesRoot as NSString).appendingPathComponent(safeLeaf)
+        // The confined leaf can itself be the committed symlink that caused
+        // the escape (`notes/link.md -> /elsewhere`); returning it would hand
+        // read/write/append the same link. Walk to the first name whose final
+        // component is not a symlink so note IO can never follow one out.
+        let fm = FileManager.default
+        func isSymlink(_ path: String) -> Bool {
+            ((try? fm.attributesOfItem(atPath: path))?[.type] as? FileAttributeType) == .typeSymbolicLink
+        }
+        var candidate = (notesRoot as NSString).appendingPathComponent(safeLeaf)
+        var counter = 2
+        while isSymlink(candidate) {
+            let stem = (safeLeaf as NSString).deletingPathExtension
+            let ext = (safeLeaf as NSString).pathExtension
+            let next = ext.isEmpty
+                ? "\(stem)-untrusted-\(counter)"
+                : "\(stem)-untrusted-\(counter).\(ext)"
+            candidate = (notesRoot as NSString).appendingPathComponent(next)
+            counter += 1
+        }
+        return candidate
     }
 
     static func noteBodyPath(for note: CmuxNoteRecord, projectRoot: String) -> String {
