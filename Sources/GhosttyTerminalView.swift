@@ -7246,9 +7246,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// no-ops if there is no runtime surface, it is already released, or the
     /// surface is currently visible (a hard safety net so we never blank an
     /// on-screen terminal regardless of how the caller picked it).
+    @MainActor
     func releaseRenderer() {
 #if os(macOS)
-        guard let surface, rendererRealized, !rendererPortalVisible else { return }
+        guard rendererRealized, !rendererPortalVisible else { return }
+        // The reclamation controller is default-on and scans every registered
+        // wrapper, so validate the native pointer (registry ownership +
+        // liveness) before the C call instead of trusting `surface != nil`.
+        // This self-heals a stale wrapper whose runtime surface was freed
+        // out-of-band rather than passing a dangling pointer to Ghostty.
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.release") else { return }
         rendererRealized = false
         ghostty_surface_set_renderer_realized(surface, false)
 #endif
@@ -7259,9 +7266,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// `setVisibleInUI(true)` before occlusion/refresh). Idempotent: no-ops if
     /// there is no runtime surface or it is already realized, so it never trips
     /// Ghostty's `displayRealized` `assert(swap_chain.defunct)`.
+    @MainActor
     func realizeRenderer() {
 #if os(macOS)
-        guard let surface, !rendererRealized else { return }
+        guard !rendererRealized else { return }
+        // Validate the native pointer before the C call (see releaseRenderer).
+        // If the wrapper is stale this returns nil and tears it down; the next
+        // createSurface re-creates a fresh realized surface, so we never
+        // double-realize a defunct swap chain.
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.realize") else { return }
         rendererRealized = true
         ghostty_surface_set_renderer_realized(surface, true)
 #endif
