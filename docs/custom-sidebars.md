@@ -49,6 +49,29 @@ hot-reloads. If both `<name>.swift` and `<name>.json` exist, `.swift` wins.
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
 
+## Choosing the renderer (remote vs in-process)
+
+By default a custom sidebar renders in an out-of-process worker. That is the
+containment lane: a crash or hang caused by the interpreted file cannot take
+down cmux, but input is limited to forwarded clicks (no hover, focus, or
+keyboard) and repaint can lag behind window resizes.
+
+For sidebars you wrote yourself you can switch to the in-process renderer,
+which mounts the interpreted view as real SwiftUI inside the cmux window:
+hover styling, focus, keyboard, and same-frame resize all work natively. The
+tradeoff is that the interpreter then shares the host process, so only use it
+for trusted local files.
+
+Set it in `~/.config/cmux/cmux.json`:
+
+    { "customSidebars": { "renderer": "inProcess" } }
+
+Valid values are `"remote"` (default) and `"inProcess"`. The setting is read
+live; flipping it re-renders the selected sidebar without a restart. Both
+renderers protect the host against pathological sources with an evaluation
+budget (nesting depth and total produced nodes): a render that exceeds the
+budget is discarded and the last good render stays up.
+
 ## Quick start
 
     cat > ~/.config/cmux/sidebars/mine.swift <<'SWIFT'
