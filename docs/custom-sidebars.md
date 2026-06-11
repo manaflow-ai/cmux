@@ -49,6 +49,26 @@ hot-reloads. If both `<name>.swift` and `<name>.json` exist, `.swift` wins.
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
 
+## Downloadable examples
+
+The repo includes ready-to-copy sidebars in `Examples/CustomSidebars/`:
+
+- `status-board.swift` groups workspaces by live signals like urgent bugs,
+  review, progress, research, and done.
+- `finder.swift` shows a macOS Finder-style workspace browser with a source
+  list, selected workspace details, and tabs.
+
+Install one from a cmux checkout:
+
+    mkdir -p ~/.config/cmux/sidebars
+    cp Examples/CustomSidebars/status-board.swift ~/.config/cmux/sidebars/status-board.swift
+    cp Examples/CustomSidebars/finder.swift ~/.config/cmux/sidebars/finder.swift
+
+Then validate and select it:
+
+    cmux sidebar validate status-board
+    cmux sidebar select status-board
+
 ## Quick start
 
     cat > ~/.config/cmux/sidebars/mine.swift <<'SWIFT'
@@ -77,7 +97,9 @@ Then right-click the sidebar button and choose **mine**.
   (array of Int) + `portCount`, `unread` (Int notifications), `tabs` + `tabCount`.
   Present when the workspace has them (use `if let` / ternary): `description`,
   `color` (hex), `branch` + `dirty` (Bool) from git, `pr`
-  (`{ number, label, url, status: open|merged|closed, stale, branch }`),
+  (`{ number, label, url, status: open|merged|closed, stale, branch }`, the
+  workspace's first pull request in sidebar display order) + `prs` (array of
+  the same shape with every pull request cmux knows for the workspace),
   `progress` (`{ value: 0..1, label }`), `latestMessage` (last agent message),
   `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
   (`{ target, state, connected }`).
