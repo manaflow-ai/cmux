@@ -52,22 +52,25 @@ extension ControlCommandCoordinator {
         let mode = (string(params, "mode") ?? "toggle").lowercased()
         let enterAliases: Set<String> = ["enter", "on", "true", "active"]
         let exitAliases: Set<String> = ["exit", "off", "false", "inactive"]
-        guard mode == "toggle" || enterAliases.contains(mode) || exitAliases.contains(mode) else {
-            return .err(
-                code: "invalid_params",
-                message: "mode must be one of: enter, exit, toggle, on, off",
-                data: nil
-            )
-        }
-        let action: ControlBrowserFocusModeAction
-        if enterAliases.contains(mode) {
-            action = .activate
-        } else if exitAliases.contains(mode) {
-            action = .deactivate
-        } else {
-            action = .toggle
-        }
-        return browserFocusedAction(params, extra: ["mode": .string(mode)]) { context, routing, target in
+        // Legacy validated mode AFTER the TabManager/handle guards, so the
+        // validation runs via the shared helper's post-guard `validate` step.
+        let action: ControlBrowserFocusModeAction = enterAliases.contains(mode)
+            ? .activate
+            : (exitAliases.contains(mode) ? .deactivate : .toggle)
+        return browserFocusedAction(
+            params,
+            extra: ["mode": .string(mode)],
+            validate: {
+                guard mode == "toggle" || enterAliases.contains(mode) || exitAliases.contains(mode) else {
+                    return .err(
+                        code: "invalid_params",
+                        message: "mode must be one of: enter, exit, toggle, on, off",
+                        data: nil
+                    )
+                }
+                return nil
+            }
+        ) { context, routing, target in
             context.controlBrowserFocusModeSet(routing: routing, target: target, action: action)
         }
     }
@@ -75,20 +78,27 @@ extension ControlCommandCoordinator {
     /// `browser.zoom.set` — zoom in/out/reset.
     func browserZoomSet(_ params: [String: JSONValue]) -> ControlCallResult {
         let direction = (string(params, "direction") ?? "").lowercased()
-        guard ["in", "out", "reset"].contains(direction) else {
-            return .err(
-                code: "invalid_params",
-                message: "direction must be one of: in, out, reset",
-                data: nil
-            )
-        }
+        // Legacy validated direction AFTER the TabManager/handle guards.
         let mapped: ControlBrowserZoomDirection
         switch direction {
         case "in": mapped = .zoomIn
         case "out": mapped = .zoomOut
         default: mapped = .reset
         }
-        return browserFocusedAction(params, extra: ["direction": .string(direction)]) { context, routing, target in
+        return browserFocusedAction(
+            params,
+            extra: ["direction": .string(direction)],
+            validate: {
+                guard ["in", "out", "reset"].contains(direction) else {
+                    return .err(
+                        code: "invalid_params",
+                        message: "direction must be one of: in, out, reset",
+                        data: nil
+                    )
+                }
+                return nil
+            }
+        ) { context, routing, target in
             context.controlBrowserZoomSet(routing: routing, target: target, direction: mapped)
         }
     }
@@ -100,6 +110,7 @@ extension ControlCommandCoordinator {
     private func browserFocusedAction(
         _ params: [String: JSONValue],
         extra: [String: JSONValue] = [:],
+        validate: (() -> ControlCallResult?)? = nil,
         _ perform: (
             any ControlCommandContext,
             ControlRoutingSelectors,
@@ -111,6 +122,10 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         if let error = browserRejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) {
+            return error
+        }
+        // Per-method param validation runs AFTER the guards (legacy order).
+        if let error = validate?() {
             return error
         }
         let target = ControlBrowserFocusedActionTarget(

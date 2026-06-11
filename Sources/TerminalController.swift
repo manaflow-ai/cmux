@@ -106,8 +106,12 @@ class TerminalController {
     nonisolated let socketServer: SocketControlServer
     // Accepted-connection consumer; runs until process exit (singleton).
     private nonisolated let socketConnectionsTask: Task<Void, Never>
-    // Per-surface dedupe for high-frequency report_* socket telemetry.
-    nonisolated let socketFastPathState = SocketFastPathState()
+    // Per-surface dedupe for high-frequency report_* socket telemetry. Main-
+    // isolated: after the 3c cutover its only callers are the @MainActor
+    // sidebar/surface seam conformances (the worker-thread fast path retired
+    // with the legacy dispatcher), so the former `nonisolated` is gone. The
+    // package type keeps its internal lock for its own tested contract.
+    let socketFastPathState = SocketFastPathState()
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
