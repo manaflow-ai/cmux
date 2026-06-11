@@ -9,6 +9,7 @@ import CmuxExtensionSidebarExamples
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebarRemoteRender
+import CmuxProjectIdentity
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import CmuxUpdater
@@ -10636,6 +10637,12 @@ struct VerticalTabsSidebar: View {
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
     )
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    // Off-main-resolved per-project icon/monogram identities. Read purely in
+    // body via `cachedIdentity`; resolution is driven from each row's `.task`
+    // (never from body — snapshot-boundary / no-body-mutation rules).
+    @State private var projectIdentityCache = SidebarProjectIdentityCache(
+        resolver: ProjectIdentityResolver()
+    )
     @State var dragState = SidebarDragState()
     // Bonsplit tab drags arrive through AppKit pasteboard callbacks, not
     // `SidebarDragState`, so they need a separate transient collection flag.
@@ -12717,6 +12724,18 @@ struct VerticalTabsSidebar: View {
             )
         }
 
+        // Per-project identity (sidebar icon/monogram). Read purely here in the
+        // parent body; resolution is kicked off from the row's `.task`. Empty
+        // root → no identity (avoids resolving a bogus path).
+        let projectIdentityRoot = tab.extensionSidebarProjectRootPath ?? tab.currentDirectory
+        let projectIdentity: ProjectIdentity? = projectIdentityRoot.isEmpty
+            ? nil
+            : projectIdentityCache.cachedIdentity(forProjectRoot: projectIdentityRoot)
+        let requestProjectIdentity: () -> Void = { [projectIdentityCache, projectIdentityRoot] in
+            guard !projectIdentityRoot.isEmpty else { return }
+            projectIdentityCache.requestIdentity(forProjectRoot: projectIdentityRoot)
+        }
+
         let row = TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
@@ -12749,6 +12768,9 @@ struct VerticalTabsSidebar: View {
             contextMenuPinState: contextMenuPinState,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
+            projectIdentity: projectIdentity,
+            projectIdentityRoot: projectIdentityRoot,
+            requestProjectIdentity: requestProjectIdentity,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
         )
@@ -15202,6 +15224,10 @@ struct SidebarWorkspaceSnapshotBuilder {
     struct Snapshot: Equatable {
         let presentationKey: PresentationKey
         let title: String
+        /// User-assigned rename, if any (overrides the folder name).
+        let customTitle: String?
+        /// Last path component of the project root, used as the default name.
+        let folderName: String?
         let customDescription: String?
         let isPinned: Bool
         let customColorHex: String?
@@ -15231,6 +15257,53 @@ private final class SidebarTabItemContextMenuState: ObservableObject {
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
 
+/// Resolves the sidebar row's primary name: a user rename (custom title) wins,
+/// otherwise the project folder name, falling back to the legacy workspace
+/// title when neither is present.
+enum SidebarWorkspaceDisplayName {
+    static func resolve(customTitle: String?, folderName: String?, fallbackTitle: String) -> String {
+        if let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+            return custom
+        }
+        if let folder = folderName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+            return folder
+        }
+        return fallbackTitle
+    }
+}
+
+/// Leading sidebar glyph for a project: the resolved AppIcon when available,
+/// otherwise a neutral circular monogram fallback. Takes a value snapshot only
+/// (no store reference) so it is safe inside a `LazyVStack` row.
+private struct SidebarProjectIdentityIcon: View {
+    let identity: ProjectIdentity
+    let side: CGFloat
+
+    var body: some View {
+        Group {
+            if let data = identity.iconImageData, let nsImage = NSImage(data: data) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: side * 0.22, style: .continuous))
+            } else {
+                ZStack {
+                    Circle().fill(Color.secondary.opacity(0.22))
+                    Text(identity.monogram)
+                        .font(.system(size: side * 0.5, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(width: side, height: side)
+        .accessibilityLabel(Text(String(
+            localized: "sidebar.project.icon.accessibilityLabel",
+            defaultValue: "Project icon"
+        )))
+    }
+}
+
 struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
@@ -15257,7 +15330,9 @@ struct TabItemView: View, Equatable {
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
-        lhs.settings == rhs.settings
+        lhs.settings == rhs.settings &&
+        lhs.projectIdentity == rhs.projectIdentity &&
+        lhs.projectIdentityRoot == rhs.projectIdentityRoot
     }
 
     // Use plain references instead of @EnvironmentObject to avoid subscribing
@@ -15301,6 +15376,15 @@ struct TabItemView: View, Equatable {
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
+    /// Resolved project icon/monogram for this row, or `nil` until it resolves.
+    /// A precomputed value snapshot (parent reads the `@Observable` cache, never
+    /// this row) — snapshot-boundary rule. `requestProjectIdentity` is excluded
+    /// from `==` like the other closures.
+    let projectIdentity: ProjectIdentity?
+    /// Project root key driving resolution; used as the `.task` id so a changed
+    /// directory re-triggers a refresh.
+    let projectIdentityRoot: String
+    let requestProjectIdentity: () -> Void
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
     /// modifier-key transitions from flipping the badges on the row sitting
@@ -15651,13 +15735,33 @@ struct TabItemView: View, Equatable {
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
         let scaledUnreadBadgeSize = 16 * fontScale
+        let projectIconSide = 48 * fontScale
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
         let scaledCloseButtonWidth = max(
             SidebarTrailingAccessoryWidthPolicy.closeButtonWidth,
             scaledCloseButtonHitSize
         )
 
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .top, spacing: 10) {
+            // Drives off-main resolution from a lifecycle hook (never body).
+            // Keyed on the project root so a changed directory re-resolves.
+            Color.clear
+                .frame(width: 0, height: 0)
+                .task(id: projectIdentityRoot) { requestProjectIdentity() }
+
+            // Large leading project icon, or a neutral placeholder that
+            // reserves the same space until the identity resolves.
+            Group {
+                if let projectIdentity {
+                    SidebarProjectIdentityIcon(identity: projectIdentity, side: projectIconSide)
+                } else {
+                    RoundedRectangle(cornerRadius: projectIconSide * 0.22, style: .continuous)
+                        .fill(Color.secondary.opacity(0.12))
+                        .frame(width: projectIconSide, height: projectIconSide)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
                 if unreadCount > 0 {
                     ZStack {
@@ -15677,7 +15781,11 @@ struct TabItemView: View, Equatable {
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
-                Text(workspaceSnapshot.title)
+                Text(SidebarWorkspaceDisplayName.resolve(
+                    customTitle: workspaceSnapshot.customTitle,
+                    folderName: workspaceSnapshot.folderName,
+                    fallbackTitle: workspaceSnapshot.title
+                ))
                     .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(settings.wrapsWorkspaceTitles ? nil : 1)
@@ -15946,6 +16054,7 @@ struct TabItemView: View, Equatable {
                 .font(.system(size: scaledFontSize(10), design: .monospaced))
                 .foregroundColor(activeSecondaryColor(0.75))
                 .lineLimit(1)
+            }
             }
         }
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
@@ -16702,9 +16811,16 @@ struct TabItemView: View, Equatable {
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
 
+        let projectRootForFolderName = tab.extensionSidebarProjectRootPath ?? tab.currentDirectory
+        let folderName = projectRootForFolderName.isEmpty
+            ? nil
+            : (projectRootForFolderName as NSString).lastPathComponent.nilIfEmpty
+
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: workspaceSnapshotPresentationKey,
             title: tab.title,
+            customTitle: tab.customTitle,
+            folderName: folderName,
             customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
             isPinned: tab.isPinned,
             customColorHex: tab.customColor,
