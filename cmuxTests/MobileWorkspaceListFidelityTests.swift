@@ -306,6 +306,16 @@ struct MobileWorkspaceListFidelityTests {
         // An OSC sequence left unterminated (e.g. cut by the input cap) is
         // stripped wholly rather than leaking its payload bytes.
         #expect(TerminalController.mobilePreviewSanitize("\u{001B}]0;unterminated title") == nil)
+        // CSI parameter bytes are the full ECMA-48 0x30-0x3F range, not just
+        // digits/;/?. Modern 24-bit color uses colon-separated SGR parameters
+        // (ESC[38:2::255:0:0m); stripping must consume the whole sequence
+        // instead of leaving ":2::255:0:0m" visible in the preview.
+        #expect(
+            TerminalController.mobilePreviewSanitize("\u{001B}[38:2::255:0:0mred\u{001B}[0m text") ==
+                "red text"
+        )
+        // Same range covers the private-use <=> parameter bytes.
+        #expect(TerminalController.mobilePreviewSanitize("\u{001B}[>4;2mok") == "ok")
         // The input bound must hold in unicode scalars, not Characters: a single
         // crafted grapheme cluster carrying a huge run of combining marks is one
         // Character, so a Character-counted cap never truncates it and the whole
