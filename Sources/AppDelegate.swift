@@ -16552,13 +16552,36 @@ private var cmuxFirstResponderGuardHitViewOverride: NSView?
 private var cmuxFirstResponderGuardCurrentEventContext: NSEvent?
 private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
-private var cmuxBrowserReturnForwardingDepth = 0
-private var cmuxBrowserArrowForwardingDepth = 0
-private var cmuxBrowserOmnibarMarkedTextForwardingDepth = 0
-private var cmuxCommandPaletteArrowForwardingDepth = 0
-private var cmuxTextBoxInputArrowForwardingDepth = 0
-private var cmuxTextBoxInputControlNavForwardingDepth = 0
-private var cmuxEditableTextViewArrowForwardingDepth = 0
+/// Identity of a key event currently being force-dispatched into a responder's
+/// `keyDown(with:)` by `NSWindow.cmux_performKeyEquivalent(with:)`.
+///
+/// Forwarding keyDown can re-enter `performKeyEquivalent` with the same event
+/// while the dispatch is still on the stack: WebKit replays unhandled keys
+/// through the responder chain, and on macOS 26 `-[NSWindow keyDown:]`
+/// re-enters `performKeyEquivalent`. Without a replay guard at the dispatch
+/// chokepoint the same event ping-pongs between the swizzle and the focused
+/// responder until the main-thread stack overflows
+/// (https://github.com/manaflow-ai/cmux/issues/5887).
+///
+/// Identity is the event's stable field tuple rather than object identity so
+/// the guard still holds if AppKit/WebKit re-deliver the event as an equal
+/// copy. Key autorepeat produces distinct events (fresh timestamps), so
+/// repeat typing is never throttled. The dispatching window's number is part
+/// of the identity so windows cannot suppress each other's dispatches.
+private struct CmuxForceDispatchedKeyEventIdentity: Hashable {
+    let windowNumber: Int
+    let eventType: UInt
+    let keyCode: UInt16
+    let modifierFlags: UInt
+    let timestamp: TimeInterval
+}
+
+/// Events whose force-dispatch is currently on the main-thread stack.
+/// Main-thread only (key-event dispatch); entries are stack-scoped, inserted
+/// before `keyDown(with:)` and removed when the dispatch unwinds, so WebKit's
+/// legitimate replay of an unhandled key (which arrives after the original
+/// dispatch has fully unwound) is still force-dispatched normally.
+private var cmuxInFlightForceDispatchedKeyEventIdentities = Set<CmuxForceDispatchedKeyEventIdentity>()
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
 
@@ -17193,6 +17216,43 @@ private extension NSWindow {
 #endif
     }
 
+    /// Single chokepoint for every direct `keyDown(with:)` force-dispatch made
+    /// by `cmux_performKeyEquivalent(with:)`.
+    ///
+    /// Dispatches `event` into `target`'s `keyDown(with:)` unless the same
+    /// event is already being force-dispatched lower on this window's call
+    /// stack, and returns whether the dispatch happened. Callers that get
+    /// `false` back must decline the event (fall through to default AppKit
+    /// handling) instead of dispatching themselves; re-dispatching the same
+    /// in-flight event is the infinite key-routing loop from
+    /// https://github.com/manaflow-ai/cmux/issues/5887.
+    private func cmuxForceDispatchKeyDownOnce(
+        _ event: NSEvent,
+        to target: NSResponder,
+        reason: @autoclosure () -> String
+    ) -> Bool {
+        let identity = CmuxForceDispatchedKeyEventIdentity(
+            windowNumber: self.windowNumber,
+            eventType: event.type.rawValue,
+            keyCode: event.keyCode,
+            modifierFlags: event.modifierFlags.rawValue,
+            timestamp: event.timestamp
+        )
+        guard !cmuxInFlightForceDispatchedKeyEventIdentities.contains(identity) else {
+#if DEBUG
+            cmuxDebugLog("  → \(reason()) reentry; declining force-dispatch of in-flight key event")
+#endif
+            return false
+        }
+        cmuxInFlightForceDispatchedKeyEventIdentities.insert(identity)
+        defer { cmuxInFlightForceDispatchedKeyEventIdentities.remove(identity) }
+#if DEBUG
+        cmuxDebugLog("  → \(reason()) routed to firstResponder.keyDown")
+#endif
+        target.keyDown(with: event)
+        return true
+    }
+
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -17249,11 +17309,13 @@ private extension NSWindow {
                 ?? firstResponderWebView
                 ?? self.firstResponder
             if let textInputTarget, textInputTarget !== self {
-                textInputTarget.keyDown(with: event)
-#if DEBUG
-                cmuxDebugLog("  → printable Option text routed to keyDown")
-#endif
-                return true
+                if cmuxForceDispatchKeyDownOnce(event, to: textInputTarget, reason: "printable Option text") {
+                    return true
+                }
+                // Same event already in flight on this stack (WebKit replay /
+                // macOS 26 NSWindow.keyDown re-entry): decline so default
+                // AppKit handling proceeds instead of looping.
+                return false
             }
             return false
         }
@@ -17273,8 +17335,12 @@ private extension NSWindow {
 #endif
                 return true
             }
-            if let firstResponderGhosttyView {
-                firstResponderGhosttyView.keyDown(with: event)
+            if let firstResponderGhosttyView,
+               cmuxForceDispatchKeyDownOnce(
+                   event,
+                   to: firstResponderGhosttyView,
+                   reason: "stale cmux menu shortcut terminal bypass"
+               ) {
 #if DEBUG
                 cmuxDebugLog("  → terminal received command equivalent bypassing stale cmux menu shortcut")
 #endif
@@ -17314,11 +17380,13 @@ private extension NSWindow {
                 keyCode: event.keyCode,
                 literalChars: event.characters
             ) {
-                ghosttyView.keyDown(with: event)
+                if cmuxForceDispatchKeyDownOnce(event, to: ghosttyView, reason: "terminal font zoom") {
 #if DEBUG
-                cmuxDebugLog("zoom.shortcut stage=window.ghosttyKeyDownDirect event=\(Self.keyDescription(event)) handled=1")
+                    cmuxDebugLog("zoom.shortcut stage=window.ghosttyKeyDownDirect event=\(Self.keyDescription(event)) handled=1")
 #endif
-                return true
+                    return true
+                }
+                return false
             }
         }
 
@@ -17327,26 +17395,16 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
-            if cmuxBrowserOmnibarMarkedTextForwardingDepth > 0 {
-#if DEBUG
-                cmuxDebugLog("  → browser omnibar marked-text reentry; leaving unhandled")
-#endif
+            guard let target = self.firstResponder,
+                  cmuxForceDispatchKeyDownOnce(
+                      event,
+                      to: target,
+                      reason: "browser omnibar marked-text " +
+                          "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
+                  )
+            else {
                 return false
             }
-            cmuxBrowserOmnibarMarkedTextForwardingDepth += 1
-            defer {
-                cmuxBrowserOmnibarMarkedTextForwardingDepth = max(
-                    0,
-                    cmuxBrowserOmnibarMarkedTextForwardingDepth - 1
-                )
-            }
-#if DEBUG
-            cmuxDebugLog(
-                "  → browser omnibar marked-text routed to firstResponder.keyDown " +
-                "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
-            )
-#endif
-            self.firstResponder?.keyDown(with: event)
             return true
         }
 
@@ -17356,12 +17414,11 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
-            if cmuxCommandPaletteArrowForwardingDepth > 0 {
+            guard let target = self.firstResponder,
+                  cmuxForceDispatchKeyDownOnce(event, to: target, reason: "command palette arrow")
+            else {
                 return false
             }
-            cmuxCommandPaletteArrowForwardingDepth += 1
-            defer { cmuxCommandPaletteArrowForwardingDepth = max(0, cmuxCommandPaletteArrowForwardingDepth - 1) }
-            self.firstResponder?.keyDown(with: event)
             return true
         }
 
@@ -17371,22 +17428,17 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
-            if cmuxBrowserArrowForwardingDepth > 0 {
-#if DEBUG
-                cmuxDebugLog("  → browser omnibar arrow reentry; using normal dispatch")
-#endif
-                return cmux_performKeyEquivalent(with: event)
+            guard let target = self.firstResponder else { return false }
+            if cmuxForceDispatchKeyDownOnce(
+                event,
+                to: target,
+                reason: "browser omnibar arrow " +
+                    "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
+            ) {
+                return true
             }
-            cmuxBrowserArrowForwardingDepth += 1
-            defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
-#if DEBUG
-            cmuxDebugLog(
-                "  → browser omnibar arrow routed to firstResponder.keyDown " +
-                "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
-            )
-#endif
-            self.firstResponder?.keyDown(with: event)
-            return true
+            // Reentry of the same in-flight event: use normal dispatch.
+            return cmux_performKeyEquivalent(with: event)
         }
 
         if shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
@@ -17395,12 +17447,11 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
-            if cmuxTextBoxInputArrowForwardingDepth > 0 {
+            guard let target = self.firstResponder,
+                  cmuxForceDispatchKeyDownOnce(event, to: target, reason: "text-box input arrow")
+            else {
                 return false
             }
-            cmuxTextBoxInputArrowForwardingDepth += 1
-            defer { cmuxTextBoxInputArrowForwardingDepth = max(0, cmuxTextBoxInputArrowForwardingDepth - 1) }
-            self.firstResponder?.keyDown(with: event)
             return true
         }
 
@@ -17410,12 +17461,11 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
-            if cmuxTextBoxInputControlNavForwardingDepth > 0 {
+            guard let target = self.firstResponder,
+                  cmuxForceDispatchKeyDownOnce(event, to: target, reason: "text-box input control nav")
+            else {
                 return false
             }
-            cmuxTextBoxInputControlNavForwardingDepth += 1
-            defer { cmuxTextBoxInputControlNavForwardingDepth = max(0, cmuxTextBoxInputControlNavForwardingDepth - 1) }
-            self.firstResponder?.keyDown(with: event)
             return true
         }
 
@@ -17429,12 +17479,11 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
-            if cmuxEditableTextViewArrowForwardingDepth > 0 {
+            guard let target = self.firstResponder,
+                  cmuxForceDispatchKeyDownOnce(event, to: target, reason: "editable text view arrow")
+            else {
                 return false
             }
-            cmuxEditableTextViewArrowForwardingDepth += 1
-            defer { cmuxEditableTextViewArrowForwardingDepth = max(0, cmuxEditableTextViewArrowForwardingDepth - 1) }
-            self.firstResponder?.keyDown(with: event)
             return true
         }
 
@@ -17448,21 +17497,13 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
+            guard let target = self.firstResponder else { return false }
+            if cmuxForceDispatchKeyDownOnce(event, to: target, reason: "browser Return/Enter") {
+                return true
+            }
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
             // On re-entry, fall back to normal dispatch to avoid an infinite loop.
-            if cmuxBrowserReturnForwardingDepth > 0 {
-#if DEBUG
-                cmuxDebugLog("  → browser Return/Enter reentry; using normal dispatch")
-#endif
-                return cmux_performKeyEquivalent(with: event)
-            }
-            cmuxBrowserReturnForwardingDepth += 1
-            defer { cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1) }
-#if DEBUG
-            cmuxDebugLog("  → browser Return/Enter routed to firstResponder.keyDown")
-#endif
-            self.firstResponder?.keyDown(with: event)
-            return true
+            return cmux_performKeyEquivalent(with: event)
         }
 
         // Some browser content (notably Google Docs) loses plain arrows when
@@ -17477,15 +17518,6 @@ private extension NSWindow {
             if let focusedOmnibarField = AppDelegate.shared?.focusedBrowserOmnibarField(for: event, in: self),
                browserOmnibarPanelId(for: self.firstResponder) == nil,
                focusedOmnibarField.window === self {
-                if cmuxBrowserArrowForwardingDepth > 0 {
-#if DEBUG
-                    cmuxDebugLog("  → browser arrow omnibar restore reentry; using normal dispatch")
-#endif
-                    return cmux_performKeyEquivalent(with: event)
-                }
-                cmuxBrowserArrowForwardingDepth += 1
-                defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
-
                 var currentEditorResponder: NSResponder? = focusedOmnibarField.currentEditor()
                 if currentEditorResponder == nil || self.firstResponder !== currentEditorResponder {
                     guard self.makeFirstResponder(focusedOmnibarField) else {
@@ -17508,32 +17540,26 @@ private extension NSWindow {
 #endif
                     return false
                 }
-#if DEBUG
-                if browserResponderHasMarkedText(omnibarResponder) {
-                    cmuxDebugLog("  → browser arrow restored focused omnibar with marked text before keyDown")
-                } else {
-                    cmuxDebugLog("  → browser arrow restored focused omnibar before keyDown")
+                if cmuxForceDispatchKeyDownOnce(
+                    event,
+                    to: omnibarResponder,
+                    reason: browserResponderHasMarkedText(omnibarResponder)
+                        ? "browser arrow restored focused omnibar with marked text"
+                        : "browser arrow restored focused omnibar"
+                ) {
+                    return true
                 }
-#endif
-                omnibarResponder.keyDown(with: event)
-                return true
+                // Reentry of the same in-flight event: use normal dispatch.
+                return cmux_performKeyEquivalent(with: event)
             }
 
             // Match the Return/Enter forwarding guard: AppKit/WebKit can re-enter
             // performKeyEquivalent while the synthesized keyDown is in flight.
-            if cmuxBrowserArrowForwardingDepth > 0 {
-#if DEBUG
-                cmuxDebugLog("  → browser arrow reentry; using normal dispatch")
-#endif
-                return cmux_performKeyEquivalent(with: event)
+            guard let target = self.firstResponder else { return false }
+            if cmuxForceDispatchKeyDownOnce(event, to: target, reason: "browser arrow") {
+                return true
             }
-            cmuxBrowserArrowForwardingDepth += 1
-            defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
-#if DEBUG
-            cmuxDebugLog("  → browser arrow routed to firstResponder.keyDown")
-#endif
-            self.firstResponder?.keyDown(with: event)
-            return true
+            return cmux_performKeyEquivalent(with: event)
         }
 
         if let firstResponderWebView,
@@ -17594,8 +17620,14 @@ private extension NSWindow {
         if let firstResponderGhosttyView, shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
             if AppDelegate.shared?.shouldForwardBrowserSurfaceShortcutToTerminal(event) == true {
                 if firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) { return true }
-                firstResponderGhosttyView.keyDown(with: event)
-                return true
+                if cmuxForceDispatchKeyDownOnce(
+                    event,
+                    to: firstResponderGhosttyView,
+                    reason: "browser surface shortcut to terminal"
+                ) {
+                    return true
+                }
+                return false
             }
             guard let mainMenu = NSApp.mainMenu else { return false }
             let consumedByMenu = mainMenu.performKeyEquivalent(with: event)
