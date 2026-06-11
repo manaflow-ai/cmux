@@ -4061,6 +4061,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // the stream is healthy. Count the round-trip as the liveness
                 // evidence so the silence window restarts from this proof.
                 self.recordTerminalEventStreamLiveness()
+                // The round-trip is also positive proof of the client/host
+                // connection itself; recover the visible status if a prior
+                // transient RPC failure marked it unavailable, since an idle
+                // terminal may never emit another event to flip it back.
+                self.markMacConnectionHealthy()
                 if alreadySubscribed == false {
                     // The registration had been LOST host-side (the probe just
                     // reinstalled it), so render-grid deltas emitted during the

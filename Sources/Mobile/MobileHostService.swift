@@ -2196,7 +2196,13 @@ actor MobileHostConnection {
 
     private static func isInteractiveMobileRequest(_ method: String) -> Bool {
         switch method {
-        case "mobile.host.status", "mobile.terminal.replay", "terminal.replay":
+        case "mobile.host.status", "mobile.terminal.replay", "terminal.replay",
+             // Subscription management is plumbing, not user interaction: the
+             // phone's render-grid liveness watchdog re-asserts its
+             // subscription on every silence window (~9s when idle), and
+             // counting that as interactive activity starves host work gated
+             // on mobile quiet (e.g. TabManager background git/PR refresh).
+             "mobile.events.subscribe", "mobile.events.unsubscribe":
             return false
         default:
             return true
