@@ -2,6 +2,7 @@ import AppKit
 import CmuxSocketControl
 import Bonsplit
 import Combine
+import CmuxSidebarInterpreterClient
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
@@ -1060,7 +1061,14 @@ struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
     @EnvironmentObject var tabManager: TabManager
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
+    // ContentView observes the coalesced unread projection, NOT the notification
+    // store. Reading `notificationStore` directly here would re-render the entire
+    // content view + sidebar on every notification publish (terminal/agent
+    // activity), which reconstructs every workspace row and starves the main
+    // thread (issue #2586 class; surfaced as scroll lag). `notificationStore`
+    // stays available as an unobserved singleton for actions and pass-down.
+    @EnvironmentObject var sidebarUnread: SidebarUnreadModel
+    var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
@@ -1082,6 +1090,7 @@ struct ContentView: View {
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
+    @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
@@ -1345,7 +1354,7 @@ struct ContentView: View {
         let contentView = window.contentView
 
         let unreadRects: [CGRect]
-        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let isWorkspaceManuallyUnread = sidebarUnread.hasManualUnread(forWorkspaceId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
         if let layoutSnapshot, let contentView {
             unreadRects = layoutSnapshot.panes.compactMap { pane in
@@ -1357,8 +1366,8 @@ struct ContentView: View {
                 }
 
                 let shouldShowUnread = Workspace.shouldShowUnreadIndicator(
-                    hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
-                        forTabId: workspace.id,
+                    hasUnreadNotification: sidebarUnread.hasVisibleNotificationIndicator(
+                        forWorkspaceId: workspace.id,
                         surfaceId: panelId
                     ),
                     hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panelId) ||
@@ -2027,8 +2036,7 @@ struct ContentView: View {
             },
             observedWindow: observedWindow,
             selection: $sidebarSelectionState.selection,
-            selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+            selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
@@ -2089,6 +2097,29 @@ struct ContentView: View {
             return minimumSidebarTitleInset
         }
         return max(titlebarLeadingInset, visibleSidebarTitleInset)
+    }
+
+    /// Where the always-visible fullscreen titlebar controls (sidebar toggle,
+    /// history, new tab, notifications) are anchored inside the titlebar band.
+    struct FullscreenControlsPlacement: Equatable {
+        var leadingPadding: CGFloat
+        var topPadding: CGFloat
+    }
+
+    /// Resolves the placement for the fullscreen titlebar controls, or `nil` when
+    /// they should not be shown. The controls are mounted in a single overlay
+    /// anchor driven by this function so their on-screen position never depends on
+    /// sidebar visibility; toggling the sidebar must not shift the accessory bar.
+    nonisolated static func fullscreenControlsPlacement(
+        isFullScreen: Bool,
+        isSidebarVisible: Bool
+    ) -> FullscreenControlsPlacement? {
+        guard isFullScreen else { return nil }
+        // Placement is intentionally independent of sidebar visibility so toggling
+        // the sidebar in fullscreen never shifts the accessory bar. `topPadding`
+        // mirrors the title row's top inset (see `customTitlebar`) so the controls'
+        // center lines up with the folder icon / title.
+        return FullscreenControlsPlacement(leadingPadding: 10, topPadding: 2)
     }
 
     private func terminalContent(appearance: WindowAppearanceSnapshot) -> some View {
@@ -2347,6 +2378,14 @@ struct ContentView: View {
         .offset(y: -TitlebarControlsVisualMetrics.verticalLift)
     }
 
+    /// Intrinsic width of ``fullscreenControls`` for the current controls style.
+    /// Used to reserve space in the title row so the title flows to the right of
+    /// the controls, which are themselves mounted once in the band overlay.
+    private var fullscreenControlsWidth: CGFloat {
+        let style = TitlebarControlsStyle(rawValue: titlebarControlsStyleRawValue) ?? .classic
+        return TitlebarControlsLayoutMetrics.contentSize(config: style.config).width
+    }
+
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
         MinimalModeTitlebarDebugSnapshot(
             leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
@@ -2387,7 +2426,13 @@ struct ContentView: View {
 
             HStack(spacing: 8) {
                 if isFullScreen && !sidebarState.isVisible {
-                    fullscreenControls
+                    // Reserve the controls' width so the title flows to their right.
+                    // The visible controls are rendered once in the band overlay (see
+                    // `workspaceTitlebarBand`) so their position never depends on
+                    // sidebar visibility.
+                    Color.clear
+                        .frame(width: fullscreenControlsWidth, height: titlebarContentHeight)
+                        .allowsHitTesting(false)
                 }
 
                 // Draggable folder icon + focused command name
@@ -2448,11 +2493,22 @@ struct ContentView: View {
                     .animation(nil, value: rightSidebarWidth)
             }
             .overlay(alignment: .topLeading) {
-                if isFullScreen && sidebarState.isVisible {
+                if let placement = Self.fullscreenControlsPlacement(
+                    isFullScreen: isFullScreen,
+                    isSidebarVisible: sidebarState.isVisible
+                ) {
                     fullscreenControls
-                        .environment(\.colorScheme, appearance.sidebarContentColorScheme)
-                        .padding(.leading, 10)
-                        .padding(.top, 4)
+                        .environment(
+                            \.colorScheme,
+                            sidebarState.isVisible
+                                ? appearance.sidebarContentColorScheme
+                                : appearance.chromeColorScheme
+                        )
+                        // Same vertical frame as the title row (`customTitlebar`)
+                        // so the controls' center matches the folder icon / title.
+                        .frame(height: max(1, WindowChromeMetrics.appTitlebarHeight - 2), alignment: .center)
+                        .padding(.top, placement.topPadding)
+                        .padding(.leading, placement.leadingPadding)
                 }
             }
     }
@@ -6598,11 +6654,11 @@ struct ContentView: View {
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceCanMarkRead,
-                notificationStore.canMarkWorkspaceRead(forTabIds: [workspace.id])
+                sidebarUnread.canMarkWorkspaceRead(forWorkspaceIds: [workspace.id])
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceCanMarkUnread,
-                notificationStore.canMarkWorkspaceUnread(forTabIds: [workspace.id])
+                sidebarUnread.canMarkWorkspaceUnread(forWorkspaceIds: [workspace.id])
             )
         }
 
@@ -6646,7 +6702,7 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelCanMoveToNewWorkspace, workspace.panels.count > 1)
             let hasUnread = workspace.manualUnreadPanelIds.contains(panelId) ||
                 workspace.restoredUnreadPanelIds.contains(panelId) ||
-                notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId)
+                sidebarUnread.hasUnreadNotification(forWorkspaceId: workspace.id, surfaceId: panelId)
             snapshot.setBool(CommandPaletteContextKeys.panelHasUnread, hasUnread)
 
             if panelIsTerminal {
@@ -8257,7 +8313,7 @@ struct ContentView: View {
             }
             let hasUnread = panelContext.workspace.manualUnreadPanelIds.contains(panelContext.panelId) ||
                 panelContext.workspace.restoredUnreadPanelIds.contains(panelContext.panelId) ||
-                notificationStore.hasUnreadNotification(forTabId: panelContext.workspace.id, surfaceId: panelContext.panelId)
+                sidebarUnread.hasUnreadNotification(forWorkspaceId: panelContext.workspace.id, surfaceId: panelContext.panelId)
             if hasUnread {
                 panelContext.workspace.markPanelRead(panelContext.panelId)
             } else {
@@ -10562,11 +10618,17 @@ struct VerticalTabsSidebar: View {
     let onNewTab: () -> Void
     let observedWindow: NSWindow?
     @EnvironmentObject var tabManager: TabManager
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
+    // Observe the coalesced unread projection instead of the notification store
+    // so notification churn (terminal/agent activity) no longer reconstructs
+    // every workspace row. The store stays available as an unobserved singleton
+    // for context-menu actions and pass-down. See SidebarUnreadModel / #2586.
+    @EnvironmentObject var sidebarUnread: SidebarUnreadModel
+    var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
+    @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
@@ -10604,6 +10666,7 @@ struct VerticalTabsSidebar: View {
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
+    @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
 
     // The provider to actually render. Built-in views are always honored; only
     // the hosted-extension selection falls back to the default workspaces
@@ -10659,7 +10722,7 @@ struct VerticalTabsSidebar: View {
             "workspaceCount": .int(tabManager.tabs.count),
             "selectedTitle": .string(selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? ""),
             "selectedId": .string(selectedId?.uuidString ?? ""),
-            "unreadTotal": .int(notificationStore.unreadCount),
+            "unreadTotal": .int(sidebarUnread.totalUnreadCount),
             "clock": clock,
         ]
     }
@@ -10679,26 +10742,20 @@ struct VerticalTabsSidebar: View {
             "directory": .string(workspace.currentDirectory),
             "ports": .array(workspace.listeningPorts.map { .int($0) }),
             "portCount": .int(workspace.listeningPorts.count),
-            "unread": .int(notificationStore.unreadCount(forTabId: workspace.id)),
+            "unread": .int(sidebarUnread.unreadCount(forWorkspaceId: workspace.id)),
             "tabs": .array(customSidebarSurfaceValues(workspace, focusedPanelId: focusedPanelId)),
             "tabCount": .int(workspace.bonsplitController.allPaneIds.reduce(0) { $0 + workspace.bonsplitController.tabs(inPane: $1).count }),
         ]
         if let description = workspace.customDescription, !description.isEmpty { fields["description"] = .string(description) }
         if let color = workspace.customColor, !color.isEmpty { fields["color"] = .string(color) }
-        if let git = workspace.gitBranch {
+        if let git = workspace.sidebarGitBranchesInDisplayOrder().first {
             fields["branch"] = .string(git.branch)
             fields["dirty"] = .bool(git.isDirty)
         }
-        if let pr = workspace.pullRequest {
-            var prFields: [String: SwiftValue] = [
-                "number": .int(pr.number),
-                "label": .string(pr.label),
-                "url": .string(pr.url.absoluteString),
-                "status": .string(pr.status.rawValue),
-                "stale": .bool(pr.isStale),
-            ]
-            if let prBranch = pr.branch { prFields["branch"] = .string(prBranch) }
-            fields["pr"] = .object(prFields)
+        let pullRequestValues = workspace.customSidebarPullRequestValues()
+        if let firstPullRequest = pullRequestValues.first {
+            fields["pr"] = firstPullRequest
+            fields["prs"] = .array(pullRequestValues)
         }
         if let progress = workspace.progress {
             var progressFields: [String: SwiftValue] = ["value": .double(progress.value)]
@@ -11355,21 +11412,26 @@ struct VerticalTabsSidebar: View {
             // Periodic tick so the custom sidebar re-renders live (clock,
             // countdowns, and refreshed workspace/data context), mirroring the
             // default sidebar's TimelineView. No banned timers involved.
-            // Fully out-of-process: the render worker interprets AND renders
-            // the file; this view only hosts the worker's remote layer and
-            // forwards input, so no file-derived view code runs in the host.
+            // The surface mounts the in-process renderer by default (native
+            // hover/focus/keyboard, same-frame resize); the
+            // `customSidebars.renderer` setting switches it to the
+            // out-of-process worker for untrusted sources (no file-derived
+            // view code runs in the host). The @LiveSetting's initial value
+            // lags one store round-trip on remount, so a non-default choice
+            // can mount the other renderer for one tick before flipping;
+            // harmless (the host shuts the short-lived client down on
+            // unmount).
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                // No .id(customSidebarURL): the worker swaps files in place on
-                // the next scene message, so remounting the surface would only
-                // flash the previous sidebar's pixels during the switch.
-                RemoteCustomSidebarHost(
+                CustomSidebarSurface(
                     fileURL: customSidebarURL,
                     dataContext: customSidebarDataContext(now: timeline.date),
                     dispatch: makeCmuxSidebarActionDispatch(),
                     contentInsets: CustomSidebarContentInsets(
                         top: SidebarWorkspaceScrollInsets.workspaceList.top,
                         bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
-                    )
+                    ),
+                    rendersInProcess: customSidebarRenderer == .inProcess,
+                    client: $sidebarRenderWorkerClient
                 )
             }
             .mask(
@@ -11826,14 +11888,11 @@ struct VerticalTabsSidebar: View {
             isPinned: workspace.isPinned,
             rootPath: rootPath,
             projectRootPath: workspace.extensionSidebarProjectRootPath,
-            branchSummary: workspace.gitBranch?.branch,
+            branchSummary: workspace.sidebarGitBranchesInDisplayOrder().first?.branch,
             remoteDisplayTarget: workspace.remoteDisplayTarget,
             remoteConnectionState: workspace.remoteConnectionState.rawValue,
-            unreadCount: notificationStore.unreadCount(forTabId: workspace.id),
-            latestNotificationText: notificationStore.latestNotification(forTabId: workspace.id).flatMap {
-                let text = $0.body.isEmpty ? $0.title : $0.body
-                return text.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-            },
+            unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
+            latestNotificationText: sidebarUnread.latestNotificationText(forWorkspaceId: workspace.id),
             latestSubmittedMessage: workspace.latestSubmittedMessage,
             latestSubmittedAt: workspace.latestSubmittedAt,
             listeningPorts: workspace.listeningPorts,
@@ -12608,16 +12667,10 @@ struct VerticalTabsSidebar: View {
             in: tabManager,
             target: contextMenuPinTarget
         )
-        let liveUnreadCount = notificationStore.unreadCount(forTabId: tab.id)
-        let liveLatestNotificationText: String? = {
-            guard showsSidebarNotificationMessage,
-                  let notification = notificationStore.latestNotification(forTabId: tab.id) else {
-                return nil
-            }
-            let text = notification.body.isEmpty ? notification.title : notification.body
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }()
+        let liveUnreadCount = sidebarUnread.unreadCount(forWorkspaceId: tab.id)
+        let liveLatestNotificationText: String? = showsSidebarNotificationMessage
+            ? sidebarUnread.latestNotificationText(forWorkspaceId: tab.id)
+            : nil
         let liveShowsModifierShortcutHints = modifierKeyMonitor.isModifierPressed
         let resolvedShowsModifierShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
             live: liveShowsModifierShortcutHints,
@@ -15163,6 +15216,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String
+        let showsRemoteReconnectAffordance: Bool
         let copyableSidebarSSHError: String?
         let latestConversationMessage: String?
         let metadataEntries: [SidebarStatusEntry]
@@ -15441,7 +15495,12 @@ struct TabItemView: View, Equatable {
     }
 
     private var remoteWorkspaceSidebarText: String? {
-        guard tab.hasActiveRemoteTerminalSessions else { return nil }
+        // Keep the SSH row visible while auto-reconnect is suspended even if
+        // every remote terminal session already died — it hosts the manual
+        // Reconnect affordance.
+        guard tab.hasActiveRemoteTerminalSessions || tab.remoteConnectionState == .suspended else {
+            return nil
+        }
         let trimmedTarget = tab.remoteDisplayTarget?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let trimmedTarget, !trimmedTarget.isEmpty {
             return trimmedTarget
@@ -15455,7 +15514,8 @@ struct TabItemView: View, Equatable {
             defaultValue: "remote host"
         )
         let trimmedDetail = tab.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if tab.remoteConnectionState == .error, let trimmedDetail, !trimmedDetail.isEmpty {
+        if tab.remoteConnectionState == .error || tab.remoteConnectionState == .suspended,
+           let trimmedDetail, !trimmedDetail.isEmpty {
             let entry = SidebarRemoteErrorCopyEntry(
                 workspaceTitle: tab.title,
                 target: fallbackTarget,
@@ -15488,6 +15548,8 @@ struct TabItemView: View, Equatable {
             return String(localized: "remote.status.error", defaultValue: "Error")
         case .disconnected:
             return String(localized: "remote.status.disconnected", defaultValue: "Disconnected")
+        case .suspended:
+            return String(localized: "remote.status.suspended", defaultValue: "Unreachable")
         }
     }
 
@@ -15521,6 +15583,29 @@ struct TabItemView: View, Equatable {
                         .font(.system(size: scaledFontSize(9), weight: .medium))
                         .foregroundColor(activeSecondaryColor(0.58))
                         .lineLimit(1)
+
+                    if workspaceSnapshot.showsRemoteReconnectAffordance {
+                        Button {
+                            tab.reconnectRemoteConnection()
+                        } label: {
+                            Label(
+                                String(localized: "sidebar.remote.reconnect.button", defaultValue: "Reconnect"),
+                                systemImage: "arrow.clockwise"
+                            )
+                            .labelStyle(.titleAndIcon)
+                            .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundColor(activeSecondaryColor(0.9))
+                        .safeHelp(String(
+                            format: String(
+                                localized: "sidebar.remote.reconnect.help",
+                                defaultValue: "Reconnect to %@"
+                            ),
+                            locale: .current,
+                            remoteWorkspaceSidebarText
+                        ))
+                    }
                 }
             }
             .padding(.top, latestNotificationText == nil ? 1 : 2)
@@ -16573,6 +16658,15 @@ struct TabItemView: View, Equatable {
                 locale: .current,
                 target
             )
+        case .suspended:
+            return String(
+                format: String(
+                    localized: "sidebar.remote.help.suspended",
+                    defaultValue: "SSH host %@ is unreachable. Automatic reconnect is paused — use Reconnect to retry."
+                ),
+                locale: .current,
+                target
+            )
         }
     }
 
@@ -16625,6 +16719,7 @@ struct TabItemView: View, Equatable {
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
+            showsRemoteReconnectAffordance: tab.remoteConnectionState == .suspended,
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: tab.latestConversationMessage,
             metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],

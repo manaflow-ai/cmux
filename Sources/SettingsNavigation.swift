@@ -7,6 +7,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case textBox
     case mobile
     case sidebarAppearance
+    case customSidebars
     case betaFeatures
     case automation
     case browser
@@ -35,6 +36,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
             return String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
+        case .customSidebars:
+            return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
         case .betaFeatures:
             return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
         case .automation:
@@ -70,6 +73,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "paintpalette"
         case .sidebarAppearance:
             return "sidebar.left"
+        case .customSidebars:
+            return "sidebar.squares.left"
         case .betaFeatures:
             return "exclamationmark.triangle"
         case .automation:
@@ -105,6 +110,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) palette tabs"
         case .sidebarAppearance:
             return "\(title) sidebar details branches badges material terminal background"
+        case .customSidebars:
+            return "\(title) custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures:
             return "\(title) beta experimental unstable feed dock right sidebar"
         case .automation:
@@ -379,6 +386,8 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "show-log", String(localized: "settings.app.showLog", defaultValue: "Show Latest Log in Sidebar"), "status message"),
         setting(.sidebarAppearance, "show-progress", String(localized: "settings.app.showProgress", defaultValue: "Show Progress in Sidebar"), "progress bar"),
         setting(.sidebarAppearance, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
+        setting(.customSidebars, "enabled", String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), "custom sidebars enable show vibe swift json interpreted picker"),
+        setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
@@ -502,6 +511,7 @@ enum SettingsSearchIndex {
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
         "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
         "sidebarAppearance.matchTerminalBackground": settingID(for: .sidebarAppearance, idSuffix: "match-terminal"),
+        "customSidebars.renderer": settingID(for: .customSidebars, idSuffix: "renderer"),
         "automation.socketControlMode": settingID(for: .automation, idSuffix: "socket-mode"),
         "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),

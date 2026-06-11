@@ -6437,6 +6437,9 @@ final class WorkspaceRemoteSessionController {
     private var reverseRelayStderrBuffer = ""
     private var reconnectRetryCount = 0
     private var reconnectWorkItem: DispatchWorkItem?
+    private var consecutiveUnreachableProbeCount = 0
+    private var reconnectSuspended = false
+    private var reachabilityProbeGeneration: UInt64 = 0
     private var heartbeatCount: Int = 0
     private var connectionAttemptStartedAt: Date?
     private var pendingPTYBridgeStarts: [UUID: PendingPTYBridgeStart] = [:]
@@ -6824,6 +6827,9 @@ final class WorkspaceRemoteSessionController {
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
         reconnectRetryCount = 0
+        consecutiveUnreachableProbeCount = 0
+        reconnectSuspended = false
+        reachabilityProbeGeneration &+= 1
         reverseRelayRestartWorkItem?.cancel()
         reverseRelayRestartWorkItem = nil
         remotePortScanCoalesceWorkItem?.cancel()
@@ -7206,6 +7212,11 @@ final class WorkspaceRemoteSessionController {
             reconnectWorkItem?.cancel()
             reconnectWorkItem = nil
             reconnectRetryCount = 0
+            consecutiveUnreachableProbeCount = 0
+            // A live connection ends any suspension; without this a future
+            // failure would hit the suspended guard and never reschedule.
+            reconnectSuspended = false
+            reachabilityProbeGeneration &+= 1
             guard proxyEndpoint != endpoint else {
                 recordHeartbeatActivityLocked()
                 fulfillPendingPTYBridgeStartsLocked()
@@ -7260,7 +7271,9 @@ final class WorkspaceRemoteSessionController {
     private func scheduleReconnectLocked(baseDelay: TimeInterval) -> RetrySchedule {
         let retryNumber = reconnectRetryCount + 1
         let retryDelay = Self.retryDelay(baseDelay: baseDelay, retry: retryNumber)
-        guard !isStopping else { return RetrySchedule(retry: retryNumber, delay: retryDelay) }
+        guard !isStopping, !reconnectSuspended else {
+            return RetrySchedule(retry: retryNumber, delay: retryDelay)
+        }
         reconnectWorkItem?.cancel()
         reconnectRetryCount = retryNumber
         let workItem = DispatchWorkItem { [weak self] in
@@ -7272,7 +7285,87 @@ final class WorkspaceRemoteSessionController {
         }
         reconnectWorkItem = workItem
         queue.asyncAfter(deadline: .now() + retryDelay, execute: workItem)
+        evaluateReconnectPolicyLocked()
         return RetrySchedule(retry: retryNumber, delay: retryDelay)
+    }
+
+    /// Probe whether the SSH endpoint is reachable at all after a failed
+    /// connection attempt. While the host stays unreachable the retry loop is
+    /// allowed a short streak of attempts (absorbing sleep/wake and network
+    /// handoffs) and then suspends instead of retrying indefinitely
+    /// (https://github.com/manaflow-ai/cmux/issues/5734).
+    private func evaluateReconnectPolicyLocked() {
+        guard configuration.transport == .ssh else { return }
+        reachabilityProbeGeneration &+= 1
+        let generation = reachabilityProbeGeneration
+        WorkspaceRemoteHostReachabilityProbe.probe(
+            destination: configuration.destination,
+            port: configuration.port,
+            identityFile: configuration.identityFile,
+            sshOptions: configuration.sshOptions
+        ) { [weak self] outcome in
+            guard let self else { return }
+            self.queue.async {
+                self.handleReachabilityProbeOutcomeLocked(outcome, generation: generation)
+            }
+        }
+    }
+
+    private func handleReachabilityProbeOutcomeLocked(
+        _ outcome: WorkspaceRemoteHostProbeOutcome,
+        generation: UInt64
+    ) {
+        guard generation == reachabilityProbeGeneration else { return }
+        guard !isStopping, !reconnectSuspended else { return }
+        // The probe only judges a still-pending retry; if the retry resolved
+        // while the probe ran, the connected/stopped paths own the state.
+        guard reconnectWorkItem != nil else { return }
+        let evaluation = WorkspaceRemoteReconnectPolicy.evaluate(
+            outcome: outcome,
+            previousConsecutiveUnreachableProbes: consecutiveUnreachableProbeCount
+        )
+        consecutiveUnreachableProbeCount = evaluation.consecutiveUnreachableProbes
+        debugLog(
+            "remote.session.reachability outcome=\(Self.debugDescription(for: outcome)) " +
+            "streak=\(evaluation.consecutiveUnreachableProbes) " +
+            "decision=\(evaluation.decision == .suspend ? "suspend" : "retry") \(debugConfigSummary())"
+        )
+        if evaluation.decision == .suspend {
+            suspendAutoReconnectLocked()
+        }
+    }
+
+    /// Halt the automatic reconnect loop and surface a suspended state with a
+    /// manual Reconnect affordance. `Workspace.reconnectRemoteConnection()`
+    /// (sidebar button, workspace context menu, `cmux workspace reconnect`,
+    /// and the `workspace.remote.reconnect` socket command) replaces this
+    /// controller, which resets the policy state.
+    private func suspendAutoReconnectLocked() {
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
+        reconnectSuspended = true
+        debugLog(
+            "remote.session.reconnect.suspended afterUnreachableProbes=\(consecutiveUnreachableProbeCount) " +
+            debugConfigSummary()
+        )
+        let detailFormat = String(
+            localized: "remote.state.suspended.detail",
+            defaultValue: "Can't reach %@ — automatic reconnect is paused. Use Reconnect when your network is back."
+        )
+        let detail = String(format: detailFormat, configuration.displayTarget)
+        publishDaemonStatus(.unavailable, detail: detail)
+        publishState(.suspended, detail: detail)
+    }
+
+    private static func debugDescription(for outcome: WorkspaceRemoteHostProbeOutcome) -> String {
+        switch outcome {
+        case .reachable:
+            return "reachable"
+        case .unreachable(let reason):
+            return "unreachable(\(debugLogSnippet(reason, limit: 80)))"
+        case .indeterminate:
+            return "indeterminate"
+        }
     }
 
     private func publishState(_ state: WorkspaceRemoteConnectionState, detail: String?) {
@@ -9802,6 +9895,9 @@ enum WorkspaceRemoteConnectionState: String, Equatable {
     case reconnecting
     case connected
     case error
+    /// Automatic reconnect halted because the host stayed unreachable; the
+    /// user reconnects manually (sidebar Reconnect, context menu, CLI).
+    case suspended
 }
 
 enum WorkspaceRemoteDaemonState: String {
@@ -13953,7 +14049,8 @@ final class Workspace: Identifiable, ObservableObject {
             if remoteConnectionState == .error ||
                 remoteDaemonStatus.state == .error ||
                 remoteConnectionState == .connecting ||
-                remoteConnectionState == .reconnecting {
+                remoteConnectionState == .reconnecting ||
+                remoteConnectionState == .suspended {
                 return
             }
             disconnectRemoteConnection(clearConfiguration: true)
@@ -14177,6 +14274,44 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConnectionState = effectiveState
         remoteConnectionDetail = detail
         applyBrowserRemoteWorkspaceStatusToPanels()
+
+        if state == .suspended {
+            let entryDetail = trimmedDetail ?? ""
+            let entryValue = String(
+                format: String(
+                    localized: "remote.statusEntry.suspended",
+                    defaultValue: "SSH reconnect paused (%@): %@"
+                ),
+                locale: .current,
+                target,
+                entryDetail
+            )
+            statusEntries[Self.remoteErrorStatusKey] = SidebarStatusEntry(
+                key: Self.remoteErrorStatusKey,
+                value: entryValue,
+                icon: "pause.circle",
+                color: nil,
+                timestamp: Date()
+            )
+            let fingerprint = "suspended:\(entryDetail)"
+            if remoteLastErrorFingerprint != fingerprint {
+                remoteLastErrorFingerprint = fingerprint
+                appendSidebarLog(message: entryValue, level: .warning, source: "remote")
+                AppDelegate.shared?.notificationStore?.addNotification(
+                    tabId: id,
+                    surfaceId: nil,
+                    title: String(
+                        localized: "remote.notification.suspendedTitle",
+                        defaultValue: "SSH Reconnect Paused"
+                    ),
+                    subtitle: target,
+                    body: entryDetail,
+                    cooldownKey: remoteNotificationCooldownKey(target: target),
+                    cooldownInterval: Self.remoteNotificationCooldown
+                )
+            }
+            return
+        }
 
         if let trimmedDetail, !trimmedDetail.isEmpty, (state == .error || proxyOnlyError) {
             let statusPrefix = proxyOnlyError ? "Remote proxy unavailable" : "SSH error"

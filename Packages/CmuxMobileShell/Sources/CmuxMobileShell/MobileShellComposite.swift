@@ -59,6 +59,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
+    private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
 
     /// How long the render-grid stream may stay silent (no event of any topic)
@@ -118,6 +119,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var macConnectionStatus: MobileMacConnectionStatus
     public private(set) var connectedHostName: String
     public private(set) var connectionError: String?
+    /// Actionable next-step line shown beneath ``connectionError`` (for example
+    /// "Check that both devices are on the same Tailscale"). Set and cleared
+    /// together with the error by the pairing-failure classifier sink.
+    public private(set) var connectionErrorGuidance: String?
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
 
@@ -178,13 +183,187 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// for older Macs that lack the handler, so the UI can hide rename/pin rather
     /// than offer actions that would fail with `method_not_found`.
     public private(set) var supportsWorkspaceActions: Bool = false
-    public var terminalInputText: String
+    /// Whether the connected Mac advertises the `dogfood.v1` capability (the
+    /// `dogfood.feedback.submit` agent sink). `false` until host status is read,
+    /// and for older Macs that lack the handler, so the privileged Send Feedback
+    /// route falls back to email rather than failing with `method_not_found`
+    /// under client/server version skew.
+    public private(set) var supportsDogfoodFeedback: Bool = false
+    /// The composer's live draft for the currently selected terminal.
+    ///
+    /// Edits are persisted per-terminal through the FIFO draft pipeline on every
+    /// change (see `didSet`), so the draft survives terminal switches; loads set
+    /// `isLoadingDraft` so the restore is not re-saved under the wrong terminal
+    /// key.
+    public var terminalInputText: String {
+        didSet {
+            #if DEBUG
+            // COMPOSER: record every draft change so a captured trace shows whether
+            // the draft was cleared at the store (b == 1) during a keyboard-dismiss
+            // cycle, vs. only disappearing from the view. `didSet` does not fire on
+            // the `init` assignment, so this is safe to read `diagnosticLog`.
+            diagnosticLog?.record(DiagnosticEvent(
+                .composerInputTextChanged,
+                a: terminalInputText.utf8.count,
+                b: terminalInputText.isEmpty ? 1 : 0
+            ))
+            #endif
+            // Persist the live edit under the CURRENT terminal so it survives a
+            // terminal switch. Skipped while a draft is being loaded (the load is
+            // the saved value, re-saving it is redundant and would race the
+            // per-terminal key swap) and when the value is unchanged.
+            guard !isLoadingDraft, terminalInputText != oldValue else { return }
+            // A user edit claims field ownership for the selected terminal: the
+            // live input is now authoritative, so a still-in-flight stored-draft
+            // load must not apply over it (see ``applyLoadedDraft``).
+            draftLoadPendingTerminalID = nil
+            persistCurrentDraft()
+        }
+    }
+    /// Whether the iMessage-style composer is shown above the terminal, observed
+    /// by the terminal screen to present ``terminalInputText`` for multi-line
+    /// editing.
+    ///
+    /// OPEN BY DEFAULT per terminal: like iMessage showing its input bar in every
+    /// conversation, the composer is presented for any selected terminal the user
+    /// has not explicitly dismissed (``composerDismissedTerminalIDs`` records the
+    /// exception, not the rule). Presented does NOT mean focused — the keyboard
+    /// comes up only when the user taps the field or an explicit open/reveal
+    /// requests focus (``composerFocusRequest``). Derived from observable stored
+    /// state (`selectedTerminalID` + the dismissed set), so views tracking it
+    /// re-render on terminal switches and explicit toggles alike.
+    public var isComposerPresented: Bool {
+        guard let terminalID = selectedTerminalID?.rawValue else { return false }
+        return !composerDismissedTerminalIDs.contains(terminalID)
+    }
+    /// Terminal IDs whose composer the user explicitly dismissed (the band's
+    /// chevron, or a genuine close from the compose button). Session-only: a
+    /// relaunch returns every terminal to the default-open composer. Stored (not
+    /// `@ObservationIgnored`) so ``isComposerPresented`` is observable through it.
+    private var composerDismissedTerminalIDs: Set<String> = []
+    /// Monotonic focus-request token for the iMessage-style composer field.
+    ///
+    /// The composer's text field owns its first responder via SwiftUI `@FocusState`,
+    /// which neither the terminal surface nor the representable coordinator can set
+    /// directly. When the surface needs the field re-focused without re-presenting the
+    /// composer — the reveal-after-hide case, where the chrome and draft are already
+    /// back but the terminal proxy stole first responder — it bumps this token through
+    /// ``presentAndFocusComposer()``. ``TerminalComposerView`` observes the change and
+    /// drives `isFieldFocused = true`, keeping `@FocusState` the single source of truth
+    /// for who holds the keyboard.
+    public private(set) var composerFocusRequest: Int = 0
+    /// True while a ``composerFocusRequest`` has been issued but not yet consumed
+    /// by the composer field. The field's `onChange` of the token only observes
+    /// bumps that happen while the view is mounted; an explicit open (or a
+    /// terminal switch while composing) bumps the token BEFORE the new composer
+    /// view mounts, so the view's `onAppear` consumes this flag instead
+    /// (``consumePendingComposerFocusRequest(for:)``). Default-open presentations
+    /// never set it, which is exactly what keeps the keyboard down for them.
+    /// Not observed: a handshake with the field, not view state.
+    @ObservationIgnored private var composerFocusRequestPending = false
+    /// The terminal the pending ``composerFocusRequest`` targets (the selected
+    /// terminal at the moment the request was issued). Consumption is keyed on
+    /// it: during a terminal switch the OUTGOING composer view is still mounted
+    /// and observes the same token, so an unkeyed pending bit could be consumed
+    /// by the dying view and the incoming terminal's field would never focus.
+    @ObservationIgnored private var composerFocusRequestTerminalID: String?
+    /// Whether the composer's text field currently holds first responder,
+    /// mirrored from the view's `@FocusState` via
+    /// ``composerFieldFocusChanged(_:)``. Read on terminal switches to decide
+    /// whether the incoming terminal's composer should re-take focus (keeping the
+    /// keyboard up across a switch mid-compose) — without it, every switch would
+    /// either pop the keyboard (always refocus) or drop it (never refocus).
+    /// Cleared explicitly on dismiss because the unmounting field does not
+    /// reliably deliver its final unfocus change. Not observed: bookkeeping for
+    /// the switch decision, not view state.
+    @ObservationIgnored private var composerFieldIsFocused = false
+    /// Guards ``submitComposerInput()`` against re-entrancy. A quick double tap
+    /// on Send would otherwise start two sends that both capture the same text
+    /// (the field is cleared only on ack), pasting the message to the agent
+    /// twice. Not observed: it gates an async flow, not view state.
+    @ObservationIgnored private var isSubmittingComposerInput = false
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
         }
     }
-    public var selectedTerminalID: MobileTerminalPreview.ID?
+    /// The terminal whose surface (and composer draft) is currently shown.
+    ///
+    /// Changing it swaps the composer draft: `willSet` captures the outgoing
+    /// terminal's draft before the id lands, `didSet` persists it under the old
+    /// key and loads the incoming terminal's saved draft.
+    public var selectedTerminalID: MobileTerminalPreview.ID? {
+        willSet {
+            // Capture the draft of the terminal we are leaving BEFORE the new id
+            // lands, so `swapDraft(from:to:)` can persist it under the correct
+            // (old) key. A no-op when the id is unchanged.
+            guard newValue != selectedTerminalID else { return }
+            draftedOutgoingTerminalID = selectedTerminalID
+            draftedOutgoingText = terminalInputText
+        }
+        didSet {
+            guard selectedTerminalID != oldValue else { return }
+            swapDraft(from: draftedOutgoingTerminalID, outgoingText: draftedOutgoingText, to: selectedTerminalID)
+            draftedOutgoingTerminalID = nil
+            draftedOutgoingText = ""
+            // Switching terminals rebuilds the surface (and the composer view with
+            // it). When the user was actively composing — the field held first
+            // responder at the moment of the switch — ask the incoming terminal's
+            // composer to re-take focus so the keyboard hands over in place
+            // instead of dropping. A default-open-but-unfocused composer issues no
+            // request, so a mere switch never pops the keyboard.
+            if composerFieldIsFocused, isComposerPresented {
+                requestComposerFieldFocus()
+            } else {
+                // Any switch that does not arm a new handshake invalidates a
+                // stale unconsumed one, so a plain switch back to a terminal
+                // can never pop the keyboard off an old request.
+                composerFocusRequestPending = false
+                composerFocusRequestTerminalID = nil
+            }
+        }
+    }
+
+    /// The per-terminal composer-draft seam. `nil` in previews/tests that do not
+    /// exercise drafts; every draft hook is then a no-op and the in-memory
+    /// ``terminalInputText`` behaves exactly as before. Injected from the app
+    /// composition root.
+    private let draftStore: (any TerminalDraftStoring)?
+
+    /// True while a saved draft is being loaded INTO ``terminalInputText``, so
+    /// its `didSet` does not immediately re-save the just-loaded value (which
+    /// would also race the key swap). Not observed: it gates a write, not view
+    /// state.
+    @ObservationIgnored private var isLoadingDraft = false
+    /// Tail of the FIFO draft pipeline (see ``enqueueDraftOperation(_:)``).
+    /// Every draft-store operation chains onto this so store effects apply in
+    /// exactly the order they were issued from the main actor. Not observed: it
+    /// sequences async work, not view state.
+    @ObservationIgnored private var draftOperationTail: Task<Void, Never>?
+    /// Latest unflushed keystroke draft per terminal (see
+    /// ``persistCurrentDraft()``). Keystroke saves coalesce here: each edit
+    /// overwrites the terminal's entry and at most ONE flush task per terminal
+    /// is queued on the pipeline, reading the entry at execution time. A typing
+    /// burst behind a slow store therefore retains one latest snapshot per
+    /// terminal instead of one snapshot per edit. Not observed: it buffers
+    /// writes, not view state.
+    @ObservationIgnored private var pendingDraftSaveTextByTerminalID: [String: String] = [:]
+    /// The terminal id we are switching away from, captured in
+    /// ``selectedTerminalID``'s `willSet` so its draft is saved under the right key.
+    @ObservationIgnored private var draftedOutgoingTerminalID: MobileTerminalPreview.ID?
+    /// The draft text of the terminal we are switching away from, captured with
+    /// ``draftedOutgoingTerminalID``.
+    @ObservationIgnored private var draftedOutgoingText: String = ""
+    /// The terminal whose stored-draft load is still in flight while the field
+    /// shows the transient cleared placeholder. While this matches a terminal,
+    /// the visible field does NOT represent that terminal's draft yet, so a
+    /// switch away from it must not persist the placeholder over its real
+    /// stored draft (the fast A -> B -> C switch erased B's untouched draft).
+    /// Consumed when the load applies; cleared by a user edit, which claims
+    /// field ownership for the selected terminal (live input wins over a late
+    /// load, so deleted text cannot resurrect). Not observed: bookkeeping, not
+    /// view state.
+    @ObservationIgnored private var draftLoadPendingTerminalID: MobileTerminalPreview.ID?
 
     /// Surface IDs whose next window attach must NOT grab the keyboard.
     ///
@@ -209,6 +388,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let reachability: any ReachabilityProviding
     private let pairingHintDefaults: UserDefaults
     private let clientID: String
+    /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
+    /// web API base URL is unavailable; the email path then fails closed and the
+    /// UI surfaces an error rather than silently dropping the report.
+    private let feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)?
+    /// Resolves the current build + device stamp. Injected from the app layer
+    /// (which can read `Bundle.main`/`UIDevice`); defaults to an empty stamp so
+    /// previews/tests need not provide one.
+    private let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp
     /// The injected, fire-and-forget product-analytics emitter. Defaults to
     /// ``NoopAnalytics`` so previews/tests inject nothing.
     private let analytics: any AnalyticsEmitting
@@ -268,6 +455,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
+    /// The user pull-to-refresh round-trip, kept on its own handle so the
+    /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
+    /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
+    private var pullToRefreshTask: Task<Void, Never>?
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
@@ -334,9 +525,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         reachability: any ReachabilityProviding = ReachabilityService(),
         pairingHintDefaults: UserDefaults = .standard,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
+        feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
+        draftStore: (any TerminalDraftStoring)? = nil
     ) {
         self.runtime = runtime
+        self.draftStore = draftStore
         self.pairedMacStore = pairedMacStore
         self.deviceRegistry = deviceRegistry
         self.identityProvider = identityProvider
@@ -344,6 +539,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingHintDefaults = pairingHintDefaults
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
+        self.feedbackEmailSubmitter = feedbackEmailSubmitter
+        self.feedbackStampProvider = feedbackStampProvider
         // Distinguish "key absent" (an install that predates the hint and may
         // already have a paired Mac in SQLite) from "key present and false" (we
         // determined there is no paired Mac). didSet is not called for these
@@ -364,6 +561,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.workspaces = workspaces
         self.terminalInputText = ""
         self.connectionError = nil
+        self.connectionErrorGuidance = nil
         self.activeTicket = nil
         self.activeRoute = nil
         self.selectedWorkspaceID = workspaces.first?.id
@@ -375,6 +573,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createWorkspaceTask = nil
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
+        self.pullToRefreshTask = nil
         self.createWorkspaceTaskID = nil
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
@@ -395,6 +594,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
+        pullToRefreshTask?.cancel()
         if let remoteClient {
             Task { await remoteClient.disconnect() }
         }
@@ -407,7 +607,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func signIn() {
         let wasSignedIn = isSignedIn
         isSignedIn = true
-        connectionError = nil
+        clearPairingError()
         // Fire only on the signed-out→signed-in edge (this is called on every
         // auth-state sync), so identify + the sign-in-completed funnel event are
         // emitted once per sign-in.
@@ -431,20 +631,48 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             analytics.setSuperProperties(["is_authenticated": .bool(false)])
         }
         suppressNextConnectionOutageEdge = true
-        pairingAttemptID = UUID()
+        invalidatePairingAttempt()
         connectionGeneration = UUID()
         isSignedIn = false
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         connectedHostName = ""
         pairingCode = ""
+        // Wipe every saved draft so the next account never sees the previous
+        // user's unsent text. Guard the in-memory clear (and the selection resets
+        // below) so the per-terminal draft hooks do not write partial state into a
+        // store we are about to empty wholesale.
+        isLoadingDraft = true
         terminalInputText = ""
-        connectionError = nil
+        // Enqueued on the FIFO draft pipeline so every save issued before this
+        // point is applied first and then wiped; a pending keystroke save can
+        // never land after the wipe and leak into the next account's session.
+        if let draftStore {
+            enqueueDraftOperation { await draftStore.clearAllDrafts() }
+        }
+        // Drop unflushed keystroke snapshots too: an armed flush that runs
+        // before the wipe would only write text the wipe then deletes, but the
+        // buffer itself must not carry one account's text into the next.
+        pendingDraftSaveTextByTerminalID = [:]
+        // Per-terminal composer dismissals are this user's session UI state; the
+        // next account starts with the default-open composer everywhere. Clear
+        // the focus mirror BEFORE the selection resets below so the terminal
+        // switch they trigger cannot arm a stale focus request, and drop any
+        // already-armed handshake (the selection reset's didSet only clears it
+        // when the terminal id actually changes).
+        composerDismissedTerminalIDs = []
+        composerFieldIsFocused = false
+        composerFocusRequestPending = false
+        composerFocusRequestTerminalID = nil
+        clearPairingError()
         activeTicket = nil
         activeRoute = nil
         // Drop the cached paired Macs so the next signed-in user never sees the
         // previous user's hosts in the switcher.
         pairedMacs = []
+        // Likewise drop the registry-backed device tree so a shared device never
+        // shows the previous user's team devices after sign-out.
+        registryDevices = []
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the forget path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
@@ -459,6 +687,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaces = PreviewMobileHost.workspaces
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
+        // Selection resets above are done; allow draft saving again so a
+        // subsequent sign-in restores drafts normally.
+        isLoadingDraft = false
     }
 
     public func resumeForegroundRefresh() {
@@ -578,11 +809,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    #if DEBUG
-    /// DEV dogfood feedback round-trip (P1): export the structured diagnostic
-    /// log, package it with the supplied debug-log text, visible terminal text,
-    /// and an optional freeform note, and submit it to the paired Mac's
-    /// `dogfood.feedback.submit` sink.
+    /// Privileged direct-to-agent feedback round-trip: export the structured
+    /// diagnostic log, package it with the supplied debug-log text, visible
+    /// terminal text, and an optional freeform note, and submit it to the paired
+    /// Mac's `dogfood.feedback.submit` sink so the existing watcher under
+    /// `~/.cache/cmux-dogfood-feedback/` catches it.
+    ///
+    /// This is the privileged path of the Send Feedback feature: it is offered
+    /// only to `@manaflow.ai` users on an active mobile-host connection (see
+    /// ``MobileFeedbackRoute/resolve(email:hasActiveMacConnection:hostSupportsAgentSink:)``), and is NOT
+    /// `#if DEBUG`-gated, so it works on Release (beta/prod) builds for the team.
     ///
     /// The structured log is exported here (the store owns ``diagnosticLog``);
     /// the string snapshots are gathered by the caller on the UI layer, where the
@@ -590,19 +826,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// transport failure is logged and surfaced via the returned `Bool`.
     ///
     /// - Parameters:
-    ///   - text: An optional freeform note from the dogfooder.
+    ///   - text: An optional freeform note from the user.
     ///   - debugLogText: The string debug-log snapshot (from `MobileDebugLog`).
     ///   - terminalText: The visible terminal text (from `GhosttySurfaceView`).
+    ///   - buildStamp: The build-identity stamp (build type + version + OS +
+    ///     device) written into the bundle. Defaults to the diagnostic log's
+    ///     stamp when not supplied.
     /// - Returns: `true` when the Mac acknowledged the bundle.
     @discardableResult
-    public func submitDogfoodFeedback(
+    public func submitPrivilegedAgentFeedback(
         text: String,
         debugLogText: String,
-        terminalText: String
+        terminalText: String,
+        buildStamp: String? = nil
     ) async -> Bool {
         guard let client = remoteClient else { return false }
         let diagnosticBlob = await diagnosticLog?.export() ?? Data()
-        let buildStamp = diagnosticLog?.buildStamp ?? ""
+        let buildStamp = buildStamp ?? diagnosticLog?.buildStamp ?? ""
         let clientID = clientID
         // Cap inputs and build the (potentially multi-MiB) combined blob +
         // base64 + JSON request OFF the main actor: the store is `@MainActor`, so
@@ -675,7 +915,133 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ]
         )
     }
-    #endif
+
+    // MARK: - Feedback routing
+
+    /// An all-empty stamp used when no app-layer provider is injected (previews /
+    /// tests). A real build always injects a populated provider at the
+    /// composition root.
+    public static let emptyFeedbackStamp = MobileFeedbackStamp(
+        buildType: .prod,
+        appVersion: "",
+        appBuild: "",
+        bundleIdentifier: "",
+        osVersion: "",
+        deviceModel: ""
+    )
+
+    /// The signed-in user's primary email, read through the identity seam.
+    ///
+    /// Used by the Send Feedback affordance to decide the route (privileged vs
+    /// email) and to prefill the reply-to address on the email path.
+    public var signedInUserEmail: String? {
+        identityProvider?.currentUserEmail
+    }
+
+    /// Whether the device currently has an active mobile-host connection to a
+    /// paired Mac — the implementable "on the tailnet" proxy used by feedback
+    /// routing, since that transport runs over Tailscale.
+    public var hasActiveMacConnection: Bool {
+        connectionState == .connected && remoteClient != nil
+    }
+
+    /// Where a Send Feedback submission should be delivered right now.
+    ///
+    /// Pure decision over the current email + connection state; the privileged
+    /// direct-to-agent route is offered only to `@manaflow.ai` users on an
+    /// active connection, everyone else routes to the email inbox.
+    public var currentFeedbackRoute: MobileFeedbackRoute {
+        MobileFeedbackRoute.resolve(
+            email: signedInUserEmail,
+            hasActiveMacConnection: hasActiveMacConnection,
+            hostSupportsAgentSink: supportsDogfoodFeedback
+        )
+    }
+
+    /// The current build + device stamp, resolved through the injected provider.
+    public var currentFeedbackStamp: MobileFeedbackStamp {
+        feedbackStampProvider()
+    }
+
+    /// Outcome of a Send Feedback submission, including which route was taken so
+    /// the UI can word its confirmation ("sent to the agent" vs "emailed").
+    public enum FeedbackSubmissionOutcome: Equatable, Sendable {
+        /// The rich diagnostic bundle was delivered to the paired Mac.
+        case sentToAgent
+        /// The message was emailed to the feedback inbox.
+        case emailed
+        /// Delivery failed; the UI should surface an error and let the user retry.
+        case failed
+    }
+
+    /// The single Send Feedback entrypoint. Routes the submission to the
+    /// privileged direct-to-agent bundle or the email inbox per
+    /// ``currentFeedbackRoute``, stamping the build + device on both paths.
+    ///
+    /// One mutation path so every surface (the menu affordance, and any future
+    /// entrypoint) shares the same routing, stamping, and delivery rather than
+    /// duplicating it.
+    ///
+    /// - Parameters:
+    ///   - message: The freeform feedback body.
+    ///   - emailOverride: The reply-to email when the user edited it on the email
+    ///     path; defaults to the signed-in email.
+    ///   - debugLogText: The string debug-log snapshot, used only on the agent
+    ///     path.
+    ///   - terminalText: The visible terminal text, used only on the agent path.
+    /// - Returns: The outcome (which route succeeded, or `.failed`).
+    @discardableResult
+    public func submitFeedback(
+        message: String,
+        emailOverride: String? = nil,
+        debugLogText: String,
+        terminalText: String
+    ) async -> FeedbackSubmissionOutcome {
+        let stamp = currentFeedbackStamp
+        switch currentFeedbackRoute {
+        case .privilegedAgent:
+            let ok = await submitPrivilegedAgentFeedback(
+                text: message,
+                debugLogText: debugLogText,
+                terminalText: terminalText,
+                buildStamp: stamp.agentBuildStamp
+            )
+            if ok {
+                return .sentToAgent
+            }
+            // The agent sink failed (e.g. the Mac rejected the privileged sink,
+            // or the RPC could not be delivered). Fall back to the email inbox
+            // rather than dead-ending, so the report is still delivered. Any
+            // valid reply-to works; we have the signed-in email here.
+            mobileShellLog.error("privileged agent feedback failed; falling back to email")
+            return await submitFeedbackEmail(message: message, emailOverride: emailOverride, stamp: stamp)
+        case .email:
+            return await submitFeedbackEmail(message: message, emailOverride: emailOverride, stamp: stamp)
+        }
+    }
+
+    /// Email the feedback inbox, returning `.emailed` on success and `.failed`
+    /// when the submitter is unavailable or the POST fails. Shared by the email
+    /// route and the privileged-agent fallback so both deliver identically.
+    private func submitFeedbackEmail(
+        message: String,
+        emailOverride: String?,
+        stamp: MobileFeedbackStamp
+    ) async -> FeedbackSubmissionOutcome {
+        guard let submitter = feedbackEmailSubmitter else {
+            mobileShellLog.error("feedback email submitter unavailable")
+            return .failed
+        }
+        let email = (emailOverride ?? signedInUserEmail ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            try await submitter.submit(email: email, message: message, stamp: stamp)
+            return .emailed
+        } catch {
+            mobileShellLog.error("feedback email submit failed error=\(String(describing: error), privacy: .public)")
+            return .failed
+        }
+    }
 
     // MARK: - Network recovery
 
@@ -787,7 +1153,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let attemptID = beginPairingAttempt()
         replaceRemoteClient(with: nil)
-        connectionError = nil
+        clearPairingError()
         activeTicket = nil
         activeRoute = nil
         connectedHostName = PreviewMobileHost.hostName
@@ -816,6 +1182,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
+            connectionErrorGuidance = nil
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -829,6 +1196,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         guard (1...65535).contains(port) else {
             connectionError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
+            connectionErrorGuidance = nil
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -843,6 +1211,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         let directRoute = try? Self.manualHostRoute(host: normalizedHost, port: port)
         let attemptID = beginPairingAttempt(method: "manual")
+        // Fast offline preflight: fail immediately instead of stacking
+        // per-route timeouts into the opaque ~60s blob.
+        let manualRoutes = directRoute.map { [$0] } ?? []
+        guard await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: manualRoutes) == .proceed else { return }
         do {
             let ticket = try await manualHostTicket(
                 name: trimmedName,
@@ -850,12 +1222,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 port: port
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
-            try await connect(ticket: ticket, allowsStackAuthFallback: true)
+            let noThrowFailure = try await connect(ticket: ticket, allowsStackAuthFallback: true)
             guard isCurrentPairingAttempt(attemptID) else { return }
             if connectionState == .connected {
                 recordPairingSucceeded()
             } else {
-                recordPairingFailed(reason: "other", phase: "connect")
+                // `connect()` returned without connecting and already set a
+                // specific error; record without overwriting that message.
+                recordFailureForCurrentConnectionError(phase: "connect", category: noThrowFailure)
             }
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return }
@@ -869,11 +1243,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // refresh-then-retry in the RPC layer already gave up) must drive the
             // re-auth prompt, not the generic "could not connect / Retry" banner.
             if disconnectForAuthorizationFailureIfNeeded(error) {
-                recordPairingFailed(reason: "account_mismatch", phase: "auth")
                 return
             }
-            recordPairingFailed(reason: Self.pairingFailureReason(for: error), phase: "connect")
-            connectionError = Self.localizedConnectionError(for: error, route: activeRoute ?? directRoute)
+            let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute ?? directRoute)
+            applyPairingFailure(category, phase: "connect")
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -1065,6 +1438,221 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    // MARK: - Device registry tree
+
+    /// The team's registered devices and their cmux app instances (tags), for the
+    /// device tree (device → tags → workspaces). Fetched from the team-scoped
+    /// device registry via ``loadRegistryDevices()``. Empty until the first load,
+    /// when the registry is unreachable, or after sign-out. Best-effort: a
+    /// registry outage leaves this empty and the UI falls back to the locally
+    /// known paired Macs, so the tree degrades to the same hosts the switcher
+    /// shows rather than going blank.
+    public private(set) var registryDevices: [RegistryDevice] = []
+
+    /// The cmux device id of the Mac the live connection currently targets, or
+    /// `nil` when not connected. Used by the device tree to mark which device row
+    /// is live.
+    ///
+    /// Prefers the active attach ticket's real `macDeviceID`. A manual (`manual-…`)
+    /// ticket has no real device id (the host lacks `mobile.attach_ticket.create`,
+    /// so the connect synthesizes a manual ticket even on success); in that case,
+    /// fall back to the active paired Mac's device id, which the registry/switch
+    /// connect paths persist on success. This keeps the connected device — and its
+    /// live workspaces — visible in the tree even when the live ticket is manual.
+    /// Yields `nil` only when there is genuinely no real device id to correlate.
+    public var connectedMacDeviceID: String? {
+        guard connectionState == .connected else { return nil }
+        if let macDeviceID = activeTicket?.macDeviceID,
+           !macDeviceID.isEmpty,
+           !macDeviceID.hasPrefix("manual-") {
+            return macDeviceID
+        }
+        // Manual/synthetic ticket but a live connection: correlate via the active
+        // paired Mac the connect path persisted (its id is the real device id).
+        if let activeMacID = pairedMacs.first(where: { $0.isActive })?.macDeviceID,
+           !activeMacID.isEmpty,
+           !activeMacID.hasPrefix("manual-") {
+            return activeMacID
+        }
+        return nil
+    }
+
+    /// Reload ``registryDevices`` from the team-scoped device registry.
+    ///
+    /// Best-effort and failure-tolerant: a missing registry, an unauthorized
+    /// call, or a malformed response leaves the current list untouched (so a
+    /// transient blip never blanks a populated tree). Devices are sorted with the
+    /// currently-connected one first, then by most-recently-seen, so the tree
+    /// leads with the host the user is on. Mirrors ``loadPairedMacs()``: signed
+    /// out yields an empty list.
+    public func loadRegistryDevices() async {
+        guard isSignedIn, let deviceRegistry else {
+            registryDevices = []
+            return
+        }
+        // Capture the requesting user so a result that lands after a sign-out +
+        // different-user sign-in is discarded, not assigned into the new user's
+        // tree. `isSignedIn` alone is true again after the switch, so it cannot
+        // catch this account-switch race (mirrors loadPairedMacs's user guard).
+        let requestingUserID = identityProvider?.currentUserID
+        let outcome = await deviceRegistry.listDevices()
+        let loaded: [RegistryDevice]
+        switch outcome {
+        case .ok(let devices):
+            loaded = devices
+        case .authRejected:
+            // The registry is team-scoped and rejected the call on auth/scope
+            // grounds (401/403): the cached list may be another scope's data, so
+            // clear it. The tree falls back to local paired Macs via
+            // `deviceTreeDevices`, so the sheet stays usable. Guarded on the
+            // requesting user still being current (mirroring the `.ok` path):
+            // a stale 401 from a signed-out session that lands after a
+            // different user signed in must not blank the new user's tree.
+            if identityProvider?.currentUserID == requestingUserID {
+                registryDevices = []
+            }
+            return
+        case .transientFailure:
+            // Network blip / 5xx / malformed body: keep what we have rather than
+            // blanking a populated tree on a transient failure.
+            return
+        }
+        // The await above suspended the main actor; discard the result unless we
+        // are still the same signed-in user, so a slow load can never repopulate
+        // another user's team devices after sign-out or an account switch.
+        guard isSignedIn, identityProvider?.currentUserID == requestingUserID else {
+            registryDevices = []
+            return
+        }
+        let connectedID = connectedMacDeviceID
+        registryDevices = loaded.sorted { lhs, rhs in
+            let lhsConnected = lhs.deviceId == connectedID
+            let rhsConnected = rhs.deviceId == connectedID
+            if lhsConnected != rhsConnected { return lhsConnected }
+            return lhs.lastSeenAt > rhs.lastSeenAt
+        }
+    }
+
+    /// The device-tree data source, honoring the registry's best-effort/fallback
+    /// contract: the registry list when it loaded, otherwise the locally paired
+    /// Macs synthesized into the same two-level shape.
+    ///
+    /// When `/api/devices` is unreachable, unauthorized, or malformed,
+    /// ``registryDevices`` stays empty; the tree must not collapse to "no devices"
+    /// while the phone still has usable paired Macs. Each paired Mac becomes a
+    /// device with a single `default` instance carrying its routes, so the tree
+    /// (and its connect-on-tap) keeps working with the cloud down. The connected
+    /// device sorts first, then most-recently-seen.
+    public var deviceTreeDevices: [RegistryDevice] {
+        if !registryDevices.isEmpty { return registryDevices }
+        let connectedID = connectedMacDeviceID
+        return pairedMacs
+            .map { mac in
+                RegistryDevice(
+                    deviceId: mac.macDeviceID,
+                    platform: "mac",
+                    displayName: mac.displayName,
+                    lastSeenAt: mac.lastSeenAt,
+                    instances: [
+                        RegistryAppInstance(
+                            tag: "default",
+                            routes: mac.routes,
+                            lastSeenAt: mac.lastSeenAt
+                        )
+                    ]
+                )
+            }
+            .sorted { lhs, rhs in
+                let lhsConnected = lhs.deviceId == connectedID
+                let rhsConnected = rhs.deviceId == connectedID
+                if lhsConnected != rhsConnected { return lhsConnected }
+                return lhs.lastSeenAt > rhs.lastSeenAt
+            }
+    }
+
+    /// Connect the live session to a specific registry app instance (a tag on a
+    /// device) using that instance's advertised routes.
+    ///
+    /// This is the device tree's tap-to-open for a tag that is not the currently
+    /// connected one: it routes through the same destructive ``connectManualHost``
+    /// path the multi-Mac switcher uses, then persists the device as the active
+    /// paired Mac on success (so a later relaunch reconnects to it) and refreshes
+    /// the paired-Mac list. A no-op when the instance advertises no reachable
+    /// route. Failure surfaces through ``connectionError`` like any other connect.
+    ///
+    /// Like ``switchToMac(macDeviceID:)``, the connect is destructive (it replaces
+    /// the live client), so tapping a stale/offline tag while connected would drop
+    /// a healthy session. To avoid stranding the user, on a failed connect the
+    /// previously-active Mac is reconnected, so a bad target leaves the user where
+    /// they were rather than disconnected.
+    /// - Parameters:
+    ///   - device: The registry device the instance belongs to.
+    ///   - instance: The tag/app-instance to connect to.
+    public func connectToRegistryInstance(
+        device: RegistryDevice,
+        instance: RegistryAppInstance
+    ) async {
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        guard let (host, port) = Self.firstReconnectHostPortRoute(
+            instance.routes,
+            supportedKinds: supportedKinds
+        ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
+            mobileShellLog.error(
+                "connectToRegistryInstance: no reconnectable route device=\(device.deviceId, privacy: .public) tag=\(instance.tag, privacy: .public)"
+            )
+            return
+        }
+        // Already connected to this exact device/instance route: nothing to do.
+        if connectionState == .connected,
+           connectedMacDeviceID == device.deviceId,
+           case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
+           liveHost == normalizedHost, livePort == port {
+            return
+        }
+        // The currently-active Mac to fall back to if the connect fails, so the
+        // destructive connect below can be rolled back. Unlike switchToMac, this
+        // does NOT exclude the tapped device: a Mac can run multiple tagged builds,
+        // so tapping another tag on the *currently connected* device must still be
+        // able to reconnect that same device's active route if the new tag is
+        // stale/offline. Excluding it would strand the user on a same-device tag
+        // switch failure.
+        let previousActive = pairedMacs.first { $0.isActive }
+        await connectManualHost(name: device.displayName ?? host, host: host, port: port)
+        // Persist as the active paired Mac only when the live connection is to
+        // THIS route (a switch tapped while this connect was in flight could win
+        // the connection; matching the live route avoids persisting a stale
+        // target). Uses the real device id so reconnect-on-relaunch finds it.
+        guard connectionState == .connected,
+              case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
+              liveHost == normalizedHost, livePort == port else {
+            // The connect did not land on this route. If the destructive path
+            // dropped a previously-active session, reconnect it so a failed tap on
+            // a stale/offline tag does not strand the user disconnected.
+            if previousActive != nil, connectionState != .connected {
+                _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+            }
+            return
+        }
+        if let pairedMacStore, !device.deviceId.hasPrefix("manual-") {
+            do {
+                try await pairedMacStore.upsert(
+                    macDeviceID: device.deviceId,
+                    displayName: device.displayName,
+                    routes: instance.routes,
+                    markActive: true,
+                    stackUserID: identityProvider?.currentUserID
+                )
+                hasKnownPairedMac = true
+            } catch {
+                mobileShellLog.error(
+                    "connectToRegistryInstance upsert failed device=\(device.deviceId, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+        await loadPairedMacs()
+        await loadRegistryDevices()
+    }
+
     /// Reload ``pairedMacs`` from the store, scoped to the signed-in Stack user.
     ///
     /// A missing current Stack user id yields no pairings rather than falling
@@ -1221,23 +1809,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket = try CmxAttachTicketInput.decode(rawURL)
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
-            connectionError = L10n.string("mobile.pairing.invalidCode", defaultValue: "Invalid pairing code.")
+            applyPairingFailure(.invalidCode, phase: "validation")
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
-            recordPairingFailed(reason: "invalid_code", phase: "validation")
             return .failed
+        }
+
+        // Offline preflight: fail fast instead of stacking per-route connect
+        // timeouts into the opaque ~60s wait. Skipped when a free local ticket
+        // guard fails so `connect()` classifies it (expired QR scanned offline
+        // says "expired" not "offline"; undialable routes say `no_supported_route`).
+        let candidateRoutes = Self.supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
+        if !candidateRoutes.isEmpty, Self.attachTicketIsUnexpired(ticket, now: runtime?.now() ?? Date()) {
+            switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: candidateRoutes) {
+            case .failedOffline: return .failed
+            case .superseded: return .superseded
+            case .proceed: break
+            }
         }
 
         do {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
-            try await connect(ticket: ticket)
+            let noThrowFailure = try await connect(ticket: ticket)
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             if connectionState == .connected && activeTicket != nil {
                 recordPairingSucceeded()
                 return .connected
             }
-            recordPairingFailed(reason: "other", phase: "connect")
+            // `connect()` returned without connecting and already set a
+            // specific error; record without overwriting that message.
+            recordFailureForCurrentConnectionError(phase: "connect", category: noThrowFailure)
             return .failed
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
@@ -1248,14 +1850,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             mobileShellLog.error("pairing failed: \(String(describing: error), privacy: .private)")
-            // Surface a definitive auth failure as a re-auth prompt rather than a
-            // generic connection error (matches the manual-host path).
-            if disconnectForAuthorizationFailureIfNeeded(error) {
-                recordPairingFailed(reason: "account_mismatch", phase: "auth")
-                return .failed
-            }
-            recordPairingFailed(reason: Self.pairingFailureReason(for: error), phase: "connect")
-            connectionError = Self.localizedConnectionError(for: error, route: activeRoute)
+            // Definitive auth failures drive the re-auth prompt rather than a
+            // generic connection error (matches the manual-host path); the
+            // helper records the analytics failure + guidance.
+            if disconnectForAuthorizationFailureIfNeeded(error) { return .failed }
+            let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
+            applyPairingFailure(category, phase: "connect")
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -1264,8 +1864,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func cancelPairing() {
-        pairingAttemptID = UUID()
-        connectionError = nil
+        invalidatePairingAttempt()
+        clearPairingError()
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
@@ -1278,8 +1878,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// forget-active path below).
     private func disconnectLiveConnection() {
         suppressNextConnectionOutageEdge = true
-        pairingAttemptID = UUID()
-        connectionError = nil
+        invalidatePairingAttempt()
+        clearPairingError()
         connectionRequiresReauth = false
         connectionState = .disconnected
         macConnectionStatus = .unavailable
@@ -1569,6 +2169,201 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await sendRemoteTerminalInput(text + "\r")
     }
 
+    /// Show or hide the iMessage-style composer from the input accessory bar.
+    ///
+    /// With the composer open by default, the OPEN branch is reached only after
+    /// the user explicitly dismissed it on this terminal and tapped compose again
+    /// — an unambiguous "I want to compose" intent, so it also requests field
+    /// focus (the default-open presentation deliberately does not).
+    /// - Parameter terminalID: The terminal whose composer the caller is acting
+    ///   on (the surface's own id). The focus handshake is keyed to it so the
+    ///   composer view serving that terminal — and only it — consumes the
+    ///   request. `nil` falls back to the selected terminal; the rendered
+    ///   terminal can diverge from the selection (the detail view falls back to
+    ///   the workspace's first terminal), so callers that know their surface
+    ///   should always pass it.
+    public func toggleComposer(forTerminalID terminalID: String? = nil) {
+        if isComposerPresented {
+            setComposerPresented(false)
+        } else {
+            setComposerPresented(true)
+            requestComposerFieldFocus(forTerminalID: terminalID)
+        }
+    }
+
+    /// Ensure the composer is presented and ask its field to take focus, without ever
+    /// dismissing it.
+    ///
+    /// Drives the reveal-and-focus path: the surface invokes this when the user taps
+    /// the compose button (or reveals the chrome) while a composer is already
+    /// logically presented but suppressed or unfocused. The presented state is only
+    /// ever raised here (never dismissed), so a still-presented composer and its
+    /// draft are preserved; the focus token is always bumped so the field re-focuses
+    /// even when the presented flag did not change.
+    /// - Parameter terminalID: The terminal whose composer should take focus
+    ///   (the requesting surface's own id); `nil` falls back to the selected
+    ///   terminal. See ``toggleComposer(forTerminalID:)`` for why the explicit
+    ///   id matters.
+    public func presentAndFocusComposer(forTerminalID terminalID: String? = nil) {
+        setComposerPresented(true)
+        requestComposerFieldFocus(forTerminalID: terminalID)
+    }
+
+    /// Explicitly dismiss the iMessage-style composer for the selected terminal,
+    /// recording the dismissal for the session. This is the explicit-close API
+    /// (hosts and tests); the user-facing closes go through ``toggleComposer()``.
+    /// The keyboard collapsing never dismisses the composer (Round 8): the band
+    /// survives a keyboard-down and only the chevron / compose toggle closes it.
+    /// Idempotent: a no-op when the composer is already closed.
+    public func dismissComposer() {
+        guard isComposerPresented else { return }
+        setComposerPresented(false)
+    }
+
+    /// Mirror of the composer field's `@FocusState`, reported by
+    /// ``TerminalComposerView`` on every focus change. See
+    /// ``composerFieldIsFocused`` for what reads it.
+    public func composerFieldFocusChanged(_ focused: Bool) {
+        composerFieldIsFocused = focused
+    }
+
+    /// Consume the one-shot "focus the composer field" handshake for the
+    /// composer serving `terminalID`, returning whether a pending request
+    /// targeted that terminal. The composer view calls this from `onAppear` (a
+    /// mount that follows an explicit open or a mid-compose terminal switch)
+    /// and from its `onChange` of ``composerFocusRequest`` (a bump while
+    /// already mounted), so a request is honored exactly once and a later
+    /// default-open remount never re-pops the keyboard.
+    ///
+    /// Keyed on the target terminal: during a terminal switch the outgoing
+    /// composer view is still mounted and observes the same token bump, so a
+    /// mismatched consume returns `false` and leaves the request armed for the
+    /// incoming terminal's mount.
+    public func consumePendingComposerFocusRequest(for terminalID: String) -> Bool {
+        guard composerFocusRequestPending, composerFocusRequestTerminalID == terminalID else {
+            return false
+        }
+        composerFocusRequestPending = false
+        composerFocusRequestTerminalID = nil
+        return true
+    }
+
+    /// Ask the composer field to take focus: bump the token the mounted view
+    /// observes and arm the pending flag a not-yet-mounted view consumes on
+    /// appear, keyed to `terminalID` (`nil` = the currently selected terminal).
+    /// Callers acting on a concrete surface pass that surface's id so the
+    /// request always matches the composer view that will consume it, even
+    /// when the rendered terminal and the store selection diverge.
+    private func requestComposerFieldFocus(forTerminalID terminalID: String? = nil) {
+        composerFocusRequest &+= 1
+        composerFocusRequestPending = true
+        composerFocusRequestTerminalID = terminalID ?? selectedTerminalID?.rawValue
+    }
+
+    /// Single mutation path for the per-terminal presented state (the dismissed
+    /// set): both explicit transitions land here so the DEBUG diagnostic records
+    /// every flag change, exactly like the old stored property's `didSet`. A
+    /// no-op without a selected terminal (there is nothing to compose to) or
+    /// when the state already matches.
+    private func setComposerPresented(_ presented: Bool) {
+        guard let terminalID = selectedTerminalID?.rawValue,
+              presented != isComposerPresented else { return }
+        if presented {
+            composerDismissedTerminalIDs.remove(terminalID)
+        } else {
+            composerDismissedTerminalIDs.insert(terminalID)
+            // The band (and its field) unmounts with the dismissal; the dying
+            // field does not reliably deliver a final unfocus change, so clear
+            // the mirror here to never leave a stale "field owns the keyboard".
+            composerFieldIsFocused = false
+        }
+        #if DEBUG
+        // COMPOSER: record every flag change (mutated by `toggleComposer`,
+        // `dismissComposer`, and `presentAndFocusComposer`). An unexpected
+        // `a == 0` during a bare keyboard dismiss is the "flag toggled off"
+        // cause of the disappearing draft.
+        diagnosticLog?.record(DiagnosticEvent(
+            .composerPresentedChanged,
+            a: presented ? 1 : 0
+        ))
+        #endif
+    }
+
+    /// Submit the composer's text to the selected terminal as a bracketed paste
+    /// plus a single Return, then clear the field while keeping the composer
+    /// open. Unlike ``submitTerminalInput()``, this delivers a multi-line block
+    /// as one paste + one submit (via `terminal.paste`) so interior newlines do
+    /// not fragment into multiple submissions in a TUI agent.
+    ///
+    /// The field is cleared only after the Mac acknowledges the paste. If the
+    /// send fails (no connection, or an older host that does not implement
+    /// `terminal.paste` and answers `method_not_found`), the composed text is
+    /// kept so the user can retry instead of silently losing the message.
+    public func submitComposerInput() async {
+        let text = terminalInputText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard remoteClient != nil else { return }
+        // Reject a re-entrant send (e.g. a double tap on Send) so the same text
+        // is not pasted twice. The flag is set/cleared on the main actor around
+        // the await, so no second call can slip past it.
+        guard !isSubmittingComposerInput else { return }
+        isSubmittingComposerInput = true
+        defer { isSubmittingComposerInput = false }
+        // Capture which terminal this text is for: if the user switches terminals
+        // while the ack is in flight, the switch persists the outgoing text as the
+        // SUBMITTED terminal's draft, and the sent text must be cleared from that
+        // key, not from whatever terminal is selected when the ack returns.
+        let submittedTerminalID = selectedTerminalID
+        let sent = await sendRemoteTerminalPaste(text, submitKey: "return")
+        guard sent else { return }
+        await reconcileComposerDraftAfterSend(sentText: text, submittedTerminalID: submittedTerminalID)
+    }
+
+    /// Clear the sent text from wherever it now lives after a successful
+    /// composer send: the visible field when the submitted terminal is still
+    /// selected, or the submitted terminal's STORED draft when the user switched
+    /// terminals while the ack was in flight (the switch persists the outgoing
+    /// text under the submitted terminal's key, and without this it would
+    /// resurrect on switch-back and invite a duplicate submission). In both
+    /// places the clear is conditional on the value still being exactly the sent
+    /// text, so anything newer the user typed is never discarded.
+    ///
+    /// Internal (not private) so tests can drive the post-ack reconciliation
+    /// directly with a controlled draft store and selection.
+    func reconcileComposerDraftAfterSend(
+        sentText: String,
+        submittedTerminalID: MobileTerminalPreview.ID?
+    ) async {
+        if selectedTerminalID == submittedTerminalID {
+            // Only clear if the field still holds exactly what we sent, so a value
+            // the user typed while the send was in flight is not discarded. The
+            // field's `didSet` persists the clear, removing the stored draft too.
+            if terminalInputText == sentText {
+                terminalInputText = ""
+            }
+        } else if let submittedTerminalID, let draftStore {
+            // Selection moved mid-flight. Clear the submitted terminal's stored
+            // draft only when it is still exactly the sent text, so a newer draft
+            // (typed after Send, before the switch) is preserved. Enqueued (and
+            // awaited) on the FIFO draft pipeline so the check runs after the
+            // terminal switch's own save of the outgoing text, and the
+            // check-then-clear pair is atomic with respect to other operations.
+            let terminalID = submittedTerminalID.rawValue
+            let sent = sentText
+            await enqueueDraftOperation {
+                if await draftStore.draft(forTerminalID: terminalID) == sent {
+                    await draftStore.clearDraft(forTerminalID: terminalID)
+                }
+            }.value
+            // The user may have switched back during the awaits and had the sent
+            // text restored into the field; clear that too so already-sent text
+            // never resurrects.
+            if selectedTerminalID == submittedTerminalID, terminalInputText == sentText {
+                terminalInputText = ""
+            }
+        }
+    }
+
     public func sendTerminalRawInput(_ text: String) {
         #if DEBUG
         mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
@@ -1603,6 +2398,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "mobile.terminal.inputQueueFull",
                 defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
             )
+            connectionErrorGuidance = nil
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -1658,10 +2454,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Establishes the live connection for `ticket`. Returns `nil` on success
+    /// (and superseded-generation early exits), or the failure category it applied
+    /// when it returned without connecting and without throwing
+    /// (`.noSupportedRoute`), so callers record the matching analytics reason.
+    @discardableResult
     private func connect(
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool? = nil
-    ) async throws {
+    ) async throws -> MobilePairingFailureCategory? {
         let generation = UUID()
         connectionGeneration = generation
         diagnosticLog?.record(DiagnosticEvent(.connect))
@@ -1670,14 +2471,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let firstRoute = supportedRoutes.first else {
-            connectionError = L10n.string("mobile.pairing.unsupportedRoute", defaultValue: "This pairing code is not supported.")
+            // No route kind this build can dial: set the specific category;
+            // the caller records the matching analytics reason from it.
+            connectionError = MobilePairingFailureCategory.noSupportedRoute.message
+            connectionErrorGuidance = MobilePairingFailureCategory.noSupportedRoute.guidance
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
-            return
+            return .noSupportedRoute
         }
         guard Self.attachTicketIsUnexpired(ticket, now: runtime?.now() ?? Date()) else {
-            connectionError = Self.localizedConnectionError(for: MobileShellConnectionError.attachTicketExpired, route: firstRoute)
+            connectionError = MobilePairingFailureCategory.ticketExpired.message
+            connectionErrorGuidance = MobilePairingFailureCategory.ticketExpired.guidance
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -1690,12 +2495,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         replaceRemoteClient(with: nil)
 
         guard let runtime else {
-            guard generation == connectionGeneration else { return }
-            connectionError = nil
+            guard generation == connectionGeneration else { return nil }
+            clearPairingError()
             applyPreviewTicket(ticket, route: firstRoute)
             connectionState = .connected
             markMacConnectionHealthy()
-            return
+            return nil
         }
 
         let workspaceListRequests = try Self.initialWorkspaceListRequests(for: ticket)
@@ -1722,10 +2527,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-                    guard generation == connectionGeneration, isSignedIn else { return }
+                    guard generation == connectionGeneration, isSignedIn else { return nil }
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
-                    connectionError = nil
+                    clearPairingError()
                     await persistPairedMacFromTicket(ticket)
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
                     syncSelectedTerminalForWorkspace()
@@ -1739,10 +2544,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             generation: generation
                         )
                     }
-                    return
+                    return nil
                 } catch {
                     lastError = error
-                    guard generation == connectionGeneration, isSignedIn else { return }
+                    guard generation == connectionGeneration, isSignedIn else { return nil }
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
@@ -1920,6 +2725,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTaskID = nil
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = nil
+        pullToRefreshTask?.cancel()
+        pullToRefreshTask = nil
     }
 
     private func resetTerminalOutputTracking() {
@@ -1928,6 +2735,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplaySurfaceIDsInFlight = []
         terminalOutputTransport = .rawBytes
         supportsWorkspaceActions = false
+        supportsDogfoodFeedback = false
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
@@ -1943,7 +2751,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration = UUID()
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
-        connectionError = nil
+        clearPairingError()
         if let method {
             pairingAttemptStartedAt = runtime?.now() ?? Date()
             pairingAttemptMethod = method
@@ -2005,6 +2813,96 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func isCurrentPairingAttempt(_ attemptID: UUID) -> Bool {
         pairingAttemptID == attemptID && isSignedIn
+    }
+
+    /// Invalidate the in-flight attempt outside ``beginPairingAttempt(method:)``
+    /// (cancel, sign-out, live-connection teardown), dropping its instrumentation
+    /// so a stale attempt can never emit `ios_pairing_*` via a later auth eviction.
+    private func invalidatePairingAttempt() {
+        pairingAttemptID = UUID()
+        pairingAttemptStartedAt = nil
+        pairingAttemptMethod = nil
+    }
+
+    /// Apply a classified pairing failure to the user-visible error surface and
+    /// emit its analytics reason in one place: the single failure sink for every
+    /// non-cancelled, non-superseded failure, so a failed attempt always ends
+    /// with a non-empty ``connectionError`` plus its ``connectionErrorGuidance``
+    /// line and one `ios_pairing_failed` whose `reason` matches the message.
+    /// ``connectionState``/``macConnectionStatus`` teardown stays at the call
+    /// sites because some paths (auth re-auth) also flip ``connectionRequiresReauth``.
+    private func applyPairingFailure(_ category: MobilePairingFailureCategory, phase: String) {
+        // `.cancelled` (the only empty-message category) must be handled by
+        // `catch is CancellationError` branches before classification.
+        assert(!category.message.isEmpty, "applyPairingFailure must not receive .cancelled")
+        if !category.message.isEmpty {
+            connectionError = category.message
+        }
+        connectionErrorGuidance = category.guidance
+        recordPairingFailed(reason: category.analyticsReason, phase: phase)
+    }
+
+    /// Clear the error and its guidance together (never bare `connectionError
+    /// = nil`) so guidance cannot linger under a cleared headline.
+    private func clearPairingError() {
+        connectionError = nil
+        connectionErrorGuidance = nil
+    }
+
+    /// Record an `ios_pairing_failed` for a `connect()` that returned without
+    /// connecting and already set a specific ``connectionError``: emits the reason
+    /// `connect()` reported (fallback `other`) without overwriting the message.
+    private func recordFailureForCurrentConnectionError(
+        phase: String,
+        category: MobilePairingFailureCategory? = nil
+    ) {
+        if connectionError == nil {
+            // Defense in depth: never leave a silent revert if a future
+            // `connect()` path returns without connecting or setting an error.
+            applyPairingFailure(category ?? .unknown(host: nil, port: nil), phase: phase)
+            return
+        }
+        recordPairingFailed(reason: category?.analyticsReason ?? "other", phase: phase)
+    }
+
+    /// Surface an operational error (a request failing on an already-live
+    /// connection, e.g. create-workspace) through the same classifier as
+    /// pairing. Does NOT emit `ios_pairing_failed` (no attempt is in flight).
+    private func applyOperationalError(_ error: any Error) {
+        let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
+        connectionError = category.message.isEmpty
+            ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
+            : category.message
+        connectionErrorGuidance = category.guidance
+    }
+
+    /// How the preflight resolved: proceed, ``.offline`` applied, or superseded.
+    private enum PairingPreflightOutcome {
+        case proceed
+        case failedOffline
+        case superseded
+    }
+
+    /// Reachability preflight: with no satisfied network path, short-circuit the
+    /// attempt with ``.offline`` instead of letting `NWConnection` stack per-route
+    /// timeouts into an opaque ~60s wait. Loopback candidate routes skip it (they
+    /// stay reachable offline; simulator/dev pairing to 127.0.0.1). Records a
+    /// ``DiagnosticEventCode/pairUnreachable`` diagnostic (no host/secret).
+    private func failPairingIfOffline(
+        attemptID: UUID,
+        phase: String,
+        routes: [CmxAttachRoute]
+    ) async -> PairingPreflightOutcome {
+        if routes.contains(where: MobileShellRouteAuthPolicy.routeIsLoopback) { return .proceed }
+        guard await reachability.isOnline == false else { return .proceed }
+        guard isCurrentPairingAttempt(attemptID) else { return .superseded }
+        mobileShellLog.info("pairing preflight: device offline, short-circuiting")
+        diagnosticLog?.record(DiagnosticEvent(.pairUnreachable))
+        applyPairingFailure(.offline, phase: phase)
+        connectionState = .disconnected
+        macConnectionStatus = .unavailable
+        clearRemoteConnectionContext()
+        return .failedOffline
     }
 
     private func clearCreateWorkspaceTask(id: UUID) {
@@ -2096,6 +2994,138 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = selectedWorkspace.preferredTerminal?.id
     }
 
+    // MARK: - Per-terminal composer drafts
+
+    /// Enqueue one draft-store operation on a strictly ordered (FIFO) pipeline.
+    ///
+    /// All draft persistence is fire-and-forget from the caller's point of view,
+    /// but independent unstructured `Task`s are NOT ordered relative to each
+    /// other: an older keystroke save could reach the store actor after a newer
+    /// save, a post-send clear, or the sign-out wipe, resurrecting stale (or
+    /// another account's) text. Chaining every operation onto the previous one
+    /// makes store effects apply in exactly the order they were issued from the
+    /// main actor, which restores the two invariants the store exists for: sent
+    /// or superseded drafts never win over newer state, and nothing written
+    /// before sign-out survives the sign-out wipe.
+    ///
+    /// Operations are tiny (one actor dictionary access) and keystroke saves
+    /// coalesce before they reach the pipeline (see ``persistCurrentDraft()``),
+    /// so the chain stays short and bounded under typing bursts; only the tail
+    /// task is retained.
+    @discardableResult
+    private func enqueueDraftOperation(
+        _ operation: @escaping @Sendable () async -> Void
+    ) -> Task<Void, Never> {
+        let previous = draftOperationTail
+        let task = Task {
+            await previous?.value
+            await operation()
+        }
+        draftOperationTail = task
+        return task
+    }
+
+    /// Wait until every draft operation enqueued so far has been applied to the
+    /// store. Test seam: lets tests assert on store contents without sleeping.
+    func drainDraftOperationsForTesting() async {
+        await draftOperationTail?.value
+    }
+
+    /// Save the live ``terminalInputText`` under the currently selected
+    /// terminal. Called from the field's `didSet`. A no-op when there is no
+    /// selected terminal (nothing to key the draft to) or no draft store wired.
+    ///
+    /// Saves COALESCE per terminal: the edit overwrites the terminal's entry in
+    /// ``pendingDraftSaveTextByTerminalID`` and queues a flush only when none is
+    /// already queued for that terminal. The flush reads the LATEST entry when
+    /// it executes, so a typing burst behind a slow store applies as one save of
+    /// the final text instead of queuing every intermediate snapshot (whose
+    /// retained memory would otherwise grow as edits × draft size). Barrier
+    /// operations (the switch save/load, the post-send clear, the sign-out wipe)
+    /// still order strictly after any queued flush via the shared FIFO.
+    private func persistCurrentDraft() {
+        guard let draftStore, let terminalID = selectedTerminalID?.rawValue else { return }
+        let flushAlreadyQueued = pendingDraftSaveTextByTerminalID[terminalID] != nil
+        pendingDraftSaveTextByTerminalID[terminalID] = terminalInputText
+        guard !flushAlreadyQueued else { return }
+        enqueueDraftOperation { [weak self] in
+            guard let text = await self?.takePendingDraftSave(forTerminalID: terminalID) else { return }
+            await draftStore.saveDraft(text, forTerminalID: terminalID)
+        }
+    }
+
+    /// Dequeue the latest unflushed keystroke draft for `terminalID`, clearing
+    /// its entry so the next edit arms a fresh flush. Called by the queued flush
+    /// at execution time, so it always saves the newest text.
+    private func takePendingDraftSave(forTerminalID terminalID: String) -> String? {
+        defer { pendingDraftSaveTextByTerminalID[terminalID] = nil }
+        return pendingDraftSaveTextByTerminalID[terminalID]
+    }
+
+    /// Swap the composer draft when the selected terminal changes: save the
+    /// outgoing terminal's text under its own key, then load the incoming
+    /// terminal's saved draft into ``terminalInputText``.
+    ///
+    /// The load is guarded by ``isLoadingDraft`` so the field's `didSet` does not
+    /// re-save the just-loaded value (and so the load can't race the key swap).
+    /// While the incoming draft is fetched asynchronously the field is cleared, so
+    /// the previous terminal's text never bleeds into a terminal that has no draft.
+    /// - Parameters:
+    ///   - outgoingID: The terminal being switched away from, or `nil`.
+    ///   - outgoingText: That terminal's draft text at the moment of the switch.
+    ///   - incomingID: The terminal being switched to, or `nil`.
+    private func swapDraft(
+        from outgoingID: MobileTerminalPreview.ID?,
+        outgoingText: String,
+        to incomingID: MobileTerminalPreview.ID?
+    ) {
+        guard let draftStore else { return }
+        // The field represents the outgoing terminal's draft only when no load
+        // is still pending for it. During a fast A -> B -> C switch, B's load
+        // has not applied yet and the field is the transient cleared
+        // placeholder, not B's draft; persisting it would erase B's real stored
+        // draft. (A user edit clears the pending marker, so an edited field is
+        // always authoritative and still saved.)
+        let outgoingFieldIsAuthoritative = outgoingID != nil && draftLoadPendingTerminalID != outgoingID
+        draftLoadPendingTerminalID = incomingID
+        // Clear the field synchronously so the old terminal's text is not briefly
+        // shown under the new terminal while its draft loads. Guarded so this
+        // clear is not itself saved.
+        if !terminalInputText.isEmpty {
+            isLoadingDraft = true
+            terminalInputText = ""
+            isLoadingDraft = false
+        }
+        enqueueDraftOperation { [weak self] in
+            if let outgoingID, outgoingFieldIsAuthoritative {
+                await draftStore.saveDraft(outgoingText, forTerminalID: outgoingID.rawValue)
+            }
+            guard let incomingID else { return }
+            let restored = await draftStore.draft(forTerminalID: incomingID.rawValue) ?? ""
+            await self?.applyLoadedDraft(restored, forTerminalID: incomingID)
+        }
+    }
+
+    /// Apply a draft fetched off the main actor back into ``terminalInputText``.
+    ///
+    /// Applied only if this load is still the pending one — a fast re-switch
+    /// repoints ``draftLoadPendingTerminalID`` at the newer incoming terminal,
+    /// and a user edit clears it entirely (live input wins, even when the user
+    /// deleted everything: a late load must not resurrect deleted text into the
+    /// deliberately emptied field). The selected-terminal and empty-field
+    /// guards stay as defense in depth for the same races. The restore write is
+    /// guarded so it is not re-saved. An empty restored draft is a no-op.
+    private func applyLoadedDraft(_ draft: String, forTerminalID terminalID: MobileTerminalPreview.ID) {
+        guard draftLoadPendingTerminalID == terminalID else { return }
+        draftLoadPendingTerminalID = nil
+        guard selectedTerminalID == terminalID,
+              terminalInputText.isEmpty,
+              !draft.isEmpty else { return }
+        isLoadingDraft = true
+        terminalInputText = draft
+        isLoadingDraft = false
+    }
+
     private func viewportKey(
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
@@ -2130,7 +3160,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             markMacConnectionUnavailableIfNeeded(after: error)
-            connectionError = Self.localizedConnectionError(for: error)
+            applyOperationalError(error)
         }
     }
 
@@ -2160,7 +3190,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             markMacConnectionUnavailableIfNeeded(after: error)
-            connectionError = Self.localizedConnectionError(for: error)
+            applyOperationalError(error)
         }
     }
 
@@ -2214,7 +3244,85 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard generation == connectionGeneration else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             markMacConnectionUnavailableIfNeeded(after: error)
-            connectionError = Self.localizedConnectionError(for: error)
+            applyOperationalError(error)
+        }
+    }
+
+    /// - Returns: `true` when the Mac acknowledged the paste, `false` when there
+    ///   is no selected workspace/terminal or the send failed.
+    @discardableResult
+    private func sendRemoteTerminalPaste(_ text: String, submitKey: String) async -> Bool {
+        guard let workspaceID = selectedWorkspace?.id,
+              let terminalID = selectedTerminalID else {
+            #if DEBUG
+            mobileShellLog.info("skip remote terminal paste selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
+            #endif
+            return false
+        }
+        return await sendRemoteTerminalPaste(text, submitKey: submitKey, workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    /// Deliver a composed block to the Mac surface via `terminal.paste`: a
+    /// bracketed paste (so multi-line text is inserted as one literal block)
+    /// followed by an optional submit key. Mirrors ``sendRemoteTerminalInput(_:workspaceID:terminalID:)``
+    /// but takes the dedicated paste path instead of the raw `terminal.input`
+    /// path, which rewrites newlines to carriage returns.
+    ///
+    /// - Returns: `true` when the Mac acknowledged the paste, `false` on any
+    ///   failure (no client, a stale generation, or an RPC error such as
+    ///   `method_not_found` from an older host). Callers use this to keep the
+    ///   composer text on failure instead of clearing it optimistically.
+    @discardableResult
+    private func sendRemoteTerminalPaste(
+        _ text: String,
+        submitKey: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async -> Bool {
+        guard let client = remoteClient else {
+            #if DEBUG
+            mobileShellLog.info("skip remote terminal paste remoteClient=0")
+            #endif
+            return false
+        }
+        let generation = connectionGeneration
+        do {
+            #if DEBUG
+            mobileShellLog.debug("send remote terminal paste byteCount=\(text.utf8.count, privacy: .public) submit=\(submitKey, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
+            #endif
+            let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
+            var params: [String: Any] = [
+                "workspace_id": workspaceID.rawValue,
+                "surface_id": terminalID.rawValue,
+                "text": text,
+                "submit_key": submitKey,
+                "client_id": clientID,
+            ]
+            if let viewportSize = reportedViewportSizesByTerminalKey[key] {
+                params["viewport_columns"] = viewportSize.columns
+                params["viewport_rows"] = viewportSize.rows
+            }
+            let responseData = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "terminal.paste",
+                    params: params
+                )
+            )
+            // The Mac acked the paste: the text is applied regardless of whether a
+            // reconnect superseded this client while the request was in flight.
+            // Only the per-connection response bookkeeping is generation-guarded;
+            // returning failure here would keep the composer draft and a retry
+            // would paste the same block twice.
+            if isCurrentRemoteOperation(client: client, generation: generation) {
+                handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
+            }
+            return true
+        } catch {
+            guard generation == connectionGeneration else { return false }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
+            markMacConnectionUnavailableIfNeeded(after: error)
+            applyOperationalError(error)
+            return false
         }
     }
 
@@ -2274,7 +3382,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard generation == connectionGeneration else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             markMacConnectionUnavailableIfNeeded(after: error)
-            connectionError = Self.localizedConnectionError(for: error)
+            applyOperationalError(error)
         }
     }
 
@@ -2335,9 +3443,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
                 terminalOutputTransport = fallback
                 supportsWorkspaceActions = false
+                supportsDogfoodFeedback = false
                 return fallback
             }
             supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
+            supportsDogfoodFeedback = payload.capabilities.contains(Self.dogfoodFeedbackCapability)
             let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
                 payload.terminalFidelity == "render_grid" ? .renderGrid : .rawBytes
             terminalOutputTransport = transport
@@ -2346,6 +3456,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             terminalOutputTransport = fallback
             supportsWorkspaceActions = false
+            supportsDogfoodFeedback = false
             MobileDebugLog.anchormux("sync.transport=raw_bytes reason=status_failed")
             return fallback
         }
@@ -2908,22 +4019,68 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func scheduleWorkspaceListRefreshFromEvent() {
-        guard let client = remoteClient else { return }
+        guard remoteClient != nil else { return }
+        // Keep the event path's "latest event wins" semantics: a `workspace.updated`
+        // arriving mid-fetch restarts the fetch so the applied list reflects the
+        // change the Mac pushed *after* this fetch started. This cancels only the
+        // event-driven task handle; the user pull-to-refresh runs on its own
+        // (``pullToRefreshTask``) so an event can never truncate its spinner.
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = Task { @MainActor [weak self] in
             defer { self?.workspaceListRefreshTask = nil }
-            guard let self else { return }
-            do {
-                let request = try MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
-                let data = try await client.sendRequest(request)
-                let response = try MobileSyncWorkspaceListResponse.decode(data)
-                guard self.remoteClient === client, self.connectionState == .connected else { return }
-                self.applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
-                self.syncSelectedTerminalForWorkspace()
-            } catch {
-                mobileShellLog.error("workspace list event refresh failed: \(String(describing: error), privacy: .private)")
-            }
+            await self?.reloadWorkspaceListFromMac()
         }
+    }
+
+    /// Re-fetch the authoritative workspace list from the connected Mac and apply
+    /// it, awaiting the round-trip to completion.
+    ///
+    /// This is the single shared re-sync the `workspace.updated` event refresh and
+    /// the user's pull-to-refresh both funnel through, so the list never has two
+    /// divergent fetch paths. A no-op when not connected. Errors (offline / wedged
+    /// transport) are caught and logged, leaving the existing list intact, because
+    /// ``applyRemoteWorkspaceList(_:preferActiveTicketTarget:mergeExistingWorkspaces:)``
+    /// runs only on a successful decode.
+    private func reloadWorkspaceListFromMac() async {
+        guard let client = remoteClient else { return }
+        do {
+            let request = try MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
+            let data = try await client.sendRequest(
+                request,
+                timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
+            )
+            let response = try MobileSyncWorkspaceListResponse.decode(data)
+            guard remoteClient === client, connectionState == .connected else { return }
+            applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
+            syncSelectedTerminalForWorkspace()
+        } catch {
+            mobileShellLog.error("workspace list event refresh failed: \(String(describing: error), privacy: .private)")
+        }
+    }
+
+    /// Pull-to-refresh entry point: re-sync the workspace list from the connected
+    /// Mac, awaiting real completion so the system refresh spinner reflects the
+    /// actual round-trip (and ends gracefully on failure, leaving the list intact).
+    ///
+    /// Runs on its own ``pullToRefreshTask`` handle, separate from the
+    /// event-driven ``workspaceListRefreshTask`` that a `workspace.updated` push
+    /// cancels and restarts, so a background event can never truncate the pull's
+    /// spinner by cancelling the task it is awaiting. Rapid repeated pulls coalesce
+    /// onto the single in-flight pull task rather than stacking duplicate
+    /// `mobile.workspace.list` calls. Returns immediately when not connected, so an
+    /// offline pull cannot hang the spinner on a transport timeout.
+    public func refreshWorkspaces() async {
+        guard connectionState == .connected, remoteClient != nil else { return }
+        if let inFlight = pullToRefreshTask {
+            await inFlight.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            defer { self?.pullToRefreshTask = nil }
+            await self?.reloadWorkspaceListFromMac()
+        }
+        pullToRefreshTask = task
+        await task.value
     }
 
     private func stopTerminalRefreshPolling() {
@@ -3014,11 +4171,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard Self.shouldDisconnectForAuthorizationFailure(error) else {
             return false
         }
-        connectionError = Self.localizedConnectionError(for: error, route: activeRoute)
+        let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
+        // Not `applyPairingFailure`: this path also sets `connectionRequiresReauth`,
+        // uses fallback-if-empty, and gates analytics on `pairingAttemptMethod` so
+        // live-connection auth evictions never emit `ios_pairing_failed`.
+        connectionError = category.message.isEmpty
+            ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
+            : category.message
+        connectionErrorGuidance = category.guidance
         connectionRequiresReauth = true
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
+        // Only emits while a pairing attempt is in flight: `recordPairingFailed`
+        // no-ops once `pairingAttemptMethod` is nil (cleared on success and by
+        // `invalidatePairingAttempt`), so live-connection auth failures that
+        // also route through here never emit `ios_pairing_failed`.
+        recordPairingFailed(reason: category.analyticsReason, phase: "auth")
         return true
     }
 
@@ -3044,142 +4213,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case .invalidResponse, .connectionClosed, .requestTimedOut:
             return false
         }
-    }
-
-    private static func localizedConnectionError(for error: any Error, route: CmxAttachRoute? = nil) -> String {
-        let hostPort = route.flatMap(Self.hostPortDescription(for:))
-        if let networkError = error as? CmxNetworkByteTransportError {
-            switch networkError {
-            case .connectionTimedOut:
-                return localizedHostPortConnectionError(
-                    key: "mobile.pairing.connectTimedOutFormat",
-                    defaultValue: "No response from %@:%d. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network.",
-                    fallbackKey: "mobile.pairing.runtimeUnavailable",
-                    fallbackDefaultValue: "Could not connect to your computer.",
-                    hostPort: hostPort
-                )
-            case let .connectionFailed(_, kind):
-                switch kind {
-                case .connectionRefused:
-                    return L10n.string(
-                        "mobile.pairing.appNotRunning",
-                        defaultValue: "Your Mac is reachable, but cmux isn't running there (or mobile pairing is off). Open cmux on the Mac, then try again."
-                    )
-                case .permissionDenied:
-                    return L10n.string(
-                        "mobile.pairing.localNetworkPermission",
-                        defaultValue: "iOS blocked the connection. Allow cmux to use the Local Network in iOS Settings, then try again."
-                    )
-                case .hostUnreachable:
-                    return localizedHostPortConnectionError(
-                        key: "mobile.pairing.hostUnreachableFormat",
-                        defaultValue: "Can't reach %@:%d. Make sure your Mac is awake and on the same Tailscale network as this device.",
-                        fallbackKey: "mobile.pairing.runtimeUnavailable",
-                        fallbackDefaultValue: "Could not connect to your computer.",
-                        hostPort: hostPort
-                    )
-                case .dnsFailed:
-                    return localizedHostPortConnectionError(
-                        key: "mobile.pairing.dnsFailedFormat",
-                        defaultValue: "Couldn't resolve %@. Check that Tailscale is connected on both devices.",
-                        fallbackKey: "mobile.pairing.runtimeUnavailable",
-                        fallbackDefaultValue: "Could not connect to your computer.",
-                        hostPort: hostPort
-                    )
-                case .timedOut, .secureChannelFailed, .generic:
-                    return localizedHostPortConnectionError(
-                        key: "mobile.pairing.connectionFailedFormat",
-                        defaultValue: "Could not reach %@:%d. Check that the host is reachable over Tailscale or LAN and that the port is correct.",
-                        fallbackKey: "mobile.pairing.runtimeUnavailable",
-                        fallbackDefaultValue: "Could not connect to your computer.",
-                        hostPort: hostPort
-                    )
-                }
-            case .notConnected, .alreadyClosed:
-                return localizedHostPortConnectionError(
-                    key: "mobile.pairing.connectionFailedFormat",
-                    defaultValue: "Could not reach %@:%d. Check that the host is reachable over Tailscale or LAN and that the port is correct.",
-                    fallbackKey: "mobile.pairing.runtimeUnavailable",
-                    fallbackDefaultValue: "Could not connect to your computer.",
-                    hostPort: hostPort
-                )
-            case .receiveFailed, .sendFailed:
-                return localizedHostPortConnectionError(
-                    key: "mobile.pairing.connectionDroppedFormat",
-                    defaultValue: "Connected to %@:%d, but the host closed the connection. Check that the host app is still running.",
-                    fallbackKey: "mobile.pairing.runtimeUnavailable",
-                    fallbackDefaultValue: "Could not connect to your computer.",
-                    hostPort: hostPort
-                )
-            case .emptyHost, .invalidPort, .invalidMaximumReceiveLength, .unsupportedRouteKind, .unsupportedEndpoint, .receiveAlreadyInProgress, .sendAlreadyInProgress:
-                break
-            }
-        }
-        guard let connectionError = error as? MobileShellConnectionError else {
-            return L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
-        }
-        switch connectionError {
-        case .requestTimedOut:
-            return localizedHostPortConnectionError(
-                key: "mobile.pairing.connectionTimedOutFormat",
-                defaultValue: "No response from %@:%d. Make sure the host app is open and accepting mobile connections.",
-                fallbackKey: "mobile.pairing.requestTimedOut",
-                fallbackDefaultValue: "The computer did not respond. Check the host and port, then try again.",
-                hostPort: hostPort
-            )
-        case .insecureManualRoute:
-            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
-        case .attachTicketExpired:
-            return L10n.string("mobile.pairing.attachTicketExpired", defaultValue: "This pairing link expired. Pair again with a fresh QR/link from that computer.")
-        case .authorizationFailed:
-            return L10n.string("mobile.pairing.authorizationFailed", defaultValue: "Couldn't verify your account with this Mac. Make sure both devices use the same cmux account and a matching build (both release, or both development), then try again.")
-        case .accountMismatch:
-            return L10n.string("mobile.pairing.accountMismatch", defaultValue: "This Mac is signed in to a different cmux account. Sign out and sign back in with the account that owns this Mac.")
-        case .invalidResponse, .connectionClosed, .rpcError:
-            return L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
-        }
-    }
-
-    /// Maps a connect error to the `ios_pairing_failed` `reason` enum (sizes and
-    /// enums only — never the underlying error text). Falls back to `network` for
-    /// transport drops and `other` for anything unrecognized.
-    private static func pairingFailureReason(for error: any Error) -> String {
-        if let connectionError = error as? MobileShellConnectionError {
-            switch connectionError {
-            case .attachTicketExpired: return "ticket_expired"
-            case .authorizationFailed: return "auth"
-            case .accountMismatch: return "account_mismatch"
-            case .insecureManualRoute: return "unsupported_route"
-            case .requestTimedOut: return "timeout"
-            case .invalidResponse, .connectionClosed, .rpcError: return "network"
-            }
-        }
-        if error is CancellationError { return "cancelled" }
-        return "other"
-    }
-
-    private static func localizedHostPortConnectionError(
-        key: StaticString,
-        defaultValue: String.LocalizationValue,
-        fallbackKey: StaticString,
-        fallbackDefaultValue: String.LocalizationValue,
-        hostPort: (host: String, port: Int)?
-    ) -> String {
-        guard let hostPort else {
-            return L10n.string(fallbackKey, defaultValue: fallbackDefaultValue)
-        }
-        return String(
-            format: L10n.string(key, defaultValue: defaultValue),
-            hostPort.host,
-            hostPort.port
-        )
-    }
-
-    private static func hostPortDescription(for route: CmxAttachRoute) -> (host: String, port: Int)? {
-        guard case let .hostPort(host, port) = route.endpoint else {
-            return nil
-        }
-        return (host, port)
     }
 
     private static func routeSortsBefore(_ left: CmxAttachRoute, _ right: CmxAttachRoute) -> Bool {

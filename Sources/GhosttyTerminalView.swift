@@ -2859,24 +2859,26 @@ class GhosttyApp {
         let summary = userAppearanceConfigSummary(configPaths: configPaths)
         guard let rawThemeValue = summary.lastThemeDirective else { return nil }
 
-        let lightTheme = GhosttyConfig.resolveThemeName(
+        // Inject a resolved plain theme whenever the requested appearance side is
+        // explicitly named via ghostty's conditional `light:...`/`dark:...`
+        // syntax, even when both sides resolve to the same theme. `cmux themes
+        // set` always encodes the selection with this syntax (a single theme
+        // becomes `light:X,dark:X`), and ghostty mis-applies the conditional form
+        // — the background lands but the foreground/palette stay at the default
+        // white colors, producing the white-on-light terminals reported in
+        // https://github.com/manaflow-ai/cmux/issues/3459. Only override sides the
+        // value explicitly specifies: a one-sided `light:X` must not force the
+        // light theme onto dark appearances (which would clobber the inherited or
+        // default dark theme). Plain (non-conditional) theme values are applied
+        // correctly by ghostty, so they need no override.
+        guard let explicitTheme = GhosttyConfig.explicitConditionalThemeName(
             from: rawThemeValue,
-            preferredColorScheme: .light
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
-        let darkTheme = GhosttyConfig.resolveThemeName(
-            from: rawThemeValue,
-            preferredColorScheme: .dark
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !lightTheme.isEmpty,
-              !darkTheme.isEmpty,
-              lightTheme.caseInsensitiveCompare(darkTheme) != .orderedSame else {
+            preferredColorScheme: preferredColorScheme
+        ) else {
             return nil
         }
 
-        let resolvedTheme = GhosttyConfig.resolveThemeName(
-            from: rawThemeValue,
-            preferredColorScheme: preferredColorScheme
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTheme = explicitTheme.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !resolvedTheme.isEmpty,
               resolvedTheme.rangeOfCharacter(from: .newlines) == nil else {
             return nil
@@ -4888,6 +4890,14 @@ class GhosttyApp {
                 #endif
                 return false
             }
+            #if DEBUG
+            if CmuxUITestCapture.appendLineIfConfigured(
+                envKey: "CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH",
+                line: target.url.absoluteString
+            ) {
+                return true
+            }
+            #endif
             // Route local file URLs into cmux when the file-routing toggle is on.
             // URL fragments/queries are stripped (the panel only needs the file
             // path), so links emitted by tools like Claude Code (`foo.md#L42`)
@@ -6619,10 +6629,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
         }
 
-        // Shell integration: inject startup wrappers for supported shells.
-        let shellIntegrationEnabled = UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true
-        if shellIntegrationEnabled,
-           let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path {
+        // Shell integration: inject startup wrappers for supported shells; skipped when the bundled dir is missing (deleted app bundle), see shellIntegrationDirectoryExists.
+        if UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
+           let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path,
+           Self.shellIntegrationDirectoryExists(integrationDir) {
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION", "1")
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION_DIR", integrationDir)
             Self.applyManagedGitWatchEnvironment(
@@ -11481,6 +11491,61 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         return payload
     }
+
+    func debugSimulateStationaryCommandClick(at point: NSPoint) -> [String: Any] {
+        guard let surface else {
+            return ["error": "Missing surface"]
+        }
+
+        let clampedPoint = clampedDebugPoint(point)
+        let noMods = GHOSTTY_MODS_NONE
+        let flags: NSEvent.ModifierFlags = [.command]
+        let commandMods = modsFromFlags(flags)
+
+        // Drive the production flagsChanged override for the Cmd press and
+        // release so the regression covers the real modifier-transition path:
+        // that handler is what refreshes ghostty link state under a stationary
+        // pointer (ghostty ignores a same-cell mouse_pos with new mods), so a
+        // helper that synthesized the forwarding itself would keep passing
+        // with the handler broken.
+        guard let cmdDown = debugFlagsChangedEvent(commandDown: true, at: clampedPoint),
+              let cmdUp = debugFlagsChangedEvent(commandDown: false, at: clampedPoint) else {
+            return ["error": "Failed to construct flagsChanged events"]
+        }
+
+        window?.makeFirstResponder(self)
+        ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, noMods)
+        flagsChanged(with: cmdDown)
+        let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, commandMods)
+        let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, commandMods)
+        flagsChanged(with: cmdUp)
+
+        return [
+            "pressHandled": pressHandled ? "1" : "0",
+            "releaseConsumed": releaseConsumed ? "1" : "0",
+        ]
+    }
+
+    private func debugFlagsChangedEvent(commandDown: Bool, at pointInView: NSPoint) -> NSEvent? {
+        // cmuxGhosttyModifierActionForFlagsChanged distinguishes left-Cmd
+        // presses by the device-side bit, so a bare .command is read as a
+        // release.
+        let rawFlags: UInt = commandDown
+            ? (NSEvent.ModifierFlags.command.rawValue | UInt(NX_DEVICELCMDKEYMASK))
+            : 0
+        return NSEvent.keyEvent(
+            with: .flagsChanged,
+            location: convert(pointInView, to: nil),
+            modifierFlags: NSEvent.ModifierFlags(rawValue: rawFlags),
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window?.windowNumber ?? 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: UInt16(kVK_Command)
+        )
+    }
 #endif
 
     override func rightMouseDown(with event: NSEvent) {
@@ -12523,6 +12588,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugSimulateCommandClick(at point: NSPoint) -> [String: Any] {
         surfaceView.debugSimulateCommandClick(at: debugPointInSurface(point))
+    }
+
+    func debugSimulateStationaryCommandClick(at point: NSPoint) -> [String: Any] {
+        surfaceView.debugSimulateStationaryCommandClick(at: debugPointInSurface(point))
     }
 #endif
 

@@ -298,22 +298,22 @@ final class MobileHostService {
     /// full status) reads this so the lists cannot drift; iOS gates features
     /// like rename/pin on the entries present here.
     ///
-    /// In DEBUG builds this also advertises `dogfood.v1`, the DEV dogfood
-    /// feedback round-trip (`dogfood.feedback.submit`). It is absent from
-    /// release builds, so a release client never sees the verb advertised.
+    /// This also advertises `dogfood.v1`, the agent feedback round-trip
+    /// (`dogfood.feedback.submit`). It is advertised on every build type so the
+    /// privileged Send Feedback path (offered only to `@manaflow.ai` users on an
+    /// active connection) works on Release (beta/prod) too; the sink itself is
+    /// still gated by the same-account Stack-auth check the rest of the mobile
+    /// data plane enforces.
     nonisolated static var mobileHostCapabilities: [String] {
-        var capabilities = [
+        [
             "events.v1",
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
             "terminal.replay.v1",
             "terminal.viewport.v1",
             "workspace.actions.v1",
+            "dogfood.v1",
         ]
-        #if DEBUG
-        capabilities.append("dogfood.v1")
-        #endif
-        return capabilities
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
@@ -354,6 +354,21 @@ final class MobileHostService {
         await auth.awaitBootstrapped()
         guard auth.isAuthenticated else { return nil }
         return auth.currentUser?.id
+    }
+
+    /// This Mac's authenticated Stack email, or `nil` when signed out or before
+    /// the auth graph is configured.
+    ///
+    /// The mobile data plane only accepts same-account connections, so the
+    /// caller is this Mac's own Stack account. The privileged agent feedback
+    /// sink (`dogfood.feedback.submit`) checks this email's domain at the trust
+    /// boundary, so a crafted RPC from a non-privileged account is rejected
+    /// regardless of which route the phone UI chose.
+    func currentAuthenticatedLocalUserEmail() async -> String? {
+        guard let auth else { return nil }
+        await auth.awaitBootstrapped()
+        guard auth.isAuthenticated else { return nil }
+        return auth.currentUser?.primaryEmail
     }
 
     /// Fan out a server-pushed event to every connection subscribed to `topic`.
@@ -1274,6 +1289,7 @@ final class MobileHostService {
         case "mobile.terminal.create", "terminal.create":
             return nil
         case "mobile.terminal.input", "terminal.input",
+             "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",

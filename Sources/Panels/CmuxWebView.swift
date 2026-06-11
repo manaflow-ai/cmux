@@ -653,7 +653,7 @@ final class CmuxWebView: WKWebView {
                 let isReturnKey = event.keyCode == 36 || event.keyCode == 76
                 if (normalizedFlags.isEmpty && event.keyCode == 53) ||
                     (isReturnKey && !normalizedFlags.contains(.command)) {
-                    super.keyDown(with: event)
+                    forwardKeyDownToWebKit(event)
                     return finish(true)
                 }
                 let result = super.performKeyEquivalent(with: event)
@@ -766,7 +766,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
                 route = "focusModeWebView"
 #endif
-                super.keyDown(with: event)
+                forwardKeyDownToWebKit(event)
                 return
             case .consume:
 #if DEBUG
@@ -799,7 +799,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
             route = "inlineVSCode"
 #endif
-            super.keyDown(with: event)
+            forwardKeyDownToWebKit(event)
             return
         }
 
@@ -813,7 +813,7 @@ final class CmuxWebView: WKWebView {
             return
         }
 
-        super.keyDown(with: event)
+        forwardKeyDownToWebKit(event)
     }
 
     // MARK: - Focus on click
