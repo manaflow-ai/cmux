@@ -81,24 +81,37 @@ public struct StackAuthClient: AuthClient {
         try await stack.signInWithOAuth(provider: provider, presentationContextProvider: anchor)
     }
 
+    /// The access token exactly as stored: a raw read, no freshness check,
+    /// no network refresh. See ``AuthClient/storedAccessToken()``.
     public func storedAccessToken() async -> String? {
         await stack.getStoredAccessToken()
     }
 
+    /// Clear the locally persisted Stack session unconditionally, with no
+    /// network call. See ``AuthClient/clearLocalSession()``.
     public func clearLocalSession() async {
         await stack.clearStoredTokens()
     }
 
+    /// Compare-and-clear the locally persisted Stack session, atomic at the
+    /// SDK token store. See
+    /// ``AuthClient/clearLocalSession(ifRefreshTokenMatches:)``.
     public func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {
         await stack.clearStoredTokens(ifRefreshTokenEquals: refreshToken)
     }
 
+    /// Revoke the server-side session the captured token pair authenticates,
+    /// through an ephemeral token store that never writes to the app's real
+    /// keychain. See ``AuthClient/revokeSession(accessToken:refreshToken:)``.
     public func revokeSession(accessToken: String?, refreshToken: String?) async throws {
         // Nothing to authenticate the DELETE with; skip the round trip.
         guard accessToken != nil || refreshToken != nil else { return }
         try await stack.revokeSession(accessToken: accessToken, refreshToken: refreshToken)
     }
 
+    /// A likely-valid access token for an explicit captured pair, resolved
+    /// without touching local token storage. See
+    /// ``AuthClient/freshAccessToken(accessToken:refreshToken:)``.
     public func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? {
         await stack.likelyValidAccessToken(accessToken: accessToken, refreshToken: refreshToken)
     }

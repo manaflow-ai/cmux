@@ -85,6 +85,13 @@ public actor PushRegistrationService: PushRegistering {
         await sendDelete(tokenHex: hex)
     }
 
+    /// Delete the device token from the server at sign-out, authenticating
+    /// with the credentials captured before the local-first clear destroyed
+    /// the live session.
+    ///
+    /// - Parameters:
+    ///   - accessToken: The captured (or teardown-minted) access token.
+    ///   - refreshToken: The captured refresh token.
     public func unregisterFromServer(accessToken: String?, refreshToken: String?) async {
         guard let hex = cachedTokenHex else { return }
         // Sign-out path: never fall back to the live token provider. The
