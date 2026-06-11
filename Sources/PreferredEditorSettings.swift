@@ -31,6 +31,10 @@ enum PreferredEditorSettings {
             return
         }
         let path = url.path(percentEncoded: false)
+        // Log only the executable's basename publicly; the full command is
+        // free-form shell text that can carry sensitive paths or arguments.
+        let commandName = command.split(separator: " ").first
+            .map { URL(fileURLWithPath: String($0)).lastPathComponent } ?? "(empty)"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "\(command) \(shellQuote(path))"]
@@ -43,7 +47,7 @@ enum PreferredEditorSettings {
         process.terminationHandler = { process in
             guard process.terminationStatus != 0 else { return }
             preferredEditorLogger.error(
-                "preferred editor command \(command, privacy: .public) exited \(process.terminationStatus, privacy: .public) for \(path, privacy: .private); falling back to the OS default handler"
+                "preferred editor command \(commandName, privacy: .public) exited \(process.terminationStatus, privacy: .public) for \(path, privacy: .private); falling back to the OS default handler"
             )
             Task { @MainActor in NSWorkspace.shared.open(url) }
         }
@@ -51,7 +55,7 @@ enum PreferredEditorSettings {
             try process.run()
         } catch {
             preferredEditorLogger.error(
-                "failed to launch preferred editor command \(command, privacy: .public): \(error.localizedDescription, privacy: .public); falling back to the OS default handler"
+                "failed to launch preferred editor command \(commandName, privacy: .public): \(error.localizedDescription, privacy: .public); falling back to the OS default handler"
             )
             NSWorkspace.shared.open(url)
         }
