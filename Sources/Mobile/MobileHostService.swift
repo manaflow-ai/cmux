@@ -297,14 +297,24 @@ final class MobileHostService {
     /// cache, the live `publicHostStatusResult`, and `TerminalController`'s
     /// full status) reads this so the lists cannot drift; iOS gates features
     /// like rename/pin on the entries present here.
-    nonisolated static let mobileHostCapabilities: [String] = [
-        "events.v1",
-        "terminal.bytes.v1",
-        "terminal.render_grid.v1",
-        "terminal.replay.v1",
-        "terminal.viewport.v1",
-        "workspace.actions.v1",
-    ]
+    ///
+    /// This also advertises `dogfood.v1`, the agent feedback round-trip
+    /// (`dogfood.feedback.submit`). It is advertised on every build type so the
+    /// privileged Send Feedback path (offered only to `@manaflow.ai` users on an
+    /// active connection) works on Release (beta/prod) too; the sink itself is
+    /// still gated by the same-account Stack-auth check the rest of the mobile
+    /// data plane enforces.
+    nonisolated static var mobileHostCapabilities: [String] {
+        [
+            "events.v1",
+            "terminal.bytes.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "terminal.viewport.v1",
+            "workspace.actions.v1",
+            "dogfood.v1",
+        ]
+    }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
     private let routeResolver = MobileRouteResolver()
@@ -344,6 +354,21 @@ final class MobileHostService {
         await auth.awaitBootstrapped()
         guard auth.isAuthenticated else { return nil }
         return auth.currentUser?.id
+    }
+
+    /// This Mac's authenticated Stack email, or `nil` when signed out or before
+    /// the auth graph is configured.
+    ///
+    /// The mobile data plane only accepts same-account connections, so the
+    /// caller is this Mac's own Stack account. The privileged agent feedback
+    /// sink (`dogfood.feedback.submit`) checks this email's domain at the trust
+    /// boundary, so a crafted RPC from a non-privileged account is rejected
+    /// regardless of which route the phone UI chose.
+    func currentAuthenticatedLocalUserEmail() async -> String? {
+        guard let auth else { return nil }
+        await auth.awaitBootstrapped()
+        guard auth.isAuthenticated else { return nil }
+        return auth.currentUser?.primaryEmail
     }
 
     /// Fan out a server-pushed event to every connection subscribed to `topic`.
@@ -751,6 +776,45 @@ final class MobileHostService {
     func statusSnapshot() -> MobileHostServiceStatus {
         let routes = listenerPort.map { routeResolver.routes(port: $0).routes } ?? []
         return makeStatus(routes: routes)
+    }
+
+    /// Emits the current ``MobileHostServiceStatus`` immediately, then a fresh
+    /// snapshot every time the listener or active-connection set changes (driven by
+    /// `.mobileHostStatusDidChange`). The in-app pairing window consumes this to flip
+    /// from "waiting" to "connected" the instant a phone attaches; it is the same
+    /// signal that backs the Mobile settings connection count. The stream ends when
+    /// the consumer cancels its task.
+    func statusUpdates() -> AsyncStream<MobileHostServiceStatus> {
+        AsyncStream { continuation in
+            // Bridge the notification through a Sendable `Void` signal so the
+            // non-Sendable `Notification` never crosses into the MainActor drain.
+            // Mirrors `HostSettingsActions.mobilePairingStatusUpdates()`.
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = MobileHostStatusObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: .mobileHostStatusDidChange,
+                    object: nil,
+                    queue: nil
+                ) { _ in
+                    signalContinuation.yield(())
+                }
+            )
+            let drainTask = Task { @MainActor in
+                continuation.yield(MobileHostService.shared.statusSnapshot())
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    continuation.yield(MobileHostService.shared.statusSnapshot())
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
     }
 
     /// Starts the pairing listener (if enabled and not already bound) and
@@ -1225,6 +1289,7 @@ final class MobileHostService {
         case "mobile.terminal.create", "terminal.create":
             return nil
         case "mobile.terminal.input", "terminal.input",
+             "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",
              "mobile.terminal.scroll", "terminal.scroll":

@@ -16,6 +16,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CMUXMobileCore"),
         .package(path: "../CmuxAuthRuntime"),
+        .package(path: "../CmuxMobileBrowser"),
         .package(path: "../CmuxMobileCamera"),
         .package(path: "../CmuxMobileDiagnostics"),
         .package(path: "../CmuxMobilePairedMac"),
@@ -23,6 +24,7 @@ let package = Package(
         .package(path: "../CmuxMobileShellModel"),
         .package(path: "../CmuxMobileSupport"),
         .package(path: "../CmuxMobileTerminal"),
+        .package(path: "../CmuxMobileTerminalKit"),
         .package(path: "../CmuxMobileWorkspace"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
@@ -32,6 +34,7 @@ let package = Package(
             dependencies: [
                 "CMUXMobileCore",
                 "CmuxAuthRuntime",
+                "CmuxMobileBrowser",
                 "CmuxMobileCamera",
                 "CmuxMobileDiagnostics",
                 "CmuxMobilePairedMac",
@@ -39,6 +42,7 @@ let package = Package(
                 "CmuxMobileShellModel",
                 "CmuxMobileSupport",
                 "CmuxMobileTerminal",
+                "CmuxMobileTerminalKit",
                 "CmuxMobileWorkspace",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],

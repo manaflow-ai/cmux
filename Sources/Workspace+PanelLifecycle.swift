@@ -110,6 +110,20 @@ extension Workspace {
         return didClearOtherStructuredAgentRuntime
     }
 
+    /// Records an agent PID that is coupled to a visible sidebar status entry
+    /// (the `set_status --pid` path, which inserts the status first and records
+    /// the PID afterward). If the status entry did not survive the status cap —
+    /// e.g. a flood of low-priority keys that each self-evict on insert while the
+    /// workspace is already at cap with higher-priority entries — the PID is not
+    /// retained, so the coupled `agentPIDs` / ownership / port-scan state stays
+    /// bounded too (#5845). `set_agent_pid`, which intentionally tracks a PID
+    /// without any status entry, must keep using `recordAgentPID` directly.
+    @discardableResult
+    func recordAgentPIDForSurvivingStatusKey(_ key: String, pid: pid_t, panelId: UUID?) -> Bool {
+        guard statusEntries[key] != nil else { return false }
+        return recordAgentPID(key: key, pid: pid, panelId: panelId)
+    }
+
     func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {
         guard let panelId else {
             return false
@@ -247,6 +261,63 @@ extension Workspace {
         recomputeListeningPorts()
     }
 
+    /// Status keys backed by active agent runtime — either a coupled agent PID /
+    /// ownership record, or an agent lifecycle state (e.g. a `needsInput` badge
+    /// recorded via `setAgentLifecycle` with no PID, as `FeedCoordinator` does).
+    /// The status cap ranks these ahead of plain telemetry so a noisy flood of
+    /// distinct keys can't evict an active agent status — one whose display
+    /// timestamp went stale because its updates were no-ops, or a pending
+    /// needs-input decision — and hide it (#5845).
+    func statusKeysWithCoupledAgentRuntime() -> Set<String> {
+        var keys = Set<String>()
+        for pidKey in agentPIDs.keys {
+            keys.insert(agentStatusKey(forAgentPIDKey: pidKey))
+        }
+        for pidKey in agentPIDPanelIdsByKey.keys {
+            keys.insert(agentStatusKey(forAgentPIDKey: pidKey))
+        }
+        // Lifecycle state is keyed directly by status key (per panel).
+        for lifecycleStates in agentLifecycleStatesByPanelId.values {
+            keys.formUnion(lifecycleStates.keys)
+        }
+        return keys
+    }
+
+    /// Clears the agent runtime state coupled to status keys that the sidebar
+    /// status cap is about to evict, so that coupled state stays bounded too
+    /// (#5845). Two couplings exist:
+    ///  - `set_status --pid` records PIDs under keys derived from the status key
+    ///    (`agentStatusKey(forAgentPIDKey:)`); leaving them orphans the
+    ///    `agentPIDs` / ownership maps and the port-scan tags keyed off them.
+    ///  - lifecycle-backed statuses (e.g. FeedCoordinator `needsInput`) record
+    ///    `agentLifecycleStatesByPanelId[panelId][statusKey]` with no PID;
+    ///    leaving them orphans that dictionary, which `statusKeysWithCoupledAgentRuntime()`
+    ///    re-materializes on every later trim.
+    /// Must run while the evicted entries are still present in `statusEntries` so
+    /// `agentStatusKey(forAgentPIDKey:)` resolves dotted status keys correctly.
+    func purgeAgentRuntimeState(forEvictedStatusKeys evictedStatusKeys: Set<String>) {
+        guard !evictedStatusKeys.isEmpty else { return }
+        var didChange = false
+        let pidKeysToClear = Set(agentPIDs.keys)
+            .union(agentPIDPanelIdsByKey.keys)
+            .filter { evictedStatusKeys.contains(agentStatusKey(forAgentPIDKey: $0)) }
+        for pidKey in pidKeysToClear {
+            // clearStatus: false — the cap removes the status entries itself; this
+            // only tears down the coupled PID/ownership/lifecycle records.
+            if clearAgentPID(key: pidKey, panelId: nil, clearStatus: false, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        // Clear lifecycle-only state (no PID) for evicted keys. Idempotent for
+        // keys whose lifecycle `clearAgentPID` already cleared above.
+        for statusKey in evictedStatusKeys where clearAgentLifecycle(key: statusKey) {
+            didChange = true
+        }
+        if didChange {
+            refreshTrackedAgentPorts()
+        }
+    }
+
     @discardableResult
     private func discardAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) -> Bool {
         guard let runtimeState else { return false }
@@ -264,15 +335,35 @@ extension Workspace {
 
     func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
         guard let runtimeState else { return }
-        for (statusKey, statusEntry) in runtimeState.statusEntries {
-            statusEntries[statusKey] = statusEntry
+        // Merge all adopted statuses in a single assignment so the cap ranks them
+        // together in one trim (all share the just-inserted grace tier) instead
+        // of letting earlier-adopted statuses age out of that tier as later ones
+        // are written.
+        if !runtimeState.statusEntries.isEmpty {
+            var merged = statusEntries
+            for (statusKey, statusEntry) in runtimeState.statusEntries {
+                merged[statusKey] = statusEntry
+            }
+            statusEntries = merged
+        }
+        // Only adopt the coupled PID/ownership for a status-backed key if its
+        // status actually survived the destination workspace's cap, so an adopted
+        // status that self-evicted (destination already full of higher-ranked
+        // live/reserved entries) can't recreate orphan agent runtime state
+        // (#5845). PID-only keys (no status in the transferred runtime, e.g.
+        // `set_agent_pid`) are always adopted.
+        func adoptedStatusSurvived(forAgentPIDKey key: String) -> Bool {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            guard runtimeState.statusEntries[statusKey] != nil else { return true }
+            return statusEntries[statusKey] != nil
         }
         var didAdoptAgentPID = false
-        for (key, pid) in runtimeState.agentPIDs {
+        for (key, pid) in runtimeState.agentPIDs where adoptedStatusSurvived(forAgentPIDKey: key) {
             recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
             didAdoptAgentPID = true
         }
-        for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
+        for key in runtimeState.agentPIDKeys
+        where runtimeState.agentPIDs[key] == nil && adoptedStatusSurvived(forAgentPIDKey: key) {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
         }
         if didAdoptAgentPID {
@@ -304,6 +395,7 @@ extension Workspace {
         removePendingTerminalInputObservers(forPanelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)?.cancel()
+        discardAgentSessionPanelSubscription(panelId: panelId, panel: panel)
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
         if cleanupControllerSurfaceState {
             TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })

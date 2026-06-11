@@ -16,7 +16,8 @@ struct MobilePairingView: View {
     private let browserSignIn: HostBrowserSignInFlow? = AppDelegate.shared?.auth?.browserSignIn
 
     private static let tailscaleDownloadURL = URL(string: "https://tailscale.com/download")!
-    private static let testFlightURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
+    /// Where a Mac user goes to get cmux for iPhone while the beta is invite-only.
+    private static let iphoneAppURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
 
     var body: some View {
         ScrollView {
@@ -91,6 +92,7 @@ struct MobilePairingView: View {
     private var tailscaleReachable: Bool? {
         switch model.state {
         case let .ready(ready): return ready.reachableViaTailscale
+        case let .connected(ready): return ready.reachableViaTailscale
         case .needsTailscale: return false
         default: return nil
         }
@@ -150,6 +152,8 @@ struct MobilePairingView: View {
             failure(message: message)
         case let .ready(ready):
             readyContent(ready)
+        case let .connected(ready):
+            connectedContent(ready)
         }
     }
 
@@ -245,17 +249,33 @@ struct MobilePairingView: View {
         }
     }
 
+    @ViewBuilder
+    private func connectedContent(_ ready: MobilePairingModel.Ready) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 36))
+                .foregroundStyle(.green)
+            Text(String(localized: "mobile.pairing.connected.title", defaultValue: "iPhone connected"))
+                .font(.title3.weight(.semibold))
+            Text(String(localized: "mobile.pairing.connected.subtitle", defaultValue: "Your terminal workspaces are now syncing to your iPhone. You can close this window."))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, minHeight: 200)
+    }
+
     private var steps: some View {
         VStack(alignment: .leading, spacing: 10) {
             step(1, String(localized: "mobile.pairing.step.install", defaultValue: "Install cmux on your iPhone and open it."))
             HStack(spacing: 4) {
                 Spacer(minLength: 30)
-                Text(String(localized: "mobile.pairing.testflight.prompt", defaultValue: "Don't have it yet?"))
+                Text(String(localized: "mobile.pairing.getApp.prompt", defaultValue: "Don't have it yet?"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Link(
-                    String(localized: "mobile.pairing.testflight.link", defaultValue: "Download via TestFlight"),
-                    destination: Self.testFlightURL
+                    String(localized: "mobile.pairing.getApp.link", defaultValue: "Get cmux for iPhone"),
+                    destination: Self.iphoneAppURL
                 )
                 .font(.caption)
                 Spacer(minLength: 0)
