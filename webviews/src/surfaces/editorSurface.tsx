@@ -1,4 +1,5 @@
 import { RouterProvider } from "@tanstack/react-router";
+import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import { createRoot } from "react-dom/client";
 import { resolveDiffViewerAppearance } from "../appearance";
 // Side-effect import: installs `MonacoEnvironment` before any editor is created.
@@ -106,9 +107,17 @@ export async function mountEditorSurface(rootElement: HTMLElement): Promise<void
   await injectMonacoStylesheet();
   const appearance = resolveDiffViewerAppearance(config.payload?.appearance);
   const themes = defineMonacoThemes(appearance.themes.dark, appearance.themes.light);
-  const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? true;
+  const colorSchemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
+  const prefersDark = colorSchemeQuery?.matches ?? true;
   const themeName = prefersDark ? themes.dark : themes.light;
   const activeTheme = prefersDark ? appearance.themes.dark : appearance.themes.light;
+  // Follow live appearance flips (the host forces the WKWebView's appearance;
+  // standalone pages follow the system) so the editor recolors without a
+  // reload. Both registered themes derive from the same cmux appearance, so
+  // this only switches between its light and dark variants.
+  colorSchemeQuery?.addEventListener?.("change", (event) => {
+    monaco.editor.setTheme(event.matches ? themes.dark : themes.light);
+  });
   const filePath = typeof config.payload?.filePath === "string" ? config.payload.filePath : "untitled.txt";
   const content = typeof config.payload?.content === "string" ? config.payload.content : "";
   if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
@@ -126,6 +135,10 @@ export async function mountEditorSurface(rootElement: HTMLElement): Promise<void
         bridge: saveBridge,
         baselineSha256:
           typeof config.payload?.contentSha256 === "string" ? config.payload.contentSha256 : null,
+        // Set when the host seeded this page from an already-unsaved buffer
+        // (editor regenerated on a theme change / web-process recovery), so
+        // dirty tracking survives the reload.
+        initiallyDirty: config.payload?.initialDirty === true,
       });
   // Load the file's Monarch grammar before mounting so the editor tokenizes
   // synchronously on first render (the WKWebView does not reliably repaint the
@@ -142,11 +155,14 @@ export async function mountEditorSurface(rootElement: HTMLElement): Promise<void
         lineHeight: appearance.lineHeight,
         readOnly,
         minimap: { enabled: true },
+        mouseWheelZoom: true,
         scrollBeyondLastLine: false,
+        wordWrap: config.payload?.wordWrap === true ? "on" : "off",
       }}
       labels={labels}
       saveController={saveController}
       chrome={{ background: activeTheme.background, foreground: activeTheme.foreground }}
+      mirrorContent={config.payload?.mirrorContent === true && saveController !== null}
     />
   ));
   createRoot(rootElement).render(<RouterProvider router={router} />);

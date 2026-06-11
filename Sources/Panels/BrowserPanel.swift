@@ -4111,9 +4111,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// True while a `cmux edit` Monaco page is live in this webview; gates the
     /// undo/redo key routing so plain browser pages keep default behavior.
     var editorPageActive = false
-    /// Pending first stroke of a chorded save shortcut (see
-    /// `handleEditorKeyEquivalent`).
-    var editorSaveChordPrefixPending = false
+    /// Shared save/undo/redo key routing for the Monaco page (owns the
+    /// chorded save-shortcut state; see `handleEditorKeyEquivalent`).
+    let editorKeyEquivalentRouter = EditorKeyEquivalentRouter()
 
     var isDirty: Bool {
         editorBufferIsDirty
@@ -4286,7 +4286,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 // shortcut never act on a page that is gone.
                 self.editorBufferIsDirty = false
                 self.editorPageActive = false
-                self.editorSaveChordPrefixPending = false
+                self.editorKeyEquivalentRouter.resetChord()
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
             }

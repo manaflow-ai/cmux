@@ -13,7 +13,7 @@ enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
 /// A panel that renders a markdown file with live file-watching.
 /// When the file changes on disk, the content is automatically reloaded.
 @MainActor
-final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
+final class MarkdownPanel: Panel, ObservableObject {
     let id: UUID
     let panelType: PanelType = .markdown
 
@@ -72,6 +72,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// layout churn does not recreate the WKWebView and flash existing content.
     let rendererSession = MarkdownRendererSession()
 
+    /// Stable Monaco edit-mode state (webview, buffer, undo stack). Panel-owned
+    /// for the same reason as `rendererSession`, and so the buffer survives
+    /// preview/edit toggles.
+    let editorSession = MarkdownEditorSession()
+
     // MARK: - File watching
 
     // Watches `filePath` (file + ancestor-directory recovery) via CmuxFileWatch.
@@ -81,8 +86,6 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
-    private var pendingSearchNeedle: String?
-    private weak var textView: NSTextView?
     private var isClosed: Bool = false
     // NotificationCenter token; removal is thread-safe so deinit can drop it.
     private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
@@ -233,8 +236,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func focus() {
         guard displayMode == .text else { return }
-        _ = textView?.window?.makeFirstResponder(textView)
-        applyPendingSearchNeedleIfPossible()
+        editorSession.focus()
     }
 
     func unfocus() {
@@ -244,8 +246,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     func close() {
         isClosed = true
         rendererSession.close()
+        editorSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
-        textView = nil
         stopWatching()
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
@@ -261,26 +263,46 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func setDisplayMode(_ mode: MarkdownPanelDisplayMode) {
         guard displayMode != mode else { return }
+        let previous = displayMode
         displayMode = mode
         if mode == .text {
             focus()
+        } else if previous == .text {
+            // Pull the live Monaco buffer so the rendered preview includes
+            // the very latest unsaved keystrokes (the debounced content
+            // mirror may lag by its debounce interval).
+            editorSession.pullContent { [weak self] pulled in
+                guard let self, let pulled else { return }
+                self.updateTextContent(pulled)
+            }
         }
-    }
-
-    func attachTextView(_ textView: NSTextView) {
-        self.textView = textView
-    }
-
-    func retryPendingFocus() {
-        focus()
     }
 
     func applySearchNeedle(_ needle: String) {
         let trimmed = needle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        pendingSearchNeedle = trimmed
         setDisplayMode(.text)
-        applyPendingSearchNeedleIfPossible()
+        editorSession.revealNeedle(trimmed)
+    }
+
+    /// Applies the editor page's mirrored buffer (debounced live edits and
+    /// dirty transitions) to the panel model. A clean mirror means the page
+    /// asserts this content is its disk-synced state (post-save, post
+    /// disk-adoption, or a conflict resolved via "Use disk version"), so the
+    /// panel re-baselines instead of comparing against a possibly stale
+    /// `originalTextContent` — otherwise resolving a conflict from the page
+    /// could leave the native Save/Revert/dirty state stuck.
+    func applyEditorContentMirror(_ nextContent: String, pageIsDirty: Bool) {
+        guard pageIsDirty else {
+            guard textContent != nextContent || isDirty else { return }
+            textContent = nextContent
+            content = nextContent
+            originalTextContent = nextContent
+            isDirty = false
+            GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+            return
+        }
+        updateTextContent(nextContent)
     }
 
     func updateTextContent(_ nextContent: String) {
@@ -297,45 +319,95 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         return nil
     }
 
+    /// Saves the edit buffer. Routed through the Monaco page's save
+    /// controller (same path as the save shortcut) so the page's status
+    /// chrome, baseline sha tracking, and disk-conflict prompt stay
+    /// authoritative; the actual disk write comes back through
+    /// ``performEditorSave``.
     @discardableResult
     func saveTextContent() -> Task<Void, Never>? {
-        guard !isSaving else { return nil }
-        let currentContent = textView?.string ?? textContent
-        guard currentContent != originalTextContent else {
-            textContent = currentContent
-            content = currentContent
-            isDirty = false
-            GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
-            return nil
-        }
+        editorSession.requestSave()
+        return nil
+    }
 
+    /// SHA-256 of the panel's last-synced disk content as encoded bytes; the
+    /// baseline the editor page carries on every save for conflict detection.
+    var editorBaselineSha256: String? {
+        guard let data = originalTextContent.data(using: textEncoding) else { return nil }
+        return MarkdownEditorPage.sha256Hex(data)
+    }
+
+    /// The markdown panel's single authoritative disk-write path for edit
+    /// mode: the Monaco page posts `{content, expectedSha256, force}` through
+    /// `MarkdownEditorMessageHandler` and this method performs the panel's
+    /// existing `FilePreviewTextSaver` save, returning the page-facing reply
+    /// envelope (`saved` / `conflict` / error).
+    func performEditorSave(content nextContent: String, expectedSha256: String?, force: Bool) async -> [String: Any] {
+        guard !isClosed else {
+            return ["error": ["code": "unavailable"]]
+        }
         saveGeneration += 1
         let generation = saveGeneration
-        textContent = currentContent
-        content = currentContent
-        isDirty = true
+        textContent = nextContent
+        content = nextContent
+        isDirty = nextContent != originalTextContent
         isSaving = true
         activeSaveGeneration = generation
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
         let fileURL = URL(fileURLWithPath: filePath)
         let encoding = textEncoding
 
-        return Task { [weak self, currentContent, fileURL, encoding, generation] in
-            let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
-            guard let self, self.activeSaveGeneration == generation else { return }
-            self.activeSaveGeneration = nil
-            self.isSaving = false
-            switch result {
-            case .saved:
-                self.originalTextContent = currentContent
-                self.isDirty = self.textContent != currentContent
-                self.isFileUnavailable = false
-                GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
-            case .failed(let fileExists):
-                self.isFileUnavailable = !fileExists
-                GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+        // Conflict check against the bytes currently on disk (off-main), so a
+        // stale buffer never silently clobbers an external change. Mirrors the
+        // `cmux edit` save handler's semantics.
+        if !force {
+            let diskData = await Task.detached(priority: .userInitiated) {
+                try? Data(contentsOf: fileURL)
+            }.value
+            guard !isClosed else {
+                return ["error": ["code": "unavailable"]]
+            }
+            guard let diskData else {
+                finishEditorSave(generation: generation)
+                return ["ok": true, "value": ["status": "conflict", "fileMissing": true]]
+            }
+            let diskSha = MarkdownEditorPage.sha256Hex(diskData)
+            if let expectedSha256, !expectedSha256.isEmpty, diskSha != expectedSha256 {
+                finishEditorSave(generation: generation)
+                var value: [String: Any] = ["status": "conflict", "fileMissing": false, "diskSha256": diskSha]
+                if let diskContent = String(data: diskData, encoding: encoding)
+                    ?? String(data: diskData, encoding: .utf8)
+                    ?? String(data: diskData, encoding: .isoLatin1) {
+                    value["diskContent"] = diskContent
+                }
+                return ["ok": true, "value": value]
             }
         }
+
+        let result = await FilePreviewTextSaver.save(content: nextContent, to: fileURL, encoding: encoding)
+        guard !isClosed else {
+            return ["error": ["code": "unavailable"]]
+        }
+        finishEditorSave(generation: generation)
+        switch result {
+        case .saved:
+            originalTextContent = nextContent
+            isDirty = textContent != nextContent
+            isFileUnavailable = false
+            GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+            let savedData = nextContent.data(using: encoding) ?? Data(nextContent.utf8)
+            return ["ok": true, "value": ["status": "saved", "sha256": MarkdownEditorPage.sha256Hex(savedData)]]
+        case .failed(let fileExists):
+            isFileUnavailable = !fileExists
+            GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+            return ["error": ["code": "write_failed"]]
+        }
+    }
+
+    private func finishEditorSave(generation: Int) {
+        guard activeSaveGeneration == generation else { return }
+        activeSaveGeneration = nil
+        isSaving = false
     }
 
     // MARK: - File I/O
@@ -356,6 +428,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             isDirty = false
             isFileUnavailable = true
             GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+            // The retained editor buffer must not keep showing the deleted
+            // file's contents (the panel model is now empty and clean).
+            editorSession.adoptDiskContent("", sha256: editorBaselineSha256)
         }
     }
 
@@ -365,6 +440,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         replacingDirtyContent: Bool
     ) {
         if !replacingDirtyContent && isDirty {
+            // Keep the dirty buffer; the refreshed baseline makes the editor's
+            // next save detect the on-disk divergence and prompt for
+            // overwrite / use-disk-version.
             originalTextContent = newContent
             textEncoding = encoding
             isDirty = textContent != newContent
@@ -380,6 +458,13 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         isDirty = false
         isFileUnavailable = false
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+        // Disk changed under a clean buffer (file watcher) or the user
+        // reverted: adopt the disk state in the editor. The page replaces the
+        // buffer only when the text differs, re-baselines its save sha when
+        // only the bytes/encoding changed, and no-ops entirely on this
+        // panel's own save echo (preserving the undo stack and the "Saved"
+        // status).
+        editorSession.adoptDiskContent(newContent, sha256: editorBaselineSha256)
     }
 
     private static func loadMarkdownFile(at path: String) -> FilePreviewTextLoader.Result {
@@ -395,27 +480,6 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             return .loaded(content: decoded, encoding: .isoLatin1)
         }
         return .unavailable
-    }
-
-    private func applyPendingSearchNeedleIfPossible() {
-        guard let needle = pendingSearchNeedle,
-              let textView else {
-            return
-        }
-
-        let range = (textView.string as NSString).range(
-            of: needle,
-            options: [.caseInsensitive, .diacriticInsensitive]
-        )
-        guard range.location != NSNotFound else {
-            pendingSearchNeedle = nil
-            return
-        }
-
-        textView.window?.makeFirstResponder(textView)
-        textView.setSelectedRange(range)
-        textView.scrollRangeToVisible(range)
-        pendingSearchNeedle = nil
     }
 
     // MARK: - File watcher
