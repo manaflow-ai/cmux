@@ -10375,6 +10375,12 @@ final class SidebarDragState {
     /// If the pointer hasn't physically moved since the last reorder, the update
     /// was self-induced, so it's ignored. Reset on drag begin/clear.
     var lastLiveReorderMouseLocation: CGPoint?
+    /// The hovered row at the last committed live reorder, paired with
+    /// ``lastLiveReorderMouseLocation``. Autoscroll moves new rows under a
+    /// stationary pointer, so a stationary pointer alone cannot mean
+    /// "self-induced re-fire" — only a stationary pointer over the SAME
+    /// target row is. Reset on drag begin/clear.
+    var lastLiveReorderTargetTabId: UUID?
     /// True while the `debug.sidebar.simulate_drag` debug-only V2 method is
     /// driving the drag state. The lifecycle observers honor this by not
     /// starting `SidebarDragFailsafeMonitor` (which would otherwise post a
@@ -10402,6 +10408,7 @@ final class SidebarDragState {
     func beginDragging(tabId: UUID) {
         draggedTabId = tabId
         lastLiveReorderMouseLocation = nil
+        lastLiveReorderTargetTabId = nil
         clearDropIndicator()
         originatedActiveDrag = true
         SidebarWorkspaceDragRegistry.begin(workspaceId: tabId)
@@ -10424,6 +10431,7 @@ final class SidebarDragState {
         foreignDraggedIsPinned = nil
         draggedTabId = nil
         lastLiveReorderMouseLocation = nil
+        lastLiveReorderTargetTabId = nil
         clearDropIndicator()
     }
 }
@@ -18233,13 +18241,15 @@ struct SidebarTabDropDelegate: DropDelegate {
         // Loop-breaker: a live reorder shifts rows under the pointer, re-firing
         // this drop delegate with the pointer in the same place, and the planner
         // flips the index back — an infinite ping-pong while the pointer is held
-        // still (seen in sidebar.liveReorder as from=N to=N+1 then back). Only
-        // act when the pointer has physically moved since the last committed
-        // reorder, so self-induced re-fires are ignored while genuine drag
-        // movement still reorders.
+        // still (seen in sidebar.liveReorder as from=N to=N+1 then back). A
+        // self-induced re-fire arrives with the pointer unmoved AND the same
+        // hovered row, so only that combination is ignored. A stationary
+        // pointer over a DIFFERENT row is genuine: autoscroll moves new rows
+        // under a held pointer, and the dragged row must keep following them.
         let mouseLocation = NSEvent.mouseLocation
         if let last = dragState.lastLiveReorderMouseLocation,
-           hypot(mouseLocation.x - last.x, mouseLocation.y - last.y) < 5 {
+           hypot(mouseLocation.x - last.x, mouseLocation.y - last.y) < 5,
+           targetTabId == dragState.lastLiveReorderTargetTabId {
             return
         }
         let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
@@ -18276,9 +18286,11 @@ struct SidebarTabDropDelegate: DropDelegate {
             "target=\(targetTabId?.uuidString.prefix(5) ?? "end") topLevel=\(usesTopLevelRows)"
         )
 #endif
-        // Anchor the loop-breaker to where the pointer is now: the upcoming
-        // self-induced re-fires arrive with this same location and are skipped.
+        // Anchor the loop-breaker to where the pointer is now and what it
+        // hovers: the upcoming self-induced re-fires arrive with this same
+        // location + target and are skipped.
         dragState.lastLiveReorderMouseLocation = mouseLocation
+        dragState.lastLiveReorderTargetTabId = targetTabId
         _ = withAnimation(SidebarGroupAnimation.structure) {
             tabManager.reorderSidebarWorkspace(
                 tabId: draggedTabId,
