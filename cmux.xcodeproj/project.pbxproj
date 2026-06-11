@@ -205,6 +205,7 @@
 		A9F20000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift */; };
 		A9F200000000000000000007 /* CmuxRuntimeDebugCaptureSequence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000007 /* CmuxRuntimeDebugCaptureSequence.swift */; };
 		CD0CFE5300000000CD0CFE53 /* CmuxSettings in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5200000000CD0CFE52 /* CmuxSettings */; };
+		CD0CFE5700000000CD0CFE57 /* CmuxSettings in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5200000000CD0CFE52 /* CmuxSettings */; };
 		D3610C010000000000000001 /* CmuxSettingsJSONPathSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */; };
 		CD0CFE5600000000CD0CFE56 /* CmuxSettingsUI in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */; };
 		DC5DC5DC0000000000000001 /* CmuxSidebarActionDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5DC5DC0000000000000002 /* CmuxSidebarActionDispatch.swift */; };
@@ -279,6 +280,8 @@
 		A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001F000000000000000002 /* DetachedFolderDragIcon.swift */; };
 		DE71CE000000000000000004 /* DeviceRegistryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000003 /* DeviceRegistryClient.swift */; };
 		DE71CE000000000000000002 /* DeviceRegistryClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000001 /* DeviceRegistryClientTests.swift */; };
+		DE000A020000000000000001 /* DevWindowDisplayDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE000A020000000000000002 /* DevWindowDisplayDebugWindow.swift */; };
+		DE000A010000000000000001 /* DevWindowDisplayDefault.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE000A010000000000000002 /* DevWindowDisplayDefault.swift */; };
 		B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */; };
@@ -1035,6 +1038,8 @@
 		A5001F000000000000000002 /* DetachedFolderDragIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderDragIcon.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000003 /* DeviceRegistryClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceRegistryClient.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000001 /* DeviceRegistryClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRegistryClientTests.swift; sourceTree = "<group>"; };
+		DE000A020000000000000002 /* DevWindowDisplayDebugWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevWindowDisplayDebugWindow.swift; sourceTree = "<group>"; };
+		DE000A010000000000000002 /* DevWindowDisplayDefault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevWindowDisplayDefault.swift; sourceTree = "<group>"; };
 		B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockEmptyView.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPanelView.swift; sourceTree = "<group>"; };
@@ -1531,6 +1536,7 @@
 				C8000314C8000314C8000314 /* CmuxFileWatch in Frameworks */,
 				CF00F00000000000000000A4 /* CmuxFoundation in Frameworks */,
 				C8000304C8000304C8000304 /* CmuxProcess in Frameworks */,
+				CD0CFE5700000000CD0CFE57 /* CmuxSettings in Frameworks */,
 				C5A1FED200000000000000E2 /* CmuxSidebarInterpreterClient in Frameworks */,
 				B900004CA1B2C3D4E5F60719 /* CmuxSocketControl in Frameworks */,
 				C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */,
@@ -1701,6 +1707,8 @@
 				C4160A010000000000000002 /* cmuxApp+HistoryMenu.swift */,
 				C4160A020000000000000002 /* FocusHistoryMenuInvalidator.swift */,
 				C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */,
+				DE000A010000000000000002 /* DevWindowDisplayDefault.swift */,
+				DE000A020000000000000002 /* DevWindowDisplayDebugWindow.swift */,
 				DC5DC5DC0000000000000002 /* CmuxSidebarActionDispatch.swift */,
 				F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */,
 				C0DE34020000000000000003 /* CmuxHelpCommands.swift */,
@@ -2411,6 +2419,7 @@
 				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
 				C8000302C8000302C8000302 /* CmuxProcess */,
 				C8000312C8000312C8000312 /* CmuxFileWatch */,
+				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
 				CF00F00000000000000000A2 /* CmuxFoundation */,
 			);
 			productName = cmux;
@@ -2845,6 +2854,8 @@
 				A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */,
 				A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */,
 				DE71CE000000000000000004 /* DeviceRegistryClient.swift in Sources */,
+				DE000A020000000000000001 /* DevWindowDisplayDebugWindow.swift in Sources */,
+				DE000A010000000000000001 /* DevWindowDisplayDefault.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */,
 				D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */,
