@@ -740,6 +740,16 @@ public final class AuthCoordinator {
                         refreshToken: refreshToken
                     ) ?? accessToken
                 }
+                // The mint swallows cancellation into `nil` (it treats it as
+                // a transient failure), so a deadline that fired while the
+                // mint was parked leaves this task cancelled but running.
+                // Re-check before EACH leg: the deadline bounds the whole
+                // teardown, and a post-deadline hook could interleave with a
+                // later sign-in's setup.
+                guard !Task.isCancelled else {
+                    log.log("auth.signOut teardown deadline hit before the sign-out hook; server teardown skipped")
+                    return
+                }
                 await onSignedOut(teardownAccessToken, refreshToken)
                 guard !Task.isCancelled else {
                     log.log("auth.signOut teardown deadline hit before revocation; server session left unrevoked")
