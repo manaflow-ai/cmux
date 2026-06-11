@@ -238,6 +238,151 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.windows.first?.sidebar.width, 321)
     }
 
+    func testSyncManualRestoreCachePreservesBackupWhenPrimarySnapshotIsCorrupt() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleIdentifier = "dev.cmux.tests.\(UUID().uuidString)"
+        let primaryURL = try XCTUnwrap(
+            SessionPersistenceStore.defaultSnapshotFileURL(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            )
+        )
+        let backupURL = try XCTUnwrap(
+            SessionPersistenceStore.manualRestoreSnapshotFileURL(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            )
+        )
+
+        XCTAssertTrue(
+            SessionPersistenceStore.save(
+                makeSnapshot(version: SessionSnapshotSchema.currentVersion),
+                fileURL: backupURL
+            )
+        )
+        try FileManager.default.createDirectory(
+            at: primaryURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("{\"version\": 9999, \"windows\": [truncated-mid-w".utf8).write(to: primaryURL)
+
+        SessionPersistenceStore.syncManualRestoreSnapshotCache(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: tempDir
+        )
+
+        XCTAssertNotNil(
+            SessionPersistenceStore.load(fileURL: backupURL),
+            "A corrupt primary snapshot must not destroy the restore-session backup"
+        )
+    }
+
+    func testSyncManualRestoreCacheRemovesBackupWhenPrimarySnapshotIsMissing() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleIdentifier = "dev.cmux.tests.\(UUID().uuidString)"
+        let backupURL = try XCTUnwrap(
+            SessionPersistenceStore.manualRestoreSnapshotFileURL(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            )
+        )
+
+        XCTAssertTrue(
+            SessionPersistenceStore.save(
+                makeSnapshot(version: SessionSnapshotSchema.currentVersion),
+                fileURL: backupURL
+            )
+        )
+
+        SessionPersistenceStore.syncManualRestoreSnapshotCache(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: tempDir
+        )
+
+        XCTAssertNil(
+            SessionPersistenceStore.load(fileURL: backupURL),
+            "A genuinely absent primary snapshot still clears the stale backup"
+        )
+    }
+
+    func testStartupSnapshotLoadRecoversFromBackupWhenPrimarySnapshotIsCorrupt() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleIdentifier = "dev.cmux.tests.\(UUID().uuidString)"
+        let primaryURL = try XCTUnwrap(
+            SessionPersistenceStore.defaultSnapshotFileURL(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            )
+        )
+        let backupURL = try XCTUnwrap(
+            SessionPersistenceStore.manualRestoreSnapshotFileURL(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            )
+        )
+
+        var backupSnapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        backupSnapshot.windows[0].sidebar.width = 321
+        XCTAssertTrue(SessionPersistenceStore.save(backupSnapshot, fileURL: backupURL))
+        try FileManager.default.createDirectory(
+            at: primaryURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("not a session snapshot".utf8).write(to: primaryURL)
+
+        let loaded = SessionPersistenceStore.loadStartupSnapshot(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: tempDir
+        )
+
+        XCTAssertEqual(
+            loaded?.windows.first?.sidebar.width,
+            321,
+            "Startup restore must fall back to the backup snapshot when the primary is corrupt"
+        )
+    }
+
+    func testStartupSnapshotLoadReturnsNilWhenPrimarySnapshotIsMissing() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleIdentifier = "dev.cmux.tests.\(UUID().uuidString)"
+        let backupURL = try XCTUnwrap(
+            SessionPersistenceStore.manualRestoreSnapshotFileURL(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            )
+        )
+        XCTAssertTrue(
+            SessionPersistenceStore.save(
+                makeSnapshot(version: SessionSnapshotSchema.currentVersion),
+                fileURL: backupURL
+            )
+        )
+
+        XCTAssertNil(
+            SessionPersistenceStore.loadStartupSnapshot(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            ),
+            "A clean start without a primary snapshot must not resurrect the backup"
+        )
+    }
+
     func testSaveAndLoadRoundTripPreservesWorkspaceCustomColor() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)

@@ -1920,13 +1920,34 @@ enum SessionPersistenceStore {
         return load(fileURL: fileURL)
     }
 
-    static func syncManualRestoreSnapshotCache() {
-        guard let fileURL = manualRestoreSnapshotFileURL() else { return }
-        guard let snapshot = load() else {
-            removeSnapshot(fileURL: fileURL)
+    static func syncManualRestoreSnapshotCache(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil
+    ) {
+        guard let backupURL = manualRestoreSnapshotFileURL(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        ) else { return }
+        guard let primaryURL = defaultSnapshotFileURL(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        ) else { return }
+        guard let snapshot = load(fileURL: primaryURL) else {
+            removeSnapshot(fileURL: backupURL)
             return
         }
-        _ = save(snapshot, fileURL: fileURL)
+        _ = save(snapshot, fileURL: backupURL)
+    }
+
+    static func loadStartupSnapshot(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil
+    ) -> AppSessionSnapshot? {
+        guard let primaryURL = defaultSnapshotFileURL(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        ) else { return nil }
+        return load(fileURL: primaryURL)
     }
 
     static func defaultSnapshotFileURL(
