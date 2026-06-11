@@ -89,6 +89,7 @@ final class AgentHibernationController {
     // which can let a no-emit agent's stale .idle lifecycle trigger false hibernation.
     private var durableTerminalInputByPanelId: [UUID: TimeInterval] = [:]
     private var durableInputWritePending = false
+    private var durableWriteTimer: DispatchSourceTimer?
 
     private static let durableInputStoreURL: URL = {
         URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
@@ -129,12 +130,19 @@ final class AgentHibernationController {
     private func scheduleDurableInputWrite() {
         guard !durableInputWritePending else { return }
         durableInputWritePending = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-            self?.flushDurableInputStore()
-        }
+        // One-shot DispatchSourceTimer debounce: coalesce rapid per-keystroke calls
+        // into a single disk write ~1 s after the last input. Carve-out: bounded
+        // intentional delay outside any async context; cancellable via durableWriteTimer.
+        let writeTimer = DispatchSource.makeTimerSource(queue: .main)
+        writeTimer.schedule(deadline: .now() + 1, repeating: .never)
+        writeTimer.setEventHandler { [weak self] in self?.flushDurableInputStore() }
+        writeTimer.resume()
+        durableWriteTimer = writeTimer
     }
 
     private func flushDurableInputStore() {
+        durableWriteTimer?.cancel()
+        durableWriteTimer = nil
         durableInputWritePending = false
         let snapshot = Dictionary(
             uniqueKeysWithValues: durableTerminalInputByPanelId.map { ($0.key.uuidString, $0.value) }
@@ -148,6 +156,8 @@ final class AgentHibernationController {
     func stop() {
         timer?.cancel()
         timer = nil
+        durableWriteTimer?.cancel()
+        durableWriteTimer = nil
         AgentHibernationTrackingGate.setEnabled(false)
         clearTrackingState()
         if let settingsObserver {
