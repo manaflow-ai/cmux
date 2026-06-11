@@ -122,10 +122,64 @@ struct MacPresenceDecisionCache {
     }
 }
 
+/// There is no public synchronous "is the screen locked" query on macOS. Two
+/// de-facto sources exist: the `CGSSessionScreenIsLocked` key in
+/// `CGSessionCopyCurrentDictionary()` and the `com.apple.screenIsLocked` /
+/// `com.apple.screenIsUnlocked` distributed notifications. Either can be
+/// absent in a given macOS version or session context, so the live provider
+/// ORs both (`MacPresenceMonitor.consoleSessionActiveAndUnlocked`). If both
+/// miss a lock, the failure mode is bounded: the 120 s hardware-idle rule
+/// flips the Mac to away on its own shortly after the user leaves.
+final class ScreenLockObserver: NSObject {
+    static let shared = ScreenLockObserver()
+
+    private let stateLock = NSLock()
+    private var observedLocked = false
+
+    var isLockedObserved: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return observedLocked
+    }
+
+    private override init() {
+        super.init()
+        let center = DistributedNotificationCenter.default()
+        center.addObserver(
+            self,
+            selector: #selector(screenDidLock),
+            name: Notification.Name("com.apple.screenIsLocked"),
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(screenDidUnlock),
+            name: Notification.Name("com.apple.screenIsUnlocked"),
+            object: nil
+        )
+    }
+
+    @objc private func screenDidLock() {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        observedLocked = true
+    }
+
+    @objc private func screenDidUnlock() {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        observedLocked = false
+    }
+}
+
 extension MacPresenceMonitor {
     /// Production monitor backed by the real WindowServer/HID signals.
     static func live(now: @escaping () -> Date = Date.init) -> MacPresenceMonitor {
-        MacPresenceMonitor(now: now, signals: liveSignals)
+        // Start observing lock transitions as early as possible so the
+        // notification-based source has seen any lock that predates the
+        // first presence evaluation.
+        _ = ScreenLockObserver.shared
+        return MacPresenceMonitor(now: now, signals: liveSignals)
     }
 
     private static func liveSignals() -> Signals {
@@ -137,19 +191,31 @@ extension MacPresenceMonitor {
         )
     }
 
+    private static func liveConsoleSessionActiveAndUnlocked() -> Bool {
+        consoleSessionActiveAndUnlocked(
+            sessionDictionary: CGSessionCopyCurrentDictionary() as? [String: Any],
+            observedScreenLocked: ScreenLockObserver.shared.isLockedObserved
+        )
+    }
+
+    /// Pure decision over the two lock-state sources (see ``ScreenLockObserver``
+    /// for why both are consulted). Exposed for behavior tests.
+    ///
     /// `CGSessionCopyCurrentDictionary()` returns `nil` when the calling
     /// process has no WindowServer session at all; treat that as away.
     /// `kCGSessionOnConsoleKey` is false while the login window owns the
-    /// console or another user fast-switched in. Screen-lock state has no
-    /// public constant; the de-facto `CGSSessionScreenIsLocked` key appears in
-    /// this dictionary (as true) while the lock screen is up.
-    private static func liveConsoleSessionActiveAndUnlocked() -> Bool {
-        guard let dict = CGSessionCopyCurrentDictionary() as? [String: Any] else {
-            return false
-        }
-        let onConsole = (dict[kCGSessionOnConsoleKey as String] as? Bool) ?? false
-        let locked = (dict["CGSSessionScreenIsLocked"] as? Bool) ?? false
-        return onConsole && !locked
+    /// console or another user fast-switched in. The de-facto
+    /// `CGSSessionScreenIsLocked` key appears in the dictionary (as true)
+    /// while the lock screen is up; when it is absent, the observed
+    /// distributed-notification state still reports the lock.
+    static func consoleSessionActiveAndUnlocked(
+        sessionDictionary: [String: Any]?,
+        observedScreenLocked: Bool
+    ) -> Bool {
+        guard let sessionDictionary else { return false }
+        let onConsole = (sessionDictionary[kCGSessionOnConsoleKey as String] as? Bool) ?? false
+        let dictionaryLocked = (sessionDictionary["CGSSessionScreenIsLocked"] as? Bool) ?? false
+        return onConsole && !dictionaryLocked && !observedScreenLocked
     }
 
     private static func liveScreensaverRunning() -> Bool {

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 
@@ -114,6 +115,61 @@ import Testing
 
     @Test func decisionCarriesInjectedClockTimestamp() {
         #expect(monitor().evaluate().evaluatedAt == Self.now)
+    }
+
+    // MARK: - Lock-state sources
+
+    @Test func missingSessionDictionaryCountsAsLockedOrAway() {
+        // No WindowServer session (e.g. SSH-only context): away.
+        #expect(
+            !MacPresenceMonitor.consoleSessionActiveAndUnlocked(
+                sessionDictionary: nil,
+                observedScreenLocked: false
+            )
+        )
+    }
+
+    @Test func dictionaryLockKeyCountsAsLocked() {
+        #expect(
+            !MacPresenceMonitor.consoleSessionActiveAndUnlocked(
+                sessionDictionary: [
+                    kCGSessionOnConsoleKey as String: true,
+                    "CGSSessionScreenIsLocked": true,
+                ],
+                observedScreenLocked: false
+            )
+        )
+    }
+
+    @Test func observedLockNotificationCountsAsLockedWhenDictionaryKeyAbsent() {
+        // `CGSSessionScreenIsLocked` is a de-facto key. If a macOS version or
+        // session context omits it, the distributed-notification source must
+        // still flip the gate to away while the screen is locked.
+        #expect(
+            !MacPresenceMonitor.consoleSessionActiveAndUnlocked(
+                sessionDictionary: [kCGSessionOnConsoleKey as String: true],
+                observedScreenLocked: true
+            )
+        )
+    }
+
+    @Test func unlockedConsoleSessionCountsAsUnlocked() {
+        #expect(
+            MacPresenceMonitor.consoleSessionActiveAndUnlocked(
+                sessionDictionary: [kCGSessionOnConsoleKey as String: true],
+                observedScreenLocked: false
+            )
+        )
+    }
+
+    @Test func offConsoleSessionCountsAsAway() {
+        // Fast user switch or login window owning the console.
+        #expect(
+            !MacPresenceMonitor.consoleSessionActiveAndUnlocked(
+                sessionDictionary: [kCGSessionOnConsoleKey as String: false],
+                observedScreenLocked: false
+            )
+        )
     }
 
     // MARK: - Burst coalescing
