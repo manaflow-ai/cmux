@@ -3453,6 +3453,48 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return holder.sections.joined(separator: "\n\n")
     }
 
+    /// Full-content capture for the "View as Text" copy sheet: the SCREEN
+    /// range (scrollback history plus every written row) of the on-screen
+    /// terminal surface, read entirely on the phone's own libghostty surface —
+    /// no Mac round-trip, works offline.
+    ///
+    /// Same threading contract as ``visibleTerminalSnapshot()``: the read runs
+    /// on the serial `outputQueue` because `ghostty_surface_read_text` takes
+    /// the surface lock that `process_output` holds during a render storm, so
+    /// a main-thread read would stall the present and blank the terminal.
+    /// Unlike that synchronous DEV path there is no bounded semaphore wait
+    /// here — the caller awaits, so a busy queue just resumes the continuation
+    /// late while the sheet shows its loading state.
+    ///
+    /// The continuation body enqueues on `outputQueue` synchronously while
+    /// still on the main actor, so the read is FIFO-ordered before any
+    /// later-enqueued `disposeSurface` free of the same pointer — the same
+    /// lifetime argument `visibleTerminalSnapshot()` relies on.
+    ///
+    /// - Returns: The surface's screen text, or nil when no terminal surface
+    ///   is on screen or the read fails.
+    public static func copyableTerminalText() async -> String? {
+        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
+        // Deterministic pick: the lowest-keyed on-screen surface. The iOS
+        // detail layout shows one terminal at a time, so this is "the visible
+        // terminal" in practice.
+        let visibleView = registeredSurfaceViews
+            .sorted { $0.key < $1.key }
+            .compactMap(\.value.value)
+            .first { $0.window != nil && !$0.isHidden && $0.alpha > 0.01 && $0.surface != nil }
+        guard let surface = visibleView?.surface else { return nil }
+        let handle = CopyableTextSurfaceHandle(surface: surface)
+        return await withCheckedContinuation { continuation in
+            outputQueue.async {
+                // SCREEN = scrollback + all written rows. Fall back to the
+                // viewport-only read if the screen read fails outright.
+                let text = surfaceText(handle.surface, pointTag: GHOSTTY_POINT_SCREEN)
+                    ?? surfaceText(handle.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
+                continuation.resume(returning: text)
+            }
+        }
+    }
+
     private func handleBell() {
         UINotificationFeedbackGenerator().notificationOccurred(.warning)
         NotificationCenter.default.post(
@@ -3484,6 +3526,15 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
         }
         return true
     }
+}
+
+/// Carrier for the "View as Text" sheet's surface pointer across the hop to
+/// `GhosttySurfaceView.outputQueue`. Same safety argument as
+/// ``VisibleSnapshotRequest``: the pointer is only dereferenced on the queue
+/// that owns `process_output` and is FIFO-ordered before any queued free —
+/// hence `@unchecked Sendable`.
+private struct CopyableTextSurfaceHandle: @unchecked Sendable {
+    let surface: ghostty_surface_t
 }
 
 /// One surface's request for the bounded visible-terminal snapshot.

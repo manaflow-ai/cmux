@@ -32,6 +32,7 @@ struct WorkspaceDetailView: View {
     @State private var feedbackEmail = ""
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
+    @State private var isTextSheetPresented = false
     #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
@@ -189,6 +190,9 @@ struct WorkspaceDetailView: View {
         .sheet(isPresented: $isFeedbackComposerPresented) {
             feedbackComposer
         }
+        .sheet(isPresented: $isTextSheetPresented) {
+            TerminalTextSheetView()
+        }
         #endif
     }
 
@@ -272,6 +276,14 @@ struct WorkspaceDetailView: View {
 
         #if canImport(UIKit)
         Section {
+            Button(action: openTextSheetFromMenu) {
+                Label(
+                    L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),
+                    systemImage: "doc.plaintext"
+                )
+            }
+            .accessibilityIdentifier("MobileViewAsTextMenuItem")
+
             #if DEBUG
             Button(action: copyDebugLogsFromMenu) {
                 // DEV-only debug tooling; not shipped, so not localized.
@@ -304,6 +316,12 @@ struct WorkspaceDetailView: View {
         }
     }
     #endif
+
+    /// Opens the "View as Text" sheet: the terminal's content as selectable
+    /// plain text, because the render surface itself has no copy affordance.
+    private func openTextSheetFromMenu() {
+        isTextSheetPresented = true
+    }
 
     private func openFeedbackComposerFromMenu() {
         feedbackText = ""
