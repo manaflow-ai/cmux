@@ -105,7 +105,7 @@
 844	Sources/Panels/MarkdownWebRenderer.swift
 830	Sources/TaskManagerTypes.swift
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
-790	Sources/NotesTreeStore.swift
+798	Sources/NotesTreeStore.swift
 787	Sources/ClosedItemHistory.swift
 768	Sources/MainWindowFocusController.swift
 760	Packages/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
@@ -118,6 +118,7 @@
 716	Sources/TaskManagerSnapshot.swift
 714	Sources/AppleScriptSupport.swift
 713	Sources/RightSidebarPanelView.swift
+713	cmuxTests/NotesTreeStorageTests.swift
 708	Sources/TerminalSSHSessionDetector.swift
 705	CLI/CMUXCLI+Config.swift
 705	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
@@ -127,7 +128,6 @@
 696	cmuxTests/UpdatePillReleaseVisibilityTests.swift
 693	Sources/Panels/BrowserPopupWindowController.swift
 691	cmuxTests/TaskManagerResourcesTests.swift
-687	cmuxTests/NotesTreeStorageTests.swift
 683	Sources/Panels/CodexAppServerSession.swift
 681	Sources/Panels/AgentSessionProcessStore.swift
 680	Sources/FileExplorerSearchController.swift

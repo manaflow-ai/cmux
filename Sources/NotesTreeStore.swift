@@ -610,7 +610,15 @@ final class NotesTreeStore: ObservableObject {
     /// store.
     func delete(path: String) {
         guard isMutablePath(path) else { return }
-        try? FileManager.default.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil)
+        do {
+            try FileManager.default.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil)
+        } catch {
+            // Trash can fail (permissions, volumes without Trash, transient
+            // FS errors); the file is still on disk, so the index must keep
+            // its records — dropping them would orphan an existing note.
+            reload()
+            return
+        }
         // Indexed notes whose body just went to the Trash (directly, or via a
         // trashed ancestor folder) must leave the index with it.
         if let projectRoot {

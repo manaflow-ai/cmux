@@ -457,6 +457,32 @@ import Testing
         #expect(try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "tracked" } == nil)
     }
 
+    /// A failed trash must not desynchronize the index: the body is still on
+    /// disk, so the record has to survive for `cmux note list/read/open`.
+    @Test @MainActor func failedTrashKeepsIndexRecords() throws {
+        let store = NotesTreeStore()
+        store.setWorkspace(
+            title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-trash"
+        )
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-trash"
+        )
+        _ = try CmuxNoteStore.createOrOpen(
+            slug: "sticky", projectRoot: projectRoot, createIfMissing: true
+        )
+        let folder = try NotesTreeStorage.newFolder(inFolder: root, preferredName: "keep")
+        let body = try CmuxNoteStore.relocateBody(
+            slug: "sticky", projectRoot: projectRoot, toDirectory: folder
+        )
+        // Immutable parent makes trashItem fail deterministically.
+        try fm.setAttributes([.immutable: true], ofItemAtPath: folder)
+        defer { try? fm.setAttributes([.immutable: false], ofItemAtPath: folder) }
+        store.delete(path: body)
+        try fm.setAttributes([.immutable: false], ofItemAtPath: folder)
+        #expect(fm.fileExists(atPath: body))
+        #expect(try CmuxNoteStore.list(projectRoot: projectRoot).contains { $0.slug == "sticky" })
+    }
+
     /// Note classification (which enables implicit autosave) must reject
     /// symlinked note files and untrusted roots — a committed
     /// `.cmux/notes/x.md -> elsewhere` must stay a plain markdown file.
