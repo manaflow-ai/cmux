@@ -187,6 +187,32 @@ enum CmuxNoteStore {
         }
     }
 
+    /// Set a note's display title without touching its body file. The record
+    /// title is what the Notes tree and `cmux note list` show for index-owned
+    /// notes (their body filenames are store-managed), so this is their
+    /// "rename". The title is whitespace-trimmed; an empty result keeps the
+    /// current title (parity with the tree rejecting empty file names).
+    @discardableResult
+    static func retitle(
+        slug rawSlug: String,
+        projectRoot: String,
+        title rawTitle: String
+    ) throws -> CmuxNoteRecord {
+        try withStoreLock {
+            let slug = try NoteSupport.validateSlug(rawSlug)
+            var index = try loadIndex(projectRoot: projectRoot)
+            guard let noteIndex = index.notes.firstIndex(where: { $0.slug == slug }) else {
+                throw CmuxNoteStoreError.noteNotFound(slug: slug)
+            }
+            let title = normalizedTitle(rawTitle, fallback: index.notes[noteIndex].title)
+            guard title != index.notes[noteIndex].title else { return index.notes[noteIndex] }
+            index.notes[noteIndex].title = title
+            index.notes[noteIndex].updatedAt = Date().timeIntervalSince1970
+            try writeIndex(index, projectRoot: projectRoot)
+            return index.notes[noteIndex]
+        }
+    }
+
     @discardableResult
     /// Move a note's body file into `directory` (confined to `.cmux/notes`)
     /// and update the index's `bodyPath` in the same locked transaction, so

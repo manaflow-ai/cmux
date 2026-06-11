@@ -650,6 +650,38 @@ final class NotesTreeStore: ObservableObject {
         return moved
     }
 
+    /// Rename an index-owned flat note by retitling its index record — the
+    /// record title is what the tree displays for these notes, and their body
+    /// path is pinned by `index.json`, so no file moves. Returns the
+    /// (unchanged) body path on success, nil when the path has no index
+    /// record. A whitespace-only title keeps the current one.
+    @discardableResult
+    func renameFlatNote(path: String, toTitle newTitle: String) -> String? {
+        guard let projectRoot,
+              let records = try? CmuxNoteStore.list(projectRoot: projectRoot) else { return nil }
+        let target = (path as NSString).standardizingPath
+        guard let record = records.first(where: {
+            (CmuxNoteStore.noteBodyPath(for: $0, projectRoot: projectRoot) as NSString)
+                .standardizingPath == target
+        }) else { return nil }
+        guard let retitled = try? CmuxNoteStore.retitle(
+            slug: record.slug, projectRoot: projectRoot, title: newTitle
+        ) else {
+            reload()
+            return nil
+        }
+        // Open panels on this note show the record title in their tab; let
+        // them adopt the new one (the body path is unchanged, so the
+        // relocation notification doesn't cover renames of flat notes).
+        NotificationCenter.default.post(
+            name: .cmuxNoteRetitled,
+            object: nil,
+            userInfo: ["bodyPath": target, "title": retitled.title]
+        )
+        reload()
+        return target
+    }
+
     /// Delete an index-owned flat note through the flat store so the body and
     /// its index record/attachments go together — trashing only the body file
     /// would leave `cmux note list` showing a note whose `read` fails.

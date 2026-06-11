@@ -281,21 +281,27 @@ struct NotesTreePanelView: NSViewRepresentable {
 
         /// Whether the tree owns this node's file (it lives in the workspace
         /// subtree). Flat notes are owned by the `.cmux/notes` index — renaming
-        /// or moving their body file would orphan the index's `bodyPath` — so
-        /// the tree offers them open/reveal/delete only.
+        /// or moving their body file directly would orphan the index's
+        /// `bodyPath` — so the tree mutates them through the flat store
+        /// instead (move relocates the body, rename retitles the record).
         func isTreeOwned(_ node: NotesTreeNode) -> Bool {
             guard !node.isVirtual, let root = store.resolvedRootPath else { return false }
             return NotesTreeStorage.isWithin(child: node.path, orEqualTo: root)
         }
 
+        /// Session folders are not renamable (their label comes from the
+        /// session marker, which cmux keeps synced to the live session).
+        /// Tree-owned files rename on disk; index-owned flat notes rename by
+        /// retitling their index record (the tree displays the record title).
         func canRename(_ node: NotesTreeNode) -> Bool {
-            node.kind.sessionMarker == nil && isTreeOwned(node)
+            guard node.kind.sessionMarker == nil, !node.isVirtual else { return false }
+            if case .note = node.kind { return true }
+            return isTreeOwned(node)
         }
 
         /// Start a VSCode-style inline rename on the node's row. Session folders
-        /// are not renamable (their label comes from the session marker), and
-        /// neither are index-owned flat notes. With `openOnReturn`, a
-        /// Return-committed rename of a note opens it.
+        /// are not renamable (their label comes from the session marker). With
+        /// `openOnReturn`, a Return-committed rename of a note opens it.
         func beginRename(
             _ node: NotesTreeNode,
             in outlineView: NSOutlineView,
@@ -313,7 +319,9 @@ struct NotesTreePanelView: NSViewRepresentable {
                 initialText: node.displayName,
                 onCommit: { [weak self] newName, viaReturn in
                     guard let self else { return }
-                    let renamed = self.store.rename(path: node.path, toName: newName)
+                    let renamed = self.isTreeOwned(node)
+                        ? self.store.rename(path: node.path, toName: newName)
+                        : self.store.renameFlatNote(path: node.path, toTitle: newName)
                     self.reloadNow()
                     let currentPath = renamed ?? node.path
                     self.selectRow(forPath: currentPath)

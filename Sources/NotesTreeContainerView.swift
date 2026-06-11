@@ -412,8 +412,8 @@ final class NotesTreeOutlineView: NSOutlineView {
         switch node.kind {
         case .note:
             add(String(localized: "notes.action.open", defaultValue: "Open"), #selector(openContext))
-            // Index-owned flat notes can't be renamed from the tree (their
-            // body path is pinned by .cmux/notes/index.json).
+            // canRename is the single gate: tree-owned notes rename their
+            // file, index-owned flat notes retitle their index record.
             if coordinator?.canRename(node) == true {
                 add(String(localized: "notes.action.rename", defaultValue: "Rename"), #selector(renameContext))
             }

@@ -483,6 +483,50 @@ import Testing
         #expect(try CmuxNoteStore.list(projectRoot: projectRoot).contains { $0.slug == "sticky" })
     }
 
+    /// Index-owned flat notes rename by retitling their record: the body file
+    /// must stay put (its path is pinned by `index.json`) while the tree and
+    /// `cmux note list` pick up the new title — regression for the tree
+    /// offering no rename at all for notes created from panes.
+    @Test @MainActor func renameFlatNoteRetitlesRecordWithoutMovingBody() throws {
+        let store = NotesTreeStore()
+        store.setWorkspace(
+            title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-retitle"
+        )
+        _ = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-retitle"
+        )
+        let created = try CmuxNoteStore.createOrOpen(
+            slug: "pane-note", title: "Untitled", projectRoot: projectRoot, createIfMissing: true
+        )
+        let body = created.path
+
+        let renamed = store.renameFlatNote(path: body, toTitle: "  API design  ")
+        #expect(renamed == (body as NSString).standardizingPath)
+        let record = try #require(
+            try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "pane-note" }
+        )
+        #expect(record.title == "API design")  // whitespace-trimmed
+        #expect(CmuxNoteStore.noteBodyPath(for: record, projectRoot: projectRoot) == body)
+        #expect(fm.fileExists(atPath: body))
+
+        // A whitespace-only title keeps the current one (parity with the FS
+        // rename sanitizer rejecting empty file names).
+        _ = store.renameFlatNote(path: body, toTitle: "   ")
+        let unchanged = try #require(
+            try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "pane-note" }
+        )
+        #expect(unchanged.title == "API design")
+
+        // Paths with no index record are not flat notes — nil, no writes.
+        #expect(store.renameFlatNote(path: "/nonexistent/file.md", toTitle: "X") == nil)
+    }
+
+    @Test func retitleUnknownSlugThrowsNotFound() throws {
+        #expect(throws: CmuxNoteStoreError.self) {
+            _ = try CmuxNoteStore.retitle(slug: "ghost", projectRoot: projectRoot, title: "T")
+        }
+    }
+
     /// Note classification (which enables implicit autosave) must reject
     /// symlinked note files and untrusted roots — a committed
     /// `.cmux/notes/x.md -> elsewhere` must stay a plain markdown file.

@@ -104,6 +104,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     // NotificationCenter tokens; removal is thread-safe so deinit can drop them.
     private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
     private nonisolated(unsafe) var relocationObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var retitleObserver: NSObjectProtocol?
     // The typography default this viewer is currently tracking. While the panel
     // still matches it, a default change (Set as Default / cmux.json reload) is
     // adopted; once the user customizes the panel it diverges and is left alone.
@@ -145,6 +146,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         startWatching()
         observeTypographyDefaults()
         observeNoteRelocations()
+        observeNoteRetitles()
     }
 
     /// Follow Notes-tree moves/renames so a panel open on the relocated file
@@ -191,6 +193,30 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         // and re-arm the watcher there; future saves also land at the new path.
         loadFileContent(replacingDirtyContent: false)
         startWatching()
+    }
+
+    /// Follow Notes-tree renames of index-owned notes (a record retitle; the
+    /// body file does not move) so a panel open on the note shows the new
+    /// title in its tab instead of the stale open-time one.
+    private func observeNoteRetitles() {
+        retitleObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxNoteRetitled,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let bodyPath = notification.userInfo?["bodyPath"] as? String,
+                  let title = notification.userInfo?["title"] as? String else { return }
+            Task { @MainActor in
+                self?.followRetitle(bodyPath: bodyPath, title: title)
+            }
+        }
+    }
+
+    private func followRetitle(bodyPath: String, title: String) {
+        guard !isClosed, noteSlug != nil,
+              (filePath as NSString).standardizingPath == bodyPath else { return }
+        noteTitle = title
+        displayTitle = title
     }
 
     /// True for paths inside a TRUSTED `.cmux/notes` tree (the per-workspace
@@ -648,6 +674,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         if let relocationObserver {
             NotificationCenter.default.removeObserver(relocationObserver)
         }
+        if let retitleObserver {
+            NotificationCenter.default.removeObserver(retitleObserver)
+        }
     }
 }
 
@@ -656,4 +685,8 @@ extension Notification.Name {
     /// or folder on disk. `userInfo`: `oldPath` / `newPath` as standardized
     /// absolute paths; a folder relocation implies every path beneath it.
     static let cmuxNoteFileRelocated = Notification.Name("cmuxNoteFileRelocated")
+    /// Posted by ``NotesTreeStore`` after an index-owned flat note is renamed
+    /// (its record retitled; the body file stays put). `userInfo`: `bodyPath`
+    /// (standardized absolute body path) and `title` (the new display title).
+    static let cmuxNoteRetitled = Notification.Name("cmuxNoteRetitled")
 }
