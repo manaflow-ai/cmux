@@ -20,6 +20,11 @@ extension CmuxWebView {
     private static let contextMenuLinkCaptureMessageHandlerName = "cmuxContextMenuLinkCapture"
     private static var contextMenuLinkCaptureInstalledKey: UInt8 = 0
 
+    /// Test seam: synthetic (`isTrusted == false`) contextmenu events are
+    /// ignored so page JavaScript cannot plant a decoy link, but unit tests
+    /// have no way to produce a trusted DOM event, so they opt back in.
+    static var contextMenuLinkCaptureAcceptsUntrustedEventsForTesting = false
+
     /// Isolated content world for the context-menu link capture hook. Both the
     /// injected script and the message handler live here, not the page world,
     /// so page JavaScript cannot post fake link reports and CAPTCHA providers
