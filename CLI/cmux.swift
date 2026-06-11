@@ -21552,25 +21552,33 @@ struct CMUXCLI {
             let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
             // Hibernation lifecycle only (the user-facing notification and sidebar
-            // status below are unchanged). A permission/approval prompt means Claude
-            // is blocked mid-tool and must stay live; a plain "waiting for your input"
-            // notification means the turn finished and Claude is idle/ready, which is
-            // safe to hibernate and resume. Without this, every turn's "waiting"
-            // notification downgraded the Stop hook's idle to needsInput, so Claude
-            // never became hibernation-eligible. Keyword matching mirrors the generic
-            // notification classifier (`classifyAgentHookNotification`).
-            let classifiedLifecycle: AgentHibernationLifecycleState =
-                AgentHibernationLifecycleState.notificationIndicatesBlocked(
-                    subtitle: summary.subtitle,
+            // status below are unchanged). Classification mirrors the generic path
+            // (classifyAgentHookNotification):
+            // - Permission/approval → .needsInput (blocked mid-tool, must stay live)
+            // - "Error" subtitle → .needsInput (mirrors generic .error → .needsInput)
+            // - "Attention" with a specific message → nil (informational; don't change
+            //   lifecycle so an in-flight turn isn't prematurely marked idle)
+            // - Everything else ("Completed", "Waiting", generic attention fallback) →
+            //   .idle (turn finished, safe to hibernate)
+            let classifiedLifecycle: AgentHibernationLifecycleState?
+            let notifSubtitle = summary.subtitle
+            if notifSubtitle == "Attention" && summary.body != "Claude needs your attention" {
+                classifiedLifecycle = nil
+            } else if notifSubtitle == "Error"
+                || AgentHibernationLifecycleState.notificationIndicatesBlocked(
+                    subtitle: notifSubtitle,
                     body: summary.body
-                ) ? .needsInput : .idle
+                ) {
+                classifiedLifecycle = .needsInput
+            } else {
+                classifiedLifecycle = .idle
+            }
             // A plain notification must not downgrade .needsInput set by a preceding
             // AskUserQuestion PreToolUse: the agent is still blocked waiting for the
             // user's answer, so hibernate eligibility must not change.
-            let hibernationLifecycle: AgentHibernationLifecycleState =
-                classifiedLifecycle == .idle && mappedSession?.agentLifecycle == .needsInput
-                    ? .needsInput
-                    : classifiedLifecycle
+            let hibernationLifecycle: AgentHibernationLifecycleState? = classifiedLifecycle.map {
+                $0 == .idle && mappedSession?.agentLifecycle == .needsInput ? .needsInput : $0
+            }
 
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
@@ -21585,13 +21593,15 @@ struct CMUXCLI {
                 )
             }
 
-            setAgentLifecycle(
-                client: client,
-                key: Self.claudeCodeStatusKey,
-                lifecycle: hibernationLifecycle,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
+            if let hibernationLifecycle {
+                setAgentLifecycle(
+                    client: client,
+                    key: Self.claudeCodeStatusKey,
+                    lifecycle: hibernationLifecycle,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+            }
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
