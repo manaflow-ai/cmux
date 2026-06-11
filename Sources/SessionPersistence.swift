@@ -1868,13 +1868,29 @@ struct AppSessionSnapshot: Codable, Sendable {
 }
 
 enum SessionPersistenceStore {
+    enum SnapshotLoadOutcome {
+        case loaded(AppSessionSnapshot)
+        /// No snapshot file on disk: a genuinely clean state.
+        case missing
+        /// A snapshot file exists but cannot be restored (unreadable data,
+        /// decode failure, schema version drift, or an anomalous empty
+        /// window list; empty states remove the file instead of writing it).
+        case unusable
+    }
+
+    static func loadOutcome(fileURL: URL) -> SnapshotLoadOutcome {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return .missing }
+        guard let data = try? Data(contentsOf: fileURL) else { return .unusable }
+        let decoder = JSONDecoder()
+        guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else { return .unusable }
+        guard snapshot.version == SessionSnapshotSchema.currentVersion else { return .unusable }
+        guard !snapshot.windows.isEmpty else { return .unusable }
+        return .loaded(snapshot)
+    }
+
     static func load(fileURL: URL? = nil) -> AppSessionSnapshot? {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        let decoder = JSONDecoder()
-        guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else { return nil }
-        guard snapshot.version == SessionSnapshotSchema.currentVersion else { return nil }
-        guard !snapshot.windows.isEmpty else { return nil }
+        guard case .loaded(let snapshot) = loadOutcome(fileURL: fileURL) else { return nil }
         return snapshot
     }
 
@@ -1932,11 +1948,17 @@ enum SessionPersistenceStore {
             bundleIdentifier: bundleIdentifier,
             appSupportDirectory: appSupportDirectory
         ) else { return }
-        guard let snapshot = load(fileURL: primaryURL) else {
+        switch loadOutcome(fileURL: primaryURL) {
+        case .loaded(let snapshot):
+            _ = save(snapshot, fileURL: backupURL)
+        case .missing:
             removeSnapshot(fileURL: backupURL)
-            return
+        case .unusable:
+            // The primary snapshot exists but cannot be restored. Keep the
+            // backup: it is the only remaining recovery path for the user's
+            // sessions (startup fallback and `cmux restore-session`).
+            break
         }
-        _ = save(snapshot, fileURL: backupURL)
     }
 
     static func loadStartupSnapshot(
@@ -1947,7 +1969,17 @@ enum SessionPersistenceStore {
             bundleIdentifier: bundleIdentifier,
             appSupportDirectory: appSupportDirectory
         ) else { return nil }
-        return load(fileURL: primaryURL)
+        switch loadOutcome(fileURL: primaryURL) {
+        case .loaded(let snapshot):
+            return snapshot
+        case .missing:
+            return nil
+        case .unusable:
+            return loadReopenSessionSnapshot(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: appSupportDirectory
+            )
+        }
     }
 
     static func defaultSnapshotFileURL(

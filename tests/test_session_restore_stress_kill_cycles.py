@@ -205,7 +205,11 @@ def _hook_session_entry(
     cwd: str,
     launcher: str,
     executable_path: Path,
+    environment: dict[str, str],
 ) -> dict:
+    # The captured environment matters for claude: resume routes through the
+    # wrapper shim / bare `claude` on PATH instead of the captured executable,
+    # so the fake binary must win the PATH lookup in the restored shell.
     return {
         "sessionId": session_id,
         "workspaceId": workspace_id,
@@ -216,6 +220,7 @@ def _hook_session_entry(
             "executablePath": str(executable_path),
             "arguments": [str(executable_path)],
             "workingDirectory": cwd,
+            "environment": environment,
             "capturedAt": time.time(),
             "source": "test",
         },
@@ -325,6 +330,7 @@ def main() -> int:
                             cwd=os.getcwd(),
                             launcher=launcher,
                             executable_path=fake_bin_dir / launcher,
+                            environment={"PATH": launch_path, "SHELL": "/bin/zsh"},
                         )
                     )
                 for launcher, entries in entries_by_launcher.items():
