@@ -35,7 +35,11 @@ public final class ControlCommandCoordinator {
     public weak var context: (any ControlCommandContext)?
 
     /// The shared `kind:N` handle registry. Single source of truth for ref
-    /// minting across the RPC layer.
+    /// minting across the RPC layer. Not observation-tracked: it is RPC
+    /// book-keeping (a struct mutated by `ref()` on nearly every response),
+    /// not UI state, and tracking it would invalidate any observer on every
+    /// socket command.
+    @ObservationIgnored
     public var handles: ControlHandleRegistry
 
     /// Creates a coordinator.
