@@ -501,12 +501,16 @@ extension AppDelegate {
                         durableTerminalInputByPanelId[panelId] ?? 0
                     )
                     let lifecycleChangeAt = lifecycleChangeByPanel[key] ?? 0
-                    // Use indexActivity (persisted hook-store update time) as the durable
-                    // lifecycle-change baseline. Without this, lifecycleChangeAt resets to 0
-                    // on restart, making every terminal input appear "after" the last lifecycle
-                    // change and permanently blocking hibernation for agents that completed their
-                    // last turn before the restart.
-                    let durableLifecycleChangeAt = max(indexActivity, lifecycleChangeAt)
+                    // Use the hook store's lifecycleUpdatedAt (advances only on definitive
+                    // .idle/.running/.needsInput events, never on .unknown SessionStart) as
+                    // the durable lifecycle-change baseline. Using updatedAt here would cause
+                    // a SessionStart upsert to advance the baseline past terminal-input
+                    // recorded after the last idle notification, incorrectly clearing the
+                    // mid-turn input guard after a restart.
+                    let durableLifecycleChangeAt = max(
+                        index.lifecycleUpdatedAt(workspaceId: workspace.id, panelId: panelId) ?? 0,
+                        lifecycleChangeAt
+                    )
                     let createdAt = terminalPanel.surface.debugRuntimeSurfaceCreatedAt()?.timeIntervalSince1970
                         ?? terminalPanel.surface.debugCreatedAt().timeIntervalSince1970
                     let lifecycle = workspace.agentHibernationLifecycleState(

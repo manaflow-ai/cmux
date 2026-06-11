@@ -74,10 +74,14 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
     /// app restart — the persisted idle was from a previous completed turn, but the
     /// agent may have started a new turn before the restart. Callers MUST guard the
     /// returned `.idle` value with a durable `hasUnconfirmedTerminalInput` check
-    /// that merges the persisted terminal-input timestamp against the persisted hook
-    /// store update time (`max(durableTerminalInputAt, inMemoryInputAt) >
-    /// max(indexActivity, inMemoryLifecycleChangeAt)`), so that input typed before
-    /// the restart is not silently dropped when both in-memory counters reset to zero.
+    /// that merges the persisted terminal-input timestamp against
+    /// `lifecycleUpdatedAt` (the hook store field that advances only on definitive
+    /// `.idle`/`.running`/`.needsInput` events, never on `.unknown` SessionStart):
+    /// `max(durableTerminalInputAt, inMemoryInputAt) >
+    /// max(lifecycleUpdatedAt, inMemoryLifecycleChangeAt)`. Using `updatedAt`
+    /// instead of `lifecycleUpdatedAt` is incorrect: `updatedAt` advances on every
+    /// upsert including `.unknown` SessionStart, which can push the baseline past
+    /// a terminal-input timestamp and silently clear the mid-turn guard.
     static func effective(
         agentLifecycle: AgentHibernationLifecycleState?,
         lastNotificationStatus: String?

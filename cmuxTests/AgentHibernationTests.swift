@@ -288,7 +288,7 @@ final class AgentHibernationTests: XCTestCase {
     /// `agentHibernationRecords` to compute `hasUnconfirmedTerminalInput` after
     /// an app restart. In-memory `terminalInputByPanel` and `lifecycleChangeByPanel`
     /// both reset to zero on restart; the computation must fall back to
-    /// `durableTerminalInputAt` and `indexActivity` so a mid-turn agent is not
+    /// `durableTerminalInputAt` and `lifecycleUpdatedAt` so a mid-turn agent is not
     /// incorrectly hibernated based on its stale idle lifecycle.
     func testDurableTerminalInputBlocksHibernationAfterRestart() {
         let idleAt: TimeInterval = 1_000.0         // idle notification fired before restart
@@ -299,12 +299,12 @@ final class AgentHibernationTests: XCTestCase {
         let inMemoryLifecycleChangeAt: TimeInterval = 0
 
         // Durable values loaded from disk survive the restart.
-        let durableTerminalInputAt: TimeInterval = inputAt   // from agent-panel-input-times.json
-        let indexActivity: TimeInterval = idleAt             // from hook store updatedAt
+        let durableTerminalInputAt: TimeInterval = inputAt  // from agent-panel-input-times.json
+        let lifecycleUpdatedAt: TimeInterval = idleAt       // from hook store lifecycleUpdatedAt
 
-        // The computation introduced by the fix:
+        // The computation used in agentHibernationRecords:
         let effectiveTerminalInputAt = max(inMemoryTerminalInputAt, durableTerminalInputAt)
-        let effectiveLifecycleChangeAt = max(inMemoryLifecycleChangeAt, indexActivity)
+        let effectiveLifecycleChangeAt = max(inMemoryLifecycleChangeAt, lifecycleUpdatedAt)
         let hasUnconfirmedInput = effectiveTerminalInputAt > effectiveLifecycleChangeAt
 
         XCTAssertTrue(
@@ -319,6 +319,47 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertFalse(
             staleHasUnconfirmedInput,
             "Input that predated the idle notification must not block hibernation"
+        )
+    }
+
+    /// Verifies that a SessionStart upsert after the user typed (but before restart) does
+    /// NOT clear the mid-turn input guard. Previously the fix used `updatedAt` as the
+    /// durable lifecycle-change baseline; `updatedAt` advances on every upsert including
+    /// `.unknown` SessionStart, so a SessionStart at T2 > T1 (input) would make
+    /// `terminalInputAt > T2` false and incorrectly allow hibernation mid-turn.
+    func testSessionStartDoesNotClearMidTurnInputGuard() {
+        let idleAt: TimeInterval = 1_000.0       // last definitive lifecycle update
+        let inputAt: TimeInterval = 1_100.0      // user typed AFTER idle
+        let sessionStartAt: TimeInterval = 1_200.0 // agent SessionStart (.unknown) upsert
+
+        // lifecycleUpdatedAt stays at idleAt — the SessionStart did NOT advance it
+        // because incoming was .unknown (preservingDefinitive kept .idle in the record).
+        let lifecycleUpdatedAt: TimeInterval = idleAt
+
+        // updatedAt (incorrectly used in the old fix) WOULD be sessionStartAt,
+        // which is after inputAt and would clear the guard.
+        let updatedAt: TimeInterval = sessionStartAt
+
+        let inMemoryTerminalInputAt: TimeInterval = 0
+        let inMemoryLifecycleChangeAt: TimeInterval = 0
+        let durableTerminalInputAt: TimeInterval = inputAt
+
+        let effectiveTerminalInputAt = max(inMemoryTerminalInputAt, durableTerminalInputAt)
+
+        // Old (broken): using updatedAt → guard cleared
+        let oldDurableLifecycleChangeAt = max(inMemoryLifecycleChangeAt, updatedAt)
+        let oldHasUnconfirmedInput = effectiveTerminalInputAt > oldDurableLifecycleChangeAt
+        XCTAssertFalse(
+            oldHasUnconfirmedInput,
+            "This is the bug the fix addresses: the old approach using updatedAt clears the guard"
+        )
+
+        // New (correct): using lifecycleUpdatedAt → guard preserved
+        let newDurableLifecycleChangeAt = max(inMemoryLifecycleChangeAt, lifecycleUpdatedAt)
+        let newHasUnconfirmedInput = effectiveTerminalInputAt > newDurableLifecycleChangeAt
+        XCTAssertTrue(
+            newHasUnconfirmedInput,
+            "A SessionStart .unknown upsert must not clear the mid-turn input guard"
         )
     }
 

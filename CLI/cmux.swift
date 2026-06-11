@@ -445,6 +445,9 @@ private struct ClaudeHookSessionRecord: Codable {
     var terminalPromptTurnIds: [String]?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
+    // Only advances when agentLifecycle is set to a definitive value (.idle/.running/.needsInput).
+    // Unlike updatedAt, does NOT advance on .unknown SessionStart upserts.
+    var lifecycleUpdatedAt: TimeInterval?
 }
 
 private struct ClaudeHookActiveSessionRecord: Codable {
@@ -1069,6 +1072,13 @@ private final class ClaudeHookSessionStore {
                 existing: record.agentLifecycle,
                 incoming: agentLifecycle
             )
+            // Only advance lifecycleUpdatedAt for definitive updates. An .unknown
+            // SessionStart must not push this timestamp past a terminal-input
+            // timestamp recorded after the last idle notification (which would
+            // incorrectly clear the mid-turn input guard after a restart).
+            if agentLifecycle != .unknown {
+                record.lifecycleUpdatedAt = now
+            }
         }
         if let subtitle = normalizeOptional(lastSubtitle) {
             record.lastSubtitle = subtitle
