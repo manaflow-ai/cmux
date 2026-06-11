@@ -79,6 +79,22 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testPreventSystemSleepCommandTogglesSetting() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.preventSystemSleep"
+                )
+            )
+
+            XCTAssertFalse(descriptor.isOn(defaults))
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(defaults.object(forKey: MacSleepPreventionSettings.preventSystemSleepKey) as? Bool, true)
+            XCTAssertTrue(descriptor.isOn(defaults))
+        }
+    }
+
     func testInterceptTerminalOpenCommandReadsRawSettingWhenBrowserIsDisabled() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(

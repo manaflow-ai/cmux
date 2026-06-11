@@ -26,6 +26,12 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "menuBarOnly"
     )
 
+    public let preventSystemSleep = DefaultsKey<Bool>(
+        id: "app.preventSystemSleep",
+        defaultValue: false,
+        userDefaultsKey: "preventSystemSleep"
+    )
+
     public let newWorkspacePlacement = DefaultsKey<WorkspacePlacement>(
         id: "app.newWorkspacePlacement",
         defaultValue: .afterCurrent,

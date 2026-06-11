@@ -7133,7 +7133,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
-        contributions.append(contentsOf: Self.commandPaletteSettingsToggleCommandContributions())
+        contributions.append(contentsOf: Self.commandPaletteSleepPreventionAndSettingsCommandContributions())
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -8189,7 +8189,7 @@ struct ContentView: View {
         registry.register(commandId: "palette.enableBrowser") {
             BrowserAvailabilitySettings.setDisabled(false)
         }
-        registerSettingsToggleCommandHandlers(&registry)
+        registerSleepPreventionAndSettingsCommandHandlers(&registry)
 
         registry.register(commandId: "palette.renameWorkspace") {
             beginRenameWorkspaceFlow()

@@ -8527,6 +8527,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func syncApplicationPresentationPreferences(defaults: UserDefaults = .standard) {
         syncActivationPolicy(defaults: defaults)
         syncMenuBarExtraVisibility(defaults: defaults)
+        syncMacSleepPrevention()
     }
 
     private func installMobileHostSettingsObserver() {
@@ -8566,6 +8567,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if previousShouldInstall == true || hadPersistentController {
             removeTransientGlobalSearchMenuBarExtraController()
         }
+    }
+
+    private func syncMacSleepPrevention() {
+        MacSleepPreventionController.shared.syncToSettings()
     }
 
     @MainActor

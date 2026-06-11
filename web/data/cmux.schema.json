@@ -271,6 +271,12 @@
           "default": false,
           "description": "Hide the Dock icon and app switcher entry while keeping cmux available from the menu bar."
         },
+        "preventSystemSleep": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.app.preventSystemSleep",
+          "description": "When true, cmux uses a macOS IOKit NoIdleSleep power assertion to keep the Mac awake while cmux is running. This does not use caffeinate. The display can still sleep."
+        },
         "newWorkspacePlacement": {
           "type": "string",
           "enum": ["top", "afterCurrent", "end"],
