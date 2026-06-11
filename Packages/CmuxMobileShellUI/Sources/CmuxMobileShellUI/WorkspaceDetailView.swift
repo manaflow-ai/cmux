@@ -93,7 +93,17 @@ struct WorkspaceDetailView: View {
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
+                    // While the composer is presented the terminal input proxy
+                    // must not grab first responder on attach. This covers both
+                    // composer states: mid-compose (the field owns the keyboard
+                    // and a surface re-create from switching terminals must not
+                    // steal it back) and the default-open presentation (the field
+                    // is visible but unfocused — iMessage semantics — so the
+                    // keyboard stays DOWN until the user taps the terminal or the
+                    // field).
                     autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
+                        && !store.isComposerPresented,
+                    isComposerActive: store.isComposerPresented
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -127,7 +137,29 @@ struct WorkspaceDetailView: View {
                 .padding(.top, 10)
                 .padding(.leading, 10)
         }
+        #if os(iOS) && DEBUG
+        // Store-side composer seam (DEBUG/UI-test only): exposes the source-of-truth
+        // store flags that drive the surface's composer mirror, so a UI test can assert
+        // the store and surface agree across repeated open/close cycles and that the
+        // draft (`terminalInputText`) survives. Zero-size + read live on every query;
+        // never compiled into a shipping build. Pairs with `MobileComposerDockProbe`
+        // on the surface side.
+        .overlay {
+            ComposerStoreProbe(
+                isComposerPresented: store.isComposerPresented,
+                composerFocusRequest: store.composerFocusRequest,
+                draftLength: store.terminalInputText.count
+            )
+        }
+        #endif
         #if os(iOS)
+        // The whole bottom dock (terminal grid / composer band / accessory toolbar /
+        // keyboard) is owned by `GhosttySurfaceView` in one coordinate system. The
+        // iMessage composer is mounted INTO the surface's composer band by
+        // `GhosttySurfaceRepresentable` (a `UIHostingController`), not added here as a
+        // `safeAreaInset`. There is no second layout system reaching into the
+        // surface's bottom, so the accessory toolbar can never be reparented out (its
+        // buttons can never disappear) and a composer-grow pushes only the terminal up.
         .mobileTerminalSafeAreaExpansion(
             context: safeAreaContext,
             includesBottom: true
