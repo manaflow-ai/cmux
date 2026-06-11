@@ -125,6 +125,24 @@ struct JSONConfigStoreTests {
         try Data(#"{"app":{"devWindowDisplay":"LG HDR 4K"}}"#.utf8).write(to: fileURL)
         #expect(store.snapshotValue(for: key) == "LG HDR 4K")
     }
+
+    @Test func devWindowDisplayCatalogKeyRoundTripsToSharedPath() async throws {
+        let (store, fileURL, catalog) = makeStore()
+        try await store.set("LG HDR 4K", for: catalog.app.devWindowDisplay)
+
+        // Async and sync reads agree on the catalog key.
+        #expect(await store.value(for: catalog.app.devWindowDisplay) == "LG HDR 4K")
+        #expect(store.snapshotValue(for: catalog.app.devWindowDisplay) == "LG HDR 4K")
+
+        // It lands at app.devWindowDisplay in cmux.json — the shared on-disk
+        // shape the CLI, the app's window hook, and the Debug menu all read.
+        let parsed = try JSONSerialization.jsonObject(with: Data(contentsOf: fileURL)) as? [String: Any]
+        let app = parsed?["app"] as? [String: Any]
+        #expect(app?["devWindowDisplay"] as? String == "LG HDR 4K")
+
+        try await store.reset(catalog.app.devWindowDisplay)
+        #expect(store.snapshotValue(for: catalog.app.devWindowDisplay) == "")
+    }
 }
 
 private func withTimeout<T: Sendable>(seconds: Double, _ work: @escaping @Sendable () async -> T) async -> T {

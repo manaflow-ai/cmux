@@ -178,5 +178,18 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "systemWideHotkey.enabled"
     )
 
+    /// Shared, cross-tag default display that DEBUG cmux builds open new
+    /// windows on, identified by the display's `localizedName` (e.g.
+    /// `"LG HDR 4K"`). Empty means the system default placement.
+    ///
+    /// JSON-backed (`JSONKey`) on purpose: `cmux.json` lives at a fixed path
+    /// shared by every bundle id, so one value is honored by every tagged dev
+    /// build and every launch path. `UserDefaults` is per-bundle and would not
+    /// be shared. Release builds never read it.
+    public let devWindowDisplay = JSONKey<String>(
+        id: "app.devWindowDisplay",
+        defaultValue: ""
+    )
+
     public init() {}
 }
