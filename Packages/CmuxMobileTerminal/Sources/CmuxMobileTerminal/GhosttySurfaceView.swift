@@ -969,14 +969,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // Round 8: the keyboard-toggle button only raises/lowers the keyboard. The
             // toolbar stays visible either way, and an open composer survives a
             // keyboard-down (its draft lives in the store; the field just loses focus).
-            // While composing, the composer's hosted field — not `inputProxy` — holds
-            // first responder, so resign through the container to drop the keyboard;
-            // otherwise toggle the terminal input proxy.
+            // Resign whichever responder actually owns the keyboard: with the composer
+            // open by default the band can be presented (`composerActive == true`)
+            // while the terminal's hidden input proxy holds first responder (a
+            // terminal tap focuses the proxy without closing the band), and the proxy
+            // is a sibling of `composerContainer`, so `endEditing` on the container
+            // alone would resign nothing and the keyboard would stay up.
             if self.keyboardHeight > 0 {
-                if self.composerActive {
-                    self.composerContainer.endEditing(true)
-                } else {
+                if self.inputProxy.isFirstResponder {
                     self.resignInput()
+                } else {
+                    self.composerContainer.endEditing(true)
                 }
             } else {
                 self.focusInput()
@@ -1387,11 +1390,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         chromeHidden = hidden
         if hidden, keyboardHeight > 0 {
             // Drop the keyboard first; its hide notification re-seats the dock, then
-            // the visibility update below removes the toolbar/composer.
-            if composerActive {
-                composerContainer.endEditing(true)
-            } else {
+            // the visibility update below removes the toolbar/composer. Resign
+            // whichever responder actually owns the keyboard — the band can be
+            // presented while the terminal's hidden input proxy (a sibling of
+            // `composerContainer`) holds first responder, so gating on
+            // `composerActive` alone would leave the keyboard up while the chrome
+            // hides.
+            if inputProxy.isFirstResponder {
                 resignInput()
+            } else {
+                composerContainer.endEditing(true)
             }
         }
         updateDockedToolbarVisibility()
