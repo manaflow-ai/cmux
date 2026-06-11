@@ -345,16 +345,21 @@ public final class HostBrowserSignInFlow {
             try await coordinator.completeExternalSignIn()
         } catch {
             log.log("auth.callback completion failed: \(error)")
-            if signOutGeneration != generation {
-                // A sign-out raced the validation round trip and the
-                // coordinator dropped the publish (its session-generation
-                // guard surfaces cancellation); drop the seeded tokens too so
-                // the dead callback credentials don't linger in the store.
-                await tokenStore.clearTokensIfCurrent(
-                    accessToken: payload.accessToken,
-                    refreshToken: payload.refreshToken
-                )
-            }
+            // No flow-side seed clear here, deliberately. When a sign-out
+            // raced the validation round trip, the seeds were already in the
+            // store when the coordinator's local-first clear ran (they are
+            // seeded before `completeExternalSignIn`), so the coordinator's
+            // clear owns wiping them. Clearing here instead RACES that
+            // sign-out: the flow bumps `signOutGeneration` before the
+            // coordinator captures the teardown credentials with raw store
+            // reads, so a clear from this catch can empty the store inside
+            // the capture window and silently strip the best-effort server
+            // teardown (push unregister, session revocation) of its
+            // credentials. A coordinator-level cancellation without a
+            // sign-out (a concurrent publish) must not clear either: in
+            // production the published session is typically authenticated by
+            // these very tokens (same shared store), and clearing them would
+            // strand it.
             return false
         }
         log.log("auth.callback.coordinator.complete.end attempt=\(attemptID.map(String.init) ?? "external") signedIn=\(coordinator.isAuthenticated)")
