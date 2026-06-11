@@ -3,24 +3,26 @@ import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import SwiftUI
 
-/// Owns the render-worker client for a mounted custom sidebar.
+/// Mounts a custom sidebar against a window-owned render-worker client.
 ///
-/// The client (and therefore the worker process) exists only while a custom
-/// sidebar is actually selected: creating it eagerly in the sidebar host
-/// meant every sidebar render in every window evaluated the client
-/// initializer, and the re-land bisect implicated that wiring in host-wide
-/// test interference. The worker still spawns lazily on the first scene and
-/// is terminated by the surface's window-close reaper.
+/// The client is owned by the window's root view and passed in as a binding,
+/// not held here: this branch unmounts whenever the sidebar hides or the
+/// provider switches, and client-per-mount meant every reopen paid a worker
+/// spawn + first render (~1s of blank). With window ownership the worker
+/// stays warm across toggles and a remount adopts the cached remote context
+/// synchronously. The client is still created lazily on the first mount
+/// (never eagerly in the window view: the re-land bisect implicated eager
+/// per-init allocation in host-wide test interference), is shut down by the
+/// surface's window-close reaper, and the worker also exits on pipe EOF if
+/// the owning window deallocates while the sidebar is hidden.
 public struct RemoteCustomSidebarHost: View {
     private let fileURL: URL
     private let dataContext: [String: SwiftValue]
     private let dispatch: SidebarActionDispatch
     private let contentInsets: CustomSidebarContentInsets
 
-    /// Created once on mount (never in the initializer: this view sits
-    /// inside a per-second TimelineView, and a function-call `@State`
-    /// default would evaluate — allocating a client — on every re-init).
-    @State private var client: RenderWorkerClient?
+    @Binding private var client: RenderWorkerClient?
+    private var sourceKey: String { fileURL.standardizedFileURL.path }
 
     /// Creates the host.
     ///
@@ -30,21 +32,26 @@ public struct RemoteCustomSidebarHost: View {
     ///   - dataContext: Live, read-only values the worker's interpreter binds.
     ///   - dispatch: Runs button/tap actions against the host command surface.
     ///   - contentInsets: Top/bottom scroll insets for the host chrome.
+    ///   - client: Window-owned worker client storage; created lazily on the
+    ///     first mount and reused across sidebar toggles and provider
+    ///     switches within that window.
     public init(
         fileURL: URL,
         dataContext: [String: SwiftValue],
         dispatch: SidebarActionDispatch,
-        contentInsets: CustomSidebarContentInsets = .zero
+        contentInsets: CustomSidebarContentInsets = .zero,
+        client: Binding<RenderWorkerClient?>
     ) {
         self.fileURL = fileURL
         self.dataContext = dataContext
         self.dispatch = dispatch
         self.contentInsets = contentInsets
+        self._client = client
     }
 
     public var body: some View {
         Group {
-            if let client {
+            if let client, client.sourceKey == sourceKey {
                 RemoteCustomSidebarView(
                     fileURL: fileURL,
                     dataContext: dataContext,
@@ -56,18 +63,12 @@ public struct RemoteCustomSidebarHost: View {
                 Color.clear
             }
         }
-        .task {
-            if client == nil {
-                client = RenderWorkerClient.reexecingCurrentBinary()
-            }
-        }
-        .onDisappear {
-            // The branch unmounted (provider switch or sidebar hidden); the
-            // discarded @State client would orphan its worker until window
-            // close, so reap it here. Re-entering custom sidebars respawns
-            // within a scene tick.
-            if let client {
-                Task { await client.shutdown() }
+        .task(id: sourceKey) {
+            guard client?.sourceKey != sourceKey else { return }
+            let previous = client
+            client = RenderWorkerClient.reexecingCurrentBinary(sourceKey: sourceKey)
+            if let previous {
+                await previous.shutdown()
             }
         }
     }
